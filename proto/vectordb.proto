@@ -1,0 +1,143 @@
+syntax = "proto3";
+
+package gvdb.proto;
+
+option go_package = "gvdb/integration-tests/pb";
+
+// ============================================================================
+// Core Data Types
+// ============================================================================
+
+message Vector {
+  repeated float values = 1;
+  uint32 dimension = 2;
+}
+
+message VectorWithId {
+  uint64 id = 1;
+  Vector vector = 2;
+}
+
+message SearchResultEntry {
+  uint64 id = 1;
+  float distance = 2;
+}
+
+// ============================================================================
+// Collection Management
+// ============================================================================
+
+message CreateCollectionRequest {
+  string collection_name = 1;
+  uint32 dimension = 2;
+
+  enum MetricType {
+    L2 = 0;
+    INNER_PRODUCT = 1;
+    COSINE = 2;
+  }
+  MetricType metric = 3;
+
+  enum IndexType {
+    FLAT = 0;
+    HNSW = 1;
+    IVF_FLAT = 2;
+  }
+  IndexType index_type = 4;
+}
+
+message CreateCollectionResponse {
+  uint32 collection_id = 1;
+  string message = 2;
+}
+
+message DropCollectionRequest {
+  string collection_name = 1;
+}
+
+message DropCollectionResponse {
+  string message = 1;
+}
+
+message ListCollectionsRequest {}
+
+message CollectionInfo {
+  uint32 collection_id = 1;
+  string collection_name = 2;
+  uint32 dimension = 3;
+  string metric_type = 4;
+  uint64 vector_count = 5;
+}
+
+message ListCollectionsResponse {
+  repeated CollectionInfo collections = 1;
+}
+
+// ============================================================================
+// Vector Operations
+// ============================================================================
+
+message InsertRequest {
+  string collection_name = 1;
+  repeated VectorWithId vectors = 2;
+}
+
+message InsertResponse {
+  uint64 inserted_count = 1;
+  string message = 2;
+}
+
+message SearchRequest {
+  string collection_name = 1;
+  Vector query_vector = 2;
+  uint32 top_k = 3;
+}
+
+message SearchResponse {
+  repeated SearchResultEntry results = 1;
+  float query_time_ms = 2;
+}
+
+// ============================================================================
+// Health and Status
+// ============================================================================
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  enum Status {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+  }
+  Status status = 1;
+  string message = 2;
+}
+
+message GetStatsRequest {}
+
+message GetStatsResponse {
+  uint64 total_vectors = 1;
+  uint64 total_collections = 2;
+  uint64 total_queries = 3;
+  float avg_query_time_ms = 4;
+}
+
+// ============================================================================
+// VectorDB Service
+// ============================================================================
+
+service VectorDBService {
+  // Collection management
+  rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse);
+  rpc DropCollection(DropCollectionRequest) returns (DropCollectionResponse);
+  rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse);
+
+  // Vector operations
+  rpc Insert(InsertRequest) returns (InsertResponse);
+  rpc Search(SearchRequest) returns (SearchResponse);
+
+  // Health and stats
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+}
