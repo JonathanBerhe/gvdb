@@ -2,6 +2,7 @@
 #include "network/proto_conversions.h"
 #include "utils/logger.h"
 #include "utils/timer.h"
+#include "utils/metrics.h"
 #include <shared_mutex>
 #include <unordered_map>
 
@@ -174,6 +175,10 @@ grpc::Status VectorDBService::CreateCollection(
   response->set_collection_id(core::ToUInt32(collection_id));
   response->set_message("Collection created successfully");
 
+  // Update collection count gauge
+  utils::MetricsRegistry::Instance().SetCollectionCount(
+      collection_registry_->Count());
+
   return grpc::Status::OK;
 }
 
@@ -201,6 +206,10 @@ grpc::Status VectorDBService::DropCollection(
   if (!status.ok()) {
     return toGrpcStatus(status);
   }
+
+  // Update collection count gauge
+  utils::MetricsRegistry::Instance().SetCollectionCount(
+      collection_registry_->Count());
 
   response->set_message("Collection dropped successfully");
   return grpc::Status::OK;
@@ -244,6 +253,15 @@ grpc::Status VectorDBService::Insert(
   utils::Logger::Instance().Info("Insert: {} vectors into {}",
                                  request->vectors().size(),
                                  request->collection_name());
+
+  // Record batch size metrics
+  utils::MetricsRegistry::Instance().RecordBatchSize(request->vectors().size());
+
+  // Start latency timer (RAII - records on destruction)
+  utils::MetricsTimer timer(
+      utils::MetricsRegistry::Instance(),
+      utils::MetricsTimer::OperationType::INSERT,
+      request->collection_name());
 
   // Business logic limits to prevent abuse
   constexpr size_t MAX_BATCH_SIZE = 50000;  // Max vectors per request
@@ -299,7 +317,21 @@ grpc::Status VectorDBService::Insert(
   // Write to segment
   auto status = segment_manager_->WriteVectors(metadata_result->segment_id, vectors, ids);
   if (!status.ok()) {
+    // Record failed insert
+    utils::MetricsRegistry::Instance().RecordInsert(
+        request->collection_name(), false, 0);
     return toGrpcStatus(status);
+  }
+
+  // Record successful insert
+  utils::MetricsRegistry::Instance().RecordInsert(
+      request->collection_name(), true, vectors.size());
+
+  // Update vector count gauge
+  auto* segment = segment_manager_->GetSegment(metadata_result->segment_id);
+  if (segment) {
+    utils::MetricsRegistry::Instance().SetVectorCount(
+        request->collection_name(), segment->GetVectorCount());
   }
 
   response->set_inserted_count(vectors.size());
@@ -315,15 +347,27 @@ grpc::Status VectorDBService::Search(
 
   utils::Timer timer;
 
+  // Start metrics timer (RAII - records on destruction)
+  utils::MetricsTimer metrics_timer(
+      utils::MetricsRegistry::Instance(),
+      utils::MetricsTimer::OperationType::SEARCH,
+      request->collection_name());
+
   // Get collection ID
   auto collection_id_result = collection_registry_->GetCollectionId(request->collection_name());
   if (!collection_id_result.ok()) {
+    // Record failed search
+    utils::MetricsRegistry::Instance().RecordSearch(
+        request->collection_name(), false);
     return toGrpcStatus(collection_id_result.status());
   }
 
   // Convert query vector
   auto query_result = fromProto(request->query_vector());
   if (!query_result.ok()) {
+    // Record failed search
+    utils::MetricsRegistry::Instance().RecordSearch(
+        request->collection_name(), false);
     return toGrpcStatus(query_result.status());
   }
 
@@ -334,8 +378,15 @@ grpc::Status VectorDBService::Search(
       request->top_k());
 
   if (!search_result.ok()) {
+    // Record failed search
+    utils::MetricsRegistry::Instance().RecordSearch(
+        request->collection_name(), false);
     return toGrpcStatus(search_result.status());
   }
+
+  // Record successful search
+  utils::MetricsRegistry::Instance().RecordSearch(
+      request->collection_name(), true);
 
   // Convert results to proto
   for (const auto& entry : search_result->entries) {

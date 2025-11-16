@@ -4,6 +4,8 @@
 add_library(gvdb_utils
   logger.cpp
   thread_pool.cpp
+  metrics.cpp
+  config.cpp
 )
 
 # Link dependencies
@@ -11,9 +13,10 @@ target_link_libraries(gvdb_utils
   PUBLIC
     gvdb_core
     spdlog::spdlog
+    prometheus-cpp::core
+    prometheus-cpp::pull
   PRIVATE
     yaml-cpp
-    prometheus-cpp::core
 )
 
 # Include directories

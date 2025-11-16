@@ -1,0 +1,325 @@
+{
+  "dashboard": {
+    "title": "GVDB Performance Overview",
+    "tags": ["gvdb", "vector-database", "performance"],
+    "timezone": "browser",
+    "editable": true,
+    "graphTooltip": 1,
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+        "type": "row",
+        "title": "Request Rates"
+      },
+      {
+        "id": 2,
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 1},
+        "type": "graph",
+        "title": "Insert Rate",
+        "targets": [
+          {
+            "expr": "rate(gvdb_insert_requests_total[1m])",
+            "legendFormat": "{{collection}} - {{status}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "reqps", "label": "Requests/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 3,
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 1},
+        "type": "graph",
+        "title": "Search Rate",
+        "targets": [
+          {
+            "expr": "rate(gvdb_search_requests_total[1m])",
+            "legendFormat": "{{collection}} - {{status}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "reqps", "label": "Requests/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 4,
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 1},
+        "type": "stat",
+        "title": "Total QPS",
+        "targets": [
+          {
+            "expr": "sum(rate(gvdb_insert_requests_total[1m])) + sum(rate(gvdb_search_requests_total[1m]))",
+            "legendFormat": "Total QPS"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "orientation": "auto",
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 100, "color": "yellow"},
+                {"value": 1000, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "gridPos": {"h": 1, "w": 24, "x": 0, "y": 9},
+        "type": "row",
+        "title": "Latency"
+      },
+      {
+        "id": 6,
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 10},
+        "type": "graph",
+        "title": "Insert Latency (Percentiles)",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(gvdb_insert_duration_seconds_bucket[5m])) by (le, collection))",
+            "legendFormat": "{{collection}} - p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(gvdb_insert_duration_seconds_bucket[5m])) by (le, collection))",
+            "legendFormat": "{{collection}} - p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(gvdb_insert_duration_seconds_bucket[5m])) by (le, collection))",
+            "legendFormat": "{{collection}} - p99"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Latency"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 7,
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 10},
+        "type": "graph",
+        "title": "Search Latency (Percentiles)",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(gvdb_search_duration_seconds_bucket[5m])) by (le, collection))",
+            "legendFormat": "{{collection}} - p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(gvdb_search_duration_seconds_bucket[5m])) by (le, collection))",
+            "legendFormat": "{{collection}} - p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(gvdb_search_duration_seconds_bucket[5m])) by (le, collection))",
+            "legendFormat": "{{collection}} - p99"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Latency"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 8,
+        "gridPos": {"h": 1, "w": 24, "x": 0, "y": 18},
+        "type": "row",
+        "title": "Success & Errors"
+      },
+      {
+        "id": 9,
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 19},
+        "type": "stat",
+        "title": "Insert Success Rate",
+        "targets": [
+          {
+            "expr": "sum(rate(gvdb_insert_requests_total{status=\"success\"}[5m])) / sum(rate(gvdb_insert_requests_total[5m])) * 100"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "orientation": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 2,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 95, "color": "yellow"},
+                {"value": 99, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 19},
+        "type": "stat",
+        "title": "Search Success Rate",
+        "targets": [
+          {
+            "expr": "sum(rate(gvdb_search_requests_total{status=\"success\"}[5m])) / sum(rate(gvdb_search_requests_total[5m])) * 100"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "orientation": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 2,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 95, "color": "yellow"},
+                {"value": 99, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 11,
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 19},
+        "type": "graph",
+        "title": "Error Rate",
+        "targets": [
+          {
+            "expr": "sum(rate(gvdb_insert_requests_total{status=\"error\"}[1m])) by (collection)",
+            "legendFormat": "Insert - {{collection}}"
+          },
+          {
+            "expr": "sum(rate(gvdb_search_requests_total{status=\"error\"}[1m])) by (collection)",
+            "legendFormat": "Search - {{collection}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "reqps", "label": "Errors/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 12,
+        "gridPos": {"h": 1, "w": 24, "x": 0, "y": 27},
+        "type": "row",
+        "title": "Data Volume"
+      },
+      {
+        "id": 13,
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 28},
+        "type": "stat",
+        "title": "Total Vectors",
+        "targets": [
+          {
+            "expr": "sum(gvdb_vector_count)"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "orientation": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {"mode": "palette-classic"}
+          }
+        }
+      },
+      {
+        "id": 14,
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 28},
+        "type": "stat",
+        "title": "Collections",
+        "targets": [
+          {
+            "expr": "gvdb_collection_count"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "orientation": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {"mode": "palette-classic"}
+          }
+        }
+      },
+      {
+        "id": 15,
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+        "type": "graph",
+        "title": "Vectors by Collection",
+        "targets": [
+          {
+            "expr": "gvdb_vector_count",
+            "legendFormat": "{{collection}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Vectors"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 16,
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
+        "type": "graph",
+        "title": "Insert Batch Size Distribution",
+        "targets": [
+          {
+            "expr": "rate(gvdb_insert_batch_size_sum[5m]) / rate(gvdb_insert_batch_size_count[5m])",
+            "legendFormat": "Avg Batch Size"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Vectors/Batch"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 17,
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36},
+        "type": "graph",
+        "title": "Vectors Inserted Over Time",
+        "targets": [
+          {
+            "expr": "sum(rate(gvdb_insert_vectors_total[5m])) by (collection)",
+            "legendFormat": "{{collection}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "reqps", "label": "Vectors/sec"},
+          {"format": "short"}
+        ]
+      }
+    ]
+  },
+  "overwrite": true
+}

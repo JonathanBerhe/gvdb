@@ -1,0 +1,44 @@
+# GVDB Configuration File
+# This is an example configuration file showing all available options with their defaults
+
+server:
+  bind_address: "0.0.0.0"
+  grpc_port: 50051
+  metrics_port: 9090
+  max_message_size_mb: 256
+  max_concurrent_streams: 1000
+
+storage:
+  data_dir: "/tmp/gvdb"
+  segment_max_size_mb: 512
+  wal_buffer_size_mb: 64
+  enable_compression: true
+  compaction_threads: 4
+
+index:
+  default_index_type: "HNSW"
+  hnsw_m: 16
+  hnsw_ef_construction: 200
+  hnsw_ef_search: 100
+  ivf_nlist: 100
+  use_gpu: false
+
+logging:
+  level: "info"  # trace, debug, info, warn, error
+  console_enabled: true
+  file_enabled: true
+  file_path: "/tmp/gvdb/logs/gvdb.log"
+  max_file_size_mb: 100
+  max_files: 10
+
+consensus:
+  node_id: 1
+  single_node_mode: true
+  election_timeout_ms: 5000
+  heartbeat_interval_ms: 1000
+  peers: []
+  # Example multi-node configuration:
+  # single_node_mode: false
+  # peers:
+  #   - "node2:50052"
+  #   - "node3:50053"
