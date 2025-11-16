@@ -17,6 +17,7 @@
 #include "network/vectordb_service.h"
 #include "index/index_factory.h"
 #include "utils/logger.h"
+#include "utils/metrics.h"
 
 #include <grpcpp/grpcpp.h>
 
@@ -92,6 +93,13 @@ int main(int argc, char** argv) {
   gvdb::utils::Logger::Instance().Info("  Port: {}", g_port);
   gvdb::utils::Logger::Instance().Info("  Data Directory: {}", g_data_dir);
 
+  // Start metrics server
+  if (!gvdb::utils::MetricsRegistry::Instance().StartMetricsServer(9090)) {
+    std::cerr << "Warning: Failed to start metrics server on :9090" << std::endl;
+  } else {
+    gvdb::utils::Logger::Instance().Info("Metrics server started on :9090/metrics");
+  }
+
   try {
     // 1. Create consensus node (single-node mode)
     gvdb::consensus::RaftConfig raft_config;
@@ -155,7 +163,8 @@ int main(int argc, char** argv) {
     std::cout << "\n========================================" << std::endl;
     std::cout << "GVDB All-in-One Server Started" << std::endl;
     std::cout << "========================================" << std::endl;
-    std::cout << "Listening on: " << server_address << std::endl;
+    std::cout << "gRPC Service: " << server_address << std::endl;
+    std::cout << "Metrics: http://0.0.0.0:9090/metrics" << std::endl;
     std::cout << "Node ID: " << g_node_id << std::endl;
     std::cout << "Data Directory: " << g_data_dir << std::endl;
     std::cout << "\nPress Ctrl+C to shutdown..." << std::endl;
@@ -174,6 +183,9 @@ int main(int argc, char** argv) {
 
     server->Shutdown();
     gvdb::utils::Logger::Instance().Info("gRPC server stopped");
+
+    gvdb::utils::MetricsRegistry::Instance().StopMetricsServer();
+    gvdb::utils::Logger::Instance().Info("Metrics server stopped");
 
     auto shutdown_status = raft_node->Shutdown();
     if (!shutdown_status.ok()) {

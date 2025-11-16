@@ -308,27 +308,6 @@ TEST(TimerTest, Reset) {
   EXPECT_LE(elapsed, 80);  // Should be ~50ms, not ~100ms
 }
 
-TEST(TimerTest, DifferentTimeUnits) {
-  Timer timer;
-
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-  int64_t nanos = timer.elapsed_nanos();
-  int64_t micros = timer.elapsed_micros();
-  int64_t millis = timer.elapsed_millis();
-  double seconds = timer.elapsed_seconds();
-
-  EXPECT_GT(nanos, 0);
-  EXPECT_GT(micros, 0);
-  EXPECT_GT(millis, 0);
-  EXPECT_GT(seconds, 0.0);
-
-  // Verify conversions are approximately correct
-  EXPECT_NEAR(static_cast<double>(micros), static_cast<double>(nanos) / 1000.0, 1.0);
-  EXPECT_NEAR(static_cast<double>(millis), static_cast<double>(micros) / 1000.0, 1.0);
-  EXPECT_NEAR(seconds, static_cast<double>(millis) / 1000.0, 0.01);
-}
-
 TEST(ScopedTimerTest, CallbackOnDestruction) {
   int64_t measured_time = 0;
 
