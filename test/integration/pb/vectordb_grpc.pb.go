@@ -24,6 +24,9 @@ const (
 	VectorDBService_ListCollections_FullMethodName  = "/gvdb.proto.VectorDBService/ListCollections"
 	VectorDBService_Insert_FullMethodName           = "/gvdb.proto.VectorDBService/Insert"
 	VectorDBService_Search_FullMethodName           = "/gvdb.proto.VectorDBService/Search"
+	VectorDBService_Get_FullMethodName              = "/gvdb.proto.VectorDBService/Get"
+	VectorDBService_Delete_FullMethodName           = "/gvdb.proto.VectorDBService/Delete"
+	VectorDBService_UpdateMetadata_FullMethodName   = "/gvdb.proto.VectorDBService/UpdateMetadata"
 	VectorDBService_HealthCheck_FullMethodName      = "/gvdb.proto.VectorDBService/HealthCheck"
 	VectorDBService_GetStats_FullMethodName         = "/gvdb.proto.VectorDBService/GetStats"
 )
@@ -39,6 +42,9 @@ type VectorDBServiceClient interface {
 	// Vector operations
 	Insert(ctx context.Context, in *InsertRequest, opts ...grpc.CallOption) (*InsertResponse, error)
 	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchResponse, error)
+	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
+	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
+	UpdateMetadata(ctx context.Context, in *UpdateMetadataRequest, opts ...grpc.CallOption) (*UpdateMetadataResponse, error)
 	// Health and stats
 	HealthCheck(ctx context.Context, in *HealthCheckRequest, opts ...grpc.CallOption) (*HealthCheckResponse, error)
 	GetStats(ctx context.Context, in *GetStatsRequest, opts ...grpc.CallOption) (*GetStatsResponse, error)
@@ -102,6 +108,36 @@ func (c *vectorDBServiceClient) Search(ctx context.Context, in *SearchRequest, o
 	return out, nil
 }
 
+func (c *vectorDBServiceClient) Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetResponse)
+	err := c.cc.Invoke(ctx, VectorDBService_Get_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorDBServiceClient) Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteResponse)
+	err := c.cc.Invoke(ctx, VectorDBService_Delete_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorDBServiceClient) UpdateMetadata(ctx context.Context, in *UpdateMetadataRequest, opts ...grpc.CallOption) (*UpdateMetadataResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateMetadataResponse)
+	err := c.cc.Invoke(ctx, VectorDBService_UpdateMetadata_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *vectorDBServiceClient) HealthCheck(ctx context.Context, in *HealthCheckRequest, opts ...grpc.CallOption) (*HealthCheckResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HealthCheckResponse)
@@ -133,6 +169,9 @@ type VectorDBServiceServer interface {
 	// Vector operations
 	Insert(context.Context, *InsertRequest) (*InsertResponse, error)
 	Search(context.Context, *SearchRequest) (*SearchResponse, error)
+	Get(context.Context, *GetRequest) (*GetResponse, error)
+	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
+	UpdateMetadata(context.Context, *UpdateMetadataRequest) (*UpdateMetadataResponse, error)
 	// Health and stats
 	HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error)
 	GetStats(context.Context, *GetStatsRequest) (*GetStatsResponse, error)
@@ -160,6 +199,15 @@ func (UnimplementedVectorDBServiceServer) Insert(context.Context, *InsertRequest
 }
 func (UnimplementedVectorDBServiceServer) Search(context.Context, *SearchRequest) (*SearchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Search not implemented")
+}
+func (UnimplementedVectorDBServiceServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedVectorDBServiceServer) Delete(context.Context, *DeleteRequest) (*DeleteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Delete not implemented")
+}
+func (UnimplementedVectorDBServiceServer) UpdateMetadata(context.Context, *UpdateMetadataRequest) (*UpdateMetadataResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateMetadata not implemented")
 }
 func (UnimplementedVectorDBServiceServer) HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method HealthCheck not implemented")
@@ -278,6 +326,60 @@ func _VectorDBService_Search_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _VectorDBService_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorDBServiceServer).Get(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VectorDBService_Get_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorDBServiceServer).Get(ctx, req.(*GetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VectorDBService_Delete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorDBServiceServer).Delete(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VectorDBService_Delete_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorDBServiceServer).Delete(ctx, req.(*DeleteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VectorDBService_UpdateMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateMetadataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorDBServiceServer).UpdateMetadata(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VectorDBService_UpdateMetadata_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorDBServiceServer).UpdateMetadata(ctx, req.(*UpdateMetadataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _VectorDBService_HealthCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(HealthCheckRequest)
 	if err := dec(in); err != nil {
@@ -340,6 +442,18 @@ var VectorDBService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Search",
 			Handler:    _VectorDBService_Search_Handler,
+		},
+		{
+			MethodName: "Get",
+			Handler:    _VectorDBService_Get_Handler,
+		},
+		{
+			MethodName: "Delete",
+			Handler:    _VectorDBService_Delete_Handler,
+		},
+		{
+			MethodName: "UpdateMetadata",
+			Handler:    _VectorDBService_UpdateMetadata_Handler,
 		},
 		{
 			MethodName: "HealthCheck",

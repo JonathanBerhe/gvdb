@@ -459,6 +459,194 @@ grpc::Status VectorDBService::Search(
   return grpc::Status::OK;
 }
 
+grpc::Status VectorDBService::Get(
+    grpc::ServerContext* context,
+    const proto::GetRequest* request,
+    proto::GetResponse* response) {
+
+  utils::Logger::Instance().Info("Get: {} IDs from {}",
+                                 request->ids().size(),
+                                 request->collection_name());
+
+  // Validate request
+  if (request->ids().empty()) {
+    return grpc::Status(
+        grpc::StatusCode::INVALID_ARGUMENT,
+        "IDs list cannot be empty");
+  }
+
+  // Limit batch size for safety
+  constexpr size_t MAX_GET_BATCH_SIZE = 10000;
+  if (request->ids().size() > MAX_GET_BATCH_SIZE) {
+    return grpc::Status(
+        grpc::StatusCode::INVALID_ARGUMENT,
+        absl::StrCat("Cannot get more than ", MAX_GET_BATCH_SIZE,
+                     " vectors in one request. Requested: ", request->ids().size()));
+  }
+
+  // Get collection metadata
+  auto metadata_result = collection_registry_->GetMetadata(request->collection_name());
+  if (!metadata_result.ok()) {
+    return toGrpcStatus(metadata_result.status());
+  }
+
+  auto* segment = segment_manager_->GetSegment(metadata_result->segment_id);
+  if (!segment) {
+    return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  }
+
+  // Convert proto IDs to VectorIds
+  std::vector<core::VectorId> ids;
+  ids.reserve(request->ids().size());
+  for (uint64_t id : request->ids()) {
+    ids.push_back(core::MakeVectorId(id));
+  }
+
+  // Get vectors from segment
+  auto result = segment->GetVectors(ids, request->return_metadata());
+
+  // Convert found vectors to proto
+  for (size_t i = 0; i < result.found_ids.size(); ++i) {
+    auto* proto_vec = response->add_vectors();
+    proto_vec->set_id(core::ToUInt64(result.found_ids[i]));
+
+    // Convert vector
+    toProto(result.found_vectors[i], proto_vec->mutable_vector());
+
+    // Add metadata if requested and available
+    if (request->return_metadata() && i < result.found_metadata.size()) {
+      toProto(result.found_metadata[i], proto_vec->mutable_metadata());
+    }
+  }
+
+  // Add not found IDs
+  for (const auto& id : result.not_found_ids) {
+    response->add_not_found_ids(core::ToUInt64(id));
+  }
+
+  return grpc::Status::OK;
+}
+
+grpc::Status VectorDBService::Delete(
+    grpc::ServerContext* context,
+    const proto::DeleteRequest* request,
+    proto::DeleteResponse* response) {
+
+  utils::Logger::Instance().Info("Delete: {} IDs from {}",
+                                 request->ids().size(),
+                                 request->collection_name());
+
+  // Validate request
+  if (request->ids().empty()) {
+    return grpc::Status(
+        grpc::StatusCode::INVALID_ARGUMENT,
+        "IDs list cannot be empty");
+  }
+
+  // Limit batch size for safety
+  constexpr size_t MAX_DELETE_BATCH_SIZE = 10000;
+  if (request->ids().size() > MAX_DELETE_BATCH_SIZE) {
+    return grpc::Status(
+        grpc::StatusCode::INVALID_ARGUMENT,
+        absl::StrCat("Cannot delete more than ", MAX_DELETE_BATCH_SIZE,
+                     " vectors in one request. Requested: ", request->ids().size()));
+  }
+
+  // Get collection metadata
+  auto metadata_result = collection_registry_->GetMetadata(request->collection_name());
+  if (!metadata_result.ok()) {
+    return toGrpcStatus(metadata_result.status());
+  }
+
+  auto* segment = segment_manager_->GetSegment(metadata_result->segment_id);
+  if (!segment) {
+    return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  }
+
+  // Convert proto IDs to VectorIds
+  std::vector<core::VectorId> ids;
+  ids.reserve(request->ids().size());
+  for (uint64_t id : request->ids()) {
+    ids.push_back(core::MakeVectorId(id));
+  }
+
+  // Delete vectors from segment
+  auto result = segment->DeleteVectors(ids);
+  if (!result.ok()) {
+    return toGrpcStatus(result.status());
+  }
+
+  // Build response
+  response->set_deleted_count(result->deleted_count);
+
+  for (const auto& id : result->not_found_ids) {
+    response->add_not_found_ids(core::ToUInt64(id));
+  }
+
+  response->set_message(absl::StrCat(
+      "Deleted ", result->deleted_count, " vector(s) from collection '",
+      request->collection_name(), "'"));
+
+  return grpc::Status::OK;
+}
+
+grpc::Status VectorDBService::UpdateMetadata(
+    grpc::ServerContext* context,
+    const proto::UpdateMetadataRequest* request,
+    proto::UpdateMetadataResponse* response) {
+
+  utils::Logger::Instance().Info("UpdateMetadata: ID {} in {}",
+                                 request->id(),
+                                 request->collection_name());
+
+  // Validate request
+  if (request->id() == 0) {
+    return grpc::Status(
+        grpc::StatusCode::INVALID_ARGUMENT,
+        "Vector ID cannot be 0");
+  }
+
+  if (request->metadata().fields().empty()) {
+    return grpc::Status(
+        grpc::StatusCode::INVALID_ARGUMENT,
+        "Metadata cannot be empty");
+  }
+
+  // Get collection metadata
+  auto collection_meta = collection_registry_->GetMetadata(request->collection_name());
+  if (!collection_meta.ok()) {
+    return toGrpcStatus(collection_meta.status());
+  }
+
+  auto* segment = segment_manager_->GetSegment(collection_meta->segment_id);
+  if (!segment) {
+    return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  }
+
+  // Convert proto metadata to core::Metadata
+  auto metadata_result = fromProto(request->metadata());
+  if (!metadata_result.ok()) {
+    return toGrpcStatus(metadata_result.status());
+  }
+
+  // Update metadata in segment
+  auto vector_id = core::MakeVectorId(request->id());
+  auto status = segment->UpdateMetadata(vector_id, *metadata_result, request->merge());
+
+  if (!status.ok()) {
+    response->set_updated(false);
+    response->set_message(std::string(status.message()));
+    return toGrpcStatus(status);
+  }
+
+  response->set_updated(true);
+  response->set_message(absl::StrCat(
+      "Updated metadata for vector ID ", request->id(),
+      " in collection '", request->collection_name(), "'"));
+
+  return grpc::Status::OK;
+}
+
 // ============================================================================
 // Health and Stats
 // ============================================================================

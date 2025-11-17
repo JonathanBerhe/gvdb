@@ -787,6 +787,421 @@ TEST_F(StorageTest, CompactNoSegments) {
   EXPECT_TRUE(compact_status.ok());
 }
 
+// =============================================================================
+// Get Vectors Tests
+// =============================================================================
+
+TEST_F(StorageTest, SegmentGetVectors) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert 10 vectors
+  auto vectors = CreateTestVectors(10);
+  auto ids = CreateTestVectorIds(10);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  // Get existing vectors
+  std::vector<core::VectorId> query_ids = {ids[0], ids[5], ids[9]};
+  auto result = segment.GetVectors(query_ids, false);
+
+  EXPECT_EQ(result.found_ids.size(), 3);
+  EXPECT_EQ(result.found_vectors.size(), 3);
+  EXPECT_EQ(result.not_found_ids.size(), 0);
+
+  // Verify vector content
+  EXPECT_EQ(result.found_ids[0], ids[0]);
+  EXPECT_EQ(result.found_vectors[0].dimension(), dimension_);
+}
+
+TEST_F(StorageTest, SegmentGetVectorsPartialMatch) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert 5 vectors
+  auto vectors = CreateTestVectors(5);
+  auto ids = CreateTestVectorIds(5);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  // Query mix of existing and non-existing IDs
+  std::vector<core::VectorId> query_ids = {
+      ids[0],                      // exists
+      core::MakeVectorId(999),     // doesn't exist
+      ids[2],                      // exists
+      core::MakeVectorId(888)      // doesn't exist
+  };
+
+  auto result = segment.GetVectors(query_ids, false);
+
+  EXPECT_EQ(result.found_ids.size(), 2);
+  EXPECT_EQ(result.found_vectors.size(), 2);
+  EXPECT_EQ(result.not_found_ids.size(), 2);
+
+  // Verify found IDs
+  EXPECT_EQ(result.found_ids[0], ids[0]);
+  EXPECT_EQ(result.found_ids[1], ids[2]);
+
+  // Verify not found IDs
+  EXPECT_EQ(result.not_found_ids[0], core::MakeVectorId(999));
+  EXPECT_EQ(result.not_found_ids[1], core::MakeVectorId(888));
+}
+
+TEST_F(StorageTest, SegmentGetVectorsWithMetadata) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert vectors with metadata
+  auto vectors = CreateTestVectors(5);
+  auto ids = CreateTestVectorIds(5);
+
+  std::vector<core::Metadata> metadata;
+  for (size_t i = 0; i < 5; ++i) {
+    core::Metadata meta = {
+        {"id", core::MetadataValue(static_cast<int64_t>(i))},
+        {"name", core::MetadataValue(std::string("vector_") + std::to_string(i))}
+    };
+    metadata.push_back(meta);
+  }
+
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  // Get vectors with metadata
+  std::vector<core::VectorId> query_ids = {ids[1], ids[3]};
+  auto result = segment.GetVectors(query_ids, true);
+
+  EXPECT_EQ(result.found_ids.size(), 2);
+  EXPECT_EQ(result.found_vectors.size(), 2);
+  EXPECT_EQ(result.found_metadata.size(), 2);
+  EXPECT_EQ(result.not_found_ids.size(), 0);
+
+  // Verify metadata
+  EXPECT_EQ(result.found_metadata[0].size(), 2);
+  EXPECT_EQ(std::get<std::string>(result.found_metadata[0].at("name")), "vector_1");
+  EXPECT_EQ(std::get<std::string>(result.found_metadata[1].at("name")), "vector_3");
+}
+
+TEST_F(StorageTest, SegmentGetVectorsAllNotFound) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert vectors
+  auto vectors = CreateTestVectors(5);
+  auto ids = CreateTestVectorIds(5);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  // Query only non-existing IDs
+  std::vector<core::VectorId> query_ids = {
+      core::MakeVectorId(999),
+      core::MakeVectorId(888),
+      core::MakeVectorId(777)
+  };
+
+  auto result = segment.GetVectors(query_ids, false);
+
+  EXPECT_EQ(result.found_ids.size(), 0);
+  EXPECT_EQ(result.found_vectors.size(), 0);
+  EXPECT_EQ(result.not_found_ids.size(), 3);
+}
+
+TEST_F(StorageTest, SegmentGetVectorsEmpty) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // No vectors inserted
+
+  // Query should return all as not found
+  std::vector<core::VectorId> query_ids = {
+      core::MakeVectorId(1),
+      core::MakeVectorId(2)
+  };
+
+  auto result = segment.GetVectors(query_ids, false);
+
+  EXPECT_EQ(result.found_ids.size(), 0);
+  EXPECT_EQ(result.found_vectors.size(), 0);
+  EXPECT_EQ(result.not_found_ids.size(), 2);
+}
+
+// ============================================================================
+// Delete Tests
+// ============================================================================
+
+TEST_F(StorageTest, SegmentDeleteVectors) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert 5 vectors
+  auto vectors = CreateTestVectors(5);
+  auto ids = CreateTestVectorIds(5);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  EXPECT_EQ(segment.GetVectorCount(), 5);
+
+  // Delete 3 vectors
+  std::vector<core::VectorId> delete_ids = {ids[0], ids[2], ids[4]};
+  auto result = segment.DeleteVectors(delete_ids);
+
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result->deleted_count, 3);
+  EXPECT_EQ(result->not_found_ids.size(), 0);
+  EXPECT_EQ(segment.GetVectorCount(), 2);
+
+  // Verify remaining vectors
+  auto read_result = segment.ReadVectors({ids[1], ids[3]});
+  ASSERT_TRUE(read_result.ok());
+  EXPECT_EQ(read_result->size(), 2);
+}
+
+TEST_F(StorageTest, SegmentDeleteVectorsPartialMatch) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert 3 vectors
+  auto vectors = CreateTestVectors(3);
+  auto ids = CreateTestVectorIds(3);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  // Try to delete mix of existing and non-existing IDs
+  std::vector<core::VectorId> delete_ids = {
+      ids[0],                      // exists
+      core::MakeVectorId(999),     // doesn't exist
+      ids[2],                      // exists
+      core::MakeVectorId(888)      // doesn't exist
+  };
+
+  auto result = segment.DeleteVectors(delete_ids);
+
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result->deleted_count, 2);
+  EXPECT_EQ(result->not_found_ids.size(), 2);
+  EXPECT_EQ(segment.GetVectorCount(), 1);
+
+  // Verify not found IDs
+  EXPECT_EQ(result->not_found_ids[0], core::MakeVectorId(999));
+  EXPECT_EQ(result->not_found_ids[1], core::MakeVectorId(888));
+
+  // Verify remaining vector
+  auto read_result = segment.ReadVectors({ids[1]});
+  ASSERT_TRUE(read_result.ok());
+}
+
+TEST_F(StorageTest, SegmentDeleteVectorsWithMetadata) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert vectors with metadata
+  auto vectors = CreateTestVectors(3);
+  auto ids = CreateTestVectorIds(3);
+  std::vector<core::Metadata> metadata(3);
+  for (int i = 0; i < 3; ++i) {
+    metadata[i]["name"] = core::MetadataValue(
+        std::string("vector_") + std::to_string(i));
+  }
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  // Verify metadata exists
+  auto meta_before = segment.GetMetadata(ids[0]);
+  ASSERT_TRUE(meta_before.ok());
+
+  // Delete vector
+  auto result = segment.DeleteVectors({ids[0]});
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result->deleted_count, 1);
+
+  // Verify metadata is also deleted
+  auto meta_after = segment.GetMetadata(ids[0]);
+  EXPECT_FALSE(meta_after.ok());
+  EXPECT_EQ(meta_after.status().code(), absl::StatusCode::kNotFound);
+}
+
+TEST_F(StorageTest, SegmentDeleteVectorsAllNotFound) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert 3 vectors
+  auto vectors = CreateTestVectors(3);
+  auto ids = CreateTestVectorIds(3);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  // Try to delete non-existent IDs
+  std::vector<core::VectorId> delete_ids = {
+      core::MakeVectorId(999),
+      core::MakeVectorId(888),
+      core::MakeVectorId(777)
+  };
+
+  auto result = segment.DeleteVectors(delete_ids);
+
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result->deleted_count, 0);
+  EXPECT_EQ(result->not_found_ids.size(), 3);
+  EXPECT_EQ(segment.GetVectorCount(), 3);  // No vectors deleted
+}
+
+TEST_F(StorageTest, SegmentDeleteVectorsSealedState) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert vectors
+  auto vectors = CreateTestVectors(3);
+  auto ids = CreateTestVectorIds(3);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  // Seal the segment
+  core::IndexConfig config;
+  config.index_type = core::IndexType::FLAT;
+  config.dimension = dimension_;
+  config.metric_type = metric_;
+
+  auto index_result = index_factory_->CreateIndex(config);
+  ASSERT_TRUE(index_result.ok());
+  ASSERT_TRUE(segment.Seal(index_result.value().release()).ok());
+
+  // Try to delete from sealed segment - should fail
+  auto result = segment.DeleteVectors({ids[0]});
+
+  EXPECT_FALSE(result.ok());
+  EXPECT_EQ(result.status().code(), absl::StatusCode::kFailedPrecondition);
+}
+
+// ============================================================================
+// UpdateMetadata Tests
+// ============================================================================
+
+TEST_F(StorageTest, SegmentUpdateMetadataReplace) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert vector with metadata
+  auto vectors = CreateTestVectors(1);
+  auto ids = CreateTestVectorIds(1);
+  core::Metadata initial_metadata;
+  initial_metadata["price"] = core::MetadataValue(100.0);
+  initial_metadata["brand"] = core::MetadataValue(std::string("Nike"));
+  initial_metadata["in_stock"] = core::MetadataValue(true);
+
+  std::vector<core::Metadata> metadata_vec = {initial_metadata};
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata_vec).ok());
+
+  // Update metadata (replace mode)
+  core::Metadata new_metadata;
+  new_metadata["price"] = core::MetadataValue(80.0);  // New price
+  new_metadata["rating"] = core::MetadataValue(4.5);  // New field
+
+  auto status = segment.UpdateMetadata(ids[0], new_metadata, false);
+  ASSERT_TRUE(status.ok());
+
+  // Verify metadata was replaced
+  auto result = segment.GetMetadata(ids[0]);
+  ASSERT_TRUE(result.ok());
+
+  EXPECT_EQ(result->size(), 2);  // Only 2 fields now (price, rating)
+  EXPECT_EQ(std::get<double>(result->at("price")), 80.0);
+  EXPECT_EQ(std::get<double>(result->at("rating")), 4.5);
+  EXPECT_EQ(result->find("brand"), result->end());  // Old field removed
+  EXPECT_EQ(result->find("in_stock"), result->end());  // Old field removed
+}
+
+TEST_F(StorageTest, SegmentUpdateMetadataMerge) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert vector with metadata
+  auto vectors = CreateTestVectors(1);
+  auto ids = CreateTestVectorIds(1);
+  core::Metadata initial_metadata;
+  initial_metadata["price"] = core::MetadataValue(100.0);
+  initial_metadata["brand"] = core::MetadataValue(std::string("Nike"));
+  initial_metadata["in_stock"] = core::MetadataValue(true);
+
+  std::vector<core::Metadata> metadata_vec = {initial_metadata};
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata_vec).ok());
+
+  // Update metadata (merge mode)
+  core::Metadata update_metadata;
+  update_metadata["price"] = core::MetadataValue(80.0);  // Update existing
+  update_metadata["rating"] = core::MetadataValue(4.5);  // Add new
+
+  auto status = segment.UpdateMetadata(ids[0], update_metadata, true);
+  ASSERT_TRUE(status.ok());
+
+  // Verify metadata was merged
+  auto result = segment.GetMetadata(ids[0]);
+  ASSERT_TRUE(result.ok());
+
+  EXPECT_EQ(result->size(), 4);  // All 4 fields present
+  EXPECT_EQ(std::get<double>(result->at("price")), 80.0);  // Updated
+  EXPECT_EQ(std::get<std::string>(result->at("brand")), "Nike");  // Preserved
+  EXPECT_EQ(std::get<bool>(result->at("in_stock")), true);  // Preserved
+  EXPECT_EQ(std::get<double>(result->at("rating")), 4.5);  // Added
+}
+
+TEST_F(StorageTest, SegmentUpdateMetadataNoExisting) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert vector without metadata
+  auto vectors = CreateTestVectors(1);
+  auto ids = CreateTestVectorIds(1);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  // Add metadata via update
+  core::Metadata metadata;
+  metadata["price"] = core::MetadataValue(100.0);
+  metadata["brand"] = core::MetadataValue(std::string("Nike"));
+
+  auto status = segment.UpdateMetadata(ids[0], metadata, true);
+  ASSERT_TRUE(status.ok());
+
+  // Verify metadata was added
+  auto result = segment.GetMetadata(ids[0]);
+  ASSERT_TRUE(result.ok());
+  EXPECT_EQ(result->size(), 2);
+  EXPECT_EQ(std::get<double>(result->at("price")), 100.0);
+}
+
+TEST_F(StorageTest, SegmentUpdateMetadataNotFound) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Try to update metadata for non-existent vector
+  core::Metadata metadata;
+  metadata["price"] = core::MetadataValue(100.0);
+
+  auto status = segment.UpdateMetadata(core::MakeVectorId(999), metadata, false);
+
+  EXPECT_FALSE(status.ok());
+  EXPECT_EQ(status.code(), absl::StatusCode::kNotFound);
+}
+
+TEST_F(StorageTest, SegmentUpdateMetadataSealedState) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert vector
+  auto vectors = CreateTestVectors(1);
+  auto ids = CreateTestVectorIds(1);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  // Seal the segment
+  core::IndexConfig config;
+  config.index_type = core::IndexType::FLAT;
+  config.dimension = dimension_;
+  config.metric_type = metric_;
+
+  auto index_result = index_factory_->CreateIndex(config);
+  ASSERT_TRUE(index_result.ok());
+  ASSERT_TRUE(segment.Seal(index_result.value().release()).ok());
+
+  // Try to update metadata in sealed segment
+  core::Metadata metadata;
+  metadata["price"] = core::MetadataValue(100.0);
+
+  auto status = segment.UpdateMetadata(ids[0], metadata, false);
+
+  EXPECT_FALSE(status.ok());
+  EXPECT_EQ(status.code(), absl::StatusCode::kFailedPrecondition);
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

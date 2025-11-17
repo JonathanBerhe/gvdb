@@ -190,6 +190,161 @@ func (t *E2ETest) listCollections() error {
 	return nil
 }
 
+func (t *E2ETest) testGet() error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Get vectors by ID (IDs 1-5 + non-existent 9999)
+	req := &pb.GetRequest{
+		CollectionName: collectionName,
+		Ids:            []uint64{1, 2, 3, 4, 5, 9999}, // 9999 doesn't exist
+		ReturnMetadata: false,
+	}
+
+	resp, err := t.client.Get(ctx, req)
+	if err != nil {
+		return fmt.Errorf("get failed: %v", err)
+	}
+
+	fmt.Printf("✅ Get vectors by ID:\n")
+	fmt.Printf("   Found: %d vectors\n", len(resp.Vectors))
+	fmt.Printf("   Not found: %d IDs\n", len(resp.NotFoundIds))
+
+	if len(resp.Vectors) != 5 {
+		return fmt.Errorf("expected 5 vectors, got %d", len(resp.Vectors))
+	}
+
+	if len(resp.NotFoundIds) != 1 || resp.NotFoundIds[0] != 9999 {
+		return fmt.Errorf("expected not_found_ids=[9999], got %v", resp.NotFoundIds)
+	}
+
+	for i, vec := range resp.Vectors {
+		if i < 3 {
+			fmt.Printf("      ID=%d, dimension=%d\n", vec.Id, vec.Vector.Dimension)
+		}
+	}
+
+	return nil
+}
+
+func (t *E2ETest) testUpdateMetadata() error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Update metadata for vector ID 1 (merge mode)
+	req := &pb.UpdateMetadataRequest{
+		CollectionName: collectionName,
+		Id:             1,
+		Metadata: &pb.Metadata{
+			Fields: map[string]*pb.MetadataValue{
+				"price":    {Value: &pb.MetadataValue_DoubleValue{DoubleValue: 99.99}},
+				"in_stock": {Value: &pb.MetadataValue_BoolValue{BoolValue: true}},
+				"brand":    {Value: &pb.MetadataValue_StringValue{StringValue: "Nike"}},
+			},
+		},
+		Merge: true, // Merge mode
+	}
+
+	resp, err := t.client.UpdateMetadata(ctx, req)
+	if err != nil {
+		return fmt.Errorf("update metadata failed: %v", err)
+	}
+
+	if !resp.Updated {
+		return fmt.Errorf("metadata update reported failure: %s", resp.Message)
+	}
+
+	fmt.Printf("✅ Updated metadata: %s\n", resp.Message)
+
+	// Verify metadata was updated
+	getReq := &pb.GetRequest{
+		CollectionName: collectionName,
+		Ids:            []uint64{1},
+		ReturnMetadata: true,
+	}
+
+	getResp, err := t.client.Get(ctx, getReq)
+	if err != nil {
+		return fmt.Errorf("get after update failed: %v", err)
+	}
+
+	if len(getResp.Vectors) != 1 {
+		return fmt.Errorf("expected 1 vector, got %d", len(getResp.Vectors))
+	}
+
+	metadata := getResp.Vectors[0].Metadata
+	if metadata == nil || len(metadata.Fields) == 0 {
+		return fmt.Errorf("metadata not returned")
+	}
+
+	fmt.Printf("   Verified metadata fields: %d\n", len(metadata.Fields))
+	if price, ok := metadata.Fields["price"]; ok {
+		fmt.Printf("      price=%.2f\n", price.GetDoubleValue())
+	}
+	if brand, ok := metadata.Fields["brand"]; ok {
+		fmt.Printf("      brand=%s\n", brand.GetStringValue())
+	}
+
+	return nil
+}
+
+func (t *E2ETest) testDelete() error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Delete vectors with IDs 10-20 (and one that doesn't exist)
+	idsToDelete := make([]uint64, 0, 12)
+	for i := 10; i <= 20; i++ {
+		idsToDelete = append(idsToDelete, uint64(i))
+	}
+	idsToDelete = append(idsToDelete, 9999) // Doesn't exist
+
+	req := &pb.DeleteRequest{
+		CollectionName: collectionName,
+		Ids:            idsToDelete,
+	}
+
+	resp, err := t.client.Delete(ctx, req)
+	if err != nil {
+		return fmt.Errorf("delete failed: %v", err)
+	}
+
+	fmt.Printf("✅ Delete vectors:\n")
+	fmt.Printf("   Deleted: %d vectors\n", resp.DeletedCount)
+	fmt.Printf("   Not found: %d IDs\n", len(resp.NotFoundIds))
+
+	if resp.DeletedCount != 11 {
+		return fmt.Errorf("expected 11 deleted, got %d", resp.DeletedCount)
+	}
+
+	if len(resp.NotFoundIds) != 1 || resp.NotFoundIds[0] != 9999 {
+		return fmt.Errorf("expected not_found_ids=[9999], got %v", resp.NotFoundIds)
+	}
+
+	// Verify vectors were deleted by trying to get them
+	getReq := &pb.GetRequest{
+		CollectionName: collectionName,
+		Ids:            []uint64{10, 15, 20},
+		ReturnMetadata: false,
+	}
+
+	getResp, err := t.client.Get(ctx, getReq)
+	if err != nil {
+		return fmt.Errorf("get after delete failed: %v", err)
+	}
+
+	if len(getResp.Vectors) != 0 {
+		return fmt.Errorf("expected 0 vectors after delete, got %d", len(getResp.Vectors))
+	}
+
+	if len(getResp.NotFoundIds) != 3 {
+		return fmt.Errorf("expected 3 not found IDs after delete, got %d", len(getResp.NotFoundIds))
+	}
+
+	fmt.Printf("   Verified deletion successful\n")
+	return nil
+}
+
 func (t *E2ETest) verifyCleanup() error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -280,6 +435,9 @@ func RunE2ETest() bool {
 		{"Searching for similar vectors", test.search},
 		{"Getting database stats", test.getStats},
 		{"Listing collections", test.listCollections},
+		{"Testing Get by ID", test.testGet},
+		{"Testing Update Metadata", test.testUpdateMetadata},
+		{"Testing Delete", test.testDelete},
 		{"Running multiple searches", func() error {
 			searchTimes := []float32{}
 			for i := 0; i < 5; i++ {

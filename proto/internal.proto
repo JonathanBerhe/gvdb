@@ -1,0 +1,306 @@
+syntax = "proto3";
+
+package gvdb.proto.internal;
+
+option go_package = "gvdb/internal/pb";
+
+// ============================================================================
+// Node Information and Health
+// ============================================================================
+
+enum NodeType {
+  NODE_TYPE_UNKNOWN = 0;
+  NODE_TYPE_COORDINATOR = 1;
+  NODE_TYPE_DATA_NODE = 2;
+  NODE_TYPE_QUERY_NODE = 3;
+  NODE_TYPE_PROXY = 4;
+}
+
+enum NodeStatus {
+  NODE_STATUS_UNKNOWN = 0;
+  NODE_STATUS_STARTING = 1;
+  NODE_STATUS_READY = 2;
+  NODE_STATUS_BUSY = 3;
+  NODE_STATUS_DEGRADED = 4;
+  NODE_STATUS_DOWN = 5;
+}
+
+message NodeInfo {
+  uint32 node_id = 1;
+  NodeType node_type = 2;
+  string grpc_address = 3;
+  string raft_address = 4;  // Only for coordinators
+  NodeStatus status = 5;
+
+  // Resource information
+  uint64 memory_used_bytes = 6;
+  uint64 memory_total_bytes = 7;
+  uint64 disk_used_bytes = 8;
+  uint64 disk_total_bytes = 9;
+
+  // Performance metrics
+  uint64 total_requests = 10;
+  float avg_latency_ms = 11;
+  uint32 error_count = 12;
+}
+
+// ============================================================================
+// Shard Management
+// ============================================================================
+
+message ShardAssignment {
+  uint32 shard_id = 1;
+  repeated uint32 node_ids = 2;  // Replica nodes for this shard
+  uint32 primary_node_id = 3;     // Primary node for writes
+}
+
+message AssignShardRequest {
+  uint32 shard_id = 1;
+  uint32 node_id = 2;
+  bool is_primary = 3;
+}
+
+message AssignShardResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetShardAssignmentsRequest {
+  uint32 collection_id = 1;  // 0 means all collections
+}
+
+message GetShardAssignmentsResponse {
+  repeated ShardAssignment assignments = 1;
+}
+
+message RebalanceShardsRequest {
+  uint32 collection_id = 1;  // 0 means all collections
+}
+
+message RebalanceShardsResponse {
+  uint32 shards_moved = 1;
+  string message = 2;
+}
+
+// ============================================================================
+// Segment Replication
+// ============================================================================
+
+message SegmentInfo {
+  uint64 segment_id = 1;
+  uint32 collection_id = 2;
+  uint32 shard_id = 3;
+  uint64 vector_count = 4;
+  uint64 size_bytes = 5;
+  bool is_sealed = 6;
+  int64 created_at = 7;  // Unix timestamp
+  int64 sealed_at = 8;   // Unix timestamp
+}
+
+message ReplicateSegmentRequest {
+  SegmentInfo segment_info = 1;
+  uint32 target_node_id = 2;
+  bytes segment_data = 3;  // Serialized segment data
+}
+
+message ReplicateSegmentResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetSegmentRequest {
+  uint64 segment_id = 1;
+}
+
+message GetSegmentResponse {
+  SegmentInfo segment_info = 1;
+  bytes segment_data = 2;
+}
+
+message ListSegmentsRequest {
+  uint32 collection_id = 1;  // 0 means all collections
+  uint32 shard_id = 2;       // 0 means all shards
+}
+
+message ListSegmentsResponse {
+  repeated SegmentInfo segments = 1;
+}
+
+message DeleteSegmentRequest {
+  uint64 segment_id = 1;
+  bool force = 2;  // Delete even if replicas exist
+}
+
+message DeleteSegmentResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// ============================================================================
+// Metadata Synchronization
+// ============================================================================
+
+message CollectionMetadata {
+  uint32 collection_id = 1;
+  string collection_name = 2;
+  uint32 dimension = 3;
+  string metric_type = 4;
+  string index_type = 5;
+  uint64 vector_count = 6;
+  int64 created_at = 7;  // Unix timestamp
+  uint32 shard_count = 8;
+  repeated ShardAssignment shard_assignments = 9;
+}
+
+message SyncMetadataRequest {
+  uint32 node_id = 1;
+  int64 last_sync_timestamp = 2;  // Request changes after this timestamp
+}
+
+message SyncMetadataResponse {
+  repeated CollectionMetadata collections = 1;
+  repeated ShardAssignment shard_assignments = 2;
+  int64 current_timestamp = 3;
+}
+
+message GetCollectionMetadataRequest {
+  oneof identifier {
+    uint32 collection_id = 1;
+    string collection_name = 2;
+  }
+}
+
+message GetCollectionMetadataResponse {
+  CollectionMetadata metadata = 1;
+  bool found = 2;
+}
+
+// ============================================================================
+// Query Routing and Execution
+// ============================================================================
+
+message RouteQueryRequest {
+  string collection_name = 1;
+  repeated float query_vector = 2;
+  uint32 top_k = 3;
+  string filter = 4;
+  bool return_metadata = 5;
+}
+
+message RouteQueryResponse {
+  repeated uint32 target_shard_ids = 1;
+  repeated uint32 target_node_ids = 2;
+}
+
+message ExecuteShardQueryRequest {
+  uint32 collection_id = 1;
+  uint32 shard_id = 2;
+  repeated float query_vector = 3;
+  uint32 top_k = 4;
+  string filter = 5;
+  bool return_metadata = 6;
+}
+
+message SearchResult {
+  uint64 id = 1;
+  float distance = 2;
+  map<string, string> metadata = 3;  // Simplified for internal use
+}
+
+message ExecuteShardQueryResponse {
+  repeated SearchResult results = 1;
+  float query_time_ms = 2;
+  uint32 vectors_scanned = 3;
+}
+
+// ============================================================================
+// Data Transfer (for rebalancing and recovery)
+// ============================================================================
+
+message TransferDataRequest {
+  uint32 collection_id = 1;
+  uint32 shard_id = 2;
+  uint32 source_node_id = 3;
+  uint32 target_node_id = 4;
+}
+
+message TransferDataResponse {
+  bool success = 1;
+  uint64 vectors_transferred = 2;
+  string message = 3;
+}
+
+// ============================================================================
+// Heartbeat and Health Monitoring
+// ============================================================================
+
+message HeartbeatRequest {
+  NodeInfo node_info = 1;
+}
+
+message HeartbeatResponse {
+  bool acknowledged = 1;
+  int64 timestamp = 2;
+
+  // Coordinator can send instructions in heartbeat response
+  repeated uint32 assigned_shards = 3;
+  bool should_rebalance = 4;
+}
+
+message GetClusterHealthRequest {}
+
+message GetClusterHealthResponse {
+  repeated NodeInfo nodes = 1;
+  uint32 total_shards = 2;
+  uint32 healthy_shards = 3;
+  uint32 degraded_shards = 4;
+  string cluster_status = 5;  // "healthy", "degraded", "critical"
+}
+
+// ============================================================================
+// Timestamp Oracle (for distributed transactions)
+// ============================================================================
+
+message GetTimestampRequest {
+  uint32 count = 1;  // How many timestamps to allocate
+}
+
+message GetTimestampResponse {
+  uint64 start_timestamp = 1;
+  uint64 end_timestamp = 2;  // Inclusive range [start, end]
+}
+
+// ============================================================================
+// InternalService - Node-to-Node Communication
+// ============================================================================
+
+service InternalService {
+  // Shard management (Coordinator → Data/Query Nodes)
+  rpc AssignShard(AssignShardRequest) returns (AssignShardResponse);
+  rpc GetShardAssignments(GetShardAssignmentsRequest) returns (GetShardAssignmentsResponse);
+  rpc RebalanceShards(RebalanceShardsRequest) returns (RebalanceShardsResponse);
+
+  // Segment replication (Data Node → Data Node)
+  rpc ReplicateSegment(ReplicateSegmentRequest) returns (ReplicateSegmentResponse);
+  rpc GetSegment(GetSegmentRequest) returns (GetSegmentResponse);
+  rpc ListSegments(ListSegmentsRequest) returns (ListSegmentsResponse);
+  rpc DeleteSegment(DeleteSegmentRequest) returns (DeleteSegmentResponse);
+
+  // Metadata synchronization (Data/Query Nodes → Coordinator)
+  rpc SyncMetadata(SyncMetadataRequest) returns (SyncMetadataResponse);
+  rpc GetCollectionMetadata(GetCollectionMetadataRequest) returns (GetCollectionMetadataResponse);
+
+  // Query routing and execution (Proxy → Query Nodes)
+  rpc RouteQuery(RouteQueryRequest) returns (RouteQueryResponse);
+  rpc ExecuteShardQuery(ExecuteShardQueryRequest) returns (ExecuteShardQueryResponse);
+
+  // Data transfer (for rebalancing)
+  rpc TransferData(TransferDataRequest) returns (TransferDataResponse);
+
+  // Health monitoring (All Nodes → Coordinator)
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc GetClusterHealth(GetClusterHealthRequest) returns (GetClusterHealthResponse);
+
+  // Timestamp oracle (All Nodes → Coordinator)
+  rpc GetTimestamp(GetTimestampRequest) returns (GetTimestampResponse);
+}

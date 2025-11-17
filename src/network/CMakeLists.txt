@@ -3,6 +3,7 @@
 add_library(network
   vectordb_service.cpp
   proto_conversions.cpp
+  internal_service.cpp
 )
 
 target_link_libraries(network
@@ -13,6 +14,7 @@ target_link_libraries(network
   PRIVATE
     gvdb_storage
     gvdb_compute
+    gvdb_cluster
     absl::status
     absl::statusor
     absl::strings

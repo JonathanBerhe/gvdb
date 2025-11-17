@@ -236,35 +236,59 @@ set(_GRPC_CPP_PLUGIN_EXECUTABLE $<TARGET_FILE:grpc_cpp_plugin>)
 # Proto Library Generation
 # ============================================================================
 set(PROTO_PATH "${CMAKE_CURRENT_SOURCE_DIR}/proto")
-set(PROTO_FILE "${PROTO_PATH}/vectordb.proto")
+set(VECTORDB_PROTO_FILE "${PROTO_PATH}/vectordb.proto")
+set(INTERNAL_PROTO_FILE "${PROTO_PATH}/internal.proto")
 set(GENERATED_PROTO_PATH "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY ${GENERATED_PROTO_PATH})
 
-# Generated files
-set(PROTO_SRCS "${GENERATED_PROTO_PATH}/vectordb.pb.cc")
-set(PROTO_HDRS "${GENERATED_PROTO_PATH}/vectordb.pb.h")
-set(GRPC_SRCS "${GENERATED_PROTO_PATH}/vectordb.grpc.pb.cc")
-set(GRPC_HDRS "${GENERATED_PROTO_PATH}/vectordb.grpc.pb.h")
+# Generated files for vectordb.proto (client-facing API)
+set(VECTORDB_PROTO_SRCS "${GENERATED_PROTO_PATH}/vectordb.pb.cc")
+set(VECTORDB_PROTO_HDRS "${GENERATED_PROTO_PATH}/vectordb.pb.h")
+set(VECTORDB_GRPC_SRCS "${GENERATED_PROTO_PATH}/vectordb.grpc.pb.cc")
+set(VECTORDB_GRPC_HDRS "${GENERATED_PROTO_PATH}/vectordb.grpc.pb.h")
 
-# Custom command to generate proto files
+# Generated files for internal.proto (node-to-node communication)
+set(INTERNAL_PROTO_SRCS "${GENERATED_PROTO_PATH}/internal.pb.cc")
+set(INTERNAL_PROTO_HDRS "${GENERATED_PROTO_PATH}/internal.pb.h")
+set(INTERNAL_GRPC_SRCS "${GENERATED_PROTO_PATH}/internal.grpc.pb.cc")
+set(INTERNAL_GRPC_HDRS "${GENERATED_PROTO_PATH}/internal.grpc.pb.h")
+
+# Custom command to generate vectordb.proto files
 add_custom_command(
-  OUTPUT ${PROTO_SRCS} ${PROTO_HDRS} ${GRPC_SRCS} ${GRPC_HDRS}
+  OUTPUT ${VECTORDB_PROTO_SRCS} ${VECTORDB_PROTO_HDRS} ${VECTORDB_GRPC_SRCS} ${VECTORDB_GRPC_HDRS}
   COMMAND ${_PROTOBUF_PROTOC}
   ARGS --grpc_out=${GENERATED_PROTO_PATH}
        --cpp_out=${GENERATED_PROTO_PATH}
        -I ${PROTO_PATH}
        --plugin=protoc-gen-grpc=${_GRPC_CPP_PLUGIN_EXECUTABLE}
-       ${PROTO_FILE}
-  DEPENDS ${PROTO_FILE}
-  COMMENT "Generating protobuf and gRPC C++ files"
+       ${VECTORDB_PROTO_FILE}
+  DEPENDS ${VECTORDB_PROTO_FILE}
+  COMMENT "Generating vectordb protobuf and gRPC C++ files"
 )
 
-# Create proto library
+# Custom command to generate internal.proto files
+add_custom_command(
+  OUTPUT ${INTERNAL_PROTO_SRCS} ${INTERNAL_PROTO_HDRS} ${INTERNAL_GRPC_SRCS} ${INTERNAL_GRPC_HDRS}
+  COMMAND ${_PROTOBUF_PROTOC}
+  ARGS --grpc_out=${GENERATED_PROTO_PATH}
+       --cpp_out=${GENERATED_PROTO_PATH}
+       -I ${PROTO_PATH}
+       --plugin=protoc-gen-grpc=${_GRPC_CPP_PLUGIN_EXECUTABLE}
+       ${INTERNAL_PROTO_FILE}
+  DEPENDS ${INTERNAL_PROTO_FILE}
+  COMMENT "Generating internal protobuf and gRPC C++ files"
+)
+
+# Create proto library (includes both vectordb and internal protos)
 add_library(proto_lib
-  ${PROTO_SRCS}
-  ${PROTO_HDRS}
-  ${GRPC_SRCS}
-  ${GRPC_HDRS}
+  ${VECTORDB_PROTO_SRCS}
+  ${VECTORDB_PROTO_HDRS}
+  ${VECTORDB_GRPC_SRCS}
+  ${VECTORDB_GRPC_HDRS}
+  ${INTERNAL_PROTO_SRCS}
+  ${INTERNAL_PROTO_HDRS}
+  ${INTERNAL_GRPC_SRCS}
+  ${INTERNAL_GRPC_HDRS}
 )
 
 target_link_libraries(proto_lib

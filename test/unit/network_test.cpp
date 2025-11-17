@@ -408,6 +408,628 @@ TEST_F(VectorDBServiceTest, DropCollection) {
   }
 }
 
+TEST_F(VectorDBServiceTest, GetVectors) {
+  // Create collection
+  {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name("test_collection");
+    request.set_dimension(4);
+    request.set_metric(proto::CreateCollectionRequest::L2);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+
+    proto::CreateCollectionResponse response;
+    auto status = service_->CreateCollection(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Insert vectors
+  {
+    grpc::ServerContext context;
+    proto::InsertRequest request;
+    request.set_collection_name("test_collection");
+
+    for (int i = 0; i < 5; ++i) {
+      auto* vec = request.add_vectors();
+      vec->set_id(i + 1);
+      vec->mutable_vector()->set_dimension(4);
+      for (int j = 0; j < 4; ++j) {
+        vec->mutable_vector()->add_values(static_cast<float>(i * 4 + j));
+      }
+    }
+
+    proto::InsertResponse response;
+    auto status = service_->Insert(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Get vectors
+  {
+    grpc::ServerContext context;
+    proto::GetRequest request;
+    request.set_collection_name("test_collection");
+    request.add_ids(1);
+    request.add_ids(3);
+    request.add_ids(5);
+    request.set_return_metadata(false);
+
+    proto::GetResponse response;
+    auto status = service_->Get(&context, &request, &response);
+    EXPECT_TRUE(status.ok()) << status.error_message();
+    EXPECT_EQ(response.vectors().size(), 3);
+    EXPECT_EQ(response.not_found_ids().size(), 0);
+
+    // Verify vector IDs
+    EXPECT_EQ(response.vectors(0).id(), 1);
+    EXPECT_EQ(response.vectors(1).id(), 3);
+    EXPECT_EQ(response.vectors(2).id(), 5);
+  }
+}
+
+TEST_F(VectorDBServiceTest, GetVectorsPartialMatch) {
+  // Create collection
+  {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name("test_collection");
+    request.set_dimension(4);
+    request.set_metric(proto::CreateCollectionRequest::L2);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+
+    proto::CreateCollectionResponse response;
+    auto status = service_->CreateCollection(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Insert vectors
+  {
+    grpc::ServerContext context;
+    proto::InsertRequest request;
+    request.set_collection_name("test_collection");
+
+    for (int i = 0; i < 3; ++i) {
+      auto* vec = request.add_vectors();
+      vec->set_id(i + 1);
+      vec->mutable_vector()->set_dimension(4);
+      for (int j = 0; j < 4; ++j) {
+        vec->mutable_vector()->add_values(1.0f);
+      }
+    }
+
+    proto::InsertResponse response;
+    auto status = service_->Insert(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Get mix of existing and non-existing IDs
+  {
+    grpc::ServerContext context;
+    proto::GetRequest request;
+    request.set_collection_name("test_collection");
+    request.add_ids(1);     // exists
+    request.add_ids(999);   // doesn't exist
+    request.add_ids(2);     // exists
+    request.add_ids(888);   // doesn't exist
+
+    proto::GetResponse response;
+    auto status = service_->Get(&context, &request, &response);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(response.vectors().size(), 2);
+    EXPECT_EQ(response.not_found_ids().size(), 2);
+
+    // Verify found IDs
+    EXPECT_EQ(response.vectors(0).id(), 1);
+    EXPECT_EQ(response.vectors(1).id(), 2);
+
+    // Verify not found IDs
+    EXPECT_EQ(response.not_found_ids(0), 999);
+    EXPECT_EQ(response.not_found_ids(1), 888);
+  }
+}
+
+TEST_F(VectorDBServiceTest, GetVectorsWithMetadata) {
+  // Create collection
+  {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name("test_collection");
+    request.set_dimension(4);
+    request.set_metric(proto::CreateCollectionRequest::L2);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+
+    proto::CreateCollectionResponse response;
+    auto status = service_->CreateCollection(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Insert vectors with metadata
+  {
+    grpc::ServerContext context;
+    proto::InsertRequest request;
+    request.set_collection_name("test_collection");
+
+    for (int i = 0; i < 3; ++i) {
+      auto* vec = request.add_vectors();
+      vec->set_id(i + 1);
+      vec->mutable_vector()->set_dimension(4);
+      for (int j = 0; j < 4; ++j) {
+        vec->mutable_vector()->add_values(1.0f);
+      }
+
+      // Add metadata
+      auto* metadata = vec->mutable_metadata();
+      auto* name_field = &(*metadata->mutable_fields())["name"];
+      name_field->set_string_value("vector_" + std::to_string(i));
+    }
+
+    proto::InsertResponse response;
+    auto status = service_->Insert(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Get vectors with metadata
+  {
+    grpc::ServerContext context;
+    proto::GetRequest request;
+    request.set_collection_name("test_collection");
+    request.add_ids(1);
+    request.add_ids(3);
+    request.set_return_metadata(true);
+
+    proto::GetResponse response;
+    auto status = service_->Get(&context, &request, &response);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(response.vectors().size(), 2);
+
+    // Verify metadata is returned
+    EXPECT_TRUE(response.vectors(0).has_metadata());
+    EXPECT_TRUE(response.vectors(1).has_metadata());
+
+    auto& meta0 = response.vectors(0).metadata().fields();
+    auto& meta1 = response.vectors(1).metadata().fields();
+
+    EXPECT_EQ(meta0.at("name").string_value(), "vector_0");
+    EXPECT_EQ(meta1.at("name").string_value(), "vector_2");
+  }
+}
+
+TEST_F(VectorDBServiceTest, GetVectorsEmptyRequest) {
+  grpc::ServerContext context;
+  proto::GetRequest request;
+  request.set_collection_name("test_collection");
+  // No IDs added
+
+  proto::GetResponse response;
+  auto status = service_->Get(&context, &request, &response);
+
+  EXPECT_FALSE(status.ok());
+  EXPECT_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+}
+
+TEST_F(VectorDBServiceTest, GetVectorsNonexistentCollection) {
+  grpc::ServerContext context;
+  proto::GetRequest request;
+  request.set_collection_name("nonexistent");
+  request.add_ids(1);
+
+  proto::GetResponse response;
+  auto status = service_->Get(&context, &request, &response);
+
+  EXPECT_FALSE(status.ok());
+  EXPECT_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
+}
+
+// ============================================================================
+// Delete Tests
+// ============================================================================
+
+TEST_F(VectorDBServiceTest, DeleteVectors) {
+  // Create collection
+  {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name("test_collection");
+    request.set_dimension(4);
+    request.set_metric(proto::CreateCollectionRequest::L2);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+
+    proto::CreateCollectionResponse response;
+    auto status = service_->CreateCollection(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Insert vectors
+  {
+    grpc::ServerContext context;
+    proto::InsertRequest request;
+    request.set_collection_name("test_collection");
+
+    for (int i = 0; i < 5; ++i) {
+      auto* vec = request.add_vectors();
+      vec->set_id(i + 1);
+      vec->mutable_vector()->set_dimension(4);
+      for (int j = 0; j < 4; ++j) {
+        vec->mutable_vector()->add_values(1.0f);
+      }
+    }
+
+    proto::InsertResponse response;
+    auto status = service_->Insert(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Delete 3 vectors
+  {
+    grpc::ServerContext context;
+    proto::DeleteRequest request;
+    request.set_collection_name("test_collection");
+    request.add_ids(1);
+    request.add_ids(3);
+    request.add_ids(5);
+
+    proto::DeleteResponse response;
+    auto status = service_->Delete(&context, &request, &response);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(response.deleted_count(), 3);
+    EXPECT_EQ(response.not_found_ids().size(), 0);
+  }
+
+  // Verify deletion by trying to get deleted vectors
+  {
+    grpc::ServerContext context;
+    proto::GetRequest request;
+    request.set_collection_name("test_collection");
+    request.add_ids(1);
+    request.add_ids(2);
+    request.add_ids(3);
+
+    proto::GetResponse response;
+    auto status = service_->Get(&context, &request, &response);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(response.vectors().size(), 1);  // Only ID 2 should be found
+    EXPECT_EQ(response.vectors(0).id(), 2);
+    EXPECT_EQ(response.not_found_ids().size(), 2);  // IDs 1 and 3 not found
+  }
+}
+
+TEST_F(VectorDBServiceTest, DeleteVectorsPartialMatch) {
+  // Create collection
+  {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name("test_collection");
+    request.set_dimension(4);
+    request.set_metric(proto::CreateCollectionRequest::L2);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+
+    proto::CreateCollectionResponse response;
+    auto status = service_->CreateCollection(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Insert 3 vectors
+  {
+    grpc::ServerContext context;
+    proto::InsertRequest request;
+    request.set_collection_name("test_collection");
+
+    for (int i = 0; i < 3; ++i) {
+      auto* vec = request.add_vectors();
+      vec->set_id(i + 1);
+      vec->mutable_vector()->set_dimension(4);
+      for (int j = 0; j < 4; ++j) {
+        vec->mutable_vector()->add_values(1.0f);
+      }
+    }
+
+    proto::InsertResponse response;
+    auto status = service_->Insert(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Delete mix of existing and non-existing IDs
+  {
+    grpc::ServerContext context;
+    proto::DeleteRequest request;
+    request.set_collection_name("test_collection");
+    request.add_ids(1);      // exists
+    request.add_ids(999);    // doesn't exist
+    request.add_ids(3);      // exists
+    request.add_ids(888);    // doesn't exist
+
+    proto::DeleteResponse response;
+    auto status = service_->Delete(&context, &request, &response);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(response.deleted_count(), 2);
+    EXPECT_EQ(response.not_found_ids().size(), 2);
+
+    // Verify not found IDs
+    EXPECT_EQ(response.not_found_ids(0), 999);
+    EXPECT_EQ(response.not_found_ids(1), 888);
+  }
+}
+
+TEST_F(VectorDBServiceTest, DeleteVectorsEmptyRequest) {
+  grpc::ServerContext context;
+  proto::DeleteRequest request;
+  request.set_collection_name("test_collection");
+  // Empty IDs list
+
+  proto::DeleteResponse response;
+  auto status = service_->Delete(&context, &request, &response);
+
+  EXPECT_FALSE(status.ok());
+  EXPECT_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+}
+
+TEST_F(VectorDBServiceTest, DeleteVectorsNonexistentCollection) {
+  grpc::ServerContext context;
+  proto::DeleteRequest request;
+  request.set_collection_name("nonexistent");
+  request.add_ids(1);
+
+  proto::DeleteResponse response;
+  auto status = service_->Delete(&context, &request, &response);
+
+  EXPECT_FALSE(status.ok());
+  EXPECT_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
+}
+
+TEST_F(VectorDBServiceTest, DeleteVectorsBatchSizeLimit) {
+  // Create collection
+  {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name("test_collection");
+    request.set_dimension(4);
+    request.set_metric(proto::CreateCollectionRequest::L2);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+
+    proto::CreateCollectionResponse response;
+    auto status = service_->CreateCollection(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Try to delete more than max batch size (10000)
+  {
+    grpc::ServerContext context;
+    proto::DeleteRequest request;
+    request.set_collection_name("test_collection");
+
+    for (int i = 0; i < 10001; ++i) {
+      request.add_ids(i);
+    }
+
+    proto::DeleteResponse response;
+    auto status = service_->Delete(&context, &request, &response);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  }
+}
+
+// ============================================================================
+// UpdateMetadata Tests
+// ============================================================================
+
+TEST_F(VectorDBServiceTest, UpdateMetadataReplace) {
+  // Create collection
+  {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name("test_collection");
+    request.set_dimension(4);
+    request.set_metric(proto::CreateCollectionRequest::L2);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+
+    proto::CreateCollectionResponse response;
+    auto status = service_->CreateCollection(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Insert vector with metadata
+  {
+    grpc::ServerContext context;
+    proto::InsertRequest request;
+    request.set_collection_name("test_collection");
+
+    auto* vec = request.add_vectors();
+    vec->set_id(1);
+    vec->mutable_vector()->set_dimension(4);
+    for (int j = 0; j < 4; ++j) {
+      vec->mutable_vector()->add_values(1.0f);
+    }
+
+    auto* metadata = vec->mutable_metadata();
+    (*metadata->mutable_fields())["price"].set_double_value(100.0);
+    (*metadata->mutable_fields())["brand"].set_string_value("Nike");
+    (*metadata->mutable_fields())["in_stock"].set_bool_value(true);
+
+    proto::InsertResponse response;
+    auto status = service_->Insert(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Update metadata (replace mode)
+  {
+    grpc::ServerContext context;
+    proto::UpdateMetadataRequest request;
+    request.set_collection_name("test_collection");
+    request.set_id(1);
+    request.set_merge(false);  // Replace mode
+
+    auto* metadata = request.mutable_metadata();
+    (*metadata->mutable_fields())["price"].set_double_value(80.0);
+    (*metadata->mutable_fields())["rating"].set_double_value(4.5);
+
+    proto::UpdateMetadataResponse response;
+    auto status = service_->UpdateMetadata(&context, &request, &response);
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(response.updated());
+  }
+
+  // Verify metadata was replaced
+  {
+    grpc::ServerContext context;
+    proto::GetRequest request;
+    request.set_collection_name("test_collection");
+    request.add_ids(1);
+    request.set_return_metadata(true);
+
+    proto::GetResponse response;
+    auto status = service_->Get(&context, &request, &response);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(response.vectors().size(), 1);
+
+    auto& fields = response.vectors(0).metadata().fields();
+    EXPECT_EQ(fields.size(), 2);  // Only 2 fields
+    EXPECT_EQ(fields.at("price").double_value(), 80.0);
+    EXPECT_EQ(fields.at("rating").double_value(), 4.5);
+    EXPECT_EQ(fields.find("brand"), fields.end());  // Removed
+    EXPECT_EQ(fields.find("in_stock"), fields.end());  // Removed
+  }
+}
+
+TEST_F(VectorDBServiceTest, UpdateMetadataMerge) {
+  // Create collection and insert vector with metadata
+  {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name("test_collection");
+    request.set_dimension(4);
+    request.set_metric(proto::CreateCollectionRequest::L2);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+
+    proto::CreateCollectionResponse response;
+    auto status = service_->CreateCollection(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  {
+    grpc::ServerContext context;
+    proto::InsertRequest request;
+    request.set_collection_name("test_collection");
+
+    auto* vec = request.add_vectors();
+    vec->set_id(1);
+    vec->mutable_vector()->set_dimension(4);
+    for (int j = 0; j < 4; ++j) {
+      vec->mutable_vector()->add_values(1.0f);
+    }
+
+    auto* metadata = vec->mutable_metadata();
+    (*metadata->mutable_fields())["price"].set_double_value(100.0);
+    (*metadata->mutable_fields())["brand"].set_string_value("Nike");
+
+    proto::InsertResponse response;
+    auto status = service_->Insert(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Update metadata (merge mode)
+  {
+    grpc::ServerContext context;
+    proto::UpdateMetadataRequest request;
+    request.set_collection_name("test_collection");
+    request.set_id(1);
+    request.set_merge(true);  // Merge mode
+
+    auto* metadata = request.mutable_metadata();
+    (*metadata->mutable_fields())["price"].set_double_value(80.0);  // Update
+    (*metadata->mutable_fields())["rating"].set_double_value(4.5);  // Add
+
+    proto::UpdateMetadataResponse response;
+    auto status = service_->UpdateMetadata(&context, &request, &response);
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(response.updated());
+  }
+
+  // Verify metadata was merged
+  {
+    grpc::ServerContext context;
+    proto::GetRequest request;
+    request.set_collection_name("test_collection");
+    request.add_ids(1);
+    request.set_return_metadata(true);
+
+    proto::GetResponse response;
+    auto status = service_->Get(&context, &request, &response);
+    EXPECT_TRUE(status.ok());
+
+    auto& fields = response.vectors(0).metadata().fields();
+    EXPECT_EQ(fields.size(), 3);  // All 3 fields
+    EXPECT_EQ(fields.at("price").double_value(), 80.0);  // Updated
+    EXPECT_EQ(fields.at("brand").string_value(), "Nike");  // Preserved
+    EXPECT_EQ(fields.at("rating").double_value(), 4.5);  // Added
+  }
+}
+
+TEST_F(VectorDBServiceTest, UpdateMetadataNotFound) {
+  // Create collection
+  {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name("test_collection");
+    request.set_dimension(4);
+    request.set_metric(proto::CreateCollectionRequest::L2);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+
+    proto::CreateCollectionResponse response;
+    auto status = service_->CreateCollection(&context, &request, &response);
+    ASSERT_TRUE(status.ok());
+  }
+
+  // Try to update non-existent vector
+  {
+    grpc::ServerContext context;
+    proto::UpdateMetadataRequest request;
+    request.set_collection_name("test_collection");
+    request.set_id(999);
+    request.set_merge(false);
+
+    auto* metadata = request.mutable_metadata();
+    (*metadata->mutable_fields())["price"].set_double_value(100.0);
+
+    proto::UpdateMetadataResponse response;
+    auto status = service_->UpdateMetadata(&context, &request, &response);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
+  }
+}
+
+TEST_F(VectorDBServiceTest, UpdateMetadataInvalidRequest) {
+  grpc::ServerContext context;
+  proto::UpdateMetadataRequest request;
+  request.set_collection_name("test_collection");
+  request.set_id(0);  // Invalid ID
+
+  auto* metadata = request.mutable_metadata();
+  (*metadata->mutable_fields())["price"].set_double_value(100.0);
+
+  proto::UpdateMetadataResponse response;
+  auto status = service_->UpdateMetadata(&context, &request, &response);
+
+  EXPECT_FALSE(status.ok());
+  EXPECT_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+}
+
+TEST_F(VectorDBServiceTest, UpdateMetadataNonexistentCollection) {
+  grpc::ServerContext context;
+  proto::UpdateMetadataRequest request;
+  request.set_collection_name("nonexistent");
+  request.set_id(1);
+
+  auto* metadata = request.mutable_metadata();
+  (*metadata->mutable_fields())["price"].set_double_value(100.0);
+
+  proto::UpdateMetadataResponse response;
+  auto status = service_->UpdateMetadata(&context, &request, &response);
+
+  EXPECT_FALSE(status.ok());
+  EXPECT_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

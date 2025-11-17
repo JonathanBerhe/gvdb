@@ -52,9 +52,31 @@ class Segment {
       const std::vector<core::VectorId>& ids,
       const std::vector<core::Metadata>& metadata);
 
-  // Read specific vectors by ID
+  // Read specific vectors by ID (fails if any ID not found)
   [[nodiscard]] core::StatusOr<std::vector<core::Vector>> ReadVectors(
       const std::vector<core::VectorId>& ids) const;
+
+  // Get vectors by ID with metadata (returns partial results)
+  struct GetVectorsResult {
+    std::vector<core::VectorId> found_ids;
+    std::vector<core::Vector> found_vectors;
+    std::vector<core::Metadata> found_metadata;
+    std::vector<core::VectorId> not_found_ids;
+  };
+  [[nodiscard]] GetVectorsResult GetVectors(
+      const std::vector<core::VectorId>& ids, bool include_metadata) const;
+
+  // Delete vectors by ID (only valid for GROWING state)
+  struct DeleteVectorsResult {
+    uint64_t deleted_count;
+    std::vector<core::VectorId> not_found_ids;
+  };
+  [[nodiscard]] core::StatusOr<DeleteVectorsResult> DeleteVectors(
+      const std::vector<core::VectorId>& ids);
+
+  // Update metadata for a vector (only valid for GROWING state)
+  [[nodiscard]] core::Status UpdateMetadata(
+      core::VectorId id, const core::Metadata& metadata, bool merge);
 
   // Search for nearest neighbors (requires index to be built)
   [[nodiscard]] core::StatusOr<core::SearchResult> Search(
