@@ -13,7 +13,6 @@
 #include "cluster/shard_manager.h"
 #include "storage/segment_manager.h"
 #include "compute/query_executor.h"
-#include "network/grpc_server.h"
 #include "network/vectordb_service.h"
 #include "index/index_factory.h"
 #include "utils/logger.h"

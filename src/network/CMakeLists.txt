@@ -1,7 +1,6 @@
 # Network Module - gRPC communication layer
 
 add_library(network
-  grpc_server.cpp
   vectordb_service.cpp
   proto_conversions.cpp
 )
