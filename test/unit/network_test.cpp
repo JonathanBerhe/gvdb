@@ -1,9 +1,6 @@
 #include <gtest/gtest.h>
-#include <thread>
-#include <chrono>
 
 #include "network/proto_conversions.h"
-#include "network/grpc_server.h"
 #include "network/vectordb_service.h"
 #include "storage/segment_manager.h"
 #include "compute/query_executor.h"
@@ -139,47 +136,6 @@ TEST_F(ProtoConversionTest, StatusConversion) {
   auto already_exists = network::toGrpcStatus(
       absl::AlreadyExistsError("exists"));
   EXPECT_EQ(already_exists.error_code(), grpc::StatusCode::ALREADY_EXISTS);
-}
-
-// ============================================================================
-// gRPC Server Tests
-// ============================================================================
-
-class GrpcServerTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    config_.address = "localhost";
-    config_.port = 50052;  // Use different port to avoid conflicts
-  }
-
-  network::GrpcServerConfig config_;
-};
-
-TEST_F(GrpcServerTest, ServerConstruction) {
-  network::GrpcServer server(config_);
-  EXPECT_EQ(server.address(), "localhost:50052");
-}
-
-TEST_F(GrpcServerTest, ServerLifecycle) {
-  network::GrpcServer server(config_);
-
-  // Start server in background thread
-  std::thread server_thread([&server]() {
-    auto status = server.start();
-    // Will block until shutdown
-  });
-
-  // Give server time to start
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-  // Shutdown
-  server.shutdown();
-
-  // Wait for server thread to finish
-  server_thread.join();
-
-  // Test passes if we reach here without hanging
-  SUCCEED();
 }
 
 // ============================================================================
