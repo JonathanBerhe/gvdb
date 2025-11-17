@@ -48,6 +48,21 @@ class VectorDBService final : public proto::VectorDBService::Service {
       const proto::SearchRequest* request,
       proto::SearchResponse* response) override;
 
+  grpc::Status Get(
+      grpc::ServerContext* context,
+      const proto::GetRequest* request,
+      proto::GetResponse* response) override;
+
+  grpc::Status Delete(
+      grpc::ServerContext* context,
+      const proto::DeleteRequest* request,
+      proto::DeleteResponse* response) override;
+
+  grpc::Status UpdateMetadata(
+      grpc::ServerContext* context,
+      const proto::UpdateMetadataRequest* request,
+      proto::UpdateMetadataResponse* response) override;
+
   // Health and stats
   grpc::Status HealthCheck(
       grpc::ServerContext* context,

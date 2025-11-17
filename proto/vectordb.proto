@@ -117,6 +117,40 @@ message SearchResponse {
   float query_time_ms = 2;
 }
 
+message GetRequest {
+  string collection_name = 1;
+  repeated uint64 ids = 2;  // Vector IDs to retrieve
+  bool return_metadata = 3;  // Optional: whether to return metadata
+}
+
+message GetResponse {
+  repeated VectorWithId vectors = 1;  // Retrieved vectors (may be fewer than requested if some IDs not found)
+  repeated uint64 not_found_ids = 2;  // IDs that were not found
+}
+
+message DeleteRequest {
+  string collection_name = 1;
+  repeated uint64 ids = 2;  // Vector IDs to delete
+}
+
+message DeleteResponse {
+  uint64 deleted_count = 1;  // Number of vectors actually deleted
+  repeated uint64 not_found_ids = 2;  // IDs that were not found
+  string message = 3;
+}
+
+message UpdateMetadataRequest {
+  string collection_name = 1;
+  uint64 id = 2;  // Vector ID to update
+  Metadata metadata = 3;  // New metadata (replaces existing)
+  bool merge = 4;  // If true, merge with existing metadata. If false, replace completely.
+}
+
+message UpdateMetadataResponse {
+  bool updated = 1;  // Whether the update succeeded
+  string message = 2;
+}
+
 // ============================================================================
 // Health and Status
 // ============================================================================
@@ -155,6 +189,9 @@ service VectorDBService {
   // Vector operations
   rpc Insert(InsertRequest) returns (InsertResponse);
   rpc Search(SearchRequest) returns (SearchResponse);
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc UpdateMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse);
 
   // Health and stats
   rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);

@@ -7,6 +7,7 @@ add_library(gvdb_cluster
   data_node.cpp
   load_balancer.cpp
   replication.cpp
+  node_registry.cpp
 )
 
 target_include_directories(gvdb_cluster
@@ -18,6 +19,7 @@ target_link_libraries(gvdb_cluster
   PUBLIC
     gvdb_core
     gvdb_index
+    proto_lib
     absl::status
     absl::statusor
     absl::strings

@@ -86,6 +86,159 @@ core::StatusOr<std::vector<core::Vector>> Segment::ReadVectors(
   return result;
 }
 
+Segment::GetVectorsResult Segment::GetVectors(
+    const std::vector<core::VectorId>& ids, bool include_metadata) const {
+  std::shared_lock lock(mutex_);
+
+  GetVectorsResult result;
+  result.found_ids.reserve(ids.size());
+  result.found_vectors.reserve(ids.size());
+  if (include_metadata) {
+    result.found_metadata.reserve(ids.size());
+  }
+
+  for (const auto& query_id : ids) {
+    // Find vector with matching ID
+    bool found = false;
+    for (size_t i = 0; i < vector_ids_.size(); ++i) {
+      if (vector_ids_[i] == query_id) {
+        result.found_ids.push_back(query_id);
+        result.found_vectors.push_back(vectors_[i]);
+
+        if (include_metadata) {
+          // Try to get metadata for this vector
+          auto it = metadata_map_.find(core::ToUInt64(query_id));
+          if (it != metadata_map_.end()) {
+            result.found_metadata.push_back(it->second);
+          } else {
+            // No metadata for this vector, push empty metadata
+            result.found_metadata.push_back(core::Metadata{});
+          }
+        }
+
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      result.not_found_ids.push_back(query_id);
+    }
+  }
+
+  return result;
+}
+
+core::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectors(
+    const std::vector<core::VectorId>& ids) {
+  std::unique_lock lock(mutex_);
+
+  // Validate state - can only delete from GROWING segments
+  if (state_ != core::SegmentState::GROWING) {
+    return core::FailedPreconditionError(
+        absl::StrCat("Cannot delete vectors from segment in state: ",
+                     static_cast<int>(state_)));
+  }
+
+  DeleteVectorsResult result;
+  result.deleted_count = 0;
+
+  // Create a set of indices to delete for efficient removal
+  std::vector<size_t> indices_to_delete;
+  indices_to_delete.reserve(ids.size());
+
+  for (const auto& query_id : ids) {
+    // Find vector with matching ID
+    bool found = false;
+    for (size_t i = 0; i < vector_ids_.size(); ++i) {
+      if (vector_ids_[i] == query_id) {
+        indices_to_delete.push_back(i);
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      result.not_found_ids.push_back(query_id);
+    }
+  }
+
+  // Sort indices in descending order to delete from back to front
+  // This prevents index invalidation during deletion
+  std::sort(indices_to_delete.begin(), indices_to_delete.end(),
+            std::greater<size_t>());
+
+  // Delete vectors, IDs, and metadata
+  for (size_t idx : indices_to_delete) {
+    // Update memory usage
+    memory_usage_ -= vectors_[idx].byte_size();
+
+    // Remove metadata if present
+    uint64_t id_uint = core::ToUInt64(vector_ids_[idx]);
+    metadata_map_.erase(id_uint);
+
+    // Remove vector and ID using swap-and-pop for efficiency
+    if (idx != vectors_.size() - 1) {
+      std::swap(vectors_[idx], vectors_.back());
+      std::swap(vector_ids_[idx], vector_ids_.back());
+    }
+    vectors_.pop_back();
+    vector_ids_.pop_back();
+
+    result.deleted_count++;
+  }
+
+  return result;
+}
+
+core::Status Segment::UpdateMetadata(
+    core::VectorId id, const core::Metadata& metadata, bool merge) {
+  std::unique_lock lock(mutex_);
+
+  // Validate state - can only update metadata in GROWING segments
+  if (state_ != core::SegmentState::GROWING) {
+    return core::FailedPreconditionError(
+        absl::StrCat("Cannot update metadata in segment state: ",
+                     static_cast<int>(state_)));
+  }
+
+  // Find vector with matching ID
+  bool found = false;
+  for (size_t i = 0; i < vector_ids_.size(); ++i) {
+    if (vector_ids_[i] == id) {
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) {
+    return core::NotFoundError(
+        absl::StrCat("Vector ID ", core::ToUInt64(id),
+                     " not found in segment ", core::ToUInt32(id_)));
+  }
+
+  uint64_t id_uint = core::ToUInt64(id);
+
+  if (merge) {
+    // Merge with existing metadata
+    auto it = metadata_map_.find(id_uint);
+    if (it != metadata_map_.end()) {
+      // Merge: update existing fields and add new ones
+      for (const auto& [key, value] : metadata) {
+        it->second[key] = value;
+      }
+    } else {
+      // No existing metadata, just insert new
+      metadata_map_[id_uint] = metadata;
+    }
+  } else {
+    // Replace existing metadata completely
+    metadata_map_[id_uint] = metadata;
+  }
+
+  return core::OkStatus();
+}
+
 core::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
                                                      int k) const {
   std::shared_lock lock(mutex_);
