@@ -6,6 +6,7 @@
 
 #include "absl/strings/str_cat.h"
 #include "core/filter.h"
+#include "utils/logger.h"
 
 namespace gvdb {
 namespace storage {
@@ -624,6 +625,191 @@ core::StatusOr<std::unique_ptr<Segment>> Segment::Load(
   segment->state_ = core::SegmentState::FLUSHED;
 
   return segment;
+}
+
+// ========== Serialization for Replication ==========
+
+core::StatusOr<std::string> Segment::SerializeToBytes() const {
+  std::shared_lock lock(mutex_);
+
+  // Simple binary format for segment data
+  // Format: [header][vector_count][vectors_data][ids_data][metadata_data]
+
+  std::stringstream ss;
+
+  // Header: segment_id, collection_id, dimension, metric, state
+  uint32_t seg_id = core::ToUInt32(id_);
+  uint32_t coll_id = core::ToUInt32(collection_id_);
+  uint32_t dim = dimension_;
+  int32_t metric = static_cast<int32_t>(metric_);
+  int32_t state = static_cast<int32_t>(state_);
+
+  ss.write(reinterpret_cast<const char*>(&seg_id), sizeof(seg_id));
+  ss.write(reinterpret_cast<const char*>(&coll_id), sizeof(coll_id));
+  ss.write(reinterpret_cast<const char*>(&dim), sizeof(dim));
+  ss.write(reinterpret_cast<const char*>(&metric), sizeof(metric));
+  ss.write(reinterpret_cast<const char*>(&state), sizeof(state));
+
+  // Vector count
+  uint64_t vector_count = vectors_.size();
+  ss.write(reinterpret_cast<const char*>(&vector_count), sizeof(vector_count));
+
+  // Vector IDs
+  for (const auto& vid : vector_ids_) {
+    uint64_t id_val = core::ToUInt64(vid);
+    ss.write(reinterpret_cast<const char*>(&id_val), sizeof(id_val));
+  }
+
+  // Vector data
+  for (const auto& vec : vectors_) {
+    ss.write(reinterpret_cast<const char*>(vec.data()),
+             vec.size() * sizeof(float));
+  }
+
+  // Metadata: write count then serialize each metadata map
+  uint64_t metadata_count = metadata_map_.size();
+  ss.write(reinterpret_cast<const char*>(&metadata_count), sizeof(metadata_count));
+
+  for (const auto& [vid_raw, metadata] : metadata_map_) {
+    // Write vector ID
+    ss.write(reinterpret_cast<const char*>(&vid_raw), sizeof(vid_raw));
+
+    // Serialize metadata using MetadataSerializer
+    core::MetadataSerializer::Serialize(metadata, ss);
+  }
+
+  utils::Logger::Instance().Info("Serialized segment {} ({} vectors, {} bytes)",
+                                  core::ToUInt32(id_), vector_count, ss.str().size());
+
+  return ss.str();
+}
+
+core::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
+    const std::string& bytes_data) {
+  // Check minimum size for header
+  const size_t kMinHeaderSize = sizeof(uint32_t) * 3 + sizeof(int32_t) * 2 + sizeof(uint64_t);
+  if (bytes_data.size() < kMinHeaderSize) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Invalid segment data: too small (", bytes_data.size(), " bytes)"));
+  }
+
+  std::stringstream ss(bytes_data);
+
+  // Read header
+  uint32_t seg_id, coll_id, dim;
+  int32_t metric, state;
+
+  ss.read(reinterpret_cast<char*>(&seg_id), sizeof(seg_id));
+  ss.read(reinterpret_cast<char*>(&coll_id), sizeof(coll_id));
+  ss.read(reinterpret_cast<char*>(&dim), sizeof(dim));
+  ss.read(reinterpret_cast<char*>(&metric), sizeof(metric));
+  ss.read(reinterpret_cast<char*>(&state), sizeof(state));
+
+  if (ss.fail()) {
+    return core::InvalidArgumentError("Failed to read segment header");
+  }
+
+  // Validate dimension
+  if (dim == 0 || dim > 100000) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Invalid dimension: ", dim));
+  }
+
+  // Create segment
+  auto segment = std::make_unique<Segment>(
+      core::MakeSegmentId(seg_id),
+      core::MakeCollectionId(coll_id),
+      dim,
+      static_cast<core::MetricType>(metric));
+
+  segment->state_ = static_cast<core::SegmentState>(state);
+
+  // Read vector count
+  uint64_t vector_count;
+  ss.read(reinterpret_cast<char*>(&vector_count), sizeof(vector_count));
+
+  if (ss.fail()) {
+    return core::InvalidArgumentError("Failed to read vector count");
+  }
+
+  // Validate vector count (max 100M vectors)
+  if (vector_count > 100000000) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Invalid vector count: ", vector_count));
+  }
+
+  // Read vector IDs
+  std::vector<core::VectorId> ids;
+  ids.reserve(vector_count);
+  for (uint64_t i = 0; i < vector_count; ++i) {
+    uint64_t id_val;
+    ss.read(reinterpret_cast<char*>(&id_val), sizeof(id_val));
+    if (ss.fail()) {
+      return core::InvalidArgumentError(
+          absl::StrCat("Failed to read vector ID at index ", i));
+    }
+    ids.push_back(core::MakeVectorId(id_val));
+  }
+
+  // Read vector data
+  std::vector<core::Vector> vectors;
+  vectors.reserve(vector_count);
+  for (uint64_t i = 0; i < vector_count; ++i) {
+    std::vector<float> values(dim);
+    ss.read(reinterpret_cast<char*>(values.data()), dim * sizeof(float));
+    if (ss.fail()) {
+      return core::InvalidArgumentError(
+          absl::StrCat("Failed to read vector data at index ", i));
+    }
+    vectors.emplace_back(std::move(values));
+  }
+
+  // Set vectors directly (bypass state checks for deserialization)
+  segment->vectors_ = std::move(vectors);
+  segment->vector_ids_ = std::move(ids);
+  segment->memory_usage_ = vector_count * dim * sizeof(float);
+
+  // Read metadata count
+  uint64_t metadata_count;
+  ss.read(reinterpret_cast<char*>(&metadata_count), sizeof(metadata_count));
+
+  if (ss.fail()) {
+    return core::InvalidArgumentError("Failed to read metadata count");
+  }
+
+  // Validate metadata count (max 100M entries)
+  if (metadata_count > 100000000) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Invalid metadata count: ", metadata_count));
+  }
+
+  // Read metadata entries
+  for (uint64_t i = 0; i < metadata_count; ++i) {
+    uint64_t vid_raw;
+    ss.read(reinterpret_cast<char*>(&vid_raw), sizeof(vid_raw));
+    if (ss.fail()) {
+      return core::InvalidArgumentError(
+          absl::StrCat("Failed to read metadata vector ID at index ", i));
+    }
+
+    // Deserialize metadata using MetadataSerializer
+    auto metadata_result = core::MetadataSerializer::Deserialize(ss);
+    if (!metadata_result.ok()) {
+      return metadata_result.status();
+    }
+
+    segment->metadata_map_[vid_raw] = std::move(metadata_result.value());
+  }
+
+  utils::Logger::Instance().Info("Deserialized segment {} ({} vectors, {} bytes)",
+                                  seg_id, vector_count, bytes_data.size());
+
+  return segment;
+}
+
+std::vector<core::VectorId> Segment::GetAllVectorIds() const {
+  std::shared_lock lock(mutex_);
+  return vector_ids_;
 }
 
 // ========== Accessors ==========

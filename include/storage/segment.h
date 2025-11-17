@@ -102,6 +102,18 @@ class Segment {
   [[nodiscard]] static core::StatusOr<std::unique_ptr<Segment>> Load(
       const std::string& base_path, core::SegmentId id);
 
+  // ========== Serialization for Replication ==========
+
+  // Serialize segment data to bytes (for network transfer)
+  [[nodiscard]] core::StatusOr<std::string> SerializeToBytes() const;
+
+  // Deserialize segment data from bytes and create segment
+  [[nodiscard]] static core::StatusOr<std::unique_ptr<Segment>> DeserializeFromBytes(
+      const std::string& bytes_data);
+
+  // Get all vector IDs in this segment
+  [[nodiscard]] std::vector<core::VectorId> GetAllVectorIds() const;
+
   // ========== Accessors ==========
 
   [[nodiscard]] core::SegmentId GetId() const { return id_; }

@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "absl/strings/str_cat.h"
+#include "utils/logger.h"
 
 namespace gvdb {
 namespace storage {
@@ -158,6 +159,34 @@ core::Status SegmentManager::LoadSegment(core::SegmentId id) {
 
   // Add to collection mapping
   collection_segments_[collection_id].push_back(id);
+
+  return core::OkStatus();
+}
+
+core::Status SegmentManager::AddReplicatedSegment(std::unique_ptr<Segment> segment) {
+  if (!segment) {
+    return core::InvalidArgumentError("Segment is null");
+  }
+
+  auto id = segment->GetId();
+  auto collection_id = segment->GetCollectionId();
+
+  std::unique_lock lock(mutex_);
+
+  // Check if segment already exists
+  if (segments_.find(id) != segments_.end()) {
+    return core::AlreadyExistsError(
+        absl::StrCat("Segment already exists: ", core::ToUInt32(id)));
+  }
+
+  // Store segment
+  segments_[id] = std::move(segment);
+
+  // Add to collection mapping
+  collection_segments_[collection_id].push_back(id);
+
+  utils::Logger::Instance().Info("Added replicated segment {} to collection {}",
+                                  core::ToUInt32(id), core::ToUInt32(collection_id));
 
   return core::OkStatus();
 }

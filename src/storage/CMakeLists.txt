@@ -18,6 +18,7 @@ target_link_libraries(gvdb_storage
   PUBLIC
     gvdb_core
     gvdb_index
+    gvdb_utils
     absl::status
     absl::statusor
     absl::strings

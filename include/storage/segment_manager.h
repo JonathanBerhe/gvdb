@@ -77,6 +77,9 @@ class SegmentManager {
   // Load segment from disk
   [[nodiscard]] core::Status LoadSegment(core::SegmentId id);
 
+  // Add replicated segment (from network transfer)
+  [[nodiscard]] core::Status AddReplicatedSegment(std::unique_ptr<Segment> segment);
+
   // ========== Data Operations ==========
 
   // Write vectors to a segment
