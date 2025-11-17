@@ -289,11 +289,14 @@ grpc::Status VectorDBService::Insert(
     return toGrpcStatus(metadata_result.status());
   }
 
-  // Convert proto vectors to core vectors
+  // Convert proto vectors to core vectors (and optionally metadata)
   std::vector<core::Vector> vectors;
   std::vector<core::VectorId> ids;
+  std::vector<core::Metadata> metadata_list;
   vectors.reserve(request->vectors().size());
   ids.reserve(request->vectors().size());
+
+  bool has_metadata = false;
 
   for (const auto& proto_vec : request->vectors()) {
     auto vec_result = fromProto(proto_vec);
@@ -303,6 +306,19 @@ grpc::Status VectorDBService::Insert(
 
     ids.push_back(vec_result->first);
     vectors.push_back(std::move(vec_result->second));
+
+    // Extract metadata if present
+    if (proto_vec.has_metadata()) {
+      has_metadata = true;
+      auto meta_result = fromProto(proto_vec.metadata());
+      if (!meta_result.ok()) {
+        return toGrpcStatus(meta_result.status());
+      }
+      metadata_list.push_back(std::move(*meta_result));
+    } else if (has_metadata) {
+      // If some vectors have metadata, all must have it (even if empty)
+      metadata_list.push_back(core::Metadata{});
+    }
   }
 
   // Validate dimension
@@ -314,8 +330,19 @@ grpc::Status VectorDBService::Insert(
     }
   }
 
-  // Write to segment
-  auto status = segment_manager_->WriteVectors(metadata_result->segment_id, vectors, ids);
+  // Write to segment (with or without metadata)
+  absl::Status status;
+  auto* segment = segment_manager_->GetSegment(metadata_result->segment_id);
+  if (!segment) {
+    return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  }
+
+  if (has_metadata) {
+    status = segment->AddVectorsWithMetadata(vectors, ids, metadata_list);
+  } else {
+    status = segment->AddVectors(vectors, ids);
+  }
+
   if (!status.ok()) {
     // Record failed insert
     utils::MetricsRegistry::Instance().RecordInsert(
@@ -328,11 +355,8 @@ grpc::Status VectorDBService::Insert(
       request->collection_name(), true, vectors.size());
 
   // Update vector count gauge
-  auto* segment = segment_manager_->GetSegment(metadata_result->segment_id);
-  if (segment) {
-    utils::MetricsRegistry::Instance().SetVectorCount(
-        request->collection_name(), segment->GetVectorCount());
-  }
+  utils::MetricsRegistry::Instance().SetVectorCount(
+      request->collection_name(), segment->GetVectorCount());
 
   response->set_inserted_count(vectors.size());
   response->set_message("Vectors inserted successfully");
@@ -371,11 +395,34 @@ grpc::Status VectorDBService::Search(
     return toGrpcStatus(query_result.status());
   }
 
-  // Execute search
-  auto search_result = query_executor_->Search(
-      *collection_id_result,
-      *query_result,
-      request->top_k());
+  // Get collection metadata to find segment
+  auto metadata_result = collection_registry_->GetMetadata(request->collection_name());
+  if (!metadata_result.ok()) {
+    utils::MetricsRegistry::Instance().RecordSearch(
+        request->collection_name(), false);
+    return toGrpcStatus(metadata_result.status());
+  }
+
+  auto* segment = segment_manager_->GetSegment(metadata_result->segment_id);
+  if (!segment) {
+    utils::MetricsRegistry::Instance().RecordSearch(
+        request->collection_name(), false);
+    return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  }
+
+  // Execute search (with or without filter)
+  core::StatusOr<core::SearchResult> search_result;
+
+  if (!request->filter().empty()) {
+    // Search with metadata filtering
+    search_result = segment->SearchWithFilter(
+        *query_result,
+        request->top_k(),
+        request->filter());
+  } else {
+    // Normal search without filtering
+    search_result = segment->Search(*query_result, request->top_k());
+  }
 
   if (!search_result.ok()) {
     // Record failed search
@@ -392,6 +439,14 @@ grpc::Status VectorDBService::Search(
   for (const auto& entry : search_result->entries) {
     auto* proto_entry = response->add_results();
     toProto(entry, proto_entry);
+
+    // Optionally include metadata in results
+    if (request->return_metadata()) {
+      auto meta_result = segment->GetMetadata(entry.id);
+      if (meta_result.ok()) {
+        toProto(*meta_result, proto_entry->mutable_metadata());
+      }
+    }
   }
 
   response->set_query_time_ms(timer.elapsed_millis());

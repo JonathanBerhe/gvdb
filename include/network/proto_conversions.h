@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/metadata.h"
 #include "core/types.h"
 #include "core/vector.h"
 #include "absl/status/status.h"
@@ -30,6 +31,9 @@ fromProto(proto::CreateCollectionRequest::MetricType metric);
 absl::StatusOr<core::IndexType>
 fromProto(proto::CreateCollectionRequest::IndexType index_type);
 
+// Convert proto Metadata to core Metadata
+absl::StatusOr<core::Metadata> fromProto(const proto::Metadata& proto_metadata);
+
 // ============================================================================
 // Core to Proto Conversions
 // ============================================================================
@@ -42,6 +46,9 @@ void toProto(const core::SearchResultEntry& entry, proto::SearchResultEntry* pro
 
 // Convert core MetricType to string representation
 std::string toString(core::MetricType metric);
+
+// Convert core Metadata to proto Metadata
+void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata);
 
 // ============================================================================
 // Status Conversions

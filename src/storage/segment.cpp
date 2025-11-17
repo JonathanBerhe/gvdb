@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "absl/strings/str_cat.h"
+#include "core/filter.h"
 
 namespace gvdb {
 namespace storage {
@@ -149,6 +150,179 @@ core::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
 
   // Perform search using the index
   return index_->Search(query, k);
+}
+
+core::Status Segment::AddVectorsWithMetadata(
+    const std::vector<core::Vector>& vectors,
+    const std::vector<core::VectorId>& ids,
+    const std::vector<core::Metadata>& metadata) {
+  std::unique_lock lock(mutex_);
+
+  // Validate state
+  if (state_ != core::SegmentState::GROWING) {
+    return core::FailedPreconditionError(
+        absl::StrCat("Cannot add vectors to segment in state: ",
+                     static_cast<int>(state_)));
+  }
+
+  // Validate inputs
+  auto status = ValidateVectors(vectors, ids);
+  if (!status.ok()) {
+    return status;
+  }
+
+  if (metadata.size() != vectors.size()) {
+    return core::InvalidArgumentError(
+        "Metadata size must match vector count");
+  }
+
+  // Validate all metadata
+  for (size_t i = 0; i < metadata.size(); ++i) {
+    auto validation = core::validate_metadata(metadata[i]);
+    if (!validation.ok()) {
+      return core::InvalidArgumentError(
+          absl::StrCat("Invalid metadata at index ", i, ": ",
+                       validation.message()));
+    }
+  }
+
+  // Check if segment would exceed size limit
+  size_t additional_size = 0;
+  for (const auto& vec : vectors) {
+    additional_size += vec.byte_size();
+  }
+  // Rough estimate for metadata size (conservative)
+  additional_size += metadata.size() * 1024;  // ~1KB per metadata
+
+  if (memory_usage_ + additional_size > kMaxSegmentSize) {
+    return core::ResourceExhaustedError(
+        absl::StrCat("Segment ", core::ToUInt32(id_),
+                     " would exceed max size ", kMaxSegmentSize));
+  }
+
+  // Add vectors and metadata
+  vectors_.insert(vectors_.end(), vectors.begin(), vectors.end());
+  vector_ids_.insert(vector_ids_.end(), ids.begin(), ids.end());
+
+  for (size_t i = 0; i < ids.size(); ++i) {
+    metadata_map_[core::ToUInt64(ids[i])] = metadata[i];
+  }
+
+  memory_usage_ += additional_size;
+
+  return core::OkStatus();
+}
+
+core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
+    const core::Vector& query, int k, const std::string& filter_expr) const {
+  std::shared_lock lock(mutex_);
+
+  // Parse filter
+  auto filter = core::FilterParser::parse(filter_expr);
+  if (!filter.ok()) {
+    return filter.status();
+  }
+
+  // For GROWING segments with brute-force search
+  if (state_ == core::SegmentState::GROWING) {
+    if (vectors_.empty()) {
+      return core::SearchResult{};
+    }
+
+    // Compute distances for vectors that match the filter
+    std::vector<core::SearchResultEntry> results;
+    results.reserve(vectors_.size());
+
+    for (size_t i = 0; i < vectors_.size(); ++i) {
+      // Check if this vector has metadata and matches filter
+      auto it = metadata_map_.find(core::ToUInt64(vector_ids_[i]));
+      if (it != metadata_map_.end()) {
+        if (!(*filter)->evaluate(it->second)) {
+          continue;  // Skip vectors that don't match filter
+        }
+      } else {
+        continue;  // Skip vectors without metadata
+      }
+
+      float distance;
+      if (metric_ == core::MetricType::L2) {
+        distance = query.L2Distance(vectors_[i]);
+      } else if (metric_ == core::MetricType::INNER_PRODUCT) {
+        distance = -query.InnerProduct(vectors_[i]);
+      } else {
+        distance = query.CosineDistance(vectors_[i]);
+      }
+
+      results.emplace_back(vector_ids_[i], distance);
+    }
+
+    // Sort by distance
+    std::partial_sort(results.begin(),
+                      results.begin() + std::min(k, (int)results.size()),
+                      results.end(),
+                      [](const auto& a, const auto& b) {
+                        return a.distance < b.distance;
+                      });
+
+    // Return top-k
+    core::SearchResult result(k);
+    for (int i = 0; i < std::min(k, (int)results.size()); ++i) {
+      result.AddEntry(results[i].id, results[i].distance);
+    }
+    return result;
+  }
+
+  // For SEALED segments with index
+  if (state_ != core::SegmentState::SEALED &&
+      state_ != core::SegmentState::FLUSHED) {
+    return core::FailedPreconditionError(
+        absl::StrCat("Cannot search in segment state: ",
+                     static_cast<int>(state_)));
+  }
+
+  if (!index_) {
+    return core::FailedPreconditionError(
+        absl::StrCat("Segment ", core::ToUInt32(id_), " has no index"));
+  }
+
+  // Search with over-fetching and post-filtering
+  // Fetch more results than needed to account for filtering
+  int fetch_k = std::min(k * 10, static_cast<int>(GetVectorCount()));
+  auto search_result = index_->Search(query, fetch_k);
+  if (!search_result.ok()) {
+    return search_result.status();
+  }
+
+  // Filter results
+  core::SearchResult filtered_result(k);
+  for (const auto& entry : search_result->entries) {
+    if (filtered_result.Size() >= static_cast<size_t>(k)) {
+      break;
+    }
+
+    // Check metadata
+    auto it = metadata_map_.find(core::ToUInt64(entry.id));
+    if (it != metadata_map_.end()) {
+      if ((*filter)->evaluate(it->second)) {
+        filtered_result.AddEntry(entry.id, entry.distance);
+      }
+    }
+  }
+
+  return filtered_result;
+}
+
+core::StatusOr<core::Metadata> Segment::GetMetadata(core::VectorId id) const {
+  std::shared_lock lock(mutex_);
+
+  auto it = metadata_map_.find(core::ToUInt64(id));
+  if (it == metadata_map_.end()) {
+    return core::NotFoundError(
+        absl::StrCat("Metadata for vector ", core::ToUInt64(id),
+                     " not found in segment ", core::ToUInt32(id_)));
+  }
+
+  return it->second;
 }
 
 // ========== State Management ==========

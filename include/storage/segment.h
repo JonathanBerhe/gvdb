@@ -4,9 +4,11 @@
 #include <memory>
 #include <shared_mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "core/interfaces.h"
+#include "core/metadata.h"
 #include "core/status.h"
 #include "core/types.h"
 #include "core/vector.h"
@@ -44,6 +46,12 @@ class Segment {
   [[nodiscard]] core::Status AddVectors(const std::vector<core::Vector>& vectors,
                                          const std::vector<core::VectorId>& ids);
 
+  // Add vectors with metadata to segment (only valid for GROWING state)
+  [[nodiscard]] core::Status AddVectorsWithMetadata(
+      const std::vector<core::Vector>& vectors,
+      const std::vector<core::VectorId>& ids,
+      const std::vector<core::Metadata>& metadata);
+
   // Read specific vectors by ID
   [[nodiscard]] core::StatusOr<std::vector<core::Vector>> ReadVectors(
       const std::vector<core::VectorId>& ids) const;
@@ -51,6 +59,13 @@ class Segment {
   // Search for nearest neighbors (requires index to be built)
   [[nodiscard]] core::StatusOr<core::SearchResult> Search(
       const core::Vector& query, int k) const;
+
+  // Search with metadata filtering (requires index to be built)
+  [[nodiscard]] core::StatusOr<core::SearchResult> SearchWithFilter(
+      const core::Vector& query, int k, const std::string& filter_expr) const;
+
+  // Get metadata for a vector
+  [[nodiscard]] core::StatusOr<core::Metadata> GetMetadata(core::VectorId id) const;
 
   // ========== State Management ==========
 
@@ -98,6 +113,9 @@ class Segment {
   std::vector<core::Vector> vectors_;
   std::vector<core::VectorId> vector_ids_;
   size_t memory_usage_;
+
+  // Metadata storage (maps VectorId to Metadata)
+  std::unordered_map<uint64_t, core::Metadata> metadata_map_;
 
   // Index (for SEALED state)
   std::unique_ptr<core::IVectorIndex> index_;

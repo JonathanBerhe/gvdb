@@ -13,14 +13,31 @@ message Vector {
   uint32 dimension = 2;
 }
 
+// Metadata value (supports multiple types)
+message MetadataValue {
+  oneof value {
+    int64 int_value = 1;
+    double double_value = 2;
+    string string_value = 3;
+    bool bool_value = 4;
+  }
+}
+
+// Metadata (key-value pairs)
+message Metadata {
+  map<string, MetadataValue> fields = 1;
+}
+
 message VectorWithId {
   uint64 id = 1;
   Vector vector = 2;
+  Metadata metadata = 3;  // Optional metadata
 }
 
 message SearchResultEntry {
   uint64 id = 1;
   float distance = 2;
+  Metadata metadata = 3;  // Optional: return metadata with results
 }
 
 // ============================================================================
@@ -91,6 +108,8 @@ message SearchRequest {
   string collection_name = 1;
   Vector query_vector = 2;
   uint32 top_k = 3;
+  string filter = 4;  // Optional: SQL-like filter expression (e.g., "price < 100 AND brand = 'Nike'")
+  bool return_metadata = 5;  // Optional: whether to return metadata in results
 }
 
 message SearchResponse {

@@ -209,6 +209,7 @@ main() {
     # Build tests
     log_info "Building test binaries..."
     build_test "E2E" "e2e.go" || exit 1
+    build_test "Metadata" "metadata.go" || exit 1
     build_test "Load" "load.go" || exit 1
     build_test "Fuzzy" "fuzzy.go" || exit 1
     log_success "All tests built"
@@ -225,6 +226,7 @@ main() {
     # Run tests
     TESTS=(
         "E2E Test:E2E_test"
+        "Metadata Filtering Test:Metadata_test"
         "Load Test:Load_test"
         "Fuzzy Test:Fuzzy_test"
     )
