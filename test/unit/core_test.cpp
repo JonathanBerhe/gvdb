@@ -973,6 +973,152 @@ TEST(ConfigTest, SystemConfigValidation) {
   EXPECT_TRUE(config.IsValid());
 }
 
+// ============================================================================
+// MetadataSerializer Tests
+// ============================================================================
+
+TEST(MetadataSerializerTest, SerializeDeserializeInt64) {
+  Metadata metadata;
+  metadata["count"] = static_cast<int64_t>(12345);
+  metadata["price"] = static_cast<int64_t>(-999);
+
+  std::stringstream ss;
+  MetadataSerializer::Serialize(metadata, ss);
+
+  auto result = MetadataSerializer::Deserialize(ss);
+  ASSERT_TRUE(result.ok()) << result.status().message();
+
+  const auto& deserialized = result.value();
+  ASSERT_EQ(deserialized.size(), 2);
+  EXPECT_EQ(std::get<int64_t>(deserialized.at("count")), 12345);
+  EXPECT_EQ(std::get<int64_t>(deserialized.at("price")), -999);
+}
+
+TEST(MetadataSerializerTest, SerializeDeserializeDouble) {
+  Metadata metadata;
+  metadata["rating"] = 4.5;
+  metadata["score"] = -1.234567;
+
+  std::stringstream ss;
+  MetadataSerializer::Serialize(metadata, ss);
+
+  auto result = MetadataSerializer::Deserialize(ss);
+  ASSERT_TRUE(result.ok());
+
+  const auto& deserialized = result.value();
+  ASSERT_EQ(deserialized.size(), 2);
+  EXPECT_DOUBLE_EQ(std::get<double>(deserialized.at("rating")), 4.5);
+  EXPECT_DOUBLE_EQ(std::get<double>(deserialized.at("score")), -1.234567);
+}
+
+TEST(MetadataSerializerTest, SerializeDeserializeString) {
+  Metadata metadata;
+  metadata["brand"] = std::string("Nike");
+  metadata["description"] = std::string("High-performance running shoes");
+  metadata["empty"] = std::string("");
+
+  std::stringstream ss;
+  MetadataSerializer::Serialize(metadata, ss);
+
+  auto result = MetadataSerializer::Deserialize(ss);
+  ASSERT_TRUE(result.ok());
+
+  const auto& deserialized = result.value();
+  ASSERT_EQ(deserialized.size(), 3);
+  EXPECT_EQ(std::get<std::string>(deserialized.at("brand")), "Nike");
+  EXPECT_EQ(std::get<std::string>(deserialized.at("description")),
+            "High-performance running shoes");
+  EXPECT_EQ(std::get<std::string>(deserialized.at("empty")), "");
+}
+
+TEST(MetadataSerializerTest, SerializeDeserializeBool) {
+  Metadata metadata;
+  metadata["in_stock"] = true;
+  metadata["featured"] = false;
+
+  std::stringstream ss;
+  MetadataSerializer::Serialize(metadata, ss);
+
+  auto result = MetadataSerializer::Deserialize(ss);
+  ASSERT_TRUE(result.ok());
+
+  const auto& deserialized = result.value();
+  ASSERT_EQ(deserialized.size(), 2);
+  EXPECT_TRUE(std::get<bool>(deserialized.at("in_stock")));
+  EXPECT_FALSE(std::get<bool>(deserialized.at("featured")));
+}
+
+TEST(MetadataSerializerTest, SerializeDeserializeMixedTypes) {
+  Metadata metadata;
+  metadata["price"] = 120.50;
+  metadata["brand"] = std::string("Adidas");
+  metadata["stock_count"] = static_cast<int64_t>(42);
+  metadata["on_sale"] = true;
+  metadata["category"] = std::string("sportswear");
+
+  std::stringstream ss;
+  MetadataSerializer::Serialize(metadata, ss);
+
+  auto result = MetadataSerializer::Deserialize(ss);
+  ASSERT_TRUE(result.ok());
+
+  const auto& deserialized = result.value();
+  ASSERT_EQ(deserialized.size(), 5);
+  EXPECT_DOUBLE_EQ(std::get<double>(deserialized.at("price")), 120.50);
+  EXPECT_EQ(std::get<std::string>(deserialized.at("brand")), "Adidas");
+  EXPECT_EQ(std::get<int64_t>(deserialized.at("stock_count")), 42);
+  EXPECT_TRUE(std::get<bool>(deserialized.at("on_sale")));
+  EXPECT_EQ(std::get<std::string>(deserialized.at("category")), "sportswear");
+}
+
+TEST(MetadataSerializerTest, SerializeDeserializeEmpty) {
+  Metadata metadata;  // Empty
+
+  std::stringstream ss;
+  MetadataSerializer::Serialize(metadata, ss);
+
+  auto result = MetadataSerializer::Deserialize(ss);
+  ASSERT_TRUE(result.ok());
+
+  const auto& deserialized = result.value();
+  EXPECT_EQ(deserialized.size(), 0);
+}
+
+TEST(MetadataSerializerTest, DeserializeInvalidData) {
+  std::stringstream ss;
+
+  // Write invalid count (> 100)
+  uint64_t invalid_count = 101;
+  ss.write(reinterpret_cast<const char*>(&invalid_count), sizeof(invalid_count));
+
+  auto result = MetadataSerializer::Deserialize(ss);
+  EXPECT_FALSE(result.ok());
+  EXPECT_EQ(result.status().code(), absl::StatusCode::kInvalidArgument);
+}
+
+TEST(MetadataSerializerTest, LargeMetadata) {
+  Metadata metadata;
+
+  // Add 50 fields (within limit of 100)
+  for (int i = 0; i < 50; ++i) {
+    metadata["field_" + std::to_string(i)] = static_cast<int64_t>(i * 10);
+  }
+
+  std::stringstream ss;
+  MetadataSerializer::Serialize(metadata, ss);
+
+  auto result = MetadataSerializer::Deserialize(ss);
+  ASSERT_TRUE(result.ok());
+
+  const auto& deserialized = result.value();
+  ASSERT_EQ(deserialized.size(), 50);
+
+  for (int i = 0; i < 50; ++i) {
+    std::string key = "field_" + std::to_string(i);
+    EXPECT_EQ(std::get<int64_t>(deserialized.at(key)), i * 10);
+  }
+}
+
 }  // namespace
 }  // namespace core
 }  // namespace gvdb

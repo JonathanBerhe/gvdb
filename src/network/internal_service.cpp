@@ -123,12 +123,10 @@ grpc::Status InternalService::ReplicateSegment(
     uint64_t segment_id = segment_info.segment_id();
     uint32_t collection_id = segment_info.collection_id();
     uint32_t shard_id = segment_info.shard_id();
+    const auto& segment_data = request->segment_data();
 
-    utils::Logger::Instance().Info("ReplicateSegment: segment={}, collection={}, shard={}",
-                                    segment_id, collection_id, shard_id);
-
-    // For Phase 4, we implement basic segment metadata replication
-    // Actual data transfer would be done via streaming RPC in production
+    utils::Logger::Instance().Info("ReplicateSegment: segment={}, collection={}, shard={}, data_size={}",
+                                    segment_id, collection_id, shard_id, segment_data.size());
 
     // Validate segment info
     if (segment_id == 0) {
@@ -137,17 +135,37 @@ grpc::Status InternalService::ReplicateSegment(
       return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Invalid segment_id");
     }
 
-    // Note: In production, this would:
-    // 1. Stream segment data from source node
-    // 2. Write to local storage
-    // 3. Build/validate index
-    // For now, we just acknowledge receipt
+    if (segment_data.empty()) {
+      response->set_success(false);
+      response->set_message("Empty segment_data");
+      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Empty segment_data");
+    }
+
+    // Deserialize segment from bytes
+    auto segment_result = storage::Segment::DeserializeFromBytes(segment_data);
+    if (!segment_result.ok()) {
+      response->set_success(false);
+      response->set_message(absl::StrFormat("Failed to deserialize segment: %s",
+                                             std::string(segment_result.status().message()).c_str()));
+      utils::Logger::Instance().Error("Deserialization failed: {}", segment_result.status().message());
+      return grpc::Status::OK;
+    }
+
+    // Add to segment manager
+    auto add_status = segment_manager_->AddReplicatedSegment(std::move(segment_result.value()));
+    if (!add_status.ok()) {
+      response->set_success(false);
+      response->set_message(absl::StrFormat("Failed to add segment: %s", std::string(add_status.message()).c_str()));
+      utils::Logger::Instance().Error("AddReplicatedSegment failed: {}", add_status.message());
+      return grpc::Status::OK;
+    }
 
     response->set_success(true);
-    response->set_message(absl::StrFormat("Segment %lu metadata received (data transfer pending)",
-                                           segment_id));
+    response->set_message(absl::StrFormat("Segment %lu replicated successfully (%lu bytes)",
+                                           segment_id, segment_data.size()));
 
-    utils::Logger::Instance().Info("ReplicateSegment completed for segment={}", segment_id);
+    utils::Logger::Instance().Info("ReplicateSegment completed: segment={}, {} bytes",
+                                    segment_id, segment_data.size());
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
@@ -173,30 +191,41 @@ grpc::Status InternalService::GetSegment(
       return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Invalid segment_id");
     }
 
-    // Try to get segment metadata from SegmentManager
+    // Try to get segment from SegmentManager
     core::SegmentId seg_id = static_cast<core::SegmentId>(segment_id);
     auto segment = segment_manager_->GetSegment(seg_id);
-    if (segment) {
-      // Fill response with segment info
-      auto* segment_info = response->mutable_segment_info();
-      segment_info->set_segment_id(static_cast<uint64_t>(segment->GetId()));
-      segment_info->set_collection_id(0);  // TODO: Get from segment metadata
-      segment_info->set_shard_id(0);       // TODO: Get from segment metadata
-      segment_info->set_vector_count(segment->GetVectorCount());
-      segment_info->set_size_bytes(0);     // TODO: Calculate actual size
-      segment_info->set_is_sealed(segment->GetState() == core::SegmentState::SEALED);
-
-      // Note: Actual vector data would be streamed in production via segment_data field
-
-      utils::Logger::Instance().Debug("GetSegment: found segment={} with {} vectors",
-                                       segment_id, segment->GetVectorCount());
-      return grpc::Status::OK;
-    } else {
-      // Return empty response if segment not found
+    if (!segment) {
       utils::Logger::Instance().Debug("GetSegment: segment={} not found", segment_id);
       return grpc::Status(grpc::StatusCode::NOT_FOUND,
                           absl::StrFormat("Segment %lu not found", segment_id));
     }
+
+    // Fill response with segment info
+    auto* segment_info = response->mutable_segment_info();
+    segment_info->set_segment_id(static_cast<uint64_t>(segment->GetId()));
+    segment_info->set_collection_id(core::ToUInt32(segment->GetCollectionId()));
+    segment_info->set_shard_id(0);  // TODO: Track shard_id in segment metadata
+    segment_info->set_vector_count(segment->GetVectorCount());
+    segment_info->set_is_sealed(segment->GetState() == core::SegmentState::SEALED);
+
+    // Serialize segment data
+    auto serialize_result = segment->SerializeToBytes();
+    if (!serialize_result.ok()) {
+      utils::Logger::Instance().Error("GetSegment: serialization failed: {}",
+                                       serialize_result.status().message());
+      return grpc::Status(grpc::StatusCode::INTERNAL,
+                          absl::StrFormat("Failed to serialize segment: %s",
+                                          std::string(serialize_result.status().message()).c_str()));
+    }
+
+    // Set segment data and size
+    const auto& data = serialize_result.value();
+    response->set_segment_data(data);
+    segment_info->set_size_bytes(data.size());
+
+    utils::Logger::Instance().Debug("GetSegment: found segment={} with {} vectors ({} bytes)",
+                                     segment_id, segment->GetVectorCount(), data.size());
+    return grpc::Status::OK;
 
   } catch (const std::exception& e) {
     total_errors_++;
@@ -255,16 +284,25 @@ grpc::Status InternalService::DeleteSegment(
       return grpc::Status::OK;
     }
 
-    // TODO: Implement actual segment deletion
-    // For now, this is a stub. Production implementation would:
-    // 1. Check if segment can be safely deleted (not in active queries)
-    // 2. Remove from memory
-    // 3. Delete segment files from disk
-    // 4. Update metadata
-    response->set_success(false);
-    response->set_message(absl::StrFormat("Segment deletion not fully implemented (segment %lu exists but deletion pending)",
+    // Check segment state before deletion
+    auto state = segment->GetState();
+    utils::Logger::Instance().Info("DeleteSegment: segment={} state={}",
+                                    segment_id, static_cast<int>(state));
+
+    // Delete segment from memory and disk
+    auto drop_status = segment_manager_->DropSegment(seg_id, true /* delete_files */);
+    if (!drop_status.ok()) {
+      response->set_success(false);
+      response->set_message(absl::StrFormat("Failed to delete segment %lu: %s",
+                                             segment_id, std::string(drop_status.message()).c_str()));
+      utils::Logger::Instance().Error("DeleteSegment failed: {}", drop_status.message());
+      return grpc::Status::OK;
+    }
+
+    response->set_success(true);
+    response->set_message(absl::StrFormat("Segment %lu deleted successfully (removed from memory and disk)",
                                            segment_id));
-    utils::Logger::Instance().Warn("DeleteSegment: deletion not implemented for segment={}", segment_id);
+    utils::Logger::Instance().Info("DeleteSegment: successfully deleted segment={}", segment_id);
 
     return grpc::Status::OK;
 

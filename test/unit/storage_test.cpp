@@ -1202,6 +1202,199 @@ TEST_F(StorageTest, SegmentUpdateMetadataSealedState) {
   EXPECT_EQ(status.code(), absl::StatusCode::kFailedPrecondition);
 }
 
+// ========== Segment Serialization Tests ==========
+
+TEST_F(StorageTest, SegmentSerializeDeserializeEmpty) {
+  auto segment_id = core::MakeSegmentId(42);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Serialize empty segment
+  auto serialize_result = segment.SerializeToBytes();
+  ASSERT_TRUE(serialize_result.ok()) << serialize_result.status();
+
+  const auto& bytes = serialize_result.value();
+  EXPECT_GT(bytes.size(), 0);
+
+  // Deserialize
+  auto deserialize_result = storage::Segment::DeserializeFromBytes(bytes);
+  ASSERT_TRUE(deserialize_result.ok()) << deserialize_result.status();
+
+  auto deserialized = std::move(deserialize_result.value());
+  EXPECT_EQ(deserialized->GetId(), segment_id);
+  EXPECT_EQ(deserialized->GetCollectionId(), collection_id_);
+  EXPECT_EQ(deserialized->GetDimension(), dimension_);
+  EXPECT_EQ(deserialized->GetMetric(), metric_);
+  EXPECT_EQ(deserialized->GetVectorCount(), 0);
+}
+
+TEST_F(StorageTest, SegmentSerializeDeserializeWithVectors) {
+  auto segment_id = core::MakeSegmentId(100);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Add vectors
+  auto vectors = CreateTestVectors(10);
+  auto ids = CreateTestVectorIds(10);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  // Serialize
+  auto serialize_result = segment.SerializeToBytes();
+  ASSERT_TRUE(serialize_result.ok()) << serialize_result.status();
+
+  // Deserialize
+  auto deserialize_result =
+      storage::Segment::DeserializeFromBytes(serialize_result.value());
+  ASSERT_TRUE(deserialize_result.ok()) << deserialize_result.status();
+
+  auto deserialized = std::move(deserialize_result.value());
+
+  // Verify metadata
+  EXPECT_EQ(deserialized->GetId(), segment_id);
+  EXPECT_EQ(deserialized->GetVectorCount(), 10);
+
+  // Verify vectors match
+  auto read_result = deserialized->ReadVectors(ids);
+  ASSERT_TRUE(read_result.ok());
+  ASSERT_EQ(read_result->size(), 10);
+
+  for (size_t i = 0; i < vectors.size(); ++i) {
+    const auto& original = vectors[i];
+    const auto& read = read_result->at(i);
+    ASSERT_EQ(original.size(), read.size());
+    for (size_t j = 0; j < original.size(); ++j) {
+      EXPECT_FLOAT_EQ(original[j], read[j]);
+    }
+  }
+}
+
+TEST_F(StorageTest, SegmentSerializeDeserializeWithMetadata) {
+  auto segment_id = core::MakeSegmentId(200);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Add vectors
+  auto vectors = CreateTestVectors(5);
+  auto ids = CreateTestVectorIds(5);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  // Add metadata to each vector
+  for (size_t i = 0; i < ids.size(); ++i) {
+    core::Metadata metadata;
+    metadata["index"] = core::MetadataValue(static_cast<int64_t>(i));
+    metadata["price"] = core::MetadataValue(static_cast<double>(i * 10.5));
+    metadata["name"] = core::MetadataValue(std::string("vector_") + std::to_string(i));
+    metadata["active"] = core::MetadataValue(i % 2 == 0);
+
+    ASSERT_TRUE(segment.UpdateMetadata(ids[i], metadata, false).ok());
+  }
+
+  // Serialize
+  auto serialize_result = segment.SerializeToBytes();
+  ASSERT_TRUE(serialize_result.ok()) << serialize_result.status();
+
+  // Deserialize
+  auto deserialize_result =
+      storage::Segment::DeserializeFromBytes(serialize_result.value());
+  ASSERT_TRUE(deserialize_result.ok()) << deserialize_result.status();
+
+  auto deserialized = std::move(deserialize_result.value());
+
+  // Verify metadata for each vector
+  for (size_t i = 0; i < ids.size(); ++i) {
+    auto metadata_result = deserialized->GetMetadata(ids[i]);
+    ASSERT_TRUE(metadata_result.ok());
+    const auto& metadata = *metadata_result;
+
+    EXPECT_EQ(std::get<int64_t>(metadata.at("index")), static_cast<int64_t>(i));
+    EXPECT_DOUBLE_EQ(std::get<double>(metadata.at("price")), i * 10.5);
+    EXPECT_EQ(std::get<std::string>(metadata.at("name")),
+              std::string("vector_") + std::to_string(i));
+    EXPECT_EQ(std::get<bool>(metadata.at("active")), i % 2 == 0);
+  }
+}
+
+TEST_F(StorageTest, SegmentSerializeDeserializeLargeSegment) {
+  auto segment_id = core::MakeSegmentId(300);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Add many vectors
+  auto vectors = CreateTestVectors(100);
+  auto ids = CreateTestVectorIds(100);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  // Add metadata to subset
+  for (size_t i = 0; i < 50; ++i) {
+    core::Metadata metadata;
+    metadata["batch"] = core::MetadataValue(static_cast<int64_t>(i / 10));
+    metadata["score"] = core::MetadataValue(static_cast<double>(i) * 0.1);
+    ASSERT_TRUE(segment.UpdateMetadata(ids[i], metadata, false).ok());
+  }
+
+  // Serialize
+  auto serialize_result = segment.SerializeToBytes();
+  ASSERT_TRUE(serialize_result.ok()) << serialize_result.status();
+
+  // Should have reasonable size
+  const auto& bytes = serialize_result.value();
+  size_t expected_min_size = 100 * dimension_ * sizeof(float);  // Just vectors
+  EXPECT_GT(bytes.size(), expected_min_size);
+
+  // Deserialize
+  auto deserialize_result = storage::Segment::DeserializeFromBytes(bytes);
+  ASSERT_TRUE(deserialize_result.ok()) << deserialize_result.status();
+
+  auto deserialized = std::move(deserialize_result.value());
+  EXPECT_EQ(deserialized->GetVectorCount(), 100);
+
+  // Spot check a few vectors
+  std::vector<core::VectorId> check_ids = {ids[0], ids[49], ids[99]};
+  auto read_result = deserialized->ReadVectors(check_ids);
+  ASSERT_TRUE(read_result.ok());
+  EXPECT_EQ(read_result->size(), 3);
+}
+
+TEST_F(StorageTest, SegmentSerializeDeserializeStatePreservation) {
+  auto segment_id = core::MakeSegmentId(400);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Add vectors
+  auto vectors = CreateTestVectors(5);
+  auto ids = CreateTestVectorIds(5);
+  ASSERT_TRUE(segment.AddVectors(vectors, ids).ok());
+
+  // Initial state should be GROWING
+  EXPECT_EQ(segment.GetState(), core::SegmentState::GROWING);
+
+  // Serialize and deserialize
+  auto serialize_result = segment.SerializeToBytes();
+  ASSERT_TRUE(serialize_result.ok());
+
+  auto deserialize_result =
+      storage::Segment::DeserializeFromBytes(serialize_result.value());
+  ASSERT_TRUE(deserialize_result.ok());
+
+  auto deserialized = std::move(deserialize_result.value());
+
+  // State should be preserved
+  EXPECT_EQ(deserialized->GetState(), core::SegmentState::GROWING);
+  EXPECT_EQ(deserialized->GetVectorCount(), 5);
+}
+
+TEST_F(StorageTest, SegmentDeserializeInvalidData) {
+  // Empty data
+  std::string empty_bytes;
+  auto result1 = storage::Segment::DeserializeFromBytes(empty_bytes);
+  EXPECT_FALSE(result1.ok());
+
+  // Truncated data (just a few bytes)
+  std::string truncated_bytes = "abcd";
+  auto result2 = storage::Segment::DeserializeFromBytes(truncated_bytes);
+  EXPECT_FALSE(result2.ok());
+
+  // Invalid header
+  std::string invalid_bytes(100, 'x');  // Random data
+  auto result3 = storage::Segment::DeserializeFromBytes(invalid_bytes);
+  EXPECT_FALSE(result3.ok());
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

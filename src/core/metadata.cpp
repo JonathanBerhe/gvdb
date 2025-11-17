@@ -233,5 +233,152 @@ absl::Status validate_metadata(const Metadata& metadata) {
   return absl::OkStatus();
 }
 
+// ============================================================================
+// MetadataSerializer Implementation
+// ============================================================================
+
+MetadataSerializer::TypeTag MetadataSerializer::GetTypeTag(const MetadataValue& value) {
+  if (std::holds_alternative<int64_t>(value)) {
+    return TypeTag::INT64;
+  } else if (std::holds_alternative<double>(value)) {
+    return TypeTag::DOUBLE;
+  } else if (std::holds_alternative<std::string>(value)) {
+    return TypeTag::STRING;
+  } else {
+    return TypeTag::BOOL;
+  }
+}
+
+void MetadataSerializer::SerializeEntry(
+    const std::string& key,
+    const MetadataValue& value,
+    std::ostream& os) {
+  // Write key length and key
+  uint32_t key_len = static_cast<uint32_t>(key.size());
+  os.write(reinterpret_cast<const char*>(&key_len), sizeof(key_len));
+  os.write(key.data(), key_len);
+
+  // Write type tag
+  TypeTag tag = GetTypeTag(value);
+  uint8_t tag_byte = static_cast<uint8_t>(tag);
+  os.write(reinterpret_cast<const char*>(&tag_byte), sizeof(tag_byte));
+
+  // Write value based on type
+  std::visit([&os](const auto& v) {
+    using T = std::decay_t<decltype(v)>;
+    if constexpr (std::is_same_v<T, int64_t>) {
+      os.write(reinterpret_cast<const char*>(&v), sizeof(int64_t));
+    } else if constexpr (std::is_same_v<T, double>) {
+      os.write(reinterpret_cast<const char*>(&v), sizeof(double));
+    } else if constexpr (std::is_same_v<T, std::string>) {
+      uint32_t str_len = static_cast<uint32_t>(v.size());
+      os.write(reinterpret_cast<const char*>(&str_len), sizeof(str_len));
+      os.write(v.data(), str_len);
+    } else if constexpr (std::is_same_v<T, bool>) {
+      uint8_t bool_byte = v ? 1 : 0;
+      os.write(reinterpret_cast<const char*>(&bool_byte), sizeof(bool_byte));
+    }
+  }, value);
+}
+
+absl::StatusOr<std::pair<std::string, MetadataValue>>
+MetadataSerializer::DeserializeEntry(std::istream& is) {
+  // Read key length and key
+  uint32_t key_len;
+  is.read(reinterpret_cast<char*>(&key_len), sizeof(key_len));
+  if (!is || key_len > 255) {
+    return absl::InvalidArgumentError("Invalid key length");
+  }
+
+  std::string key(key_len, '\0');
+  is.read(&key[0], key_len);
+  if (!is) {
+    return absl::InvalidArgumentError("Failed to read key");
+  }
+
+  // Read type tag
+  uint8_t tag_byte;
+  is.read(reinterpret_cast<char*>(&tag_byte), sizeof(tag_byte));
+  if (!is || tag_byte > 3) {
+    return absl::InvalidArgumentError("Invalid type tag");
+  }
+
+  TypeTag tag = static_cast<TypeTag>(tag_byte);
+  MetadataValue value;
+
+  // Read value based on type
+  switch (tag) {
+    case TypeTag::INT64: {
+      int64_t int_val;
+      is.read(reinterpret_cast<char*>(&int_val), sizeof(int64_t));
+      if (!is) return absl::InvalidArgumentError("Failed to read int64");
+      value = int_val;
+      break;
+    }
+    case TypeTag::DOUBLE: {
+      double double_val;
+      is.read(reinterpret_cast<char*>(&double_val), sizeof(double));
+      if (!is) return absl::InvalidArgumentError("Failed to read double");
+      value = double_val;
+      break;
+    }
+    case TypeTag::STRING: {
+      uint32_t str_len;
+      is.read(reinterpret_cast<char*>(&str_len), sizeof(str_len));
+      if (!is || str_len > 65536) {
+        return absl::InvalidArgumentError("Invalid string length");
+      }
+      std::string str_val(str_len, '\0');
+      is.read(&str_val[0], str_len);
+      if (!is) return absl::InvalidArgumentError("Failed to read string");
+      value = str_val;
+      break;
+    }
+    case TypeTag::BOOL: {
+      uint8_t bool_byte;
+      is.read(reinterpret_cast<char*>(&bool_byte), sizeof(bool_byte));
+      if (!is) return absl::InvalidArgumentError("Failed to read bool");
+      value = (bool_byte != 0);
+      break;
+    }
+  }
+
+  return std::make_pair(key, value);
+}
+
+void MetadataSerializer::Serialize(const Metadata& metadata, std::ostream& os) {
+  // Write entry count
+  uint64_t count = static_cast<uint64_t>(metadata.size());
+  os.write(reinterpret_cast<const char*>(&count), sizeof(count));
+
+  // Write each entry
+  for (const auto& [key, value] : metadata) {
+    SerializeEntry(key, value, os);
+  }
+}
+
+absl::StatusOr<Metadata> MetadataSerializer::Deserialize(std::istream& is) {
+  // Read entry count
+  uint64_t count;
+  is.read(reinterpret_cast<char*>(&count), sizeof(count));
+  if (!is || count > 100) {  // Max 100 metadata fields
+    return absl::InvalidArgumentError("Invalid metadata count");
+  }
+
+  Metadata metadata;
+
+  // Read each entry
+  for (uint64_t i = 0; i < count; ++i) {
+    auto entry_result = DeserializeEntry(is);
+    if (!entry_result.ok()) {
+      return entry_result.status();
+    }
+    auto [key, value] = std::move(entry_result.value());
+    metadata[key] = value;
+  }
+
+  return metadata;
+}
+
 }  // namespace core
 }  // namespace gvdb

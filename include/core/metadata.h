@@ -167,5 +167,46 @@ absl::Status validate_metadata_value(const MetadataValue& value);
  */
 absl::Status validate_metadata(const Metadata& metadata);
 
+/**
+ * @brief Binary serialization for Metadata (for network transfer)
+ *
+ * Format per entry:
+ * - [key_len:4 bytes][key:string][type_tag:1 byte][value:varies]
+ *
+ * Type tags:
+ * - 0: int64_t (8 bytes)
+ * - 1: double (8 bytes)
+ * - 2: string ([len:4 bytes][data:string])
+ * - 3: bool (1 byte)
+ */
+class MetadataSerializer {
+ public:
+  // Serialize single metadata entry to output stream
+  static void SerializeEntry(
+      const std::string& key,
+      const MetadataValue& value,
+      std::ostream& os);
+
+  // Deserialize single metadata entry from input stream
+  static absl::StatusOr<std::pair<std::string, MetadataValue>> DeserializeEntry(
+      std::istream& is);
+
+  // Serialize entire metadata map to output stream
+  static void Serialize(const Metadata& metadata, std::ostream& os);
+
+  // Deserialize entire metadata map from input stream
+  static absl::StatusOr<Metadata> Deserialize(std::istream& is);
+
+ private:
+  enum class TypeTag : uint8_t {
+    INT64 = 0,
+    DOUBLE = 1,
+    STRING = 2,
+    BOOL = 3
+  };
+
+  static TypeTag GetTypeTag(const MetadataValue& value);
+};
+
 }  // namespace core
 }  // namespace gvdb
