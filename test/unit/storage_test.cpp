@@ -242,6 +242,310 @@ TEST_F(StorageTest, SegmentKeepsVectorsAfterSeal) {
 }
 
 // ============================================================================
+// Metadata Tests
+// ============================================================================
+
+TEST_F(StorageTest, SegmentAddVectorsWithMetadata) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Create vectors with metadata
+  auto vectors = CreateTestVectors(10);
+  auto ids = CreateTestVectorIds(10);
+
+  std::vector<core::Metadata> metadata;
+  for (size_t i = 0; i < 10; ++i) {
+    core::Metadata meta = {
+        {"price", core::MetadataValue(static_cast<int64_t>(100 + i * 10))},
+        {"brand", core::MetadataValue(std::string(i % 2 == 0 ? "Nike" : "Adidas"))},
+        {"in_stock", core::MetadataValue(i % 3 != 0)}
+    };
+    metadata.push_back(meta);
+  }
+
+  auto status = segment.AddVectorsWithMetadata(vectors, ids, metadata);
+  ASSERT_TRUE(status.ok()) << "AddVectorsWithMetadata failed: " << status.message();
+
+  EXPECT_EQ(segment.GetVectorCount(), 10);
+}
+
+TEST_F(StorageTest, SegmentGetMetadata) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(5);
+  auto ids = CreateTestVectorIds(5);
+
+  std::vector<core::Metadata> metadata;
+  for (size_t i = 0; i < 5; ++i) {
+    core::Metadata meta = {
+        {"id", core::MetadataValue(static_cast<int64_t>(i))},
+        {"name", core::MetadataValue(std::string("item_") + std::to_string(i))}
+    };
+    metadata.push_back(meta);
+  }
+
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  // Get metadata for first vector
+  auto meta_result = segment.GetMetadata(core::MakeVectorId(1));
+  ASSERT_TRUE(meta_result.ok()) << "GetMetadata failed: " << meta_result.status().message();
+
+  auto& meta = meta_result.value();
+  EXPECT_EQ(std::get<int64_t>(meta.at("id")), 0);
+  EXPECT_EQ(std::get<std::string>(meta.at("name")), "item_0");
+}
+
+TEST_F(StorageTest, SegmentGetMetadataNotFound) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(5);
+  auto ids = CreateTestVectorIds(5);
+
+  std::vector<core::Metadata> metadata(5);
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  // Try to get metadata for non-existent vector
+  auto meta_result = segment.GetMetadata(core::MakeVectorId(999));
+  EXPECT_FALSE(meta_result.ok());
+  EXPECT_TRUE(absl::IsNotFound(meta_result.status()));
+}
+
+TEST_F(StorageTest, SegmentSearchWithFilterGrowing) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(20);
+  auto ids = CreateTestVectorIds(20);
+
+  std::vector<core::Metadata> metadata;
+  for (size_t i = 0; i < 20; ++i) {
+    core::Metadata meta = {
+        {"price", core::MetadataValue(static_cast<int64_t>(50 + i * 10))},
+        {"brand", core::MetadataValue(std::string(i % 2 == 0 ? "Nike" : "Adidas"))}
+    };
+    metadata.push_back(meta);
+  }
+
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  // Search with filter: price < 150
+  auto query = core::RandomVector(dimension_);
+  auto search_result = segment.SearchWithFilter(query, 5, "price < 150");
+  ASSERT_TRUE(search_result.ok())
+      << "SearchWithFilter failed: " << search_result.status().message();
+
+  // Should only return vectors with price < 150 (first 10 vectors)
+  EXPECT_LE(search_result.value().Size(), 5);
+  EXPECT_GT(search_result.value().Size(), 0);
+}
+
+TEST_F(StorageTest, SegmentSearchWithFilterSealed) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(50);
+  auto ids = CreateTestVectorIds(50);
+
+  std::vector<core::Metadata> metadata;
+  for (size_t i = 0; i < 50; ++i) {
+    core::Metadata meta = {
+        {"category", core::MetadataValue(std::string(i < 25 ? "shoes" : "apparel"))},
+        {"rating", core::MetadataValue(3.0 + (i % 5) * 0.5)}
+    };
+    metadata.push_back(meta);
+  }
+
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  // Seal segment
+  core::IndexConfig config;
+  config.index_type = core::IndexType::FLAT;
+  config.dimension = dimension_;
+  config.metric_type = metric_;
+
+  auto index_result = index_factory_->CreateIndex(config);
+  ASSERT_TRUE(index_result.ok());
+  ASSERT_TRUE(segment.Seal(index_result.value().release()).ok());
+
+  // Search with filter after sealing
+  auto query = core::RandomVector(dimension_);
+  auto search_result = segment.SearchWithFilter(query, 10, "category = 'shoes' AND rating >= 4.0");
+  ASSERT_TRUE(search_result.ok())
+      << "SearchWithFilter on sealed segment failed: " << search_result.status().message();
+
+  EXPECT_LE(search_result.value().Size(), 10);
+}
+
+TEST_F(StorageTest, SegmentSearchWithFilterComplex) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(30);
+  auto ids = CreateTestVectorIds(30);
+
+  std::vector<core::Metadata> metadata;
+  for (size_t i = 0; i < 30; ++i) {
+    core::Metadata meta = {
+        {"price", core::MetadataValue(static_cast<int64_t>(100 + i * 20))},
+        {"brand", core::MetadataValue(std::string(i % 3 == 0 ? "Nike" : i % 3 == 1 ? "Adidas" : "Puma"))},
+        {"in_stock", core::MetadataValue(i % 4 != 0)}
+    };
+    metadata.push_back(meta);
+  }
+
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  // Complex filter: (price < 300 OR brand = 'Nike') AND in_stock = true
+  auto query = core::RandomVector(dimension_);
+  auto search_result = segment.SearchWithFilter(
+      query, 10, "(price < 300 OR brand = 'Nike') AND in_stock = true");
+  ASSERT_TRUE(search_result.ok())
+      << "Complex filter failed: " << search_result.status().message();
+
+  EXPECT_GT(search_result.value().Size(), 0);
+}
+
+TEST_F(StorageTest, SegmentSearchWithFilterLike) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(15);
+  auto ids = CreateTestVectorIds(15);
+
+  std::vector<core::Metadata> metadata;
+  for (size_t i = 0; i < 15; ++i) {
+    core::Metadata meta = {
+        {"name", core::MetadataValue(std::string(
+            i < 5 ? "Nike Air Max" :
+            i < 10 ? "Nike Pegasus" :
+            "Adidas Ultra"))}
+    };
+    metadata.push_back(meta);
+  }
+
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  // Filter with LIKE pattern
+  auto query = core::RandomVector(dimension_);
+  auto search_result = segment.SearchWithFilter(query, 10, "name LIKE 'Nike%'");
+  ASSERT_TRUE(search_result.ok())
+      << "LIKE filter failed: " << search_result.status().message();
+
+  // Should return only Nike products (first 10 vectors)
+  EXPECT_LE(search_result.value().Size(), 10);
+  EXPECT_GT(search_result.value().Size(), 0);
+}
+
+TEST_F(StorageTest, SegmentSearchWithFilterIn) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(20);
+  auto ids = CreateTestVectorIds(20);
+
+  std::vector<core::Metadata> metadata;
+  for (size_t i = 0; i < 20; ++i) {
+    core::Metadata meta = {
+        {"brand", core::MetadataValue(std::string(
+            i % 4 == 0 ? "Nike" :
+            i % 4 == 1 ? "Adidas" :
+            i % 4 == 2 ? "Puma" : "Reebok"))}
+    };
+    metadata.push_back(meta);
+  }
+
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  // Filter with IN operator
+  auto query = core::RandomVector(dimension_);
+  auto search_result = segment.SearchWithFilter(query, 10, "brand IN ('Nike', 'Adidas')");
+  ASSERT_TRUE(search_result.ok())
+      << "IN filter failed: " << search_result.status().message();
+
+  EXPECT_GT(search_result.value().Size(), 0);
+}
+
+TEST_F(StorageTest, SegmentSearchWithInvalidFilter) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(10);
+  auto ids = CreateTestVectorIds(10);
+  std::vector<core::Metadata> metadata(10);
+
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  // Invalid filter syntax
+  auto query = core::RandomVector(dimension_);
+  auto search_result = segment.SearchWithFilter(query, 10, "price <");
+  EXPECT_FALSE(search_result.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(search_result.status()));
+}
+
+TEST_F(StorageTest, SegmentAddVectorsWithMetadataSizeMismatch) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(10);
+  auto ids = CreateTestVectorIds(10);
+  std::vector<core::Metadata> metadata(5);  // Wrong size!
+
+  auto status = segment.AddVectorsWithMetadata(vectors, ids, metadata);
+  EXPECT_FALSE(status.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(status));
+}
+
+TEST_F(StorageTest, SegmentAddVectorsWithInvalidMetadata) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(5);
+  auto ids = CreateTestVectorIds(5);
+
+  std::vector<core::Metadata> metadata;
+  for (size_t i = 0; i < 5; ++i) {
+    core::Metadata meta;
+    // Add too many fields (> 100)
+    for (int j = 0; j < 101; ++j) {
+      meta["field_" + std::to_string(j)] = core::MetadataValue(int64_t(j));
+    }
+    metadata.push_back(meta);
+  }
+
+  auto status = segment.AddVectorsWithMetadata(vectors, ids, metadata);
+  EXPECT_FALSE(status.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(status));
+}
+
+TEST_F(StorageTest, SegmentSearchWithFilterNoMatches) {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(10);
+  auto ids = CreateTestVectorIds(10);
+
+  std::vector<core::Metadata> metadata;
+  for (size_t i = 0; i < 10; ++i) {
+    core::Metadata meta = {
+        {"price", core::MetadataValue(int64_t(100))}
+    };
+    metadata.push_back(meta);
+  }
+
+  ASSERT_TRUE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  // Filter that matches nothing
+  auto query = core::RandomVector(dimension_);
+  auto search_result = segment.SearchWithFilter(query, 10, "price > 1000");
+  ASSERT_TRUE(search_result.ok());
+
+  // Should return empty result
+  EXPECT_EQ(search_result.value().Size(), 0);
+}
+
+// ============================================================================
 // SegmentManager Tests
 // ============================================================================
 

@@ -64,6 +64,51 @@ fromProto(proto::CreateCollectionRequest::IndexType index_type) {
   }
 }
 
+absl::StatusOr<core::Metadata> fromProto(const proto::Metadata& proto_metadata) {
+  core::Metadata metadata;
+
+  for (const auto& [key, proto_value] : proto_metadata.fields()) {
+    // Validate key
+    auto key_validation = core::validate_metadata_key(key);
+    if (!key_validation.ok()) {
+      return key_validation;
+    }
+
+    // Convert value based on which field is set
+    core::MetadataValue value;
+    if (proto_value.has_int_value()) {
+      value = proto_value.int_value();
+    } else if (proto_value.has_double_value()) {
+      value = proto_value.double_value();
+    } else if (proto_value.has_string_value()) {
+      value = proto_value.string_value();
+    } else if (proto_value.has_bool_value()) {
+      value = proto_value.bool_value();
+    } else {
+      return absl::InvalidArgumentError(
+          absl::StrFormat("Metadata field '%s' has no value set", key));
+    }
+
+    // Validate value
+    auto value_validation = core::validate_metadata_value(value);
+    if (!value_validation.ok()) {
+      return absl::InvalidArgumentError(
+          absl::StrFormat("Invalid metadata value for key '%s': %s",
+                          key, value_validation.message()));
+    }
+
+    metadata[key] = std::move(value);
+  }
+
+  // Validate complete metadata
+  auto metadata_validation = core::validate_metadata(metadata);
+  if (!metadata_validation.ok()) {
+    return metadata_validation;
+  }
+
+  return metadata;
+}
+
 // ============================================================================
 // Core to Proto Conversions
 // ============================================================================
@@ -90,6 +135,22 @@ std::string toString(core::MetricType metric) {
       return "COSINE";
     default:
       return "UNKNOWN";
+  }
+}
+
+void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata) {
+  for (const auto& [key, value] : metadata) {
+    proto::MetadataValue* proto_value = &(*proto_metadata->mutable_fields())[key];
+
+    if (std::holds_alternative<int64_t>(value)) {
+      proto_value->set_int_value(std::get<int64_t>(value));
+    } else if (std::holds_alternative<double>(value)) {
+      proto_value->set_double_value(std::get<double>(value));
+    } else if (std::holds_alternative<std::string>(value)) {
+      proto_value->set_string_value(std::get<std::string>(value));
+    } else if (std::holds_alternative<bool>(value)) {
+      proto_value->set_bool_value(std::get<bool>(value));
+    }
   }
 }
 

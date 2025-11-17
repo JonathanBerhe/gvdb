@@ -4,6 +4,8 @@
 add_library(gvdb_core
   vector.cpp
   status.cpp
+  metadata.cpp
+  filter.cpp
 )
 
 # Set target properties

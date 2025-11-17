@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
 #include "core/config.h"
+#include "core/filter.h"
 #include "core/interfaces.h"
+#include "core/metadata.h"
 #include "core/status.h"
 #include "core/types.h"
 #include "core/vector.h"
@@ -319,6 +321,601 @@ TEST(VectorUtilTest, ComputeDistanceCosine) {
 
   float dist = ComputeDistance(vec1, vec2, MetricType::COSINE);
   EXPECT_NEAR(dist, 0.0f, 1e-6f);
+}
+
+// ============================================================================
+// Metadata Tests
+// ============================================================================
+
+TEST(MetadataTest, MetadataValueTypes) {
+  MetadataValue int_val = int64_t(42);
+  MetadataValue double_val = 3.14;
+  MetadataValue string_val = std::string("hello");
+  MetadataValue bool_val = true;
+
+  EXPECT_EQ(std::get<int64_t>(int_val), 42);
+  EXPECT_DOUBLE_EQ(std::get<double>(double_val), 3.14);
+  EXPECT_EQ(std::get<std::string>(string_val), "hello");
+  EXPECT_EQ(std::get<bool>(bool_val), true);
+}
+
+TEST(MetadataTest, GetMetadataType) {
+  EXPECT_EQ(get_metadata_type(MetadataValue(int64_t(42))), MetadataType::INT64);
+  EXPECT_EQ(get_metadata_type(MetadataValue(3.14)), MetadataType::DOUBLE);
+  EXPECT_EQ(get_metadata_type(MetadataValue(std::string("test"))), MetadataType::STRING);
+  EXPECT_EQ(get_metadata_type(MetadataValue(true)), MetadataType::BOOL);
+}
+
+TEST(MetadataTest, CompareEqual) {
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(int64_t(42)),
+      ComparisonOp::EQUAL,
+      MetadataValue(int64_t(42))));
+
+  EXPECT_FALSE(compare_metadata_values(
+      MetadataValue(int64_t(42)),
+      ComparisonOp::EQUAL,
+      MetadataValue(int64_t(43))));
+
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(std::string("hello")),
+      ComparisonOp::EQUAL,
+      MetadataValue(std::string("hello"))));
+}
+
+TEST(MetadataTest, CompareNotEqual) {
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(int64_t(42)),
+      ComparisonOp::NOT_EQUAL,
+      MetadataValue(int64_t(43))));
+
+  EXPECT_FALSE(compare_metadata_values(
+      MetadataValue(int64_t(42)),
+      ComparisonOp::NOT_EQUAL,
+      MetadataValue(int64_t(42))));
+
+  // NOT_EQUAL works across types
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(int64_t(42)),
+      ComparisonOp::NOT_EQUAL,
+      MetadataValue(std::string("42"))));
+}
+
+TEST(MetadataTest, CompareLessThan) {
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(int64_t(10)),
+      ComparisonOp::LESS_THAN,
+      MetadataValue(int64_t(20))));
+
+  EXPECT_FALSE(compare_metadata_values(
+      MetadataValue(int64_t(20)),
+      ComparisonOp::LESS_THAN,
+      MetadataValue(int64_t(10))));
+
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(1.5),
+      ComparisonOp::LESS_THAN,
+      MetadataValue(2.5)));
+
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(std::string("apple")),
+      ComparisonOp::LESS_THAN,
+      MetadataValue(std::string("banana"))));
+}
+
+TEST(MetadataTest, CompareLessEqual) {
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(int64_t(10)),
+      ComparisonOp::LESS_EQUAL,
+      MetadataValue(int64_t(10))));
+
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(int64_t(10)),
+      ComparisonOp::LESS_EQUAL,
+      MetadataValue(int64_t(20))));
+
+  EXPECT_FALSE(compare_metadata_values(
+      MetadataValue(int64_t(20)),
+      ComparisonOp::LESS_EQUAL,
+      MetadataValue(int64_t(10))));
+}
+
+TEST(MetadataTest, CompareGreaterThan) {
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(int64_t(100)),
+      ComparisonOp::GREATER_THAN,
+      MetadataValue(int64_t(50))));
+
+  EXPECT_FALSE(compare_metadata_values(
+      MetadataValue(int64_t(50)),
+      ComparisonOp::GREATER_THAN,
+      MetadataValue(int64_t(100))));
+}
+
+TEST(MetadataTest, CompareGreaterEqual) {
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(int64_t(100)),
+      ComparisonOp::GREATER_EQUAL,
+      MetadataValue(int64_t(100))));
+
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(int64_t(100)),
+      ComparisonOp::GREATER_EQUAL,
+      MetadataValue(int64_t(50))));
+
+  EXPECT_FALSE(compare_metadata_values(
+      MetadataValue(int64_t(50)),
+      ComparisonOp::GREATER_EQUAL,
+      MetadataValue(int64_t(100))));
+}
+
+TEST(MetadataTest, LikePatternExactMatch) {
+  EXPECT_TRUE(match_like_pattern("hello", "hello"));
+  EXPECT_FALSE(match_like_pattern("hello", "world"));
+}
+
+TEST(MetadataTest, LikePatternWildcard) {
+  // % matches any sequence
+  EXPECT_TRUE(match_like_pattern("Nike Air Max", "Nike%"));
+  EXPECT_TRUE(match_like_pattern("Nike Pegasus", "Nike%"));
+  EXPECT_TRUE(match_like_pattern("best running shoes", "%running%"));
+  EXPECT_TRUE(match_like_pattern("running gear", "%running%"));
+  EXPECT_FALSE(match_like_pattern("walking shoes", "%running%"));
+}
+
+TEST(MetadataTest, LikePatternSingleChar) {
+  // _ matches single character
+  EXPECT_TRUE(match_like_pattern("Air Max", "Air_Max"));
+  EXPECT_TRUE(match_like_pattern("Air-Max", "Air_Max"));
+  EXPECT_FALSE(match_like_pattern("AirMax", "Air_Max"));
+}
+
+TEST(MetadataTest, LikePatternEscape) {
+  // Escaped % should match literal %
+  EXPECT_TRUE(match_like_pattern("50%", "50\\%"));
+  EXPECT_FALSE(match_like_pattern("50off", "50\\%"));
+}
+
+TEST(MetadataTest, CompareLike) {
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(std::string("Nike Air Max")),
+      ComparisonOp::LIKE,
+      MetadataValue(std::string("Nike%"))));
+
+  EXPECT_FALSE(compare_metadata_values(
+      MetadataValue(std::string("Adidas Ultra")),
+      ComparisonOp::LIKE,
+      MetadataValue(std::string("Nike%"))));
+}
+
+TEST(MetadataTest, CompareNotLike) {
+  EXPECT_FALSE(compare_metadata_values(
+      MetadataValue(std::string("Nike Air Max")),
+      ComparisonOp::NOT_LIKE,
+      MetadataValue(std::string("Nike%"))));
+
+  EXPECT_TRUE(compare_metadata_values(
+      MetadataValue(std::string("Adidas Ultra")),
+      ComparisonOp::NOT_LIKE,
+      MetadataValue(std::string("Nike%"))));
+}
+
+TEST(MetadataTest, CompareInList) {
+  std::vector<MetadataValue> brands = {
+      MetadataValue(std::string("Nike")),
+      MetadataValue(std::string("Adidas")),
+      MetadataValue(std::string("Puma"))
+  };
+
+  EXPECT_TRUE(compare_metadata_value_in_list(
+      MetadataValue(std::string("Nike")),
+      false,  // not negated
+      brands));
+
+  EXPECT_FALSE(compare_metadata_value_in_list(
+      MetadataValue(std::string("Reebok")),
+      false,
+      brands));
+}
+
+TEST(MetadataTest, CompareNotInList) {
+  std::vector<MetadataValue> numbers = {
+      MetadataValue(int64_t(1)),
+      MetadataValue(int64_t(2)),
+      MetadataValue(int64_t(3))
+  };
+
+  EXPECT_FALSE(compare_metadata_value_in_list(
+      MetadataValue(int64_t(2)),
+      true,  // negated (NOT IN)
+      numbers));
+
+  EXPECT_TRUE(compare_metadata_value_in_list(
+      MetadataValue(int64_t(5)),
+      true,  // negated (NOT IN)
+      numbers));
+}
+
+TEST(MetadataTest, ValidateKeyValid) {
+  EXPECT_TRUE(validate_metadata_key("price").ok());
+  EXPECT_TRUE(validate_metadata_key("brand_name").ok());
+  EXPECT_TRUE(validate_metadata_key("_internal").ok());
+  EXPECT_TRUE(validate_metadata_key("field123").ok());
+}
+
+TEST(MetadataTest, ValidateKeyEmpty) {
+  auto status = validate_metadata_key("");
+  EXPECT_FALSE(status.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(status));
+}
+
+TEST(MetadataTest, ValidateKeyStartsWithDigit) {
+  auto status = validate_metadata_key("123field");
+  EXPECT_FALSE(status.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(status));
+}
+
+TEST(MetadataTest, ValidateKeyInvalidCharacters) {
+  EXPECT_FALSE(validate_metadata_key("field-name").ok());
+  EXPECT_FALSE(validate_metadata_key("field.name").ok());
+  EXPECT_FALSE(validate_metadata_key("field name").ok());
+  EXPECT_FALSE(validate_metadata_key("field@name").ok());
+}
+
+TEST(MetadataTest, ValidateKeyTooLong) {
+  std::string long_key(256, 'a');
+  auto status = validate_metadata_key(long_key);
+  EXPECT_FALSE(status.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(status));
+}
+
+TEST(MetadataTest, ValidateValueInt64) {
+  EXPECT_TRUE(validate_metadata_value(MetadataValue(int64_t(42))).ok());
+  EXPECT_TRUE(validate_metadata_value(MetadataValue(int64_t(-100))).ok());
+}
+
+TEST(MetadataTest, ValidateValueDouble) {
+  EXPECT_TRUE(validate_metadata_value(MetadataValue(3.14)).ok());
+  EXPECT_FALSE(validate_metadata_value(
+      MetadataValue(std::numeric_limits<double>::quiet_NaN())).ok());
+  EXPECT_FALSE(validate_metadata_value(
+      MetadataValue(std::numeric_limits<double>::infinity())).ok());
+}
+
+TEST(MetadataTest, ValidateValueString) {
+  EXPECT_TRUE(validate_metadata_value(MetadataValue(std::string("hello"))).ok());
+
+  // String too long (>64KB)
+  std::string long_string(65537, 'x');
+  auto status = validate_metadata_value(MetadataValue(long_string));
+  EXPECT_FALSE(status.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(status));
+}
+
+TEST(MetadataTest, ValidateValueBool) {
+  EXPECT_TRUE(validate_metadata_value(MetadataValue(true)).ok());
+  EXPECT_TRUE(validate_metadata_value(MetadataValue(false)).ok());
+}
+
+TEST(MetadataTest, ValidateMetadataValid) {
+  Metadata metadata = {
+      {"price", MetadataValue(int64_t(100))},
+      {"brand", MetadataValue(std::string("Nike"))},
+      {"in_stock", MetadataValue(true)},
+      {"rating", MetadataValue(4.5)}
+  };
+
+  EXPECT_TRUE(validate_metadata(metadata).ok());
+}
+
+TEST(MetadataTest, ValidateMetadataTooManyFields) {
+  Metadata metadata;
+  for (int i = 0; i < 101; ++i) {
+    metadata["field_" + std::to_string(i)] = MetadataValue(int64_t(i));
+  }
+
+  auto status = validate_metadata(metadata);
+  EXPECT_FALSE(status.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(status));
+}
+
+TEST(MetadataTest, ValidateMetadataInvalidKey) {
+  Metadata metadata = {
+      {"invalid-key", MetadataValue(int64_t(100))}
+  };
+
+  auto status = validate_metadata(metadata);
+  EXPECT_FALSE(status.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(status));
+}
+
+TEST(MetadataTest, ValidateMetadataInvalidValue) {
+  Metadata metadata = {
+      {"rating", MetadataValue(std::numeric_limits<double>::quiet_NaN())}
+  };
+
+  auto status = validate_metadata(metadata);
+  EXPECT_FALSE(status.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(status));
+}
+
+// ============================================================================
+// Filter Parser Tests
+// ============================================================================
+
+TEST(FilterTest, ParseSimpleComparison) {
+  auto filter = FilterParser::parse("price < 100");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata = {{"price", MetadataValue(int64_t(50))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata));
+
+  Metadata metadata2 = {{"price", MetadataValue(int64_t(150))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata2));
+}
+
+TEST(FilterTest, ParseEqualityComparison) {
+  auto filter = FilterParser::parse("brand = 'Nike'");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata = {{"brand", MetadataValue(std::string("Nike"))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata));
+
+  Metadata metadata2 = {{"brand", MetadataValue(std::string("Adidas"))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata2));
+}
+
+TEST(FilterTest, ParseBooleanComparison) {
+  auto filter = FilterParser::parse("in_stock = true");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata = {{"in_stock", MetadataValue(true)}};
+  EXPECT_TRUE((*filter)->evaluate(metadata));
+
+  Metadata metadata2 = {{"in_stock", MetadataValue(false)}};
+  EXPECT_FALSE((*filter)->evaluate(metadata2));
+}
+
+TEST(FilterTest, ParseDoubleComparison) {
+  auto filter = FilterParser::parse("rating >= 4.5");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata = {{"rating", MetadataValue(4.8)}};
+  EXPECT_TRUE((*filter)->evaluate(metadata));
+
+  Metadata metadata2 = {{"rating", MetadataValue(3.2)}};
+  EXPECT_FALSE((*filter)->evaluate(metadata2));
+}
+
+TEST(FilterTest, ParseAndExpression) {
+  auto filter = FilterParser::parse("price < 100 AND brand = 'Nike'");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata = {
+      {"price", MetadataValue(int64_t(50))},
+      {"brand", MetadataValue(std::string("Nike"))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata));
+
+  Metadata metadata2 = {
+      {"price", MetadataValue(int64_t(150))},
+      {"brand", MetadataValue(std::string("Nike"))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata2));
+
+  Metadata metadata3 = {
+      {"price", MetadataValue(int64_t(50))},
+      {"brand", MetadataValue(std::string("Adidas"))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata3));
+}
+
+TEST(FilterTest, ParseOrExpression) {
+  auto filter = FilterParser::parse("price < 50 OR discount > 20");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata1 = {{"price", MetadataValue(int64_t(30))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata1));
+
+  Metadata metadata2 = {{"discount", MetadataValue(int64_t(25))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata2));
+
+  Metadata metadata3 = {
+      {"price", MetadataValue(int64_t(80))},
+      {"discount", MetadataValue(int64_t(10))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata3));
+}
+
+TEST(FilterTest, ParseNotExpression) {
+  auto filter = FilterParser::parse("NOT (price > 100)");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata1 = {{"price", MetadataValue(int64_t(50))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata1));
+
+  Metadata metadata2 = {{"price", MetadataValue(int64_t(150))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata2));
+}
+
+TEST(FilterTest, ParseParenthesizedExpression) {
+  auto filter = FilterParser::parse("(price < 100 OR discount > 20) AND in_stock = true");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata1 = {
+      {"price", MetadataValue(int64_t(50))},
+      {"in_stock", MetadataValue(true)}};
+  EXPECT_TRUE((*filter)->evaluate(metadata1));
+
+  Metadata metadata2 = {
+      {"discount", MetadataValue(int64_t(25))},
+      {"in_stock", MetadataValue(true)}};
+  EXPECT_TRUE((*filter)->evaluate(metadata2));
+
+  Metadata metadata3 = {
+      {"price", MetadataValue(int64_t(50))},
+      {"in_stock", MetadataValue(false)}};
+  EXPECT_FALSE((*filter)->evaluate(metadata3));
+}
+
+TEST(FilterTest, ParseLikeExpression) {
+  auto filter = FilterParser::parse("brand LIKE 'Nike%'");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata1 = {{"brand", MetadataValue(std::string("Nike Air Max"))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata1));
+
+  Metadata metadata2 = {{"brand", MetadataValue(std::string("Adidas"))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata2));
+}
+
+TEST(FilterTest, ParseNotLikeExpression) {
+  auto filter = FilterParser::parse("brand NOT LIKE '%test%'");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata1 = {{"brand", MetadataValue(std::string("Nike"))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata1));
+
+  Metadata metadata2 = {{"brand", MetadataValue(std::string("test product"))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata2));
+}
+
+TEST(FilterTest, ParseInExpression) {
+  auto filter = FilterParser::parse("category IN ('shoes', 'apparel', 'accessories')");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata1 = {{"category", MetadataValue(std::string("shoes"))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata1));
+
+  Metadata metadata2 = {{"category", MetadataValue(std::string("electronics"))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata2));
+}
+
+TEST(FilterTest, ParseNotInExpression) {
+  auto filter = FilterParser::parse("status NOT IN (0, 1, 2)");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata1 = {{"status", MetadataValue(int64_t(5))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata1));
+
+  Metadata metadata2 = {{"status", MetadataValue(int64_t(1))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata2));
+}
+
+TEST(FilterTest, ParseInWithMixedTypes) {
+  auto filter = FilterParser::parse("value IN (1, 2.5, 'text')");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata1 = {{"value", MetadataValue(int64_t(1))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata1));
+
+  Metadata metadata2 = {{"value", MetadataValue(2.5)}};
+  EXPECT_TRUE((*filter)->evaluate(metadata2));
+
+  Metadata metadata3 = {{"value", MetadataValue(std::string("text"))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata3));
+
+  Metadata metadata4 = {{"value", MetadataValue(int64_t(99))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata4));
+}
+
+TEST(FilterTest, ComplexNestedExpression) {
+  auto filter = FilterParser::parse(
+      "(price < 100 AND brand = 'Nike') OR (discount > 50 AND in_stock = true)");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata1 = {
+      {"price", MetadataValue(int64_t(80))},
+      {"brand", MetadataValue(std::string("Nike"))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata1));
+
+  Metadata metadata2 = {
+      {"discount", MetadataValue(int64_t(60))},
+      {"in_stock", MetadataValue(true)}};
+  EXPECT_TRUE((*filter)->evaluate(metadata2));
+
+  Metadata metadata3 = {
+      {"price", MetadataValue(int64_t(120))},
+      {"brand", MetadataValue(std::string("Adidas"))},
+      {"discount", MetadataValue(int64_t(20))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata3));
+}
+
+TEST(FilterTest, ParseNegativeNumber) {
+  auto filter = FilterParser::parse("temperature > -10");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata1 = {{"temperature", MetadataValue(int64_t(-5))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata1));
+
+  Metadata metadata2 = {{"temperature", MetadataValue(int64_t(-15))}};
+  EXPECT_FALSE((*filter)->evaluate(metadata2));
+}
+
+TEST(FilterTest, ParseStringWithEscapes) {
+  auto filter = FilterParser::parse("name = 'O\\'Brien'");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata1 = {{"name", MetadataValue(std::string("O'Brien"))}};
+  EXPECT_TRUE((*filter)->evaluate(metadata1));
+}
+
+TEST(FilterTest, MissingField) {
+  auto filter = FilterParser::parse("price < 100");
+  ASSERT_TRUE(filter.ok());
+
+  Metadata metadata = {{"brand", MetadataValue(std::string("Nike"))}};
+  // Field not present -> false
+  EXPECT_FALSE((*filter)->evaluate(metadata));
+}
+
+TEST(FilterTest, ParseErrorInvalidSyntax) {
+  auto result = FilterParser::parse("price <");
+  EXPECT_FALSE(result.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(result.status()));
+}
+
+TEST(FilterTest, ParseErrorUnclosedParen) {
+  auto result = FilterParser::parse("(price < 100");
+  EXPECT_FALSE(result.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(result.status()));
+}
+
+TEST(FilterTest, ParseErrorUnclosedString) {
+  auto result = FilterParser::parse("brand = 'Nike");
+  EXPECT_FALSE(result.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(result.status()));
+}
+
+TEST(FilterTest, ParseErrorEmptyInList) {
+  auto result = FilterParser::parse("category IN ()");
+  EXPECT_FALSE(result.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(result.status()));
+}
+
+TEST(FilterTest, EvaluateFilterUtility) {
+  Metadata metadata = {
+      {"price", MetadataValue(int64_t(50))},
+      {"brand", MetadataValue(std::string("Nike"))}};
+
+  auto result = evaluate_filter("price < 100 AND brand = 'Nike'", metadata);
+  ASSERT_TRUE(result.ok());
+  EXPECT_TRUE(*result);
+
+  auto result2 = evaluate_filter("price > 100", metadata);
+  ASSERT_TRUE(result2.ok());
+  EXPECT_FALSE(*result2);
+}
+
+TEST(FilterTest, ValidateFilterUtility) {
+  EXPECT_TRUE(validate_filter("price < 100").ok());
+  EXPECT_TRUE(validate_filter("brand = 'Nike' AND in_stock = true").ok());
+  EXPECT_FALSE(validate_filter("price <").ok());
+  EXPECT_FALSE(validate_filter("invalid syntax @#$").ok());
+}
+
+TEST(FilterTest, FilterToString) {
+  auto filter = FilterParser::parse("price < 100");
+  ASSERT_TRUE(filter.ok());
+
+  std::string str = (*filter)->to_string();
+  EXPECT_FALSE(str.empty());
 }
 
 // ============================================================================
