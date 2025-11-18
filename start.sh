@@ -61,11 +61,11 @@ sleep 3
 echo -e "\n${YELLOW}[4/5] Starting GVDB server...${NC}"
 
 # Kill any existing GVDB process
-pkill -f gvdb-all-in-one || true
+pkill -f gvdb-single-node || true
 sleep 1
 
 # Start GVDB in background
-nohup ./build/bin/gvdb-all-in-one \
+nohup ./build/bin/gvdb-single-node \
     --port 50051 \
     --data-dir /tmp/gvdb \
     --node-id 1 \

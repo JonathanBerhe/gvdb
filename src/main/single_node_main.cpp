@@ -1,4 +1,5 @@
 #include <signal.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <iostream>
@@ -17,13 +18,15 @@
 #include "index/index_factory.h"
 #include "utils/logger.h"
 #include "utils/metrics.h"
+#include "utils/config.h"
 
 #include <grpcpp/grpcpp.h>
 
 // Command-line arguments (simple approach without gflags for now)
-int g_port = 50051;
-std::string g_data_dir = "/tmp/gvdb";
-int g_node_id = 1;
+std::string g_config_file = "";  // Optional YAML config file
+int g_port = -1;                  // -1 means not set (use config/default)
+std::string g_data_dir = "";      // Empty means not set
+int g_node_id = -1;               // -1 means not set
 
 // Global shutdown flag
 std::atomic<bool> g_shutdown{false};
@@ -38,10 +41,16 @@ void SignalHandler(int signal) {
 void PrintUsage(const char* program_name) {
   std::cout << "Usage: " << program_name << " [options]\n"
             << "Options:\n"
-            << "  --port PORT          gRPC server port (default: 50051)\n"
-            << "  --data-dir PATH      Data directory (default: /tmp/gvdb)\n"
-            << "  --node-id ID         Node ID (default: 1)\n"
-            << "  --help               Show this help message\n";
+            << "  --config FILE        YAML config file (optional)\n"
+            << "  --port PORT          gRPC server port (overrides config, default: 50051)\n"
+            << "  --data-dir PATH      Data directory (overrides config, default: /tmp/gvdb)\n"
+            << "  --node-id ID         Node ID (overrides config, default: 1)\n"
+            << "  --help               Show this help message\n"
+            << "\n"
+            << "Config priority (highest to lowest):\n"
+            << "  1. Command-line flags\n"
+            << "  2. YAML config file (--config)\n"
+            << "  3. Built-in defaults\n";
 }
 
 bool ParseArgs(int argc, char** argv) {
@@ -50,6 +59,8 @@ bool ParseArgs(int argc, char** argv) {
     if (arg == "--help" || arg == "-h") {
       PrintUsage(argv[0]);
       return false;
+    } else if (arg == "--config" && i + 1 < argc) {
+      g_config_file = argv[++i];
     } else if (arg == "--port" && i + 1 < argc) {
       g_port = std::stoi(argv[++i]);
     } else if (arg == "--data-dir" && i + 1 < argc) {
@@ -65,6 +76,19 @@ bool ParseArgs(int argc, char** argv) {
   return true;
 }
 
+// Helper to convert log level string to enum
+gvdb::utils::LogLevel ParseLogLevel(const std::string& level_str) {
+  std::string lower_level = level_str;
+  std::transform(lower_level.begin(), lower_level.end(), lower_level.begin(), ::tolower);
+
+  if (lower_level == "debug") return gvdb::utils::LogLevel::DEBUG;
+  if (lower_level == "info") return gvdb::utils::LogLevel::INFO;
+  if (lower_level == "warn" || lower_level == "warning") return gvdb::utils::LogLevel::WARN;
+  if (lower_level == "error") return gvdb::utils::LogLevel::ERROR;
+
+  return gvdb::utils::LogLevel::INFO;  // Default to INFO
+}
+
 int main(int argc, char** argv) {
   // Parse command-line arguments
   if (!ParseArgs(argc, argv)) {
@@ -75,12 +99,53 @@ int main(int argc, char** argv) {
   signal(SIGINT, SignalHandler);
   signal(SIGTERM, SignalHandler);
 
+  // Load configuration with priority: CLI flags > YAML > defaults
+  gvdb::utils::GVDBConfig config;
+
+  // Start with defaults
+  config = gvdb::utils::Config::get_default();
+
+  // Load YAML if provided
+  if (!g_config_file.empty()) {
+    auto yaml_result = gvdb::utils::Config::load_from_file(g_config_file);
+    if (!yaml_result.ok()) {
+      std::cerr << "Failed to load config file '" << g_config_file << "': "
+                << yaml_result.status().message() << std::endl;
+      return 1;
+    }
+    config = std::move(yaml_result.value());
+    std::cout << "Loaded configuration from: " << g_config_file << std::endl;
+  }
+
+  // Apply command-line overrides
+  if (g_port != -1) {
+    config.server.grpc_port = g_port;
+  }
+  if (!g_data_dir.empty()) {
+    config.storage.data_dir = g_data_dir;
+  }
+  if (g_node_id != -1) {
+    config.consensus.node_id = g_node_id;
+  }
+
+  // Validate final configuration
+  auto validate_status = gvdb::utils::Config::validate(config);
+  if (!validate_status.ok()) {
+    std::cerr << "Invalid configuration: " << validate_status.message() << std::endl;
+    return 1;
+  }
+
+  // Extract values from config
+  int port = config.server.grpc_port;
+  std::string data_dir = config.storage.data_dir;
+  int node_id = config.consensus.node_id;
+
   // Initialize logger
   gvdb::utils::LogConfig log_config;
-  log_config.file_path = g_data_dir + "/logs/gvdb.log";
-  log_config.console_enabled = true;
-  log_config.file_enabled = true;
-  log_config.level = gvdb::utils::LogLevel::INFO;
+  log_config.file_path = data_dir + "/logs/gvdb.log";
+  log_config.console_enabled = config.logging.console_enabled;
+  log_config.file_enabled = config.logging.file_enabled;
+  log_config.level = ParseLogLevel(config.logging.level);
 
   auto log_status = gvdb::utils::Logger::Initialize(log_config);
   if (!log_status.ok()) {
@@ -88,9 +153,9 @@ int main(int argc, char** argv) {
   }
 
   gvdb::utils::Logger::Instance().Info("Starting GVDB All-in-One Server");
-  gvdb::utils::Logger::Instance().Info("  Node ID: {}", g_node_id);
-  gvdb::utils::Logger::Instance().Info("  Port: {}", g_port);
-  gvdb::utils::Logger::Instance().Info("  Data Directory: {}", g_data_dir);
+  gvdb::utils::Logger::Instance().Info("  Node ID: {}", node_id);
+  gvdb::utils::Logger::Instance().Info("  Port: {}", port);
+  gvdb::utils::Logger::Instance().Info("  Data Directory: {}", data_dir);
 
   // Start metrics server
   if (!gvdb::utils::MetricsRegistry::Instance().StartMetricsServer(9090)) {
@@ -102,9 +167,9 @@ int main(int argc, char** argv) {
   try {
     // 1. Create consensus node (single-node mode)
     gvdb::consensus::RaftConfig raft_config;
-    raft_config.node_id = g_node_id;
+    raft_config.node_id = node_id;
     raft_config.single_node_mode = true;
-    raft_config.data_dir = g_data_dir + "/raft";
+    raft_config.data_dir = data_dir + "/raft";
 
     auto raft_node = std::make_unique<gvdb::consensus::RaftNode>(raft_config);
     auto status = raft_node->Start();
@@ -117,7 +182,7 @@ int main(int argc, char** argv) {
     // 2. Create storage layer
     auto index_factory = std::make_unique<gvdb::index::IndexFactory>();
     auto segment_manager = std::make_shared<gvdb::storage::SegmentManager>(
-        g_data_dir + "/segments", index_factory.get());
+        data_dir + "/segments", index_factory.get());
     gvdb::utils::Logger::Instance().Info("Storage layer initialized");
 
     // 3. Create compute layer
@@ -137,7 +202,7 @@ int main(int argc, char** argv) {
     gvdb::utils::Logger::Instance().Info("gRPC service created");
 
     // 6. Start gRPC server
-    std::string server_address = absl::StrCat("0.0.0.0:", g_port);
+    std::string server_address = absl::StrCat("0.0.0.0:", port);
     grpc::ServerBuilder builder;
     builder.AddListeningPort(server_address,
                               grpc::InsecureServerCredentials());
@@ -164,8 +229,8 @@ int main(int argc, char** argv) {
     std::cout << "========================================" << std::endl;
     std::cout << "gRPC Service: " << server_address << std::endl;
     std::cout << "Metrics: http://0.0.0.0:9090/metrics" << std::endl;
-    std::cout << "Node ID: " << g_node_id << std::endl;
-    std::cout << "Data Directory: " << g_data_dir << std::endl;
+    std::cout << "Node ID: " << node_id << std::endl;
+    std::cout << "Data Directory: " << data_dir << std::endl;
     std::cout << "\nPress Ctrl+C to shutdown..." << std::endl;
     std::cout << "========================================\n" << std::endl;
 

@@ -50,7 +50,7 @@ void PrintUsage(const char* program_name) {
             << "    --query-nodes qn1:50070,qn2:50071 \\\n"
             << "    --data-nodes dn1:50060,dn2:50061\n"
             << "\n"
-            << "  # Proxy for single-node all-in-one\n"
+            << "  # Proxy for single-node deployment\n"
             << "  " << program_name << " --coordinators localhost:50051\n";
 }
 

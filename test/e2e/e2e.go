@@ -417,7 +417,7 @@ func RunE2ETest() bool {
 	test, err := NewE2ETest()
 	if err != nil {
 		log.Printf("❌ E2E Test FAILED: Cannot connect to server")
-		log.Printf("   Make sure the server is running: ./build/bin/gvdb-all-in-one")
+		log.Printf("   Make sure the server is running: ./build/bin/gvdb-single-node")
 		log.Printf("   Error: %v", err)
 		return false
 	}
