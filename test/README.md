@@ -207,7 +207,7 @@ cmake --build build --target mymodule_tests
 lsof -i :50051
 
 # Start server manually
-./build/bin/gvdb-all-in-one --port 50051 --data-dir /tmp/gvdb-test
+./build/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb-test
 
 # Check server logs
 tail -f /tmp/gvdb-test/server.log

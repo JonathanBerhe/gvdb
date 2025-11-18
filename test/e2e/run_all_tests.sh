@@ -5,7 +5,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-SERVER_BIN="$PROJECT_ROOT/build/bin/gvdb-all-in-one"
+SERVER_BIN="$PROJECT_ROOT/build/bin/gvdb-single-node"
 SERVER_PORT=50051
 SERVER_DATA_DIR="/tmp/gvdb-integration-test"
 SERVER_PID=""
@@ -78,7 +78,7 @@ check_dependencies() {
     # Check server binary
     if [ ! -f "$SERVER_BIN" ]; then
         log_error "Server binary not found at: $SERVER_BIN"
-        log_error "Please build the project first: cmake --build build --target gvdb-all-in-one"
+        log_error "Please build the project first: cmake --build build --target gvdb-single-node"
         exit 1
     fi
 

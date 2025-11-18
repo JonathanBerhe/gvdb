@@ -1,11 +1,11 @@
 # Main binaries
 
-# All-in-one binary (single-process deployment)
-add_executable(gvdb-all-in-one
-  all_in_one_main.cpp
+# Single-node binary (single-node deployment)
+add_executable(gvdb-single-node
+  single_node_main.cpp
 )
 
-target_link_libraries(gvdb-all-in-one
+target_link_libraries(gvdb-single-node
   PRIVATE
     gvdb_consensus
     gvdb_cluster
@@ -92,12 +92,12 @@ target_link_libraries(gvdb-proxy
 )
 
 # Set output directory for binaries
-set_target_properties(gvdb-all-in-one gvdb-coordinator gvdb-data-node gvdb-query-node gvdb-proxy
+set_target_properties(gvdb-single-node gvdb-coordinator gvdb-data-node gvdb-query-node gvdb-proxy
   PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
 # Install targets
-install(TARGETS gvdb-all-in-one gvdb-coordinator gvdb-data-node gvdb-query-node gvdb-proxy
+install(TARGETS gvdb-single-node gvdb-coordinator gvdb-data-node gvdb-query-node gvdb-proxy
   DESTINATION bin
 )

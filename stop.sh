@@ -12,7 +12,7 @@ echo -e "${YELLOW}========================================${NC}"
 
 # Stop GVDB server
 echo -e "\n${YELLOW}[1/2] Stopping GVDB server...${NC}"
-pkill -f gvdb-all-in-one
+pkill -f gvdb-single-node
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ GVDB server stopped${NC}"
 else
