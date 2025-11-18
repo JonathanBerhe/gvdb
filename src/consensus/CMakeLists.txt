@@ -3,6 +3,9 @@
 add_library(gvdb_consensus STATIC
   timestamp_oracle.cpp
   metadata_store.cpp
+  metadata_state_machine.cpp
+  gvdb_log_store.cpp
+  gvdb_state_manager.cpp
   raft_node.cpp
 )
 
@@ -19,6 +22,8 @@ target_link_libraries(gvdb_consensus
     absl::statusor
     absl::strings
     absl::synchronization
+    NuRaft::static_lib
+    rocksdb
   PRIVATE
     gvdb_utils
 )

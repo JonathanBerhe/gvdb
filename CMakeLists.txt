@@ -189,6 +189,66 @@ if(NOT prometheus-cpp_FOUND)
 endif()
 
 # ============================================================================
+# NuRaft - Modular Raft Implementation
+# ============================================================================
+if(USE_SYSTEM_DEPENDENCIES)
+  find_package(NuRaft QUIET)
+endif()
+
+if(NOT NuRaft_FOUND)
+  message(STATUS "Fetching NuRaft...")
+  FetchContent_Declare(
+    NuRaft
+    GIT_REPOSITORY https://github.com/eBay/NuRaft.git
+    GIT_TAG        v3.0.0
+    GIT_SHALLOW    TRUE
+  )
+
+  # Configure NuRaft - disable unnecessary features
+  set(DISABLE_SSL ON CACHE BOOL "" FORCE)
+  set(ENABLE_RAFT_STATS OFF CACHE BOOL "" FORCE)
+  set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+
+  FetchContent_MakeAvailable(NuRaft)
+endif()
+
+# ============================================================================
+# RocksDB - Persistent Storage Engine
+# ============================================================================
+if(USE_SYSTEM_DEPENDENCIES)
+  find_package(RocksDB QUIET)
+endif()
+
+if(NOT RocksDB_FOUND)
+  message(STATUS "Fetching RocksDB...")
+  FetchContent_Declare(
+    rocksdb
+    GIT_REPOSITORY https://github.com/facebook/rocksdb.git
+    GIT_TAG        v9.7.3  # Latest stable release
+    GIT_SHALLOW    TRUE
+  )
+
+  # Configure RocksDB - disable unnecessary features for faster build
+  set(WITH_TESTS OFF CACHE BOOL "" FORCE)
+  set(WITH_TOOLS OFF CACHE BOOL "" FORCE)
+  set(WITH_BENCHMARK_TOOLS OFF CACHE BOOL "" FORCE)
+  set(WITH_CORE_TOOLS OFF CACHE BOOL "" FORCE)
+  set(WITH_GFLAGS OFF CACHE BOOL "" FORCE)
+  set(FAIL_ON_WARNINGS OFF CACHE BOOL "" FORCE)
+  set(ROCKSDB_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+  set(WITH_SNAPPY OFF CACHE BOOL "" FORCE)  # Disable Snappy compression
+  set(WITH_LZ4 OFF CACHE BOOL "" FORCE)
+  set(WITH_ZLIB OFF CACHE BOOL "" FORCE)
+  set(WITH_ZSTD OFF CACHE BOOL "" FORCE)
+  set(WITH_BZ2 OFF CACHE BOOL "" FORCE)
+  set(USE_RTTI ON CACHE BOOL "" FORCE)
+  set(PORTABLE ON CACHE BOOL "" FORCE)  # Build portable binary
+  set(ROCKSDB_LITE OFF CACHE BOOL "" FORCE)
+
+  FetchContent_MakeAvailable(rocksdb)
+endif()
+
+# ============================================================================
 # gRPC and Protobuf - RPC Framework
 # ============================================================================
 # Note: We always fetch gRPC/Protobuf to avoid version conflicts with system abseil
@@ -319,3 +379,4 @@ add_subdirectory(src/cluster)
 add_subdirectory(src/consensus)
 add_subdirectory(src/main)
 add_subdirectory(test/unit)
+add_subdirectory(test/integration)

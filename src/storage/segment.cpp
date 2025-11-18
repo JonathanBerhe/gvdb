@@ -773,7 +773,7 @@ core::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
   uint64_t metadata_count;
   ss.read(reinterpret_cast<char*>(&metadata_count), sizeof(metadata_count));
 
-  if (ss.fail()) {
+  if (ss.fail() || ss.eof()) {
     return core::InvalidArgumentError("Failed to read metadata count");
   }
 
@@ -781,6 +781,22 @@ core::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
   if (metadata_count > 100000000) {
     return core::InvalidArgumentError(
         absl::StrCat("Invalid metadata count: ", metadata_count));
+  }
+
+  // Check if stream has enough remaining data for metadata entries
+  // Each entry needs at minimum: vid (8 bytes) + count (8 bytes) = 16 bytes
+  std::streampos current_pos = ss.tellg();
+  ss.seekg(0, std::ios::end);
+  std::streampos end_pos = ss.tellg();
+  ss.seekg(current_pos);  // Restore position
+
+  size_t bytes_remaining = end_pos - current_pos;
+  size_t min_bytes_needed = metadata_count * 16;  // Minimum per entry
+
+  if (bytes_remaining < min_bytes_needed) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Insufficient data for metadata: need at least ",
+                     min_bytes_needed, " bytes, have ", bytes_remaining));
   }
 
   // Read metadata entries

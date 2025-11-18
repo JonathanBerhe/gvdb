@@ -177,3 +177,25 @@ add_test(NAME ConsensusTests COMMAND consensus_tests)
 set_tests_properties(ConsensusTests PROPERTIES
   TIMEOUT 120
 )
+
+# Consensus persistence tests
+add_executable(consensus_persistence_tests
+  consensus_persistence_test.cpp
+)
+
+target_link_libraries(consensus_persistence_tests
+  PRIVATE
+    gvdb_consensus
+    gvdb_cluster
+    gvdb_core
+    GTest::gtest
+    GTest::gtest_main
+)
+
+# Add test to CTest
+add_test(NAME ConsensusPersistenceTests COMMAND consensus_persistence_tests)
+
+# Set test properties
+set_tests_properties(ConsensusPersistenceTests PROPERTIES
+  TIMEOUT 180
+)
