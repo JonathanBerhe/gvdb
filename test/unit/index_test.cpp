@@ -56,7 +56,8 @@ TEST(IndexFactoryTest, CreateHNSWIndex) {
 }
 
 TEST(IndexFactoryTest, CreateIVFIndex) {
-  auto result = IndexFactory::CreateIVFIndex(128, core::MetricType::L2, 10, false);
+  auto result = IndexFactory::CreateIVFIndex(128, core::MetricType::L2, 10,
+                                             IVFQuantizationType::NONE);
   ASSERT_TRUE(result.ok());
 
   auto index = std::move(result.value());
@@ -233,7 +234,8 @@ TEST(HNSWIndexTest, BatchSearch) {
 // ============================================================================
 
 TEST(IVFIndexTest, BuildRequiresTraining) {
-  auto index_result = IndexFactory::CreateIVFIndex(8, core::MetricType::L2, 5, false);
+  auto index_result = IndexFactory::CreateIVFIndex(8, core::MetricType::L2, 5,
+                                                    IVFQuantizationType::NONE);
   ASSERT_TRUE(index_result.ok());
   auto index = std::move(index_result.value());
 
@@ -250,7 +252,8 @@ TEST(IVFIndexTest, BuildRequiresTraining) {
 }
 
 TEST(IVFIndexTest, SearchAfterTraining) {
-  auto index_result = IndexFactory::CreateIVFIndex(4, core::MetricType::L2, 3, false);
+  auto index_result = IndexFactory::CreateIVFIndex(4, core::MetricType::L2, 3,
+                                                    IVFQuantizationType::NONE);
   ASSERT_TRUE(index_result.ok());
   auto index = std::move(index_result.value());
 
@@ -265,6 +268,93 @@ TEST(IVFIndexTest, SearchAfterTraining) {
 
   auto result = search_result.value();
   EXPECT_GT(result.Size(), 0);
+}
+
+// ============================================================================
+// IVF_SQ Index Tests (Scalar Quantization)
+// ============================================================================
+
+TEST(IVFSQIndexTest, CreateAndVerifyType) {
+  auto index_result = IndexFactory::CreateIVFIndex(128, core::MetricType::L2, 10,
+                                                    IVFQuantizationType::SQ);
+  ASSERT_TRUE(index_result.ok());
+
+  auto index = std::move(index_result.value());
+  EXPECT_EQ(index->GetDimension(), 128);
+  EXPECT_EQ(index->GetIndexType(), core::IndexType::IVF_SQ);
+  EXPECT_EQ(index->GetMetricType(), core::MetricType::L2);
+}
+
+TEST(IVFSQIndexTest, BuildAndSearch) {
+  auto index_result = IndexFactory::CreateIVFIndex(8, core::MetricType::L2, 5,
+                                                    IVFQuantizationType::SQ);
+  ASSERT_TRUE(index_result.ok());
+  auto index = std::move(index_result.value());
+
+  // IVF_SQ requires training
+  EXPECT_FALSE(index->IsTrained());
+
+  auto vectors = CreateTestVectors(100, 8);
+  auto ids = CreateTestIds(100);
+
+  // Build should train automatically
+  ASSERT_TRUE(index->Build(vectors, ids).ok());
+  EXPECT_TRUE(index->IsTrained());
+  EXPECT_EQ(index->GetVectorCount(), 100);
+
+  // Search should work after training
+  auto search_result = index->Search(vectors[0], 5);
+  ASSERT_TRUE(search_result.ok());
+
+  auto result = search_result.value();
+  EXPECT_GT(result.Size(), 0);
+  EXPECT_LE(result.Size(), 5);
+}
+
+// ============================================================================
+// IVF_PQ Index Tests (Product Quantization)
+// ============================================================================
+
+TEST(IVFPQIndexTest, CreateAndVerifyType) {
+  auto index_result = IndexFactory::CreateIVFIndex(128, core::MetricType::L2, 10,
+                                                    IVFQuantizationType::PQ);
+  ASSERT_TRUE(index_result.ok());
+
+  auto index = std::move(index_result.value());
+  EXPECT_EQ(index->GetDimension(), 128);
+  EXPECT_EQ(index->GetIndexType(), core::IndexType::IVF_PQ);
+  EXPECT_EQ(index->GetMetricType(), core::MetricType::L2);
+}
+
+TEST(IVFPQIndexTest, BuildAndSearch) {
+  // Use dimension 16 (divisible by M=8)
+  // Create index with 6 bits PQ (requires 39*64=2496 points vs 8 bits requiring 39*256=9984)
+  auto index_result = IndexFactory::CreateIVFIndex(
+      16, core::MetricType::L2, 5, IVFQuantizationType::PQ, 8, 6);
+  ASSERT_TRUE(index_result.ok());
+  auto index = std::move(index_result.value());
+
+  // IVF_PQ requires training
+  EXPECT_FALSE(index->IsTrained());
+
+  // PQ with 6 bits needs at least 64 centroids × 39 = 2,496 training points
+  // Using 2,500 to be safe
+  auto vectors = CreateTestVectors(2500, 16);
+  auto ids = CreateTestIds(2500);
+
+  // Build should train automatically
+  auto build_status = index->Build(vectors, ids);
+  ASSERT_TRUE(build_status.ok()) << "Build failed: " << build_status.message();
+  EXPECT_TRUE(index->IsTrained());
+  EXPECT_EQ(index->GetVectorCount(), 2500);
+
+  // Search should work after training
+  auto search_result = index->Search(vectors[0], 5);
+  ASSERT_TRUE(search_result.ok());
+
+  auto result = search_result.value();
+  EXPECT_GT(result.Size(), 0);
+  EXPECT_LE(result.Size(), 5);
 }
 
 // ============================================================================

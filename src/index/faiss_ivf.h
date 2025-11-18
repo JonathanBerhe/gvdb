@@ -2,6 +2,7 @@
 #define GVDB_INDEX_FAISS_IVF_H_
 
 #include "faiss_base.h"
+#include "index/index_factory.h"
 
 namespace gvdb {
 namespace index {
@@ -12,8 +13,9 @@ namespace index {
 class FaissIVFIndex : public FaissIndexBase {
  public:
   FaissIVFIndex(core::Dimension dimension, core::MetricType metric,
-                int nlist = 100, int nprobe = 10, bool use_pq = false,
-                int pq_m = 8);
+                int nlist = 100, int nprobe = 10,
+                IVFQuantizationType quantization = IVFQuantizationType::NONE,
+                int pq_m = 8, int pq_nbits = 8);
   ~FaissIVFIndex() override = default;
 
   [[nodiscard]] core::IndexType GetIndexType() const override;
@@ -24,11 +26,11 @@ class FaissIVFIndex : public FaissIndexBase {
  private:
   static std::unique_ptr<faiss::Index> CreateIVFIndex(
       core::Dimension dimension, core::MetricType metric, int nlist,
-      bool use_pq, int pq_m);
+      IVFQuantizationType quantization, int pq_m, int pq_nbits);
 
   int nlist_;
   int nprobe_;
-  bool use_pq_;
+  IVFQuantizationType quantization_;
 };
 
 }  // namespace index
