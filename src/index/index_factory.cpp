@@ -22,11 +22,18 @@ core::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateIndex(
 
     case core::IndexType::IVF_FLAT:
       return CreateIVFIndex(config.dimension, config.metric_type,
-                           config.ivf_params.nlist, false);
+                           config.ivf_params.nlist,
+                           IVFQuantizationType::NONE);
 
     case core::IndexType::IVF_PQ:
       return CreateIVFIndex(config.dimension, config.metric_type,
-                           config.ivf_params.nlist, true);
+                           config.ivf_params.nlist,
+                           IVFQuantizationType::PQ);
+
+    case core::IndexType::IVF_SQ:
+      return CreateIVFIndex(config.dimension, config.metric_type,
+                           config.ivf_params.nlist,
+                           IVFQuantizationType::SQ);
 
     default:
       return core::UnimplementedError(
@@ -64,7 +71,8 @@ IndexFactory::CreateHNSWIndex(core::Dimension dimension, core::MetricType metric
 
 core::StatusOr<std::unique_ptr<core::IVectorIndex>>
 IndexFactory::CreateIVFIndex(core::Dimension dimension, core::MetricType metric,
-                              int nlist, bool use_pq) {
+                              int nlist, IVFQuantizationType quantization,
+                              int pq_m, int pq_nbits) {
   if (dimension <= 0) {
     return core::InvalidArgumentError("Dimension must be positive");
   }
@@ -73,7 +81,8 @@ IndexFactory::CreateIVFIndex(core::Dimension dimension, core::MetricType metric,
     return core::InvalidArgumentError("nlist must be positive");
   }
 
-  return std::make_unique<FaissIVFIndex>(dimension, metric, nlist, 10, use_pq);
+  return std::make_unique<FaissIVFIndex>(dimension, metric, nlist, 10,
+                                         quantization, pq_m, pq_nbits);
 }
 
 bool IndexFactory::IsGPUAvailable() {

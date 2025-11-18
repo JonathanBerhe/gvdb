@@ -11,6 +11,13 @@
 namespace gvdb {
 namespace index {
 
+// Quantization types for IVF indexes
+enum class IVFQuantizationType {
+  NONE,  // No quantization (IVF_FLAT)
+  PQ,    // Product Quantization (IVF_PQ)
+  SQ     // Scalar Quantization (IVF_SQ)
+};
+
 // IndexFactory creates vector index instances based on configuration
 // Implements the Factory pattern for IVectorIndex
 class IndexFactory : public core::IIndexFactory {
@@ -32,7 +39,9 @@ class IndexFactory : public core::IIndexFactory {
 
   [[nodiscard]] static core::StatusOr<std::unique_ptr<core::IVectorIndex>>
   CreateIVFIndex(core::Dimension dimension, core::MetricType metric,
-                 int nlist = 100, bool use_pq = false);
+                 int nlist = 100,
+                 IVFQuantizationType quantization = IVFQuantizationType::NONE,
+                 int pq_m = 8, int pq_nbits = 8);
 
   // Check if GPU is available for GPU indexes
   [[nodiscard]] static bool IsGPUAvailable();
