@@ -1,5 +1,5 @@
 #!/bin/bash
-# Master test runner for all integration tests
+# Master test runner for all end-to-end tests
 
 set -e
 
@@ -197,7 +197,7 @@ run_test() {
 # Main execution
 main() {
     echo "======================================================================"
-    echo "GVDB Integration Test Suite (Go)"
+    echo "GVDB End-to-End Test Suite (Go)"
     echo "======================================================================"
     echo ""
 

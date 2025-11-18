@@ -8,12 +8,23 @@
 #include <memory>
 #include <mutex>
 
+// Forward declarations for NuRaft
+namespace nuraft {
+  class raft_launcher;
+  class raft_server;
+  class state_machine;
+  class logger;
+}
+
 namespace gvdb {
 namespace consensus {
 
-// Simplified Raft node for consensus
-// In Phase 1: Operates in single-node mode (always leader)
-// Future: Can be upgraded to use braft for multi-node Raft
+// Forward declarations
+class MetadataStateMachine;
+class GvdbStateManager;
+
+// Raft node for distributed consensus
+// Supports both single-node mode (for development) and multi-node mode (using NuRaft)
 //
 // Thread-safe: All public methods are thread-safe
 class RaftNode {
@@ -79,6 +90,13 @@ class RaftNode {
   TimestampOracle tso_;
   MetadataStore metadata_store_;
 
+  // NuRaft components (for multi-node mode)
+  std::shared_ptr<MetadataStateMachine> state_machine_;
+  std::shared_ptr<GvdbStateManager> state_mgr_;
+  std::shared_ptr<nuraft::raft_launcher> launcher_;
+  std::shared_ptr<nuraft::raft_server> raft_server_;
+  std::shared_ptr<nuraft::logger> nuraft_logger_;
+
   // Synchronization
   mutable std::mutex mutex_;
 
@@ -87,6 +105,7 @@ class RaftNode {
 
   // Helpers
   core::Status ProposeOperation(const MetadataOp& op);
+  core::Status InitializeNuRaft();
 };
 
 } // namespace consensus
