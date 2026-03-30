@@ -8,7 +8,7 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 
 - **Vector Search**: FLAT, HNSW, IVF_FLAT, IVF_PQ, IVF_SQ index types via Faiss
 - **Distributed Mode**: Coordinator, data nodes, query nodes, proxy with full sharding and replication
-- **Multi-Shard Collections**: Data distributed across nodes with consistent hashing
+- **Multi-Shard Collections**: Data distributed across nodes with consistent hashing (150 virtual nodes)
 - **Fault Tolerance**: Automatic failure detection, replica promotion, auto-replication
 - **Metadata Filtering**: SQL-like filters (`age > 18 AND city = 'NYC'`, `LIKE`, `IN`)
 - **Persistence**: Vectors flushed to disk, index rebuilt on startup recovery
@@ -73,27 +73,107 @@ graph TB
 
 ## Quick Start
 
-Requires C++20 (GCC 11+ / Clang 14+) and CMake 3.15+. All other dependencies are fetched automatically.
+### Build
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
+```
 
-# Single-node
+### Run (single-node)
+
+```bash
 ./build/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb
 ```
+
+### Run (distributed)
+
+```bash
+# Coordinator
+./build/bin/gvdb-coordinator --node-id 1 --bind-address 0.0.0.0:50051
+
+# Data node
+./build/bin/gvdb-data-node --node-id 101 --bind-address 0.0.0.0:50060 \
+  --coordinator localhost:50051
+
+# Proxy
+./build/bin/gvdb-proxy --coordinators localhost:50051 \
+  --data-nodes localhost:50060
+```
+
+## Configuration
+
+```yaml
+server:
+  grpc_port: 50051
+  tls:
+    enabled: true
+    cert_path: /etc/gvdb/server.crt
+    key_path: /etc/gvdb/server.key
+  auth:
+    enabled: true
+    api_keys:
+      - "your-api-key"
+
+storage:
+  data_dir: /var/lib/gvdb
+
+logging:
+  level: info
+```
+
+## Build Requirements
+
+- C++20 compiler (GCC 11+, Clang 14+)
+- CMake 3.15+
+- Dependencies fetched automatically via CMake FetchContent
 
 ## Tests
 
 ```bash
+# Run all tests
 ctest --test-dir build --output-on-failure
+
+# Run a specific suite
+ctest --test-dir build --output-on-failure -R StorageTests
 ```
+
+### Test Structure
 
 ```
 test/
-├── unit/           # C++ unit tests (Google Test)
-├── integration/    # Multi-component distributed tests
-└── e2e/            # End-to-end tests (Go)
+├── unit/                        # C++ unit tests (Google Test)
+│   ├── core_test.cpp            # Types, vectors, status, metadata, filters
+│   ├── index_test.cpp           # FLAT, HNSW, IVF index operations
+│   ├── storage_test.cpp         # Segment lifecycle, persistence round-trip
+│   ├── compute_test.cpp         # Parallel query execution
+│   ├── utils_test.cpp           # Logger, thread pool, timer
+│   ├── network_test.cpp         # Proto conversions, VectorDBService
+│   ├── cluster_simple_test.cpp  # ShardManager, Coordinator, LoadBalancer
+│   ├── consensus_test.cpp       # Raft node, multi-node consensus
+│   ├── consensus_persistence_test.cpp
+│   ├── proxy_service_test.cpp
+│   ├── auth_processor_test.cpp  # API key authentication
+│   ├── collection_metadata_cache_test.cpp
+│   ├── internal_client_test.cpp
+│   ├── internal_service_metadata_test.cpp
+│   ├── vectordb_service_distributed_test.cpp
+│   └── vectordb_service_coordinator_test.cpp
+│
+├── integration/                 # Multi-component C++ tests
+│   ├── consensus_integration_test.cpp
+│   ├── metadata_sync_integration_test.cpp
+│   ├── segment_replication_integration_test.cpp
+│   ├── distributed_data_node_test.cpp   # Coordinator -> data node flow
+│   └── proxy_integration_test.cpp       # Full proxy -> cluster flow
+│
+└── e2e/                         # End-to-end tests (Go, against running server)
+    ├── e2e.go                   # Full CRUD workflow
+    ├── metadata.go              # Metadata filtering and hybrid search
+    ├── load.go                  # 100K+ vectors, concurrent queries
+    ├── fuzzy.go                 # Edge cases and error handling
+    ├── distributed_query.go     # Multi-node search
+    └── *.sh                     # Test runner scripts
 ```
 
 ## License
