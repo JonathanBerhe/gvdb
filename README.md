@@ -17,17 +17,59 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 
 ## Architecture
 
-```
-Client --> Proxy (load balancing)
-             |
-     +-------+-------+
-     |               |
-Coordinator      Data Nodes (sharded storage)
-  (Raft)              |
-                 Query Nodes (distributed search)
+```mermaid
+graph TB
+    Client([Client])
+
+    subgraph Proxy Layer
+        Proxy[gvdb-proxy<br/>Load Balancing]
+    end
+
+    subgraph Control Plane
+        C1[gvdb-coordinator]
+        C2[gvdb-coordinator]
+        C3[gvdb-coordinator]
+        C1 <--> C2
+        C2 <--> C3
+        C1 <--> C3
+    end
+
+    subgraph Data Plane
+        DN1[gvdb-data-node<br/>Shards 1-4]
+        DN2[gvdb-data-node<br/>Shards 5-8]
+    end
+
+    subgraph Query Plane
+        QN1[gvdb-query-node]
+        QN2[gvdb-query-node]
+    end
+
+    Client --> Proxy
+    Proxy -- "metadata ops" --> C1
+    Proxy -- "search" --> QN1 & QN2
+    Proxy -- "insert/get/delete" --> DN1 & DN2
+    QN1 & QN2 -- "ExecuteShardQuery" --> DN1 & DN2
+    DN1 & DN2 -- "heartbeat" --> C1
+    QN1 & QN2 -- "heartbeat" --> C1
+    C1 -- "CreateSegment<br/>ReplicateSegment" --> DN1 & DN2
+
+    style Proxy fill:#4a9eff,color:#fff
+    style C1 fill:#ff6b6b,color:#fff
+    style C2 fill:#ff6b6b,color:#fff
+    style C3 fill:#ff6b6b,color:#fff
+    style DN1 fill:#51cf66,color:#fff
+    style DN2 fill:#51cf66,color:#fff
+    style QN1 fill:#ffd43b,color:#333
+    style QN2 fill:#ffd43b,color:#333
 ```
 
-**5 binaries**: `gvdb-single-node`, `gvdb-coordinator`, `gvdb-data-node`, `gvdb-query-node`, `gvdb-proxy`
+| Binary | Role |
+|--------|------|
+| `gvdb-single-node` | All-in-one for development and small deployments |
+| `gvdb-coordinator` | Cluster metadata via Raft consensus |
+| `gvdb-data-node` | Sharded vector storage and indexing |
+| `gvdb-query-node` | Distributed search with fan-out and result merging |
+| `gvdb-proxy` | Client entry point with load balancing |
 
 ## Quick Start
 
