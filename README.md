@@ -131,7 +131,49 @@ logging:
 ## Tests
 
 ```bash
+# Run all tests
 ctest --test-dir build --output-on-failure
+
+# Run a specific suite
+ctest --test-dir build --output-on-failure -R StorageTests
+```
+
+### Test Structure
+
+```
+test/
+├── unit/                        # C++ unit tests (Google Test)
+│   ├── core_test.cpp            # Types, vectors, status, metadata, filters
+│   ├── index_test.cpp           # FLAT, HNSW, IVF index operations
+│   ├── storage_test.cpp         # Segment lifecycle, persistence round-trip
+│   ├── compute_test.cpp         # Parallel query execution
+│   ├── utils_test.cpp           # Logger, thread pool, timer
+│   ├── network_test.cpp         # Proto conversions, VectorDBService
+│   ├── cluster_simple_test.cpp  # ShardManager, Coordinator, LoadBalancer
+│   ├── consensus_test.cpp       # Raft node, multi-node consensus
+│   ├── consensus_persistence_test.cpp
+│   ├── proxy_service_test.cpp
+│   ├── auth_processor_test.cpp  # API key authentication
+│   ├── collection_metadata_cache_test.cpp
+│   ├── internal_client_test.cpp
+│   ├── internal_service_metadata_test.cpp
+│   ├── vectordb_service_distributed_test.cpp
+│   └── vectordb_service_coordinator_test.cpp
+│
+├── integration/                 # Multi-component C++ tests
+│   ├── consensus_integration_test.cpp
+│   ├── metadata_sync_integration_test.cpp
+│   ├── segment_replication_integration_test.cpp
+│   ├── distributed_data_node_test.cpp   # Coordinator -> data node flow
+│   └── proxy_integration_test.cpp       # Full proxy -> cluster flow
+│
+└── e2e/                         # End-to-end tests (Go, against running server)
+    ├── e2e.go                   # Full CRUD workflow
+    ├── metadata.go              # Metadata filtering and hybrid search
+    ├── load.go                  # 100K+ vectors, concurrent queries
+    ├── fuzzy.go                 # Edge cases and error handling
+    ├── distributed_query.go     # Multi-node search
+    └── *.sh                     # Test runner scripts
 ```
 
 ## License
