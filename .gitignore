@@ -95,3 +95,20 @@ IMPLEMENTATION_*.md
 NEXT_SESSION*.md
 NETWORK_MODULE_IMPLEMENTATION.md
 STORAGE_COMPACTION_OPTIONS.md
+
+# Claude Code
+.claude/
+**/CLAUDE.md
+ROADMAP_DISTRIBUTED.md
+
+# Documentation (auto-generated)
+docs/
+
+# Compiled Go test binaries
+test/e2e/e2e_test
+test/e2e/metadata_test
+test/e2e/distributed_query
+test/e2e/load_advanced
+test/e2e/test_crash_client
+test/e2e/test_drop_comprehensive
+test/e2e/test_ivf_pq_simple
