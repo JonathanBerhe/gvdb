@@ -115,7 +115,7 @@ add_executable(network_tests
 
 target_link_libraries(network_tests
   PRIVATE
-    network
+    gvdb_network
     gvdb_compute
     gvdb_storage
     gvdb_index
@@ -134,6 +134,53 @@ add_test(NAME NetworkTests COMMAND network_tests)
 # Set test properties
 set_tests_properties(NetworkTests PROPERTIES
   TIMEOUT 120
+)
+
+# Collection metadata cache tests
+add_executable(metadata_cache_tests
+  collection_metadata_cache_test.cpp
+)
+
+target_link_libraries(metadata_cache_tests
+  PRIVATE
+    gvdb_network
+    gvdb_core
+    GTest::gtest
+    GTest::gtest_main
+)
+
+# Add test to CTest
+add_test(NAME MetadataCacheTests COMMAND metadata_cache_tests)
+
+# Set test properties
+set_tests_properties(MetadataCacheTests PROPERTIES
+  TIMEOUT 60
+)
+
+# InternalService metadata RPC tests
+add_executable(internal_service_metadata_tests
+  internal_service_metadata_test.cpp
+)
+
+target_link_libraries(internal_service_metadata_tests
+  PRIVATE
+    gvdb_network
+    gvdb_cluster
+    gvdb_consensus
+    gvdb_core
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    GTest::gtest
+    GTest::gtest_main
+)
+
+# Add test to CTest
+add_test(NAME InternalServiceMetadataTests COMMAND internal_service_metadata_tests)
+
+# Set test properties
+set_tests_properties(InternalServiceMetadataTests PROPERTIES
+  TIMEOUT 60
 )
 
 # Cluster module tests (simplified - no storage/compute dependencies)
@@ -198,4 +245,134 @@ add_test(NAME ConsensusPersistenceTests COMMAND consensus_persistence_tests)
 # Set test properties
 set_tests_properties(ConsensusPersistenceTests PROPERTIES
   TIMEOUT 180
+)
+
+# Proxy service tests
+add_executable(proxy_service_tests
+  proxy_service_test.cpp
+)
+
+target_link_libraries(proxy_service_tests
+  PRIVATE
+    gvdb_network
+    gvdb_cluster
+    gvdb_core
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    GTest::gtest
+    GTest::gtest_main
+)
+
+# Add test to CTest
+add_test(NAME ProxyServiceTests COMMAND proxy_service_tests)
+
+# Set test properties
+set_tests_properties(ProxyServiceTests PROPERTIES
+  TIMEOUT 120
+)
+
+# VectorDBService DISTRIBUTED mode tests
+add_executable(vectordb_service_distributed_tests
+  vectordb_service_distributed_test.cpp
+)
+
+target_link_libraries(vectordb_service_distributed_tests
+  PRIVATE
+    gvdb_network
+    gvdb_storage
+    gvdb_compute
+    gvdb_index
+    gvdb_core
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    GTest::gtest
+    GTest::gtest_main
+)
+
+# Add test to CTest
+add_test(NAME VectorDBServiceDistributedTests COMMAND vectordb_service_distributed_tests)
+
+# Set test properties
+set_tests_properties(VectorDBServiceDistributedTests PROPERTIES
+  TIMEOUT 120
+)
+
+# VectorDBService COORDINATOR mode tests
+add_executable(vectordb_service_coordinator_tests
+  vectordb_service_coordinator_test.cpp
+)
+
+target_link_libraries(vectordb_service_coordinator_tests
+  PRIVATE
+    gvdb_network
+    gvdb_cluster
+    gvdb_storage
+    gvdb_compute
+    gvdb_index
+    gvdb_core
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    GTest::gtest
+    GTest::gtest_main
+)
+
+# Add test to CTest
+add_test(NAME VectorDBServiceCoordinatorTests COMMAND vectordb_service_coordinator_tests)
+
+# Set test properties
+set_tests_properties(VectorDBServiceCoordinatorTests PROPERTIES
+  TIMEOUT 120
+)
+
+# InternalClient tests
+add_executable(internal_client_tests
+  internal_client_test.cpp
+)
+
+target_link_libraries(internal_client_tests
+  PRIVATE
+    gvdb_cluster
+    gvdb_core
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    GTest::gtest
+    GTest::gtest_main
+)
+
+# Add test to CTest
+add_test(NAME InternalClientTests COMMAND internal_client_tests)
+
+# Set test properties
+set_tests_properties(InternalClientTests PROPERTIES
+  TIMEOUT 120
+)
+
+# Auth processor tests
+add_executable(auth_processor_tests
+  auth_processor_test.cpp
+)
+
+target_link_libraries(auth_processor_tests
+  PRIVATE
+    gvdb_network
+    gvdb_compute
+    gvdb_storage
+    gvdb_index
+    gvdb_utils
+    gvdb_core
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    GTest::gtest
+    GTest::gtest_main
+)
+
+add_test(NAME AuthProcessorTests COMMAND auth_processor_tests)
+
+set_tests_properties(AuthProcessorTests PROPERTIES
+  TIMEOUT 60
 )

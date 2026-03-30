@@ -8,6 +8,8 @@ add_library(gvdb_cluster
   load_balancer.cpp
   replication.cpp
   node_registry.cpp
+  internal_client.cpp
+  heartbeat_sender.cpp
 )
 
 target_include_directories(gvdb_cluster
@@ -27,7 +29,7 @@ target_link_libraries(gvdb_cluster
   PRIVATE
     gvdb_storage
     gvdb_compute
-    network
+    gvdb_network
     gvdb_utils
 )
 
