@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #ifndef GVDB_STORAGE_SEGMENT_MANAGER_H_
 #define GVDB_STORAGE_SEGMENT_MANAGER_H_
 
@@ -54,11 +57,19 @@ class SegmentManager {
 
   // ========== Segment Lifecycle ==========
 
-  // Create a new growing segment
+  // Create a new growing segment (auto-assigns segment_id)
   [[nodiscard]] core::StatusOr<core::SegmentId> CreateSegment(
       core::CollectionId collection_id,
       core::Dimension dimension,
       core::MetricType metric);
+
+  // Create segment with specific ID (for distributed mode - called via RPC)
+  [[nodiscard]] core::Status CreateSegmentWithId(
+      core::SegmentId segment_id,
+      core::CollectionId collection_id,
+      core::Dimension dimension,
+      core::MetricType metric,
+      core::IndexType index_type);
 
   // Get a segment by ID (returns nullptr if not found)
   [[nodiscard]] Segment* GetSegment(core::SegmentId id);
@@ -106,6 +117,9 @@ class SegmentManager {
       int k) const;
 
   // ========== Management ==========
+
+  // Load all previously-flushed segments from disk (startup recovery)
+  absl::Status LoadAllSegments();
 
   // Get all segment IDs for a collection
   [[nodiscard]] std::vector<core::SegmentId> GetCollectionSegments(

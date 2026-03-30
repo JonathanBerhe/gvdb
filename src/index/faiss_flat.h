@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #ifndef GVDB_INDEX_FAISS_FLAT_H_
 #define GVDB_INDEX_FAISS_FLAT_H_
 

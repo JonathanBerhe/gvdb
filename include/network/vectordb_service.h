@@ -1,23 +1,29 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #pragma once
 
 #include "vectordb.grpc.pb.h"
+#include "internal.grpc.pb.h"
 #include "storage/segment_manager.h"
 #include "compute/query_executor.h"
+#include "network/collection_resolver.h"
 #include <memory>
 #include <atomic>
+#include <string>
 
 namespace gvdb {
 namespace network {
 
-// Forward declaration
-class CollectionRegistry;
-
-// Implementation of the VectorDBService gRPC service
+// Implementation of the VectorDBService gRPC service.
+// Collection management is delegated to an ICollectionResolver,
+// which encapsulates the mode-specific behavior (single-node, distributed, coordinator).
 class VectorDBService final : public proto::VectorDBService::Service {
  public:
   VectorDBService(
       std::shared_ptr<storage::SegmentManager> segment_manager,
-      std::shared_ptr<compute::QueryExecutor> query_executor);
+      std::shared_ptr<compute::QueryExecutor> query_executor,
+      std::unique_ptr<ICollectionResolver> resolver);
 
   ~VectorDBService();
 
@@ -75,12 +81,18 @@ class VectorDBService final : public proto::VectorDBService::Service {
       proto::GetStatsResponse* response) override;
 
  private:
+  // Get segment locally, or pull from coordinator if in distributed mode
+  storage::Segment* GetOrReplicateSegment(core::SegmentId segment_id);
+
+  // Fan out search to remote data nodes holding shards for the collection
+  grpc::Status SearchDistributed(
+      const proto::SearchRequest* request,
+      proto::SearchResponse* response,
+      const core::Vector& query);
+
   std::shared_ptr<storage::SegmentManager> segment_manager_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
-
-  // Collection registry (in-memory for Phase 1)
-  std::unique_ptr<CollectionRegistry> collection_registry_;
-  uint32_t next_collection_id_;
+  std::unique_ptr<ICollectionResolver> resolver_;
 
   // Statistics
   std::atomic<uint64_t> total_queries_{0};

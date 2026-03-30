@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #pragma once
 
 #include "core/types.h"
@@ -110,13 +113,19 @@ class ShardManager {
   mutable std::shared_mutex shard_mutex_;
   std::map<core::ShardId, ShardInfo> shards_;
 
-  // Node set
+  // Nodes with shard assignments (not all cluster nodes — see NodeRegistry for that)
   mutable std::shared_mutex node_mutex_;
-  std::set<core::NodeId> active_nodes_;
+  std::set<core::NodeId> assigned_nodes_;
 
-  // Hashing function for consistent hashing
+  // Hashing
   size_t HashKey(uint64_t key) const;
   size_t HashKey(const std::string& key) const;
+
+  // Consistent hash ring (virtual nodes)
+  static constexpr int kVirtualNodesPerShard = 150;
+  std::map<uint64_t, core::ShardId> hash_ring_;
+  void RebuildHashRing();
+  core::ShardId LookupRing(uint64_t hash) const;
 
   // Helper methods
   void InitializeShards();

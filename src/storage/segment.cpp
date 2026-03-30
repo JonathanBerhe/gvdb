@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include "storage/segment.h"
 
 #include <algorithm>
@@ -544,7 +547,7 @@ core::Status Segment::Flush(const std::string& base_path) {
         absl::StrCat("Segment ", core::ToUInt32(id_), " has no index"));
   }
 
-  // Create segment directory
+  // Segment directory (must be created by SegmentManager before calling Flush)
   std::string segment_path =
       absl::StrCat(base_path, "/segment_", core::ToUInt32(id_));
 
@@ -573,6 +576,46 @@ core::Status Segment::Flush(const std::string& base_path) {
 
   metadata_file.close();
 
+  // Persist vectors, IDs, and per-vector metadata to vectors.bin
+  std::string vectors_path = absl::StrCat(segment_path, "/vectors.bin");
+  std::ofstream vectors_file(vectors_path, std::ios::binary);
+  if (!vectors_file.is_open()) {
+    return core::InternalError(
+        absl::StrCat("Failed to open vectors file: ", vectors_path));
+  }
+
+  // Write vector count
+  uint64_t vector_count = vectors_.size();
+  vectors_file.write(reinterpret_cast<const char*>(&vector_count), sizeof(vector_count));
+
+  // Write vector IDs
+  for (const auto& vid : vector_ids_) {
+    uint64_t id_val = core::ToUInt64(vid);
+    vectors_file.write(reinterpret_cast<const char*>(&id_val), sizeof(id_val));
+  }
+
+  // Write vector data
+  for (const auto& vec : vectors_) {
+    vectors_file.write(reinterpret_cast<const char*>(vec.data()),
+                       vec.size() * sizeof(float));
+  }
+
+  // Write per-vector metadata
+  uint64_t metadata_count = metadata_map_.size();
+  vectors_file.write(reinterpret_cast<const char*>(&metadata_count), sizeof(metadata_count));
+
+  for (const auto& [vid_raw, metadata] : metadata_map_) {
+    vectors_file.write(reinterpret_cast<const char*>(&vid_raw), sizeof(vid_raw));
+    std::stringstream meta_ss;
+    core::MetadataSerializer::Serialize(metadata, meta_ss);
+    std::string meta_bytes = meta_ss.str();
+    uint64_t meta_size = meta_bytes.size();
+    vectors_file.write(reinterpret_cast<const char*>(&meta_size), sizeof(meta_size));
+    vectors_file.write(meta_bytes.data(), meta_size);
+  }
+
+  vectors_file.close();
+
   return core::OkStatus();
 }
 
@@ -593,6 +636,7 @@ core::StatusOr<std::unique_ptr<Segment>> Segment::Load(
   uint32_t collection_id_raw = 0;
   core::Dimension dimension = 0;
   int metric_raw = 0;
+  int index_type_raw = 0;
 
   std::string line;
   while (std::getline(metadata_file, line)) {
@@ -608,6 +652,8 @@ core::StatusOr<std::unique_ptr<Segment>> Segment::Load(
       dimension = std::stoul(value);
     } else if (key == "metric") {
       metric_raw = std::stoi(value);
+    } else if (key == "index_type") {
+      index_type_raw = std::stoi(value);
     }
   }
 
@@ -617,10 +663,56 @@ core::StatusOr<std::unique_ptr<Segment>> Segment::Load(
   auto segment = std::make_unique<Segment>(
       id, core::MakeCollectionId(collection_id_raw), dimension,
       static_cast<core::MetricType>(metric_raw));
+  segment->index_type_ = static_cast<core::IndexType>(index_type_raw);
 
-  // Note: Index deserialization would happen here, but we need the index
-  // instance This will be handled by SegmentManager which has access to
-  // IndexFactory
+  // Load vectors from vectors.bin if it exists
+  std::string vectors_path = absl::StrCat(segment_path, "/vectors.bin");
+  std::ifstream vectors_file(vectors_path, std::ios::binary);
+  if (vectors_file.is_open()) {
+    // Read vector count
+    uint64_t vector_count = 0;
+    vectors_file.read(reinterpret_cast<char*>(&vector_count), sizeof(vector_count));
+
+    // Read vector IDs
+    segment->vector_ids_.reserve(vector_count);
+    for (uint64_t i = 0; i < vector_count; ++i) {
+      uint64_t id_val = 0;
+      vectors_file.read(reinterpret_cast<char*>(&id_val), sizeof(id_val));
+      segment->vector_ids_.push_back(core::MakeVectorId(id_val));
+    }
+
+    // Read vector data
+    segment->vectors_.reserve(vector_count);
+    for (uint64_t i = 0; i < vector_count; ++i) {
+      std::vector<float> data(dimension);
+      vectors_file.read(reinterpret_cast<char*>(data.data()),
+                        dimension * sizeof(float));
+      segment->vectors_.push_back(core::Vector(std::move(data)));
+    }
+
+    // Read per-vector metadata
+    uint64_t metadata_count = 0;
+    vectors_file.read(reinterpret_cast<char*>(&metadata_count), sizeof(metadata_count));
+
+    for (uint64_t i = 0; i < metadata_count; ++i) {
+      uint64_t vid_raw = 0;
+      vectors_file.read(reinterpret_cast<char*>(&vid_raw), sizeof(vid_raw));
+
+      uint64_t meta_size = 0;
+      vectors_file.read(reinterpret_cast<char*>(&meta_size), sizeof(meta_size));
+
+      std::string meta_bytes(meta_size, '\0');
+      vectors_file.read(meta_bytes.data(), meta_size);
+
+      std::stringstream meta_ss(meta_bytes);
+      auto meta_result = core::MetadataSerializer::Deserialize(meta_ss);
+      if (meta_result.ok()) {
+        segment->metadata_map_[vid_raw] = std::move(*meta_result);
+      }
+    }
+
+    vectors_file.close();
+  }
 
   segment->state_ = core::SegmentState::FLUSHED;
 
@@ -838,12 +930,10 @@ core::SegmentState Segment::GetState() const {
 size_t Segment::GetVectorCount() const {
   std::shared_lock lock(mutex_);
 
-  if (state_ == core::SegmentState::GROWING) {
-    return vectors_.size();
-  } else if (index_) {
+  if (index_) {
     return index_->GetVectorCount();
   }
-  return 0;
+  return vectors_.size();
 }
 
 size_t Segment::GetMemoryUsage() const {
