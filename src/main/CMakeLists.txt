@@ -9,7 +9,7 @@ target_link_libraries(gvdb-single-node
   PRIVATE
     gvdb_consensus
     gvdb_cluster
-    network
+    gvdb_network
     gvdb_compute
     gvdb_storage
     gvdb_index
@@ -44,7 +44,7 @@ add_executable(gvdb-data-node
 target_link_libraries(gvdb-data-node
   PRIVATE
     gvdb_cluster
-    network
+    gvdb_network
     gvdb_compute
     gvdb_storage
     gvdb_index
@@ -64,7 +64,7 @@ add_executable(gvdb-query-node
 target_link_libraries(gvdb-query-node
   PRIVATE
     gvdb_cluster
-    network
+    gvdb_network
     gvdb_compute
     gvdb_storage
     gvdb_index
@@ -83,7 +83,9 @@ add_executable(gvdb-proxy
 
 target_link_libraries(gvdb-proxy
   PRIVATE
-    # Minimal dependencies for routing only
+    gvdb_network           # ProxyService and VectorDBService
+    proto_lib         # Proto definitions
+    gvdb_cluster      # LoadBalancer
     gvdb_utils        # Logging, metrics
     gvdb_core         # Types, status
     absl::strings

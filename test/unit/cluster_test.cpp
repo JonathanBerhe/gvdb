@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 #include "cluster/shard_manager.h"
 #include "cluster/coordinator.h"
+#include "cluster/node_registry.h"
 #include "cluster/query_node.h"
 #include "cluster/data_node.h"
 #include "cluster/load_balancer.h"
 #include "cluster/replication.h"
 #include "core/types.h"
+#include <chrono>
 
 using namespace gvdb;
 using namespace gvdb::cluster;
@@ -98,9 +100,11 @@ class CoordinatorTest : public ::testing::Test {
  protected:
   void SetUp() override {
     auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
-    coordinator_ = std::make_unique<Coordinator>(shard_manager);
+    node_registry_ = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
+    coordinator_ = std::make_unique<Coordinator>(shard_manager, node_registry_);
   }
 
+  std::shared_ptr<NodeRegistry> node_registry_;
   std::unique_ptr<Coordinator> coordinator_;
 };
 
@@ -182,6 +186,79 @@ TEST_F(CoordinatorTest, ListCollections) {
 
   auto collections = coordinator_->ListCollections();
   EXPECT_EQ(collections.size(), 3);
+}
+
+TEST_F(CoordinatorTest, DropCollection) {
+  // Register a data node
+  NodeInfo node_info;
+  node_info.node_id = core::MakeNodeId(1);
+  node_info.type = NodeType::DATA_NODE;
+  node_info.status = NodeStatus::HEALTHY;
+  node_info.address = "localhost:50051";
+  coordinator_->RegisterNode(node_info);
+
+  // Create collection
+  auto create_result = coordinator_->CreateCollection(
+      "test_collection", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
+  ASSERT_TRUE(create_result.ok());
+
+  // Verify it exists
+  auto metadata_result = coordinator_->GetCollectionMetadata("test_collection");
+  ASSERT_TRUE(metadata_result.ok());
+
+  // Drop the collection (NOTE: distributed cleanup requires RPC infrastructure,
+  // tested via integration tests in test/e2e/test_crash_client.go)
+  auto drop_status = coordinator_->DropCollection("test_collection");
+  EXPECT_TRUE(drop_status.ok());
+
+  // Verify it's gone from metadata
+  auto metadata_after_drop = coordinator_->GetCollectionMetadata("test_collection");
+  EXPECT_FALSE(metadata_after_drop.ok());
+
+  // Verify list shows 0 collections
+  auto collections = coordinator_->ListCollections();
+  EXPECT_EQ(collections.size(), 0);
+}
+
+TEST_F(CoordinatorTest, DropNonexistentCollection) {
+  // Try to drop collection that doesn't exist
+  auto status = coordinator_->DropCollection("nonexistent");
+  EXPECT_FALSE(status.ok());
+}
+
+TEST_F(CoordinatorTest, DropAndRecreateCollection) {
+  // Register a data node
+  NodeInfo node_info;
+  node_info.node_id = core::MakeNodeId(1);
+  node_info.type = NodeType::DATA_NODE;
+  node_info.status = NodeStatus::HEALTHY;
+  node_info.address = "localhost:50051";
+  coordinator_->RegisterNode(node_info);
+
+  // Create collection
+  auto create_result1 = coordinator_->CreateCollection(
+      "test_collection", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
+  ASSERT_TRUE(create_result1.ok());
+  auto collection_id1 = *create_result1;
+
+  // Drop it
+  auto drop_status = coordinator_->DropCollection("test_collection");
+  ASSERT_TRUE(drop_status.ok());
+
+  // Recreate with same name but different params
+  auto create_result2 = coordinator_->CreateCollection(
+      "test_collection", 256, core::MetricType::COSINE, core::IndexType::HNSW, 1);
+  ASSERT_TRUE(create_result2.ok());
+  auto collection_id2 = *create_result2;
+
+  // Should get new collection ID
+  EXPECT_NE(collection_id1, collection_id2);
+
+  // Verify new metadata
+  auto metadata = coordinator_->GetCollectionMetadata("test_collection");
+  ASSERT_TRUE(metadata.ok());
+  EXPECT_EQ(metadata->dimension, 256);
+  EXPECT_EQ(metadata->metric_type, core::MetricType::COSINE);
 }
 
 // ============================================================================

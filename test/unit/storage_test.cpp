@@ -1395,6 +1395,103 @@ TEST_F(StorageTest, SegmentDeserializeInvalidData) {
   EXPECT_FALSE(result3.ok());
 }
 
+// ============================================================================
+// Persistence Round-Trip Tests
+// ============================================================================
+
+TEST_F(StorageTest, FlushAndLoadSegmentWithVectors) {
+  // Use SegmentManager for proper directory creation
+  auto sm = std::make_shared<storage::SegmentManager>(test_dir_, index_factory_.get());
+
+  auto seg_result = sm->CreateSegment(core::CollectionId(1), 4, core::MetricType::L2);
+  ASSERT_TRUE(seg_result.ok());
+  core::SegmentId seg_id = *seg_result;
+
+  // Insert vectors
+  std::vector<core::Vector> vectors;
+  std::vector<core::VectorId> ids;
+  for (int i = 1; i <= 5; ++i) {
+    std::vector<float> data = {static_cast<float>(i), 0.0f, 0.0f, 0.0f};
+    vectors.push_back(core::Vector(std::move(data)));
+    ids.push_back(core::MakeVectorId(i));
+  }
+  ASSERT_TRUE(sm->WriteVectors(seg_id, vectors, ids).ok());
+
+  // Seal and flush
+  core::IndexConfig idx_cfg;
+  idx_cfg.index_type = core::IndexType::FLAT;
+  idx_cfg.dimension = 4;
+  idx_cfg.metric_type = core::MetricType::L2;
+  ASSERT_TRUE(sm->SealSegment(seg_id, idx_cfg).ok());
+  ASSERT_TRUE(sm->FlushSegment(seg_id).ok());
+
+  // Load from disk into a NEW segment
+  auto loaded = storage::Segment::Load(test_dir_, seg_id);
+  ASSERT_TRUE(loaded.ok()) << loaded.status().message();
+
+  // Verify vectors survived the round-trip
+  EXPECT_EQ((*loaded)->GetVectorCount(), 5);
+  EXPECT_EQ((*loaded)->GetDimension(), 4);
+
+  auto result = (*loaded)->GetVectors(ids, false);
+  EXPECT_EQ(result.found_ids.size(), 5);
+  EXPECT_EQ(result.not_found_ids.size(), 0);
+}
+
+TEST_F(StorageTest, LoadAllSegmentsRecovery) {
+  // Create and flush a segment via SegmentManager
+  auto sm1 = std::make_shared<storage::SegmentManager>(test_dir_, index_factory_.get());
+
+  auto seg_result = sm1->CreateSegment(core::CollectionId(1), 4, core::MetricType::L2);
+  ASSERT_TRUE(seg_result.ok());
+  core::SegmentId seg_id = *seg_result;
+
+  // Insert vectors
+  std::vector<core::Vector> vectors;
+  std::vector<core::VectorId> ids;
+  for (int i = 1; i <= 3; ++i) {
+    std::vector<float> data = {static_cast<float>(i), 1.0f, 2.0f, 3.0f};
+    vectors.push_back(core::Vector(std::move(data)));
+    ids.push_back(core::MakeVectorId(i));
+  }
+  ASSERT_TRUE(sm1->WriteVectors(seg_id, vectors, ids).ok());
+
+  // Seal and flush
+  core::IndexConfig idx_cfg;
+  idx_cfg.index_type = core::IndexType::FLAT;
+  idx_cfg.dimension = 4;
+  idx_cfg.metric_type = core::MetricType::L2;
+  ASSERT_TRUE(sm1->SealSegment(seg_id, idx_cfg).ok());
+  ASSERT_TRUE(sm1->FlushSegment(seg_id).ok());
+
+  // Destroy the old SegmentManager (simulates process restart)
+  sm1.reset();
+
+  // Create a new SegmentManager with the same base_path
+  auto sm2 = std::make_shared<storage::SegmentManager>(test_dir_, index_factory_.get());
+  EXPECT_EQ(sm2->GetSegmentCount(), 0);  // Nothing loaded yet
+
+  // Recover segments from disk
+  ASSERT_TRUE(sm2->LoadAllSegments().ok());
+  EXPECT_EQ(sm2->GetSegmentCount(), 1);
+
+  // Verify the recovered segment has the vectors
+  auto* segment = sm2->GetSegment(seg_id);
+  ASSERT_NE(segment, nullptr);
+  EXPECT_EQ(segment->GetVectorCount(), 3);
+
+  auto result = segment->GetVectors(ids, false);
+  EXPECT_EQ(result.found_ids.size(), 3);
+
+  // Verify search works after recovery (index was rebuilt)
+  std::vector<float> query_data = {1.0f, 1.0f, 2.0f, 3.0f};
+  core::Vector query(std::move(query_data));
+  auto search_result = segment->Search(query, 2);
+  ASSERT_TRUE(search_result.ok()) << search_result.status().message();
+  EXPECT_EQ(search_result->entries.size(), 2);
+  EXPECT_EQ(search_result->entries[0].id, core::MakeVectorId(1));
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

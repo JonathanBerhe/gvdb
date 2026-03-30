@@ -76,6 +76,8 @@ const (
 	CreateCollectionRequest_FLAT     CreateCollectionRequest_IndexType = 0
 	CreateCollectionRequest_HNSW     CreateCollectionRequest_IndexType = 1
 	CreateCollectionRequest_IVF_FLAT CreateCollectionRequest_IndexType = 2
+	CreateCollectionRequest_IVF_PQ   CreateCollectionRequest_IndexType = 3 // Inverted File with Product Quantization
+	CreateCollectionRequest_IVF_SQ   CreateCollectionRequest_IndexType = 4 // Inverted File with Scalar Quantization
 )
 
 // Enum value maps for CreateCollectionRequest_IndexType.
@@ -84,11 +86,15 @@ var (
 		0: "FLAT",
 		1: "HNSW",
 		2: "IVF_FLAT",
+		3: "IVF_PQ",
+		4: "IVF_SQ",
 	}
 	CreateCollectionRequest_IndexType_value = map[string]int32{
 		"FLAT":     0,
 		"HNSW":     1,
 		"IVF_FLAT": 2,
+		"IVF_PQ":   3,
+		"IVF_SQ":   4,
 	}
 )
 
@@ -1660,7 +1666,7 @@ const file_vectordb_proto_rawDesc = "" +
 	"\x11SearchResultEntry\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1a\n" +
 	"\bdistance\x18\x02 \x01(\x02R\bdistance\x120\n" +
-	"\bmetadata\x18\x03 \x01(\v2\x14.gvdb.proto.MetadataR\bmetadata\"\xda\x02\n" +
+	"\bmetadata\x18\x03 \x01(\v2\x14.gvdb.proto.MetadataR\bmetadata\"\xf2\x02\n" +
 	"\x17CreateCollectionRequest\x12'\n" +
 	"\x0fcollection_name\x18\x01 \x01(\tR\x0ecollectionName\x12\x1c\n" +
 	"\tdimension\x18\x02 \x01(\rR\tdimension\x12F\n" +
@@ -1672,11 +1678,15 @@ const file_vectordb_proto_rawDesc = "" +
 	"\x02L2\x10\x00\x12\x11\n" +
 	"\rINNER_PRODUCT\x10\x01\x12\n" +
 	"\n" +
-	"\x06COSINE\x10\x02\"-\n" +
+	"\x06COSINE\x10\x02\"E\n" +
 	"\tIndexType\x12\b\n" +
 	"\x04FLAT\x10\x00\x12\b\n" +
 	"\x04HNSW\x10\x01\x12\f\n" +
-	"\bIVF_FLAT\x10\x02\"Y\n" +
+	"\bIVF_FLAT\x10\x02\x12\n" +
+	"\n" +
+	"\x06IVF_PQ\x10\x03\x12\n" +
+	"\n" +
+	"\x06IVF_SQ\x10\x04\"Y\n" +
 	"\x18CreateCollectionResponse\x12#\n" +
 	"\rcollection_id\x18\x01 \x01(\rR\fcollectionId\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"@\n" +

@@ -2,6 +2,7 @@
 
 #include "network/proto_conversions.h"
 #include "network/vectordb_service.h"
+#include "network/collection_resolver.h"
 #include "storage/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
@@ -160,9 +161,10 @@ class VectorDBServiceTest : public ::testing::Test {
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_manager_.get());
 
-    // Create service
+    // Create service with local resolver
+    auto resolver = network::MakeLocalResolver(segment_manager_);
     service_ = std::make_unique<network::VectorDBService>(
-        segment_manager_, query_executor_);
+        segment_manager_, query_executor_, std::move(resolver));
   }
 
   void TearDown() override {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"time"
 
 	pb "gvdb/integration-tests/pb"
@@ -14,12 +15,18 @@ import (
 )
 
 const (
-	serverAddr      = "localhost:50051"
 	collectionName  = "e2e_test_collection"
 	dimension       = 128
 	numVectors      = 1000
 	timeout         = 30 * time.Second
 )
+
+func getServerAddr() string {
+	if addr := os.Getenv("GVDB_SERVER_ADDR"); addr != "" {
+		return addr
+	}
+	return "localhost:50051" // Default to coordinator for single-node mode
+}
 
 type E2ETest struct {
 	conn   *grpc.ClientConn
@@ -27,6 +34,9 @@ type E2ETest struct {
 }
 
 func NewE2ETest() (*E2ETest, error) {
+	serverAddr := getServerAddr()
+	fmt.Printf("\nStep 1: Connecting to server...\n")
+	fmt.Printf("   Server address: %s\n", serverAddr)
 	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect: %v", err)

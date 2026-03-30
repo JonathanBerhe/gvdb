@@ -6,6 +6,7 @@ add_library(gvdb_utils
   thread_pool.cpp
   metrics.cpp
   config.cpp
+  server_bootstrap.cpp
 )
 
 # Link dependencies
@@ -17,6 +18,7 @@ target_link_libraries(gvdb_utils
     prometheus-cpp::pull
   PRIVATE
     yaml-cpp
+    ${_GRPC_GRPCPP}
 )
 
 # Include directories
