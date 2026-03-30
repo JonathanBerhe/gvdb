@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include "index/index_manager.h"
 
 #include "index/index_factory.h"

@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #pragma once
 
 #include "internal.grpc.pb.h"
@@ -12,6 +15,7 @@
 namespace gvdb {
 namespace cluster {
 class NodeRegistry;
+class Coordinator;
 }
 
 namespace consensus {
@@ -28,7 +32,8 @@ class InternalService final : public proto::internal::InternalService::Service {
       std::shared_ptr<storage::SegmentManager> segment_manager,
       std::shared_ptr<compute::QueryExecutor> query_executor,
       std::shared_ptr<cluster::NodeRegistry> node_registry = nullptr,
-      std::shared_ptr<consensus::TimestampOracle> timestamp_oracle = nullptr);
+      std::shared_ptr<consensus::TimestampOracle> timestamp_oracle = nullptr,
+      std::shared_ptr<cluster::Coordinator> coordinator = nullptr);
 
   ~InternalService();
 
@@ -74,6 +79,11 @@ class InternalService final : public proto::internal::InternalService::Service {
       grpc::ServerContext* context,
       const proto::internal::DeleteSegmentRequest* request,
       proto::internal::DeleteSegmentResponse* response) override;
+
+  grpc::Status CreateSegment(
+      grpc::ServerContext* context,
+      const proto::internal::CreateSegmentRequest* request,
+      proto::internal::CreateSegmentResponse* response) override;
 
   // =========================================================================
   // Metadata Synchronization (Data/Query Nodes → Coordinator)
@@ -141,6 +151,7 @@ class InternalService final : public proto::internal::InternalService::Service {
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::shared_ptr<cluster::NodeRegistry> node_registry_;
   std::shared_ptr<consensus::TimestampOracle> timestamp_oracle_;
+  std::shared_ptr<cluster::Coordinator> coordinator_;
 
   // Statistics
   std::atomic<uint64_t> total_requests_{0};

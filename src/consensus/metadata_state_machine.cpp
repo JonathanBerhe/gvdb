@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include "consensus/metadata_state_machine.h"
 #include "utils/logger.h"
 #include <cstring>

@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include "utils/config.h"
 
 #include <fstream>
@@ -37,6 +40,27 @@ ServerConfig Config::parse_server_config(const YAML::Node& node) {
   config.metrics_port = get_or_default(node, "metrics_port", config.metrics_port);
   config.max_message_size_mb = get_or_default(node, "max_message_size_mb", config.max_message_size_mb);
   config.max_concurrent_streams = get_or_default(node, "max_concurrent_streams", config.max_concurrent_streams);
+
+  // TLS config
+  if (node["tls"]) {
+    auto tls_node = node["tls"];
+    config.tls.enabled = get_or_default(tls_node, "enabled", config.tls.enabled);
+    config.tls.cert_path = get_or_default(tls_node, "cert_path", config.tls.cert_path);
+    config.tls.key_path = get_or_default(tls_node, "key_path", config.tls.key_path);
+    config.tls.ca_cert_path = get_or_default(tls_node, "ca_cert_path", config.tls.ca_cert_path);
+    config.tls.mutual_tls = get_or_default(tls_node, "mutual_tls", config.tls.mutual_tls);
+  }
+
+  // Auth config
+  if (node["auth"]) {
+    auto auth_node = node["auth"];
+    config.auth.enabled = get_or_default(auth_node, "enabled", config.auth.enabled);
+    if (auth_node["api_keys"] && auth_node["api_keys"].IsSequence()) {
+      for (const auto& key : auth_node["api_keys"]) {
+        config.auth.api_keys.push_back(key.as<std::string>());
+      }
+    }
+  }
 
   return config;
 }

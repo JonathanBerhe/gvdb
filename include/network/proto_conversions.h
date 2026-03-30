@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #pragma once
 
 #include "core/metadata.h"
@@ -34,6 +37,12 @@ fromProto(proto::CreateCollectionRequest::IndexType index_type);
 // Convert proto Metadata to core Metadata
 absl::StatusOr<core::Metadata> fromProto(const proto::Metadata& proto_metadata);
 
+// Convert string to core MetricType (for internal.proto string fields)
+absl::StatusOr<core::MetricType> metricTypeFromString(const std::string& metric_str);
+
+// Convert string to core IndexType (for internal.proto string fields)
+absl::StatusOr<core::IndexType> indexTypeFromString(const std::string& index_str);
+
 // ============================================================================
 // Core to Proto Conversions
 // ============================================================================
@@ -47,6 +56,9 @@ void toProto(const core::SearchResultEntry& entry, proto::SearchResultEntry* pro
 // Convert core MetricType to string representation
 std::string toString(core::MetricType metric);
 
+// Convert core IndexType to string representation
+std::string toString(core::IndexType index);
+
 // Convert core Metadata to proto Metadata
 void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata);
 
@@ -56,6 +68,9 @@ void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata);
 
 // Convert absl::Status to grpc::Status
 grpc::Status toGrpcStatus(const absl::Status& status);
+
+// Convert grpc::Status to absl::Status
+absl::Status fromGrpcStatus(const grpc::Status& grpc_status);
 
 } // namespace network
 } // namespace gvdb

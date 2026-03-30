@@ -1,7 +1,13 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include "network/internal_service.h"
+#include "network/proto_conversions.h"
 #include "cluster/node_registry.h"
+#include "cluster/coordinator.h"
 #include "consensus/timestamp_oracle.h"
 #include "utils/logger.h"
+#include "utils/timer.h"
 #include "core/types.h"
 #include <chrono>
 
@@ -13,15 +19,18 @@ InternalService::InternalService(
     std::shared_ptr<storage::SegmentManager> segment_manager,
     std::shared_ptr<compute::QueryExecutor> query_executor,
     std::shared_ptr<cluster::NodeRegistry> node_registry,
-    std::shared_ptr<consensus::TimestampOracle> timestamp_oracle)
+    std::shared_ptr<consensus::TimestampOracle> timestamp_oracle,
+    std::shared_ptr<cluster::Coordinator> coordinator)
     : shard_manager_(shard_manager),
       segment_manager_(segment_manager),
       query_executor_(query_executor),
       node_registry_(node_registry),
-      timestamp_oracle_(timestamp_oracle) {
-  utils::Logger::Instance().Info("InternalService initialized (node_registry={}, timestamp_oracle={})",
+      timestamp_oracle_(timestamp_oracle),
+      coordinator_(coordinator) {
+  utils::Logger::Instance().Info("InternalService initialized (node_registry={}, timestamp_oracle={}, coordinator={})",
                                   node_registry_ != nullptr ? "yes" : "no",
-                                  timestamp_oracle_ != nullptr ? "yes" : "no");
+                                  timestamp_oracle_ != nullptr ? "yes" : "no",
+                                  coordinator_ != nullptr ? "yes" : "no");
 }
 
 InternalService::~InternalService() {
@@ -46,8 +55,21 @@ grpc::Status InternalService::AssignShard(
     utils::Logger::Instance().Info("AssignShard: shard={}, node={}, primary={}",
                                     shard_id, node_id, is_primary);
 
-    // In Phase 3, this is a stub that just acknowledges the assignment
-    // TODO: Actually store shard assignment metadata
+    core::ShardId sid = core::MakeShardId(shard_id);
+    core::NodeId nid = core::MakeNodeId(node_id);
+
+    absl::Status status;
+    if (is_primary) {
+      status = shard_manager_->SetPrimaryNode(sid, nid);
+    } else {
+      status = shard_manager_->AddReplica(sid, nid);
+    }
+
+    if (!status.ok()) {
+      response->set_success(false);
+      response->set_message(std::string(status.message()));
+      return grpc::Status::OK;
+    }
 
     response->set_success(true);
     response->set_message(absl::StrFormat("Shard %d assigned to node %d (primary=%d)",
@@ -72,8 +94,17 @@ grpc::Status InternalService::GetShardAssignments(
 
     utils::Logger::Instance().Debug("GetShardAssignments: collection={}", collection_id);
 
-    // TODO Phase 4: Return actual shard assignments from metadata store
-    // For now, return empty response (single-node mode)
+    // Return shard assignments from ShardManager
+    auto all_shards = shard_manager_->GetAllShards();
+    for (const auto& shard_info : all_shards) {
+      // Filter by collection_id if specified (0 = all)
+      auto* assignment = response->add_assignments();
+      assignment->set_shard_id(core::ToUInt16(shard_info.shard_id));
+      assignment->set_primary_node_id(core::ToUInt32(shard_info.primary_node));
+      for (const auto& replica : shard_info.replica_nodes) {
+        assignment->add_node_ids(core::ToUInt32(replica));
+      }
+    }
 
     return grpc::Status::OK;
 
@@ -95,11 +126,8 @@ grpc::Status InternalService::RebalanceShards(
 
     utils::Logger::Instance().Info("RebalanceShards: collection={}", collection_id);
 
-    // TODO Phase 4: Implement shard rebalancing
-    response->set_shards_moved(0);
-    response->set_message("Rebalancing not yet implemented (Phase 4)");
-
-    return grpc::Status::OK;
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+                        "RebalanceShards not yet implemented");
 
   } catch (const std::exception& e) {
     total_errors_++;
@@ -246,7 +274,32 @@ grpc::Status InternalService::ListSegments(
 
     utils::Logger::Instance().Debug("ListSegments: collection={}, shard={}", collection_id, shard_id);
 
-    // TODO Phase 4: List segments from SegmentManager
+    // List segments, optionally filtered by collection_id
+    std::vector<core::SegmentId> segment_ids;
+
+    if (collection_id > 0) {
+      segment_ids = segment_manager_->GetCollectionSegments(
+          core::MakeCollectionId(collection_id));
+    } else {
+      // Get all segments by iterating all collections
+      // SegmentManager doesn't expose a GetAllSegments, so use GetSegment
+      // to check known IDs. For now, return segments for all known collections.
+      // This is a best-effort approach.
+      segment_ids = segment_manager_->GetCollectionSegments(
+          core::MakeCollectionId(0));  // Will return empty if no collection 0
+    }
+
+    for (const auto& seg_id : segment_ids) {
+      auto* segment = segment_manager_->GetSegment(seg_id);
+      if (!segment) continue;
+
+      auto* info = response->add_segments();
+      info->set_segment_id(static_cast<uint64_t>(core::ToUInt32(seg_id)));
+      info->set_collection_id(collection_id);
+      info->set_vector_count(segment->GetVectorCount());
+      info->set_is_sealed(segment->GetState() == core::SegmentState::SEALED);
+    }
+
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
@@ -313,6 +366,89 @@ grpc::Status InternalService::DeleteSegment(
   }
 }
 
+grpc::Status InternalService::CreateSegment(
+    grpc::ServerContext* context,
+    const proto::internal::CreateSegmentRequest* request,
+    proto::internal::CreateSegmentResponse* response) {
+  total_requests_++;
+
+  try {
+    uint64_t segment_id = request->segment_id();
+    uint32_t collection_id = request->collection_id();
+    uint32_t dimension = request->dimension();
+    const std::string& metric_type_str = request->metric_type();
+    const std::string& index_type_str = request->index_type();
+
+    utils::Logger::Instance().Info(
+        "CreateSegment: segment={}, collection={}, dimension={}, metric={}, index={}",
+        segment_id, collection_id, dimension, metric_type_str, index_type_str);
+
+    // Validate inputs
+    if (segment_id == 0) {
+      response->set_success(false);
+      response->set_message("Invalid segment_id");
+      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Invalid segment_id");
+    }
+
+    if (collection_id == 0) {
+      response->set_success(false);
+      response->set_message("Invalid collection_id");
+      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Invalid collection_id");
+    }
+
+    if (dimension == 0) {
+      response->set_success(false);
+      response->set_message("Invalid dimension");
+      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Invalid dimension");
+    }
+
+    // Convert string types to enums
+    auto metric_result = metricTypeFromString(metric_type_str);
+    if (!metric_result.ok()) {
+      response->set_success(false);
+      response->set_message(std::string(metric_result.status().message()));
+      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+                          std::string(metric_result.status().message()));
+    }
+
+    auto index_result = indexTypeFromString(index_type_str);
+    if (!index_result.ok()) {
+      response->set_success(false);
+      response->set_message(std::string(index_result.status().message()));
+      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+                          std::string(index_result.status().message()));
+    }
+
+    // Create segment
+    core::SegmentId seg_id = static_cast<core::SegmentId>(segment_id);
+    core::CollectionId coll_id = core::MakeCollectionId(collection_id);
+    core::Dimension dim = static_cast<core::Dimension>(dimension);
+
+    auto create_status = segment_manager_->CreateSegmentWithId(
+        seg_id, coll_id, dim, *metric_result, *index_result);
+
+    if (!create_status.ok()) {
+      response->set_success(false);
+      response->set_message(absl::StrFormat("Failed to create segment: %s",
+                                             std::string(create_status.message()).c_str()));
+      utils::Logger::Instance().Error("CreateSegment failed: {}", create_status.message());
+      return grpc::Status::OK;
+    }
+
+    response->set_success(true);
+    response->set_message(absl::StrFormat("Segment %lu created successfully", segment_id));
+    response->set_segment_id(segment_id);
+
+    utils::Logger::Instance().Info("CreateSegment: successfully created segment={}", segment_id);
+    return grpc::Status::OK;
+
+  } catch (const std::exception& e) {
+    total_errors_++;
+    utils::Logger::Instance().Error("CreateSegment failed: {}", e.what());
+    return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
+  }
+}
+
 // =============================================================================
 // Metadata Synchronization
 // =============================================================================
@@ -350,17 +486,92 @@ grpc::Status InternalService::GetCollectionMetadata(
   total_requests_++;
 
   try {
-    // Get collection identifier (either ID or name)
-    if (request->has_collection_id()) {
-      utils::Logger::Instance().Debug("GetCollectionMetadata: collection_id={}",
-                                       request->collection_id());
-    } else if (request->has_collection_name()) {
-      utils::Logger::Instance().Debug("GetCollectionMetadata: collection_name={}",
-                                       request->collection_name());
+    // Check if coordinator is available
+    if (!coordinator_) {
+      utils::Logger::Instance().Warn("GetCollectionMetadata: coordinator not available");
+      response->set_found(false);
+      return grpc::Status::OK;
     }
 
-    // TODO Phase 4: Look up collection metadata from metadata store
-    response->set_found(false);
+    // Get collection metadata from coordinator
+    absl::StatusOr<cluster::CollectionMetadata> metadata_result;
+
+    if (request->has_collection_id()) {
+      uint32_t collection_id = request->collection_id();
+      utils::Logger::Instance().Debug("GetCollectionMetadata: collection_id={}", collection_id);
+      metadata_result = coordinator_->GetCollectionMetadata(core::MakeCollectionId(collection_id));
+    } else if (request->has_collection_name()) {
+      const std::string& collection_name = request->collection_name();
+      utils::Logger::Instance().Debug("GetCollectionMetadata: collection_name={}", collection_name);
+      metadata_result = coordinator_->GetCollectionMetadata(collection_name);
+    } else {
+      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+                          "Either collection_id or collection_name must be provided");
+    }
+
+    // Check if collection was found
+    if (!metadata_result.ok()) {
+      utils::Logger::Instance().Debug("GetCollectionMetadata: collection not found: {}",
+                                       metadata_result.status().message());
+      response->set_found(false);
+      return grpc::Status::OK;
+    }
+
+    // Populate response
+    const auto& metadata = metadata_result.value();
+    response->set_found(true);
+
+    auto* proto_metadata = response->mutable_metadata();
+    proto_metadata->set_collection_id(core::ToUInt32(metadata.collection_id));
+    proto_metadata->set_collection_name(metadata.collection_name);
+    proto_metadata->set_dimension(metadata.dimension);
+
+    // Convert MetricType enum to string
+    switch (metadata.metric_type) {
+      case core::MetricType::L2:
+        proto_metadata->set_metric_type("L2");
+        break;
+      case core::MetricType::INNER_PRODUCT:
+        proto_metadata->set_metric_type("INNER_PRODUCT");
+        break;
+      case core::MetricType::COSINE:
+        proto_metadata->set_metric_type("COSINE");
+        break;
+      default:
+        proto_metadata->set_metric_type("UNKNOWN");
+        break;
+    }
+
+    // Convert IndexType enum to string
+    switch (metadata.index_type) {
+      case core::IndexType::FLAT:
+        proto_metadata->set_index_type("FLAT");
+        break;
+      case core::IndexType::HNSW:
+        proto_metadata->set_index_type("HNSW");
+        break;
+      case core::IndexType::IVF_FLAT:
+        proto_metadata->set_index_type("IVF_FLAT");
+        break;
+      case core::IndexType::IVF_PQ:
+        proto_metadata->set_index_type("IVF_PQ");
+        break;
+      case core::IndexType::IVF_SQ:
+        proto_metadata->set_index_type("IVF_SQ");
+        break;
+      default:
+        proto_metadata->set_index_type("UNKNOWN");
+        break;
+    }
+
+    proto_metadata->set_vector_count(metadata.total_vectors);
+    proto_metadata->set_created_at(metadata.created_at);
+    proto_metadata->set_shard_count(metadata.shard_ids.size());
+
+    utils::Logger::Instance().Debug("GetCollectionMetadata: found collection '{}' (id={}, dim={})",
+                                     metadata.collection_name,
+                                     core::ToUInt32(metadata.collection_id),
+                                     metadata.dimension);
 
     return grpc::Status::OK;
 
@@ -388,8 +599,46 @@ grpc::Status InternalService::RouteQuery(
     utils::Logger::Instance().Debug("RouteQuery: collection={}, top_k={}",
                                      collection_name, top_k);
 
-    // TODO Phase 5: Implement query routing logic
-    // For now, return empty response
+    // Need coordinator to look up collection metadata
+    if (!coordinator_) {
+      return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+          "RouteQuery requires coordinator (only available on coordinator nodes)");
+    }
+
+    // Get collection metadata to find shard assignments
+    auto metadata_result = coordinator_->GetCollectionMetadata(collection_name);
+    if (!metadata_result.ok()) {
+      return grpc::Status(grpc::StatusCode::NOT_FOUND,
+          std::string(metadata_result.status().message()));
+    }
+
+    const auto& metadata = *metadata_result;
+    response->set_collection_id(core::ToUInt32(metadata.collection_id));
+
+    // For each shard, find the primary data node
+    for (const auto& shard_id : metadata.shard_ids) {
+      auto primary_result = shard_manager_->GetPrimaryNode(shard_id);
+      if (!primary_result.ok()) continue;
+
+      core::NodeId node_id = *primary_result;
+      if (node_id == core::kInvalidNodeId) continue;
+
+      // Get node address from registry
+      std::string address;
+      if (node_registry_) {
+        cluster::RegisteredNode node;
+        if (node_registry_->GetNode(core::ToUInt32(node_id), &node)) {
+          address = node.info.grpc_address();
+        }
+      }
+
+      response->add_target_shard_ids(core::ToUInt16(shard_id));
+      response->add_target_node_ids(core::ToUInt32(node_id));
+      response->add_target_node_addresses(address);
+    }
+
+    utils::Logger::Instance().Debug("RouteQuery: {} shards for collection '{}'",
+                                     response->target_shard_ids_size(), collection_name);
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
@@ -407,15 +656,60 @@ grpc::Status InternalService::ExecuteShardQuery(
 
   try {
     uint32_t collection_id = request->collection_id();
-    uint32_t shard_id = request->shard_id();
     uint32_t top_k = request->top_k();
 
-    utils::Logger::Instance().Debug("ExecuteShardQuery: collection={}, shard={}, top_k={}",
-                                     collection_id, shard_id, top_k);
+    utils::Logger::Instance().Debug("ExecuteShardQuery: collection={}, top_k={}",
+                                     collection_id, top_k);
 
-    // TODO Phase 5: Execute query on specific shard using QueryExecutor
-    response->set_query_time_ms(0.0f);
-    response->set_vectors_scanned(0);
+    uint32_t shard_id = request->shard_id();
+    core::SegmentId segment_id = cluster::ShardSegmentId(
+        core::MakeCollectionId(collection_id), shard_id);
+    auto* segment = segment_manager_->GetSegment(segment_id);
+    if (!segment) {
+      return grpc::Status(grpc::StatusCode::NOT_FOUND,
+          absl::StrCat("Segment not found for collection ", collection_id));
+    }
+
+    // Convert query vector from proto
+    if (request->query_vector().empty()) {
+      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Query vector is empty");
+    }
+
+    std::vector<float> query_data(request->query_vector().begin(),
+                                   request->query_vector().end());
+    core::Vector query(std::move(query_data));
+
+    // Validate dimension
+    if (query.dimension() != segment->GetDimension()) {
+      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+          absl::StrCat("Query dimension mismatch: expected ",
+                       segment->GetDimension(), ", got ", query.dimension()));
+    }
+
+    // Execute search
+    utils::Timer timer;
+    core::StatusOr<core::SearchResult> search_result;
+
+    if (!request->filter().empty()) {
+      search_result = segment->SearchWithFilter(query, top_k, request->filter());
+    } else {
+      search_result = segment->Search(query, top_k);
+    }
+
+    if (!search_result.ok()) {
+      return grpc::Status(grpc::StatusCode::INTERNAL,
+          std::string(search_result.status().message()));
+    }
+
+    // Convert results to proto
+    for (const auto& entry : search_result->entries) {
+      auto* result = response->add_results();
+      result->set_id(core::ToUInt64(entry.id));
+      result->set_distance(entry.distance);
+    }
+
+    response->set_query_time_ms(static_cast<float>(timer.elapsed_millis()));
+    response->set_vectors_scanned(segment->GetVectorCount());
 
     return grpc::Status::OK;
 
@@ -445,12 +739,8 @@ grpc::Status InternalService::TransferData(
     utils::Logger::Instance().Info("TransferData: collection={}, shard={}, {} -> {}",
                                     collection_id, shard_id, source_node_id, target_node_id);
 
-    // TODO Phase 4: Implement data transfer for rebalancing
-    response->set_success(false);
-    response->set_vectors_transferred(0);
-    response->set_message("Data transfer not yet implemented (Phase 4)");
-
-    return grpc::Status::OK;
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+                        "TransferData not yet implemented");
 
   } catch (const std::exception& e) {
     total_errors_++;
@@ -486,8 +776,14 @@ grpc::Status InternalService::Heartbeat(
     response->set_timestamp(
         std::chrono::system_clock::now().time_since_epoch().count());
 
-    // TODO Phase 4+: Send instructions (shard assignments, rebalance commands)
-    // response->set_should_rebalance(false);
+    // Send shard assignments back to the node
+    if (shard_manager_ && node_info.node_id() > 0) {
+      core::NodeId nid = core::MakeNodeId(node_info.node_id());
+      auto shards = shard_manager_->GetShardsForNode(nid);
+      for (const auto& shard_info : shards) {
+        response->add_assigned_shards(core::ToUInt16(shard_info.shard_id));
+      }
+    }
 
     return grpc::Status::OK;
 

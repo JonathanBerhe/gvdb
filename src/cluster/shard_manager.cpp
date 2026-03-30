@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include "cluster/shard_manager.h"
 #include "utils/logger.h"
 #include "absl/strings/str_cat.h"
@@ -40,6 +43,30 @@ void ShardManager::InitializeShards() {
     info.state = ShardState::ACTIVE;
     shards_[info.shard_id] = info;
   }
+  RebuildHashRing();
+}
+
+void ShardManager::RebuildHashRing() {
+  // Must be called with shard_mutex_ held
+  hash_ring_.clear();
+  for (const auto& [shard_id, info] : shards_) {
+    uint16_t sid = core::ToUInt16(shard_id);
+    for (int v = 0; v < kVirtualNodesPerShard; ++v) {
+      // Create unique key for each virtual node: shard_id * 10000 + v
+      uint64_t vnode_key = static_cast<uint64_t>(sid) * 10000 + v;
+      uint64_t hash = FNV1aHash(&vnode_key, sizeof(vnode_key));
+      hash_ring_[hash] = shard_id;
+    }
+  }
+}
+
+core::ShardId ShardManager::LookupRing(uint64_t hash) const {
+  // Find the first virtual node with hash >= input hash (clockwise walk)
+  auto it = hash_ring_.lower_bound(hash);
+  if (it == hash_ring_.end()) {
+    it = hash_ring_.begin();  // Wrap around
+  }
+  return it->second;
 }
 
 size_t ShardManager::HashKey(uint64_t key) const {
@@ -54,15 +81,20 @@ core::ShardId ShardManager::AssignShard(core::VectorId vector_id) const {
   uint64_t id = core::ToUInt64(vector_id);
 
   switch (strategy_) {
-    case ShardingStrategy::HASH:
+    case ShardingStrategy::HASH: {
+      // Use consistent hash ring
+      std::shared_lock lock(shard_mutex_);
+      if (!hash_ring_.empty()) {
+        uint64_t hash = FNV1aHash(&id, sizeof(id));
+        return LookupRing(hash);
+      }
       return core::MakeShardId(static_cast<uint16_t>(HashKey(id)));
+    }
 
     case ShardingStrategy::ROUND_ROBIN:
       return core::MakeShardId(static_cast<uint16_t>(id % num_shards_));
 
     case ShardingStrategy::RANGE:
-      // For range-based, we need to look up the shard based on key ranges
-      // For now, fallback to hash
       return core::MakeShardId(static_cast<uint16_t>(HashKey(id)));
 
     default:
@@ -212,24 +244,24 @@ absl::Status ShardManager::RemoveReplica(core::ShardId shard_id, core::NodeId no
 
 absl::Status ShardManager::RegisterNode(core::NodeId node_id) {
   std::unique_lock lock(node_mutex_);
-  if (active_nodes_.count(node_id) > 0) {
+  if (assigned_nodes_.count(node_id) > 0) {
     return absl::AlreadyExistsError(
         absl::StrCat("Node already registered: ", core::ToUInt32(node_id)));
   }
 
-  active_nodes_.insert(node_id);
+  assigned_nodes_.insert(node_id);
   utils::Logger::Instance().Info("Registered node {}", core::ToUInt32(node_id));
   return absl::OkStatus();
 }
 
 absl::Status ShardManager::UnregisterNode(core::NodeId node_id, bool graceful) {
   std::unique_lock node_lock(node_mutex_);
-  if (active_nodes_.count(node_id) == 0) {
+  if (assigned_nodes_.count(node_id) == 0) {
     return absl::NotFoundError(
         absl::StrCat("Node not found: ", core::ToUInt32(node_id)));
   }
 
-  active_nodes_.erase(node_id);
+  assigned_nodes_.erase(node_id);
 
   if (graceful) {
     // TODO: Implement graceful shutdown - migrate shards to other nodes
@@ -245,7 +277,7 @@ absl::Status ShardManager::UnregisterNode(core::NodeId node_id, bool graceful) {
 
 std::vector<core::NodeId> ShardManager::GetAllNodes() const {
   std::shared_lock lock(node_mutex_);
-  return std::vector<core::NodeId>(active_nodes_.begin(), active_nodes_.end());
+  return std::vector<core::NodeId>(assigned_nodes_.begin(), assigned_nodes_.end());
 }
 
 std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() {

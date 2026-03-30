@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include "consensus/gvdb_log_store.h"
 
 #include "utils/logger.h"

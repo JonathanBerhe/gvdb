@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #ifndef GVDB_STORAGE_SEGMENT_H_
 #define GVDB_STORAGE_SEGMENT_H_
 
@@ -123,6 +126,7 @@ class Segment {
   [[nodiscard]] core::SegmentState GetState() const;
   [[nodiscard]] core::Dimension GetDimension() const { return dimension_; }
   [[nodiscard]] core::MetricType GetMetric() const { return metric_; }
+  [[nodiscard]] core::IndexType GetIndexType() const { return index_type_; }
   [[nodiscard]] size_t GetVectorCount() const;
   [[nodiscard]] size_t GetMemoryUsage() const;
 
@@ -132,12 +136,15 @@ class Segment {
   // Get maximum segment size (512 MB default)
   static constexpr size_t kMaxSegmentSize = 512 * 1024 * 1024;  // 512 MB
 
+  friend class SegmentManager;
+
  private:
   // Segment identification
   core::SegmentId id_;
   core::CollectionId collection_id_;
   core::Dimension dimension_;
   core::MetricType metric_;
+  core::IndexType index_type_ = core::IndexType::FLAT;
 
   // State management
   mutable std::shared_mutex mutex_;

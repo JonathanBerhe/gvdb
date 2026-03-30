@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 syntax = "proto3";
 
 package gvdb.proto;
@@ -59,8 +62,12 @@ message CreateCollectionRequest {
     FLAT = 0;
     HNSW = 1;
     IVF_FLAT = 2;
+    IVF_PQ = 3;    // Inverted File with Product Quantization
+    IVF_SQ = 4;    // Inverted File with Scalar Quantization
   }
   IndexType index_type = 4;
+
+  uint32 num_shards = 5;  // Number of shards (0 = default 1)
 }
 
 message CreateCollectionResponse {

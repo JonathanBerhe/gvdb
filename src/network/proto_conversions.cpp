@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include "network/proto_conversions.h"
 #include "absl/strings/str_format.h"
 
@@ -58,6 +61,10 @@ fromProto(proto::CreateCollectionRequest::IndexType index_type) {
       return core::IndexType::HNSW;
     case proto::CreateCollectionRequest::IVF_FLAT:
       return core::IndexType::IVF_FLAT;
+    case proto::CreateCollectionRequest::IVF_PQ:
+      return core::IndexType::IVF_PQ;
+    case proto::CreateCollectionRequest::IVF_SQ:
+      return core::IndexType::IVF_SQ;
     default:
       return absl::InvalidArgumentError(
           absl::StrFormat("Unknown index type: %d", static_cast<int>(index_type)));
@@ -109,6 +116,36 @@ absl::StatusOr<core::Metadata> fromProto(const proto::Metadata& proto_metadata) 
   return metadata;
 }
 
+absl::StatusOr<core::MetricType> metricTypeFromString(const std::string& metric_str) {
+  if (metric_str == "L2") {
+    return core::MetricType::L2;
+  } else if (metric_str == "INNER_PRODUCT") {
+    return core::MetricType::INNER_PRODUCT;
+  } else if (metric_str == "COSINE") {
+    return core::MetricType::COSINE;
+  } else {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("Unknown metric type: %s", metric_str));
+  }
+}
+
+absl::StatusOr<core::IndexType> indexTypeFromString(const std::string& index_str) {
+  if (index_str == "FLAT") {
+    return core::IndexType::FLAT;
+  } else if (index_str == "HNSW") {
+    return core::IndexType::HNSW;
+  } else if (index_str == "IVF_FLAT") {
+    return core::IndexType::IVF_FLAT;
+  } else if (index_str == "IVF_PQ") {
+    return core::IndexType::IVF_PQ;
+  } else if (index_str == "IVF_SQ") {
+    return core::IndexType::IVF_SQ;
+  } else {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("Unknown index type: %s", index_str));
+  }
+}
+
 // ============================================================================
 // Core to Proto Conversions
 // ============================================================================
@@ -133,6 +170,23 @@ std::string toString(core::MetricType metric) {
       return "INNER_PRODUCT";
     case core::MetricType::COSINE:
       return "COSINE";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+std::string toString(core::IndexType index) {
+  switch (index) {
+    case core::IndexType::FLAT:
+      return "FLAT";
+    case core::IndexType::HNSW:
+      return "HNSW";
+    case core::IndexType::IVF_FLAT:
+      return "IVF_FLAT";
+    case core::IndexType::IVF_PQ:
+      return "IVF_PQ";
+    case core::IndexType::IVF_SQ:
+      return "IVF_SQ";
     default:
       return "UNKNOWN";
   }
@@ -188,6 +242,41 @@ grpc::Status toGrpcStatus(const absl::Status& status) {
   }
 
   return grpc::Status(grpc_code, std::string(status.message()));
+}
+
+absl::Status fromGrpcStatus(const grpc::Status& grpc_status) {
+  if (grpc_status.ok()) {
+    return absl::OkStatus();
+  }
+
+  absl::StatusCode absl_code;
+  switch (grpc_status.error_code()) {
+    case grpc::StatusCode::INVALID_ARGUMENT:
+      absl_code = absl::StatusCode::kInvalidArgument;
+      break;
+    case grpc::StatusCode::NOT_FOUND:
+      absl_code = absl::StatusCode::kNotFound;
+      break;
+    case grpc::StatusCode::ALREADY_EXISTS:
+      absl_code = absl::StatusCode::kAlreadyExists;
+      break;
+    case grpc::StatusCode::RESOURCE_EXHAUSTED:
+      absl_code = absl::StatusCode::kResourceExhausted;
+      break;
+    case grpc::StatusCode::UNIMPLEMENTED:
+      absl_code = absl::StatusCode::kUnimplemented;
+      break;
+    case grpc::StatusCode::UNAVAILABLE:
+      absl_code = absl::StatusCode::kUnavailable;
+      break;
+    case grpc::StatusCode::INTERNAL:
+    case grpc::StatusCode::UNKNOWN:
+    default:
+      absl_code = absl::StatusCode::kInternal;
+      break;
+  }
+
+  return absl::Status(absl_code, grpc_status.error_message());
 }
 
 } // namespace network

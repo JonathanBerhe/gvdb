@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #ifndef GVDB_STORAGE_STORAGE_FACTORY_H_
 #define GVDB_STORAGE_STORAGE_FACTORY_H_
 

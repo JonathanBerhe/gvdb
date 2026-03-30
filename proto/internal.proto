@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 syntax = "proto3";
 
 package gvdb.proto.internal;
@@ -136,6 +139,20 @@ message DeleteSegmentResponse {
   string message = 2;
 }
 
+message CreateSegmentRequest {
+  uint64 segment_id = 1;
+  uint32 collection_id = 2;
+  uint32 dimension = 3;
+  string metric_type = 4;  // "L2", "INNER_PRODUCT", "COSINE"
+  string index_type = 5;   // "FLAT", "HNSW", "IVF_FLAT", "IVF_PQ", "IVF_SQ"
+}
+
+message CreateSegmentResponse {
+  bool success = 1;
+  string message = 2;
+  uint64 segment_id = 3;  // Echo back for confirmation
+}
+
 // ============================================================================
 // Metadata Synchronization
 // ============================================================================
@@ -190,6 +207,8 @@ message RouteQueryRequest {
 message RouteQueryResponse {
   repeated uint32 target_shard_ids = 1;
   repeated uint32 target_node_ids = 2;
+  repeated string target_node_addresses = 3;
+  uint32 collection_id = 4;
 }
 
 message ExecuteShardQueryRequest {
@@ -285,6 +304,9 @@ service InternalService {
   rpc GetSegment(GetSegmentRequest) returns (GetSegmentResponse);
   rpc ListSegments(ListSegmentsRequest) returns (ListSegmentsResponse);
   rpc DeleteSegment(DeleteSegmentRequest) returns (DeleteSegmentResponse);
+
+  // Segment creation (Coordinator → Data Node)
+  rpc CreateSegment(CreateSegmentRequest) returns (CreateSegmentResponse);
 
   // Metadata synchronization (Data/Query Nodes → Coordinator)
   rpc SyncMetadata(SyncMetadataRequest) returns (SyncMetadataResponse);

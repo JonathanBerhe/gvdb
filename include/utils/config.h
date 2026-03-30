@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #pragma once
 
 #include <memory>
@@ -17,12 +20,27 @@ namespace utils {
 /**
  * @brief Server configuration options
  */
+struct TlsConfig {
+  bool enabled = false;
+  std::string cert_path;       // Server certificate (PEM)
+  std::string key_path;        // Server private key (PEM)
+  std::string ca_cert_path;    // CA certificate for client verification (PEM, optional)
+  bool mutual_tls = false;     // Require client certificates
+};
+
+struct AuthConfig {
+  bool enabled = false;
+  std::vector<std::string> api_keys;  // Valid API keys (checked via Bearer token)
+};
+
 struct ServerConfig {
   std::string bind_address = "0.0.0.0";
   int grpc_port = 50051;
   int metrics_port = 9090;
   int max_message_size_mb = 256;
   int max_concurrent_streams = 1000;
+  TlsConfig tls;
+  AuthConfig auth;
 };
 
 /**

@@ -1,9 +1,13 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include "storage/segment_manager.h"
 
 #include <algorithm>
 #include <filesystem>
 
 #include "absl/strings/str_cat.h"
+#include "core/config.h"
 #include "utils/logger.h"
 
 namespace gvdb {
@@ -39,6 +43,38 @@ core::StatusOr<core::SegmentId> SegmentManager::CreateSegment(
   collection_segments_[collection_id].push_back(segment_id);
 
   return segment_id;
+}
+
+core::Status SegmentManager::CreateSegmentWithId(
+    core::SegmentId segment_id, core::CollectionId collection_id,
+    core::Dimension dimension, core::MetricType metric,
+    core::IndexType index_type) {
+  std::unique_lock lock(mutex_);
+
+  // Check if segment already exists
+  if (segments_.find(segment_id) != segments_.end()) {
+    return core::AlreadyExistsError(
+        absl::StrCat("Segment already exists: ", core::ToUInt32(segment_id)));
+  }
+
+  // Create segment with provided ID
+  // Note: index_type is stored for later use when sealing
+  auto segment =
+      std::make_unique<Segment>(segment_id, collection_id, dimension, metric);
+
+  // Store segment
+  segments_[segment_id] = std::move(segment);
+
+  // Add to collection mapping
+  collection_segments_[collection_id].push_back(segment_id);
+
+  utils::Logger::Instance().Info(
+      "Created segment {} for collection {} (dimension: {}, metric: {}, "
+      "index: {})",
+      core::ToUInt32(segment_id), core::ToUInt32(collection_id), dimension,
+      static_cast<int>(metric), static_cast<int>(index_type));
+
+  return core::OkStatus();
 }
 
 Segment* SegmentManager::GetSegment(core::SegmentId id) {
@@ -143,6 +179,28 @@ core::Status SegmentManager::LoadSegment(core::SegmentId id) {
     return segment_result.status();
   }
 
+  auto segment = std::move(segment_result.value());
+
+  // Rebuild index if segment has vectors (makes it searchable)
+  if (segment->GetVectorCount() > 0 && index_factory_) {
+    core::IndexConfig config;
+    config.index_type = segment->GetIndexType();
+    config.dimension = segment->GetDimension();
+    config.metric_type = segment->GetMetric();
+
+    auto index_result = index_factory_->CreateIndex(config);
+    if (index_result.ok()) {
+      // Seal rebuilds the index from loaded vectors
+      // Temporarily set state to GROWING so Seal accepts it
+      segment->state_ = core::SegmentState::GROWING;
+      auto seal_status = segment->Seal(index_result.value().release());
+      if (!seal_status.ok()) {
+        utils::Logger::Instance().Warn("Failed to rebuild index for segment {}: {}",
+                                        core::ToUInt32(id), seal_status.message());
+      }
+    }
+  }
+
   std::unique_lock lock(mutex_);
 
   // Check if already loaded
@@ -151,8 +209,13 @@ core::Status SegmentManager::LoadSegment(core::SegmentId id) {
         absl::StrCat("Segment already loaded: ", core::ToUInt32(id)));
   }
 
-  auto segment = std::move(segment_result.value());
   auto collection_id = segment->GetCollectionId();
+
+  // Update next_segment_id to avoid ID collisions
+  uint32_t seg_id_raw = core::ToUInt32(id);
+  if (seg_id_raw >= next_segment_id_) {
+    next_segment_id_ = seg_id_raw + 1;
+  }
 
   // Store segment
   segments_[id] = std::move(segment);
@@ -161,6 +224,50 @@ core::Status SegmentManager::LoadSegment(core::SegmentId id) {
   collection_segments_[collection_id].push_back(id);
 
   return core::OkStatus();
+}
+
+absl::Status SegmentManager::LoadAllSegments() {
+  if (!std::filesystem::exists(base_path_)) {
+    return absl::OkStatus();  // Nothing to load
+  }
+
+  int loaded = 0;
+  for (const auto& entry : std::filesystem::directory_iterator(base_path_)) {
+    if (!entry.is_directory()) continue;
+
+    std::string dir_name = entry.path().filename().string();
+    // Look for directories named "segment_N"
+    if (dir_name.substr(0, 8) != "segment_") continue;
+
+    try {
+      uint32_t seg_id_raw = std::stoul(dir_name.substr(8));
+      core::SegmentId seg_id = static_cast<core::SegmentId>(seg_id_raw);
+
+      // Skip if already loaded
+      {
+        std::shared_lock lock(mutex_);
+        if (segments_.find(seg_id) != segments_.end()) continue;
+      }
+
+      auto status = LoadSegment(seg_id);
+      if (status.ok()) {
+        loaded++;
+      } else {
+        utils::Logger::Instance().Warn("Failed to load segment {}: {}",
+                                        seg_id_raw, status.message());
+      }
+    } catch (const std::exception& e) {
+      utils::Logger::Instance().Warn("Skipping directory '{}': {}",
+                                      dir_name, e.what());
+    }
+  }
+
+  if (loaded > 0) {
+    utils::Logger::Instance().Info("Recovered {} segments from {}",
+                                    loaded, base_path_);
+  }
+
+  return absl::OkStatus();
 }
 
 core::Status SegmentManager::AddReplicatedSegment(std::unique_ptr<Segment> segment) {

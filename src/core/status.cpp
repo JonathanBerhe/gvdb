@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include "core/status.h"
 
 // This file is intentionally minimal as status.h uses absl::Status directly.

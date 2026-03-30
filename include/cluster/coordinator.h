@@ -1,7 +1,12 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #pragma once
 
 #include "core/types.h"
 #include "cluster/shard_manager.h"
+#include "cluster/node_registry.h"
+#include "cluster/internal_client.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include <memory>
@@ -69,6 +74,7 @@ struct CollectionMetadata {
 
   // Sharding information
   std::vector<core::ShardId> shard_ids;
+  size_t num_shards = 1;
   size_t replication_factor;
 
   // Stats
@@ -87,12 +93,37 @@ struct CollectionMetadata {
       total_size_bytes(0),
       created_at(0),
       updated_at(0) {}
+
+  CollectionMetadata(core::CollectionId id,
+                     const std::string& name,
+                     core::Dimension dim,
+                     core::MetricType metric,
+                     core::IndexType index)
+    : collection_id(id),
+      collection_name(name),
+      dimension(dim),
+      metric_type(metric),
+      index_type(index),
+      replication_factor(1),
+      total_vectors(0),
+      total_size_bytes(0),
+      created_at(0),
+      updated_at(0) {}
 };
+
+// Deterministic segment ID for a shard within a collection.
+// Max 1000 shards per collection.
+inline core::SegmentId ShardSegmentId(core::CollectionId cid, uint32_t shard_index) {
+  return static_cast<core::SegmentId>(core::ToUInt32(cid) * 1000 + shard_index);
+}
 
 // Coordinator manages cluster metadata and operations
 class Coordinator {
  public:
-  explicit Coordinator(std::shared_ptr<ShardManager> shard_manager);
+  explicit Coordinator(
+      std::shared_ptr<ShardManager> shard_manager,
+      std::shared_ptr<NodeRegistry> node_registry,
+      std::shared_ptr<IInternalServiceClientFactory> client_factory = nullptr);
   ~Coordinator();
 
   // Cluster initialization
@@ -114,7 +145,8 @@ class Coordinator {
       core::Dimension dimension,
       core::MetricType metric_type,
       core::IndexType index_type,
-      size_t replication_factor);
+      size_t replication_factor,
+      size_t num_shards = 1);
   absl::Status DropCollection(const std::string& name);
   absl::Status DropCollection(core::CollectionId collection_id);
   absl::StatusOr<CollectionMetadata> GetCollectionMetadata(const std::string& name) const;
@@ -135,13 +167,21 @@ class Coordinator {
   void StartHealthCheckLoop();
   void StopHealthCheckLoop();
 
+  // Replicate segment data from source node to target node
+  absl::Status ReplicateSegmentData(
+      core::SegmentId segment_id,
+      core::NodeId source_node,
+      core::NodeId target_node);
+
+  // Handle failed node: reassign shards, promote replicas
+  void HandleFailedNode(core::NodeId failed_node_id);
+
  private:
   // Shard manager
   std::shared_ptr<ShardManager> shard_manager_;
 
-  // Node registry
-  mutable std::shared_mutex node_mutex_;
-  std::map<core::NodeId, NodeInfo> nodes_;
+  // Node registry (single source of truth for node state)
+  std::shared_ptr<NodeRegistry> node_registry_;
 
   // Collection registry
   mutable std::shared_mutex collection_mutex_;
@@ -157,11 +197,22 @@ class Coordinator {
   std::unique_ptr<std::thread> health_check_thread_;
   void HealthCheckLoop();
   void DetectFailedNodes();
+  void CheckReplication();
 
   // Helper methods
   core::NodeId AllocateNodeId();
   core::CollectionId AllocateCollectionId();
   core::Timestamp GetCurrentTimestamp() const;
+
+  // Client factory for distributed segment creation
+  std::shared_ptr<IInternalServiceClientFactory> client_factory_;
+
+  // Client cache for calling data nodes
+  mutable std::shared_mutex client_mutex_;
+  std::map<core::NodeId, std::unique_ptr<IInternalServiceClient>> data_node_clients_;
+
+  // Get or create client for a data node
+  IInternalServiceClient* GetOrCreateDataNodeClient(core::NodeId node_id);
 };
 
 }  // namespace cluster
