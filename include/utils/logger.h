@@ -80,42 +80,42 @@ class Logger {
   template <typename... Args>
   void Trace(const std::string& fmt, Args&&... args) {
     if (logger_) {
-      logger_->trace(fmt, std::forward<Args>(args)...);
+      logger_->trace(::fmt::runtime(fmt), std::forward<Args>(args)...);
     }
   }
 
   template <typename... Args>
   void Debug(const std::string& fmt, Args&&... args) {
     if (logger_) {
-      logger_->debug(fmt, std::forward<Args>(args)...);
+      logger_->debug(::fmt::runtime(fmt), std::forward<Args>(args)...);
     }
   }
 
   template <typename... Args>
   void Info(const std::string& fmt, Args&&... args) {
     if (logger_) {
-      logger_->info(fmt, std::forward<Args>(args)...);
+      logger_->info(::fmt::runtime(fmt), std::forward<Args>(args)...);
     }
   }
 
   template <typename... Args>
   void Warn(const std::string& fmt, Args&&... args) {
     if (logger_) {
-      logger_->warn(fmt, std::forward<Args>(args)...);
+      logger_->warn(::fmt::runtime(fmt), std::forward<Args>(args)...);
     }
   }
 
   template <typename... Args>
   void Error(const std::string& fmt, Args&&... args) {
     if (logger_) {
-      logger_->error(fmt, std::forward<Args>(args)...);
+      logger_->error(::fmt::runtime(fmt), std::forward<Args>(args)...);
     }
   }
 
   template <typename... Args>
   void Critical(const std::string& fmt, Args&&... args) {
     if (logger_) {
-      logger_->critical(fmt, std::forward<Args>(args)...);
+      logger_->critical(::fmt::runtime(fmt), std::forward<Args>(args)...);
     }
   }
 
