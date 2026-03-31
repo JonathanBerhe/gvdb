@@ -5,6 +5,8 @@
 
 #include "index/index_factory.h"
 
+#include <mutex>
+
 namespace gvdb {
 namespace index {
 

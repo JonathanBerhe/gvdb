@@ -4,6 +4,7 @@
 #include "cluster/query_node.h"
 #include "utils/logger.h"
 #include "absl/strings/str_cat.h"
+#include <mutex>
 
 namespace gvdb {
 namespace cluster {

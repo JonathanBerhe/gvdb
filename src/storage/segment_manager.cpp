@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <mutex>
 
 #include "absl/strings/str_cat.h"
 #include "core/config.h"

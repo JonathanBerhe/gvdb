@@ -10,6 +10,7 @@
 #include "utils/metrics.h"
 #include "internal.grpc.pb.h"
 #include <grpcpp/grpcpp.h>
+#include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
 

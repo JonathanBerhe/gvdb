@@ -8,8 +8,9 @@
 #include "absl/strings/str_cat.h"
 #include "internal.grpc.pb.h"
 #include <chrono>
-#include <thread>
+#include <mutex>
 #include <set>
+#include <thread>
 
 namespace gvdb {
 namespace cluster {

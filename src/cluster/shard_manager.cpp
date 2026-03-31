@@ -5,8 +5,9 @@
 #include "utils/logger.h"
 #include "absl/strings/str_cat.h"
 #include <algorithm>
-#include <numeric>
 #include <cmath>
+#include <mutex>
+#include <numeric>
 
 namespace gvdb {
 namespace cluster {

@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 
 #include "absl/strings/str_cat.h"
 
