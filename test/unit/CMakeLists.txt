@@ -175,6 +175,33 @@ set_tests_properties(InternalServiceMetadataTests PROPERTIES
   TIMEOUT 60
 )
 
+# InternalService RPC tests (comprehensive)
+add_executable(internal_service_rpc_tests
+  internal_service_rpc_test.cpp
+)
+
+target_link_libraries(internal_service_rpc_tests
+  PRIVATE
+    gvdb_network
+    gvdb_cluster
+    gvdb_consensus
+    gvdb_storage
+    gvdb_index
+    gvdb_core
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    doctest::doctest_with_main
+)
+
+# Add test to CTest
+add_test(NAME InternalServiceRpcTests COMMAND internal_service_rpc_tests)
+
+# Set test properties
+set_tests_properties(InternalServiceRpcTests PROPERTIES
+  TIMEOUT 120
+)
+
 # Cluster module tests (simplified - no storage/compute dependencies)
 add_executable(cluster_tests
   cluster_simple_test.cpp
@@ -359,4 +386,95 @@ add_test(NAME AuthProcessorTests COMMAND auth_processor_tests)
 
 set_tests_properties(AuthProcessorTests PROPERTIES
   TIMEOUT 60
+)
+
+# DataNode tests
+add_executable(data_node_tests
+  data_node_test.cpp
+)
+
+target_link_libraries(data_node_tests
+  PRIVATE
+    gvdb_cluster
+    doctest::doctest_with_main
+)
+
+# Add test to CTest
+add_test(NAME DataNodeTests COMMAND data_node_tests)
+
+# Set test properties
+set_tests_properties(DataNodeTests PROPERTIES
+  TIMEOUT 60
+)
+
+# Collection resolver tests
+add_executable(collection_resolver_tests
+  collection_resolver_test.cpp
+)
+
+target_link_libraries(collection_resolver_tests
+  PRIVATE
+    gvdb_network
+    gvdb_cluster
+    gvdb_storage
+    gvdb_index
+    gvdb_utils
+    gvdb_core
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    doctest::doctest_with_main
+)
+
+# Add test to CTest
+add_test(NAME CollectionResolverTests COMMAND collection_resolver_tests)
+
+# Set test properties
+set_tests_properties(CollectionResolverTests PROPERTIES
+  TIMEOUT 120
+)
+
+# Node registry tests
+add_executable(node_registry_tests
+  node_registry_test.cpp
+)
+
+target_link_libraries(node_registry_tests
+  PRIVATE
+    gvdb_cluster
+    proto_lib
+    ${_PROTOBUF_LIBPROTOBUF}
+    doctest::doctest_with_main
+)
+
+# Add test to CTest
+add_test(NAME NodeRegistryTests COMMAND node_registry_tests)
+
+# Set test properties
+set_tests_properties(NodeRegistryTests PROPERTIES
+  TIMEOUT 60
+)
+
+# QueryNode tests
+add_executable(query_node_tests
+  query_node_test.cpp
+)
+
+target_link_libraries(query_node_tests
+  PRIVATE
+    gvdb_cluster
+    gvdb_compute
+    gvdb_storage
+    gvdb_index
+    gvdb_utils
+    gvdb_core
+    doctest::doctest_with_main
+)
+
+# Add test to CTest
+add_test(NAME QueryNodeTests COMMAND query_node_tests)
+
+# Set test properties
+set_tests_properties(QueryNodeTests PROPERTIES
+  TIMEOUT 120
 )
