@@ -329,3 +329,345 @@ TEST_CASE_FIXTURE(ReplicationManagerTest, "BasicConstruction") {
   // Just verify the replication manager can be constructed
   CHECK_NE(replication_manager_, nullptr);
 }
+
+// ============================================================================
+// Additional Coordinator Tests
+// ============================================================================
+
+TEST_CASE_FIXTURE(CoordinatorTest, "UnregisterNodeSucceeds") {
+  NodeInfo node_info;
+  node_info.node_id = core::MakeNodeId(1);
+  node_info.type = NodeType::DATA_NODE;
+  node_info.status = NodeStatus::HEALTHY;
+  node_info.address = "localhost:50051";
+
+  auto reg_status = coordinator_->RegisterNode(node_info);
+  REQUIRE(reg_status.ok());
+
+  auto unreg_status = coordinator_->UnregisterNode(node_info.node_id);
+  CHECK(unreg_status.ok());
+
+  // GetNodeInfo should return NotFound after unregistration
+  auto result = coordinator_->GetNodeInfo(node_info.node_id);
+  CHECK_FALSE(result.ok());
+  CHECK(absl::IsNotFound(result.status()));
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "UnregisterUnknownNodeFails") {
+  core::NodeId unknown_node = core::MakeNodeId(999);
+
+  auto status = coordinator_->UnregisterNode(unknown_node);
+  CHECK_FALSE(status.ok());
+  CHECK(absl::IsNotFound(status));
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "UpdateNodeStatusChangesStatus") {
+  NodeInfo node_info;
+  node_info.node_id = core::MakeNodeId(1);
+  node_info.type = NodeType::QUERY_NODE;
+  node_info.status = NodeStatus::HEALTHY;
+  node_info.address = "localhost:50051";
+
+  auto reg_status = coordinator_->RegisterNode(node_info);
+  REQUIRE(reg_status.ok());
+
+  auto update_status = coordinator_->UpdateNodeStatus(
+      node_info.node_id, NodeStatus::DEGRADED);
+  CHECK(update_status.ok());
+
+  auto result = coordinator_->GetNodeInfo(node_info.node_id);
+  REQUIRE(result.ok());
+  CHECK_EQ(result->status, NodeStatus::DEGRADED);
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "UpdateNodeStatusUnknownNodeFails") {
+  core::NodeId unknown_node = core::MakeNodeId(999);
+
+  auto status = coordinator_->UpdateNodeStatus(unknown_node, NodeStatus::HEALTHY);
+  CHECK_FALSE(status.ok());
+  CHECK(absl::IsNotFound(status));
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "ProcessHeartbeatUpdatesRegistry") {
+  NodeInfo node_info;
+  node_info.node_id = core::MakeNodeId(10);
+  node_info.type = NodeType::DATA_NODE;
+  node_info.status = NodeStatus::HEALTHY;
+  node_info.address = "localhost:60000";
+
+  auto hb_status = coordinator_->ProcessHeartbeat(node_info.node_id, node_info);
+  CHECK(hb_status.ok());
+
+  // Node should now appear in GetAllNodes
+  auto all_nodes = coordinator_->GetAllNodes();
+  bool found = false;
+  for (const auto& n : all_nodes) {
+    if (n.node_id == node_info.node_id) {
+      found = true;
+      break;
+    }
+  }
+  CHECK(found);
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "GetHealthyNodesFiltersByType") {
+  // Register a data node via NodeRegistry
+  proto::internal::NodeInfo data_node;
+  data_node.set_node_id(1);
+  data_node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  data_node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  data_node.set_grpc_address("localhost:50051");
+  node_registry_->UpdateNode(data_node);
+
+  // Register a query node via NodeRegistry
+  proto::internal::NodeInfo query_node;
+  query_node.set_node_id(2);
+  query_node.set_node_type(proto::internal::NodeType::NODE_TYPE_QUERY_NODE);
+  query_node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  query_node.set_grpc_address("localhost:50052");
+  node_registry_->UpdateNode(query_node);
+
+  auto data_nodes = coordinator_->GetHealthyNodes(NodeType::DATA_NODE);
+  CHECK_EQ(data_nodes.size(), 1);
+  CHECK_EQ(data_nodes[0].type, NodeType::DATA_NODE);
+
+  auto query_nodes = coordinator_->GetHealthyNodes(NodeType::QUERY_NODE);
+  CHECK_EQ(query_nodes.size(), 1);
+  CHECK_EQ(query_nodes[0].type, NodeType::QUERY_NODE);
+
+  // No proxy nodes registered
+  auto proxy_nodes = coordinator_->GetHealthyNodes(NodeType::PROXY);
+  CHECK_EQ(proxy_nodes.size(), 0);
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "GetHealthyNodeCountReflectsRegistry") {
+  CHECK_EQ(coordinator_->GetHealthyNodeCount(), 0);
+
+  proto::internal::NodeInfo node1;
+  node1.set_node_id(1);
+  node1.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  node1.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  node1.set_grpc_address("localhost:50051");
+  node_registry_->UpdateNode(node1);
+
+  CHECK_EQ(coordinator_->GetHealthyNodeCount(), 1);
+
+  proto::internal::NodeInfo node2;
+  node2.set_node_id(2);
+  node2.set_node_type(proto::internal::NodeType::NODE_TYPE_QUERY_NODE);
+  node2.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  node2.set_grpc_address("localhost:50052");
+  node_registry_->UpdateNode(node2);
+
+  CHECK_EQ(coordinator_->GetHealthyNodeCount(), 2);
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "IsHealthyTrueWithNodes") {
+  proto::internal::NodeInfo node;
+  node.set_node_id(1);
+  node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  node.set_grpc_address("localhost:50051");
+  node_registry_->UpdateNode(node);
+
+  CHECK(coordinator_->IsHealthy());
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "IsHealthyFalseWithNoNodes") {
+  CHECK_FALSE(coordinator_->IsHealthy());
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "GetClusterLoadReturnsZero") {
+  // With no nodes, load should be zero
+  CHECK_EQ(coordinator_->GetClusterLoad(), 0.0f);
+
+  // Even with nodes, current impl returns zero (cpu_usage not in proto)
+  proto::internal::NodeInfo node;
+  node.set_node_id(1);
+  node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  node.set_grpc_address("localhost:50051");
+  node_registry_->UpdateNode(node);
+
+  CHECK_EQ(coordinator_->GetClusterLoad(), 0.0f);
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "AssignShardsFailsWithoutDataNodes") {
+  // Create a collection manually (bypass AssignShards inside CreateCollection)
+  // We need a collection_id in the map for AssignShardsToCollection to find it.
+  // Use CreateCollection which will itself fail at AssignShards with no data nodes.
+  auto result = coordinator_->CreateCollection(
+      "orphan_collection", 64, core::MetricType::L2, core::IndexType::FLAT, 1);
+  CHECK_FALSE(result.ok());
+  CHECK(absl::IsFailedPrecondition(result.status()));
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodePromotesReplica") {
+  // Register two data nodes in shard manager and node registry
+  core::NodeId primary_id = core::MakeNodeId(1);
+  core::NodeId replica_id = core::MakeNodeId(2);
+
+  NodeInfo primary_info;
+  primary_info.node_id = primary_id;
+  primary_info.type = NodeType::DATA_NODE;
+  primary_info.status = NodeStatus::HEALTHY;
+  primary_info.address = "localhost:50051";
+  REQUIRE(coordinator_->RegisterNode(primary_info).ok());
+
+  NodeInfo replica_info;
+  replica_info.node_id = replica_id;
+  replica_info.type = NodeType::DATA_NODE;
+  replica_info.status = NodeStatus::HEALTHY;
+  replica_info.address = "localhost:50052";
+  REQUIRE(coordinator_->RegisterNode(replica_info).ok());
+
+  // Create a collection (will assign shards with replication_factor=1 by default)
+  auto coll_result = coordinator_->CreateCollection(
+      "test_failover", 64, core::MetricType::L2, core::IndexType::FLAT, 1);
+  REQUIRE(coll_result.ok());
+
+  // Get shard info from the collection metadata
+  auto metadata = coordinator_->GetCollectionMetadata("test_failover");
+  REQUIRE(metadata.ok());
+  REQUIRE_FALSE(metadata->shard_ids.empty());
+
+  // Manually set up a shard with primary=node1 and replica=node2
+  // to test failover behavior
+  core::ShardId shard_id = metadata->shard_ids[0];
+
+  // Access the shared shard_manager through creating a new coordinator is not
+  // possible, but we registered both nodes. Manually add replica to shard.
+  auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
+  auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
+  auto coord = std::make_unique<Coordinator>(shard_manager, node_registry);
+
+  // Register nodes with shard manager
+  REQUIRE(shard_manager->RegisterNode(primary_id).ok());
+  REQUIRE(shard_manager->RegisterNode(replica_id).ok());
+
+  // Register nodes with node registry (as healthy)
+  proto::internal::NodeInfo proto_primary;
+  proto_primary.set_node_id(1);
+  proto_primary.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  proto_primary.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  proto_primary.set_grpc_address("localhost:50051");
+  node_registry->UpdateNode(proto_primary);
+
+  proto::internal::NodeInfo proto_replica;
+  proto_replica.set_node_id(2);
+  proto_replica.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  proto_replica.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  proto_replica.set_grpc_address("localhost:50052");
+  node_registry->UpdateNode(proto_replica);
+
+  // Set up shard with primary and replica
+  core::ShardId test_shard = core::MakeShardId(0);
+  REQUIRE(shard_manager->SetPrimaryNode(test_shard, primary_id).ok());
+  REQUIRE(shard_manager->AddReplica(test_shard, replica_id).ok());
+
+  // Verify primary is node 1
+  auto primary_before = shard_manager->GetPrimaryNode(test_shard);
+  REQUIRE(primary_before.ok());
+  CHECK_EQ(*primary_before, primary_id);
+
+  // Handle failure of the primary node
+  coord->HandleFailedNode(primary_id);
+
+  // Replica should have been promoted to primary
+  auto primary_after = shard_manager->GetPrimaryNode(test_shard);
+  REQUIRE(primary_after.ok());
+  CHECK_EQ(*primary_after, replica_id);
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodeNoReplicaLeavesOrphan") {
+  // Set up a coordinator with a shard that has no replicas
+  auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
+  auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
+  auto coord = std::make_unique<Coordinator>(shard_manager, node_registry);
+
+  core::NodeId primary_id = core::MakeNodeId(1);
+  REQUIRE(shard_manager->RegisterNode(primary_id).ok());
+
+  proto::internal::NodeInfo proto_node;
+  proto_node.set_node_id(1);
+  proto_node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  proto_node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  proto_node.set_grpc_address("localhost:50051");
+  node_registry->UpdateNode(proto_node);
+
+  // Set up shard with primary only (no replicas)
+  core::ShardId test_shard = core::MakeShardId(0);
+  REQUIRE(shard_manager->SetPrimaryNode(test_shard, primary_id).ok());
+
+  // Verify primary is set
+  auto primary_before = shard_manager->GetPrimaryNode(test_shard);
+  REQUIRE(primary_before.ok());
+  CHECK_EQ(*primary_before, primary_id);
+
+  // Handle failure - no replicas available to promote
+  coord->HandleFailedNode(primary_id);
+
+  // After HandleFailedNode, the node is unregistered from shard manager.
+  // The shard's primary was node 1, but since there was no replica to promote,
+  // the primary remains as node 1 (orphaned shard).
+  auto primary_after = shard_manager->GetPrimaryNode(test_shard);
+  REQUIRE(primary_after.ok());
+  CHECK_EQ(*primary_after, primary_id);
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "CreateCollectionMultiShard") {
+  // Register two data nodes
+  proto::internal::NodeInfo node1;
+  node1.set_node_id(1);
+  node1.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  node1.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  node1.set_grpc_address("localhost:50051");
+  node_registry_->UpdateNode(node1);
+
+  proto::internal::NodeInfo node2;
+  node2.set_node_id(2);
+  node2.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  node2.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  node2.set_grpc_address("localhost:50052");
+  node_registry_->UpdateNode(node2);
+
+  // Create a collection with 4 shards
+  auto result = coordinator_->CreateCollection(
+      "multi_shard_collection",
+      256,
+      core::MetricType::COSINE,
+      core::IndexType::HNSW,
+      1,   // replication_factor
+      4);  // num_shards
+
+  REQUIRE(result.ok());
+
+  auto metadata = coordinator_->GetCollectionMetadata("multi_shard_collection");
+  REQUIRE(metadata.ok());
+  CHECK_EQ(metadata->num_shards, 4);
+  CHECK_EQ(metadata->shard_ids.size(), 4);
+  CHECK_EQ(metadata->dimension, 256);
+  CHECK_EQ(metadata->metric_type, core::MetricType::COSINE);
+  CHECK_EQ(metadata->index_type, core::IndexType::HNSW);
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "CreateCollectionReplicationFactorExceedsNodes") {
+  // Register only one data node
+  proto::internal::NodeInfo node1;
+  node1.set_node_id(1);
+  node1.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  node1.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  node1.set_grpc_address("localhost:50051");
+  node_registry_->UpdateNode(node1);
+
+  // Try to create collection with replication_factor=3 but only 1 node
+  auto result = coordinator_->CreateCollection(
+      "over_replicated",
+      128,
+      core::MetricType::L2,
+      core::IndexType::FLAT,
+      3);  // replication_factor > available nodes
+
+  CHECK_FALSE(result.ok());
+  CHECK(absl::IsFailedPrecondition(result.status()));
+}
