@@ -5,6 +5,7 @@
 #include <libnuraft/nuraft.hxx>
 
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 #include <thread>

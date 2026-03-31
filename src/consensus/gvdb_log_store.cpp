@@ -8,6 +8,8 @@
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 #include <rocksdb/slice.h>
+
+#include <cstring>
 #include <rocksdb/status.h>
 
 #include <cassert>

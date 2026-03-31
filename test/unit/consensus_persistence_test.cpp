@@ -2,6 +2,7 @@
 #include "consensus/gvdb_state_manager.h"
 
 #include <doctest/doctest.h>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 
