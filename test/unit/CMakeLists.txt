@@ -8,8 +8,7 @@ add_executable(core_tests
 target_link_libraries(core_tests
   PRIVATE
     gvdb_core
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -29,8 +28,7 @@ target_link_libraries(index_tests
   PRIVATE
     gvdb_index
     gvdb_core
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -51,8 +49,7 @@ target_link_libraries(storage_tests
     gvdb_storage
     gvdb_index
     gvdb_core
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -72,8 +69,7 @@ target_link_libraries(utils_tests
   PRIVATE
     gvdb_utils
     gvdb_core
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -96,8 +92,7 @@ target_link_libraries(compute_tests
     gvdb_index
     gvdb_utils
     gvdb_core
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -124,8 +119,7 @@ target_link_libraries(network_tests
     proto_lib
     ${_GRPC_GRPCPP}
     ${_PROTOBUF_LIBPROTOBUF}
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -145,8 +139,7 @@ target_link_libraries(metadata_cache_tests
   PRIVATE
     gvdb_network
     gvdb_core
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -171,8 +164,7 @@ target_link_libraries(internal_service_metadata_tests
     proto_lib
     ${_GRPC_GRPCPP}
     ${_PROTOBUF_LIBPROTOBUF}
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -191,8 +183,7 @@ add_executable(cluster_tests
 target_link_libraries(cluster_tests
   PRIVATE
     gvdb_cluster
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -213,8 +204,7 @@ target_link_libraries(consensus_tests
     gvdb_consensus
     gvdb_cluster
     gvdb_core
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -235,8 +225,7 @@ target_link_libraries(consensus_persistence_tests
     gvdb_consensus
     gvdb_cluster
     gvdb_core
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -260,8 +249,7 @@ target_link_libraries(proxy_service_tests
     proto_lib
     ${_GRPC_GRPCPP}
     ${_PROTOBUF_LIBPROTOBUF}
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -287,8 +275,7 @@ target_link_libraries(vectordb_service_distributed_tests
     proto_lib
     ${_GRPC_GRPCPP}
     ${_PROTOBUF_LIBPROTOBUF}
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -315,8 +302,7 @@ target_link_libraries(vectordb_service_coordinator_tests
     proto_lib
     ${_GRPC_GRPCPP}
     ${_PROTOBUF_LIBPROTOBUF}
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -339,8 +325,7 @@ target_link_libraries(internal_client_tests
     proto_lib
     ${_GRPC_GRPCPP}
     ${_PROTOBUF_LIBPROTOBUF}
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -367,8 +352,7 @@ target_link_libraries(auth_processor_tests
     proto_lib
     ${_GRPC_GRPCPP}
     ${_PROTOBUF_LIBPROTOBUF}
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 add_test(NAME AuthProcessorTests COMMAND auth_processor_tests)

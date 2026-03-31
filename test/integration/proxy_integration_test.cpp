@@ -1,7 +1,7 @@
 // test/integration/proxy_integration_test.cpp
-// Integration test: full flow through proxy → coordinator + data node
+// Integration test: full flow through proxy -> coordinator + data node
 
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <filesystem>
 #include <memory>
@@ -22,9 +22,9 @@
 namespace gvdb {
 namespace test {
 
-class ProxyIntegrationTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+class ProxyIntegrationTest {
+ public:
+  ProxyIntegrationTest() {
     std::filesystem::remove_all("/tmp/gvdb-proxy-integration-test");
     std::filesystem::create_directories("/tmp/gvdb-proxy-integration-test/coordinator");
     std::filesystem::create_directories("/tmp/gvdb-proxy-integration-test/data_node");
@@ -61,7 +61,7 @@ class ProxyIntegrationTest : public ::testing::Test {
       builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
       builder.SetMaxSendMessageSize(256 * 1024 * 1024);
       coord_server_ = builder.BuildAndStart();
-      ASSERT_NE(coord_server_, nullptr);
+      REQUIRE_NE(coord_server_, nullptr);
       coord_address_ = "localhost:" + std::to_string(port);
     }
 
@@ -75,7 +75,7 @@ class ProxyIntegrationTest : public ::testing::Test {
     dn_internal_service_ = std::make_unique<network::InternalService>(
         dn_shard_manager, dn_segment_manager_, dn_query_executor_);
 
-    // Data node's VectorDBService uses CachedCoordinatorResolver → can resolve collection names
+    // Data node's VectorDBService uses CachedCoordinatorResolver -> can resolve collection names
     auto dn_resolver = network::MakeCachedCoordinatorResolver(coord_address_);
     dn_vectordb_service_ = std::make_unique<network::VectorDBService>(
         dn_segment_manager_, dn_query_executor_, std::move(dn_resolver));
@@ -89,7 +89,7 @@ class ProxyIntegrationTest : public ::testing::Test {
       builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
       builder.SetMaxSendMessageSize(256 * 1024 * 1024);
       dn_server_ = builder.BuildAndStart();
-      ASSERT_NE(dn_server_, nullptr);
+      REQUIRE_NE(dn_server_, nullptr);
       dn_address_ = "localhost:" + std::to_string(port);
     }
 
@@ -127,13 +127,13 @@ class ProxyIntegrationTest : public ::testing::Test {
       builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
       builder.SetMaxSendMessageSize(256 * 1024 * 1024);
       coord_server_ = builder.BuildAndStart();
-      ASSERT_NE(coord_server_, nullptr);
+      REQUIRE_NE(coord_server_, nullptr);
     }
 
     // --- Step 4: Start proxy ---
     proxy_service_ = std::make_unique<network::ProxyService>(
         std::vector<std::string>{coord_address_},
-        std::vector<std::string>{},  // no query nodes — falls back to data nodes
+        std::vector<std::string>{},  // no query nodes -- falls back to data nodes
         std::vector<std::string>{dn_address_});
 
     {
@@ -144,7 +144,7 @@ class ProxyIntegrationTest : public ::testing::Test {
       builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
       builder.SetMaxSendMessageSize(256 * 1024 * 1024);
       proxy_server_ = builder.BuildAndStart();
-      ASSERT_NE(proxy_server_, nullptr);
+      REQUIRE_NE(proxy_server_, nullptr);
       proxy_address_ = "localhost:" + std::to_string(port);
     }
 
@@ -153,7 +153,7 @@ class ProxyIntegrationTest : public ::testing::Test {
     client_ = proto::VectorDBService::NewStub(channel);
   }
 
-  void TearDown() override {
+  ~ProxyIntegrationTest() {
     client_.reset();
     if (proxy_server_) { proxy_server_->Shutdown(); proxy_server_->Wait(); }
     if (coord_server_) { coord_server_->Shutdown(); coord_server_->Wait(); }
@@ -196,8 +196,8 @@ class ProxyIntegrationTest : public ::testing::Test {
   std::unique_ptr<proto::VectorDBService::Stub> client_;
 };
 
-TEST_F(ProxyIntegrationTest, FullWorkflowThroughProxy) {
-  // 1. Create collection via proxy → coordinator → CreateSegment on data node
+TEST_CASE_FIXTURE(ProxyIntegrationTest, "FullWorkflowThroughProxy") {
+  // 1. Create collection via proxy -> coordinator -> CreateSegment on data node
   {
     proto::CreateCollectionRequest req;
     req.set_collection_name("proxy_workflow");
@@ -208,11 +208,12 @@ TEST_F(ProxyIntegrationTest, FullWorkflowThroughProxy) {
     proto::CreateCollectionResponse resp;
     grpc::ClientContext ctx;
     auto status = client_->CreateCollection(&ctx, req, &resp);
-    ASSERT_TRUE(status.ok()) << "CreateCollection failed: " << status.error_message();
-    EXPECT_GT(resp.collection_id(), 0);
+    INFO("CreateCollection failed: " << status.error_message());
+    REQUIRE(status.ok());
+    CHECK_GT(resp.collection_id(), 0);
   }
 
-  // 2. Insert vectors via proxy → data node
+  // 2. Insert vectors via proxy -> data node
   {
     proto::InsertRequest req;
     req.set_collection_name("proxy_workflow");
@@ -231,11 +232,12 @@ TEST_F(ProxyIntegrationTest, FullWorkflowThroughProxy) {
     proto::InsertResponse resp;
     grpc::ClientContext ctx;
     auto status = client_->Insert(&ctx, req, &resp);
-    ASSERT_TRUE(status.ok()) << "Insert failed: " << status.error_message();
-    EXPECT_EQ(resp.inserted_count(), 5);
+    INFO("Insert failed: " << status.error_message());
+    REQUIRE(status.ok());
+    CHECK_EQ(resp.inserted_count(), 5);
   }
 
-  // 3. Search via proxy → data node
+  // 3. Search via proxy -> data node
   {
     proto::SearchRequest req;
     req.set_collection_name("proxy_workflow");
@@ -250,39 +252,42 @@ TEST_F(ProxyIntegrationTest, FullWorkflowThroughProxy) {
     proto::SearchResponse resp;
     grpc::ClientContext ctx;
     auto status = client_->Search(&ctx, req, &resp);
-    ASSERT_TRUE(status.ok()) << "Search failed: " << status.error_message();
-    EXPECT_GT(resp.results_size(), 0);
-    EXPECT_EQ(resp.results(0).id(), 1);
+    INFO("Search failed: " << status.error_message());
+    REQUIRE(status.ok());
+    CHECK_GT(resp.results_size(), 0);
+    CHECK_EQ(resp.results(0).id(), 1);
   }
 
-  // 4. List collections via proxy → coordinator
+  // 4. List collections via proxy -> coordinator
   {
     proto::ListCollectionsRequest req;
     proto::ListCollectionsResponse resp;
     grpc::ClientContext ctx;
     auto status = client_->ListCollections(&ctx, req, &resp);
-    ASSERT_TRUE(status.ok()) << status.error_message();
-    EXPECT_GE(resp.collections_size(), 1);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    CHECK_GE(resp.collections_size(), 1);
   }
 
-  // 5. Drop collection via proxy → coordinator
+  // 5. Drop collection via proxy -> coordinator
   {
     proto::DropCollectionRequest req;
     req.set_collection_name("proxy_workflow");
     proto::DropCollectionResponse resp;
     grpc::ClientContext ctx;
     auto status = client_->DropCollection(&ctx, req, &resp);
-    ASSERT_TRUE(status.ok()) << status.error_message();
+    INFO(status.error_message());
+    REQUIRE(status.ok());
   }
 }
 
-TEST_F(ProxyIntegrationTest, HealthCheckThroughProxy) {
+TEST_CASE_FIXTURE(ProxyIntegrationTest, "HealthCheckThroughProxy") {
   proto::HealthCheckRequest req;
   proto::HealthCheckResponse resp;
   grpc::ClientContext ctx;
   auto status = client_->HealthCheck(&ctx, req, &resp);
-  ASSERT_TRUE(status.ok());
-  EXPECT_EQ(resp.status(), proto::HealthCheckResponse::SERVING);
+  REQUIRE(status.ok());
+  CHECK_EQ(resp.status(), proto::HealthCheckResponse::SERVING);
 }
 
 }  // namespace test

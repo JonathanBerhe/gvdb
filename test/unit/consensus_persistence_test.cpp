@@ -1,7 +1,7 @@
 #include "consensus/gvdb_log_store.h"
 #include "consensus/gvdb_state_manager.h"
 
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <filesystem>
 #include <memory>
 
@@ -15,16 +15,16 @@ using nuraft::log_val_type;
 using nuraft::ptr;
 using nuraft::ulong;
 
-class GvdbLogStorePersistenceTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+class GvdbLogStorePersistenceTest {
+ public:
+  GvdbLogStorePersistenceTest() {
     // Create unique temporary directory for each test
     test_dir_ = std::filesystem::temp_directory_path() /
                 ("gvdb_log_test_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(test_dir_);
   }
 
-  void TearDown() override {
+  ~GvdbLogStorePersistenceTest() {
     // Clean up test directory
     if (std::filesystem::exists(test_dir_)) {
       std::filesystem::remove_all(test_dir_);
@@ -42,7 +42,7 @@ class GvdbLogStorePersistenceTest : public ::testing::Test {
 };
 
 // Test 1: Basic persistence - write and read back
-TEST_F(GvdbLogStorePersistenceTest, BasicPersistence) {
+TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "BasicPersistence") {
   std::string log_path = (test_dir_ / "logs").string();
 
   // Create log store and write entries
@@ -57,22 +57,22 @@ TEST_F(GvdbLogStorePersistenceTest, BasicPersistence) {
     ulong idx2 = log_store.append(entry2);
     ulong idx3 = log_store.append(entry3);
 
-    EXPECT_EQ(idx1, 1);
-    EXPECT_EQ(idx2, 2);
-    EXPECT_EQ(idx3, 3);
+    CHECK_EQ(idx1, 1);
+    CHECK_EQ(idx2, 2);
+    CHECK_EQ(idx3, 3);
 
     // Verify we can read them back
     auto read1 = log_store.entry_at(1);
     auto read2 = log_store.entry_at(2);
     auto read3 = log_store.entry_at(3);
 
-    ASSERT_NE(read1, nullptr);
-    ASSERT_NE(read2, nullptr);
-    ASSERT_NE(read3, nullptr);
+    REQUIRE_NE(read1, nullptr);
+    REQUIRE_NE(read2, nullptr);
+    REQUIRE_NE(read3, nullptr);
 
-    EXPECT_EQ(read1->get_term(), 1);
-    EXPECT_EQ(read2->get_term(), 2);
-    EXPECT_EQ(read3->get_term(), 3);
+    CHECK_EQ(read1->get_term(), 1);
+    CHECK_EQ(read2->get_term(), 2);
+    CHECK_EQ(read3->get_term(), 3);
   }
 
   // Reopen and verify data persisted
@@ -83,21 +83,21 @@ TEST_F(GvdbLogStorePersistenceTest, BasicPersistence) {
     auto read2 = log_store.entry_at(2);
     auto read3 = log_store.entry_at(3);
 
-    ASSERT_NE(read1, nullptr);
-    ASSERT_NE(read2, nullptr);
-    ASSERT_NE(read3, nullptr);
+    REQUIRE_NE(read1, nullptr);
+    REQUIRE_NE(read2, nullptr);
+    REQUIRE_NE(read3, nullptr);
 
-    EXPECT_EQ(read1->get_term(), 1);
-    EXPECT_EQ(read2->get_term(), 2);
-    EXPECT_EQ(read3->get_term(), 3);
+    CHECK_EQ(read1->get_term(), 1);
+    CHECK_EQ(read2->get_term(), 2);
+    CHECK_EQ(read3->get_term(), 3);
 
     // Verify next_slot is correct
-    EXPECT_EQ(log_store.next_slot(), 4);
+    CHECK_EQ(log_store.next_slot(), 4);
   }
 }
 
 // Test 2: Crash recovery after write_at (log truncation)
-TEST_F(GvdbLogStorePersistenceTest, TruncationPersistence) {
+TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "TruncationPersistence") {
   std::string log_path = (test_dir_ / "logs").string();
 
   // Write entries and truncate
@@ -119,27 +119,27 @@ TEST_F(GvdbLogStorePersistenceTest, TruncationPersistence) {
     log_store.write_at(3, new_entry);
 
     // Verify truncation worked
-    EXPECT_NE(log_store.entry_at(1), nullptr);
-    EXPECT_NE(log_store.entry_at(2), nullptr);
-    EXPECT_NE(log_store.entry_at(3), nullptr);
-    EXPECT_EQ(log_store.entry_at(3)->get_term(), 5);
-    EXPECT_EQ(log_store.entry_at(4), nullptr);  // Should be truncated
+    CHECK_NE(log_store.entry_at(1), nullptr);
+    CHECK_NE(log_store.entry_at(2), nullptr);
+    CHECK_NE(log_store.entry_at(3), nullptr);
+    CHECK_EQ(log_store.entry_at(3)->get_term(), 5);
+    CHECK_EQ(log_store.entry_at(4), nullptr);  // Should be truncated
   }
 
   // Reopen and verify truncation persisted
   {
     GvdbLogStore log_store(log_path);
 
-    EXPECT_NE(log_store.entry_at(1), nullptr);
-    EXPECT_NE(log_store.entry_at(2), nullptr);
-    EXPECT_NE(log_store.entry_at(3), nullptr);
-    EXPECT_EQ(log_store.entry_at(3)->get_term(), 5);
-    EXPECT_EQ(log_store.entry_at(4), nullptr);
+    CHECK_NE(log_store.entry_at(1), nullptr);
+    CHECK_NE(log_store.entry_at(2), nullptr);
+    CHECK_NE(log_store.entry_at(3), nullptr);
+    CHECK_EQ(log_store.entry_at(3)->get_term(), 5);
+    CHECK_EQ(log_store.entry_at(4), nullptr);
   }
 }
 
 // Test 3: Compaction persistence
-TEST_F(GvdbLogStorePersistenceTest, CompactionPersistence) {
+TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "CompactionPersistence") {
   std::string log_path = (test_dir_ / "logs").string();
 
   // Write entries and compact
@@ -152,30 +152,30 @@ TEST_F(GvdbLogStorePersistenceTest, CompactionPersistence) {
     }
 
     // Compact up to index 5
-    EXPECT_TRUE(log_store.compact(5));
+    CHECK(log_store.compact(5));
 
     // Verify compaction
-    EXPECT_EQ(log_store.start_index(), 6);
-    EXPECT_EQ(log_store.entry_at(1), nullptr);  // Compacted
-    EXPECT_EQ(log_store.entry_at(5), nullptr);  // Compacted
-    EXPECT_NE(log_store.entry_at(6), nullptr);  // Still exists
-    EXPECT_NE(log_store.entry_at(10), nullptr); // Still exists
+    CHECK_EQ(log_store.start_index(), 6);
+    CHECK_EQ(log_store.entry_at(1), nullptr);  // Compacted
+    CHECK_EQ(log_store.entry_at(5), nullptr);  // Compacted
+    CHECK_NE(log_store.entry_at(6), nullptr);  // Still exists
+    CHECK_NE(log_store.entry_at(10), nullptr); // Still exists
   }
 
   // Reopen and verify compaction persisted
   {
     GvdbLogStore log_store(log_path);
 
-    EXPECT_EQ(log_store.start_index(), 6);
-    EXPECT_EQ(log_store.entry_at(1), nullptr);
-    EXPECT_EQ(log_store.entry_at(5), nullptr);
-    EXPECT_NE(log_store.entry_at(6), nullptr);
-    EXPECT_NE(log_store.entry_at(10), nullptr);
+    CHECK_EQ(log_store.start_index(), 6);
+    CHECK_EQ(log_store.entry_at(1), nullptr);
+    CHECK_EQ(log_store.entry_at(5), nullptr);
+    CHECK_NE(log_store.entry_at(6), nullptr);
+    CHECK_NE(log_store.entry_at(10), nullptr);
   }
 }
 
 // Test 4: Large entries
-TEST_F(GvdbLogStorePersistenceTest, LargeEntries) {
+TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "LargeEntries") {
   std::string log_path = (test_dir_ / "logs").string();
 
   // Create a large entry (1MB)
@@ -191,14 +191,14 @@ TEST_F(GvdbLogStorePersistenceTest, LargeEntries) {
   {
     GvdbLogStore log_store(log_path);
     auto read = log_store.entry_at(1);
-    ASSERT_NE(read, nullptr);
-    EXPECT_EQ(read->get_term(), 1);
-    EXPECT_EQ(read->get_buf().size(), large_data.size());
+    REQUIRE_NE(read, nullptr);
+    CHECK_EQ(read->get_term(), 1);
+    CHECK_EQ(read->get_buf().size(), large_data.size());
   }
 }
 
 // Test 5: Multiple sequential writes
-TEST_F(GvdbLogStorePersistenceTest, SequentialWrites) {
+TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "SequentialWrites") {
   std::string log_path = (test_dir_ / "logs").string();
 
   GvdbLogStore log_store(log_path);
@@ -207,30 +207,30 @@ TEST_F(GvdbLogStorePersistenceTest, SequentialWrites) {
   for (int i = 1; i <= 1000; ++i) {
     auto entry = create_log_entry(i, std::to_string(i));
     ulong idx = log_store.append(entry);
-    EXPECT_EQ(idx, static_cast<ulong>(i));
+    CHECK_EQ(idx, static_cast<ulong>(i));
   }
 
   // Verify all entries
   for (int i = 1; i <= 1000; ++i) {
     auto entry = log_store.entry_at(i);
-    ASSERT_NE(entry, nullptr);
-    EXPECT_EQ(entry->get_term(), static_cast<ulong>(i));
+    REQUIRE_NE(entry, nullptr);
+    CHECK_EQ(entry->get_term(), static_cast<ulong>(i));
   }
 
   // Flush to ensure durability
-  EXPECT_TRUE(log_store.flush());
+  CHECK(log_store.flush());
 }
 
 // State Manager Persistence Tests
-class GvdbStateManagerPersistenceTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+class GvdbStateManagerPersistenceTest {
+ public:
+  GvdbStateManagerPersistenceTest() {
     test_dir_ = std::filesystem::temp_directory_path() /
                 ("gvdb_state_test_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(test_dir_);
   }
 
-  void TearDown() override {
+  ~GvdbStateManagerPersistenceTest() {
     if (std::filesystem::exists(test_dir_)) {
       std::filesystem::remove_all(test_dir_);
     }
@@ -240,7 +240,7 @@ class GvdbStateManagerPersistenceTest : public ::testing::Test {
 };
 
 // Test 1: State manager persistence
-TEST_F(GvdbStateManagerPersistenceTest, BasicPersistence) {
+TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "BasicPersistence") {
   std::string log_path = (test_dir_ / "logs").string();
   std::string state_path = (test_dir_ / "state").string();
 
@@ -261,14 +261,14 @@ TEST_F(GvdbStateManagerPersistenceTest, BasicPersistence) {
     GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
 
     auto loaded_state = mgr.read_state();
-    ASSERT_NE(loaded_state, nullptr);
-    EXPECT_EQ(loaded_state->get_term(), 10);
-    EXPECT_EQ(loaded_state->get_voted_for(), 2);
+    REQUIRE_NE(loaded_state, nullptr);
+    CHECK_EQ(loaded_state->get_term(), 10);
+    CHECK_EQ(loaded_state->get_voted_for(), 2);
   }
 }
 
 // Test 2: Cluster config persistence
-TEST_F(GvdbStateManagerPersistenceTest, ClusterConfigPersistence) {
+TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "ClusterConfigPersistence") {
   std::string log_path = (test_dir_ / "logs").string();
   std::string state_path = (test_dir_ / "state").string();
 
@@ -292,13 +292,13 @@ TEST_F(GvdbStateManagerPersistenceTest, ClusterConfigPersistence) {
     GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
 
     auto config = mgr.load_config();
-    ASSERT_NE(config, nullptr);
-    EXPECT_EQ(config->get_servers().size(), 3);
+    REQUIRE_NE(config, nullptr);
+    CHECK_EQ(config->get_servers().size(), 3);
   }
 }
 
 // Integration Test: Full crash recovery scenario
-TEST_F(GvdbStateManagerPersistenceTest, FullCrashRecovery) {
+TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "FullCrashRecovery") {
   std::string log_path = (test_dir_ / "logs").string();
   std::string state_path = (test_dir_ / "state").string();
 
@@ -333,14 +333,14 @@ TEST_F(GvdbStateManagerPersistenceTest, FullCrashRecovery) {
     // Verify log entries recovered
     auto log_store = mgr.load_log_store();
     auto recovered_entry = log_store->entry_at(1);
-    ASSERT_NE(recovered_entry, nullptr);
-    EXPECT_EQ(recovered_entry->get_term(), 5);
+    REQUIRE_NE(recovered_entry, nullptr);
+    CHECK_EQ(recovered_entry->get_term(), 5);
 
     // Verify state recovered
     auto state = mgr.read_state();
-    ASSERT_NE(state, nullptr);
-    EXPECT_EQ(state->get_term(), 100);
-    EXPECT_EQ(state->get_voted_for(), 1);
+    REQUIRE_NE(state, nullptr);
+    CHECK_EQ(state->get_term(), 100);
+    CHECK_EQ(state->get_voted_for(), 1);
   }
 }
 

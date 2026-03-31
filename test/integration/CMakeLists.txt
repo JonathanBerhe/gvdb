@@ -10,8 +10,7 @@ target_link_libraries(consensus_integration_tests
     gvdb_consensus
     gvdb_cluster
     gvdb_core
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -37,8 +36,7 @@ target_link_libraries(metadata_sync_integration_tests
     proto_lib
     ${_GRPC_GRPCPP}
     ${_PROTOBUF_LIBPROTOBUF}
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -68,8 +66,7 @@ target_link_libraries(segment_replication_integration_tests
     proto_lib
     ${_GRPC_GRPCPP}
     ${_PROTOBUF_LIBPROTOBUF}
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 # Add test to CTest
@@ -99,8 +96,7 @@ target_link_libraries(distributed_data_node_tests
     proto_lib
     ${_GRPC_GRPCPP}
     ${_PROTOBUF_LIBPROTOBUF}
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 add_test(NAME DistributedDataNodeTests COMMAND distributed_data_node_tests)
@@ -128,8 +124,7 @@ target_link_libraries(proxy_integration_tests
     proto_lib
     ${_GRPC_GRPCPP}
     ${_PROTOBUF_LIBPROTOBUF}
-    GTest::gtest
-    GTest::gtest_main
+    doctest::doctest_with_main
 )
 
 add_test(NAME ProxyIntegrationTests COMMAND proxy_integration_tests)

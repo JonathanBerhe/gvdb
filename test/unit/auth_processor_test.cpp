@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <filesystem>
 #include <memory>
@@ -17,9 +17,9 @@ using namespace gvdb;
 // Integration test: Auth via real gRPC server with interceptor
 // ============================================================================
 
-class AuthIntegrationTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+class AuthIntegrationTest {
+ public:
+  AuthIntegrationTest() {
     std::filesystem::remove_all("/tmp/gvdb-auth-test");
     std::filesystem::create_directories("/tmp/gvdb-auth-test");
 
@@ -49,11 +49,11 @@ class AuthIntegrationTest : public ::testing::Test {
     builder.RegisterService(service_.get());
     builder.experimental().SetInterceptorCreators(std::move(creators));
     server_ = builder.BuildAndStart();
-    ASSERT_NE(server_, nullptr);
+    REQUIRE(server_ != nullptr);
     address_ = "localhost:" + std::to_string(port);
   }
 
-  void TearDown() override {
+  ~AuthIntegrationTest() {
     if (server_) { server_->Shutdown(); server_->Wait(); }
     std::filesystem::remove_all("/tmp/gvdb-auth-test");
   }
@@ -66,7 +66,7 @@ class AuthIntegrationTest : public ::testing::Test {
   std::string address_;
 };
 
-TEST_F(AuthIntegrationTest, RequestWithValidKeySucceeds) {
+TEST_CASE_FIXTURE(AuthIntegrationTest, "RequestWithValidKeySucceeds") {
   auto channel = grpc::CreateChannel(address_, grpc::InsecureChannelCredentials());
   auto stub = proto::VectorDBService::NewStub(channel);
 
@@ -76,11 +76,12 @@ TEST_F(AuthIntegrationTest, RequestWithValidKeySucceeds) {
   ctx.AddMetadata("authorization", "Bearer valid-key");
 
   auto status = stub->HealthCheck(&ctx, req, &resp);
-  EXPECT_TRUE(status.ok()) << status.error_message();
-  EXPECT_EQ(resp.status(), proto::HealthCheckResponse::SERVING);
+  INFO(status.error_message());
+  CHECK(status.ok());
+  CHECK_EQ(resp.status(), proto::HealthCheckResponse::SERVING);
 }
 
-TEST_F(AuthIntegrationTest, RequestWithoutKeyFails) {
+TEST_CASE_FIXTURE(AuthIntegrationTest, "RequestWithoutKeyFails") {
   auto channel = grpc::CreateChannel(address_, grpc::InsecureChannelCredentials());
   auto stub = proto::VectorDBService::NewStub(channel);
 
@@ -89,12 +90,12 @@ TEST_F(AuthIntegrationTest, RequestWithoutKeyFails) {
   grpc::ClientContext ctx;
 
   auto status = stub->HealthCheck(&ctx, req, &resp);
-  EXPECT_FALSE(status.ok());
-  EXPECT_TRUE(status.error_code() == grpc::StatusCode::UNAUTHENTICATED ||
-              status.error_code() == grpc::StatusCode::CANCELLED);
+  CHECK_FALSE(status.ok());
+  CHECK((status.error_code() == grpc::StatusCode::UNAUTHENTICATED ||
+              status.error_code() == grpc::StatusCode::CANCELLED));
 }
 
-TEST_F(AuthIntegrationTest, RequestWithWrongKeyFails) {
+TEST_CASE_FIXTURE(AuthIntegrationTest, "RequestWithWrongKeyFails") {
   auto channel = grpc::CreateChannel(address_, grpc::InsecureChannelCredentials());
   auto stub = proto::VectorDBService::NewStub(channel);
 
@@ -104,12 +105,12 @@ TEST_F(AuthIntegrationTest, RequestWithWrongKeyFails) {
   ctx.AddMetadata("authorization", "Bearer wrong-key");
 
   auto status = stub->HealthCheck(&ctx, req, &resp);
-  EXPECT_FALSE(status.ok());
-  EXPECT_TRUE(status.error_code() == grpc::StatusCode::UNAUTHENTICATED ||
-              status.error_code() == grpc::StatusCode::CANCELLED);
+  CHECK_FALSE(status.ok());
+  CHECK((status.error_code() == grpc::StatusCode::UNAUTHENTICATED ||
+              status.error_code() == grpc::StatusCode::CANCELLED));
 }
 
-TEST_F(AuthIntegrationTest, RequestWithBadFormatFails) {
+TEST_CASE_FIXTURE(AuthIntegrationTest, "RequestWithBadFormatFails") {
   auto channel = grpc::CreateChannel(address_, grpc::InsecureChannelCredentials());
   auto stub = proto::VectorDBService::NewStub(channel);
 
@@ -119,12 +120,12 @@ TEST_F(AuthIntegrationTest, RequestWithBadFormatFails) {
   ctx.AddMetadata("authorization", "Basic abc123");
 
   auto status = stub->HealthCheck(&ctx, req, &resp);
-  EXPECT_FALSE(status.ok());
-  EXPECT_TRUE(status.error_code() == grpc::StatusCode::UNAUTHENTICATED ||
-              status.error_code() == grpc::StatusCode::CANCELLED);
+  CHECK_FALSE(status.ok());
+  CHECK((status.error_code() == grpc::StatusCode::UNAUTHENTICATED ||
+              status.error_code() == grpc::StatusCode::CANCELLED));
 }
 
-TEST_F(AuthIntegrationTest, DataOperationWithValidKey) {
+TEST_CASE_FIXTURE(AuthIntegrationTest, "DataOperationWithValidKey") {
   auto channel = grpc::CreateChannel(address_, grpc::InsecureChannelCredentials());
   auto stub = proto::VectorDBService::NewStub(channel);
 
@@ -140,6 +141,7 @@ TEST_F(AuthIntegrationTest, DataOperationWithValidKey) {
   ctx.AddMetadata("authorization", "Bearer valid-key");
 
   auto status = stub->CreateCollection(&ctx, create_req, &create_resp);
-  EXPECT_TRUE(status.ok()) << status.error_message();
-  EXPECT_GT(create_resp.collection_id(), 0);
+  INFO(status.error_message());
+  CHECK(status.ok());
+  CHECK_GT(create_resp.collection_id(), 0);
 }

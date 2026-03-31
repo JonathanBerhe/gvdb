@@ -4,7 +4,7 @@
 #include "cluster/node_registry.h"
 #include "internal.grpc.pb.h"
 
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 
 #include <chrono>
@@ -21,9 +21,9 @@ using namespace gvdb::cluster;
 // Metadata Synchronization Integration Tests
 // ============================================================================
 
-class MetadataSyncIntegrationTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+class MetadataSyncIntegrationTest {
+ public:
+  MetadataSyncIntegrationTest() {
     // Pick a unique port for this test
     server_address_ = "localhost:50099";
 
@@ -59,14 +59,14 @@ class MetadataSyncIntegrationTest : public ::testing::Test {
     builder.SetMaxSendMessageSize(256 * 1024 * 1024);
 
     server_ = builder.BuildAndStart();
-    ASSERT_TRUE(server_ != nullptr) << "Failed to start gRPC server";
+    REQUIRE(server_ != nullptr);
 
     // Create gRPC client
     auto channel = grpc::CreateChannel(server_address_, grpc::InsecureChannelCredentials());
     stub_ = proto::internal::InternalService::NewStub(channel);
   }
 
-  void TearDown() override {
+  ~MetadataSyncIntegrationTest() {
     if (server_) {
       server_->Shutdown();
       server_->Wait();
@@ -83,11 +83,11 @@ class MetadataSyncIntegrationTest : public ::testing::Test {
 };
 
 // Test 1: Basic metadata retrieval via gRPC
-TEST_F(MetadataSyncIntegrationTest, GetCollectionMetadataByNameViaGrpc) {
+TEST_CASE_FIXTURE(MetadataSyncIntegrationTest, "GetCollectionMetadataByNameViaGrpc") {
   // Create a collection in the coordinator
   auto collection_id = coordinator_->CreateCollection(
       "test_collection", 128, core::MetricType::L2, core::IndexType::HNSW, 1);
-  ASSERT_TRUE(collection_id.ok());
+  REQUIRE(collection_id.ok());
 
   // Query metadata via gRPC client
   grpc::ClientContext context;
@@ -98,23 +98,24 @@ TEST_F(MetadataSyncIntegrationTest, GetCollectionMetadataByNameViaGrpc) {
   grpc::Status status = stub_->GetCollectionMetadata(&context, request, &response);
 
   // Verify gRPC call succeeded
-  ASSERT_TRUE(status.ok()) << "gRPC error: " << status.error_message();
+  INFO("gRPC error: " << status.error_message());
+  REQUIRE(status.ok());
 
   // Verify response
-  EXPECT_TRUE(response.found());
-  EXPECT_EQ(response.metadata().collection_name(), "test_collection");
-  EXPECT_EQ(response.metadata().dimension(), 128);
-  EXPECT_EQ(response.metadata().metric_type(), "L2");
-  EXPECT_EQ(response.metadata().index_type(), "HNSW");
-  EXPECT_EQ(response.metadata().collection_id(), core::ToUInt32(collection_id.value()));
+  CHECK(response.found());
+  CHECK_EQ(response.metadata().collection_name(), "test_collection");
+  CHECK_EQ(response.metadata().dimension(), 128);
+  CHECK_EQ(response.metadata().metric_type(), "L2");
+  CHECK_EQ(response.metadata().index_type(), "HNSW");
+  CHECK_EQ(response.metadata().collection_id(), core::ToUInt32(collection_id.value()));
 }
 
 // Test 2: Metadata retrieval by ID via gRPC
-TEST_F(MetadataSyncIntegrationTest, GetCollectionMetadataByIdViaGrpc) {
+TEST_CASE_FIXTURE(MetadataSyncIntegrationTest, "GetCollectionMetadataByIdViaGrpc") {
   // Create a collection in the coordinator
   auto collection_id = coordinator_->CreateCollection(
       "id_test_collection", 256, core::MetricType::COSINE, core::IndexType::IVF_FLAT, 1);
-  ASSERT_TRUE(collection_id.ok());
+  REQUIRE(collection_id.ok());
 
   // Query metadata via gRPC client
   grpc::ClientContext context;
@@ -125,18 +126,18 @@ TEST_F(MetadataSyncIntegrationTest, GetCollectionMetadataByIdViaGrpc) {
   grpc::Status status = stub_->GetCollectionMetadata(&context, request, &response);
 
   // Verify gRPC call succeeded
-  ASSERT_TRUE(status.ok());
+  REQUIRE(status.ok());
 
   // Verify response
-  EXPECT_TRUE(response.found());
-  EXPECT_EQ(response.metadata().collection_name(), "id_test_collection");
-  EXPECT_EQ(response.metadata().dimension(), 256);
-  EXPECT_EQ(response.metadata().metric_type(), "COSINE");
-  EXPECT_EQ(response.metadata().index_type(), "IVF_FLAT");
+  CHECK(response.found());
+  CHECK_EQ(response.metadata().collection_name(), "id_test_collection");
+  CHECK_EQ(response.metadata().dimension(), 256);
+  CHECK_EQ(response.metadata().metric_type(), "COSINE");
+  CHECK_EQ(response.metadata().index_type(), "IVF_FLAT");
 }
 
 // Test 3: Non-existent collection via gRPC
-TEST_F(MetadataSyncIntegrationTest, GetNonExistentCollectionViaGrpc) {
+TEST_CASE_FIXTURE(MetadataSyncIntegrationTest, "GetNonExistentCollectionViaGrpc") {
   grpc::ClientContext context;
   proto::internal::GetCollectionMetadataRequest request;
   request.set_collection_name("nonexistent_collection");
@@ -145,14 +146,14 @@ TEST_F(MetadataSyncIntegrationTest, GetNonExistentCollectionViaGrpc) {
   grpc::Status status = stub_->GetCollectionMetadata(&context, request, &response);
 
   // gRPC call should succeed (it's not an error, just not found)
-  ASSERT_TRUE(status.ok());
+  REQUIRE(status.ok());
 
   // But collection should not be found
-  EXPECT_FALSE(response.found());
+  CHECK_FALSE(response.found());
 }
 
 // Test 4: Multiple concurrent gRPC requests
-TEST_F(MetadataSyncIntegrationTest, ConcurrentGrpcRequests) {
+TEST_CASE_FIXTURE(MetadataSyncIntegrationTest, "ConcurrentGrpcRequests") {
   // Create multiple collections
   const int kNumCollections = 10;
   std::vector<core::CollectionId> collection_ids;
@@ -164,7 +165,7 @@ TEST_F(MetadataSyncIntegrationTest, ConcurrentGrpcRequests) {
         core::MetricType::L2,
         core::IndexType::FLAT,
         1);
-    ASSERT_TRUE(result.ok());
+    REQUIRE(result.ok());
     collection_ids.push_back(result.value());
   }
 
@@ -192,11 +193,11 @@ TEST_F(MetadataSyncIntegrationTest, ConcurrentGrpcRequests) {
   }
 
   // All requests should succeed
-  EXPECT_EQ(success_count.load(), kNumCollections);
+  CHECK_EQ(success_count.load(), kNumCollections);
 }
 
 // Test 5: Invalid request (no collection_id or name) via gRPC
-TEST_F(MetadataSyncIntegrationTest, InvalidRequestViaGrpc) {
+TEST_CASE_FIXTURE(MetadataSyncIntegrationTest, "InvalidRequestViaGrpc") {
   grpc::ClientContext context;
   proto::internal::GetCollectionMetadataRequest request;
   // Don't set collection_id or collection_name
@@ -205,12 +206,12 @@ TEST_F(MetadataSyncIntegrationTest, InvalidRequestViaGrpc) {
   grpc::Status status = stub_->GetCollectionMetadata(&context, request, &response);
 
   // Should return gRPC error
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
 }
 
 // Test 6: All metric and index types via gRPC
-TEST_F(MetadataSyncIntegrationTest, AllTypesViaGrpc) {
+TEST_CASE_FIXTURE(MetadataSyncIntegrationTest, "AllTypesViaGrpc") {
   struct TestCase {
     std::string name;
     core::MetricType metric;
@@ -228,7 +229,7 @@ TEST_F(MetadataSyncIntegrationTest, AllTypesViaGrpc) {
   for (const auto& tc : test_cases) {
     // Create collection
     auto result = coordinator_->CreateCollection(tc.name, 128, tc.metric, tc.index, 1);
-    ASSERT_TRUE(result.ok());
+    REQUIRE(result.ok());
 
     // Query via gRPC
     grpc::ClientContext context;
@@ -238,19 +239,19 @@ TEST_F(MetadataSyncIntegrationTest, AllTypesViaGrpc) {
 
     grpc::Status status = stub_->GetCollectionMetadata(&context, request, &response);
 
-    ASSERT_TRUE(status.ok());
-    EXPECT_TRUE(response.found());
-    EXPECT_EQ(response.metadata().metric_type(), tc.expected_metric_str);
-    EXPECT_EQ(response.metadata().index_type(), tc.expected_index_str);
+    REQUIRE(status.ok());
+    CHECK(response.found());
+    CHECK_EQ(response.metadata().metric_type(), tc.expected_metric_str);
+    CHECK_EQ(response.metadata().index_type(), tc.expected_index_str);
   }
 }
 
 // Test 7: Simulate data node fetching metadata on first access
-TEST_F(MetadataSyncIntegrationTest, SimulateDataNodePullOnMiss) {
+TEST_CASE_FIXTURE(MetadataSyncIntegrationTest, "SimulateDataNodePullOnMiss") {
   // Coordinator creates a collection
   auto collection_id = coordinator_->CreateCollection(
       "data_node_test", 768, core::MetricType::COSINE, core::IndexType::HNSW, 1);
-  ASSERT_TRUE(collection_id.ok());
+  REQUIRE(collection_id.ok());
 
   // Simulate data node: doesn't have metadata, needs to fetch it
   // This is what data/query nodes will do on cache miss
@@ -262,14 +263,14 @@ TEST_F(MetadataSyncIntegrationTest, SimulateDataNodePullOnMiss) {
 
   grpc::Status status = stub_->GetCollectionMetadata(&context, request, &response);
 
-  ASSERT_TRUE(status.ok());
-  ASSERT_TRUE(response.found());
+  REQUIRE(status.ok());
+  REQUIRE(response.found());
 
   // Data node would now cache this metadata
-  EXPECT_EQ(response.metadata().collection_name(), "data_node_test");
-  EXPECT_EQ(response.metadata().dimension(), 768);
-  EXPECT_EQ(response.metadata().metric_type(), "COSINE");
-  EXPECT_EQ(response.metadata().index_type(), "HNSW");
+  CHECK_EQ(response.metadata().collection_name(), "data_node_test");
+  CHECK_EQ(response.metadata().dimension(), 768);
+  CHECK_EQ(response.metadata().metric_type(), "COSINE");
+  CHECK_EQ(response.metadata().index_type(), "HNSW");
 
   // Subsequent requests would use the cached metadata (not tested here,
   // but that's the pattern we'll implement in VectorDBService)

@@ -49,28 +49,16 @@ if(NOT absl_FOUND)
 endif()
 
 # ============================================================================
-# Google Test
+# doctest - Lightweight C++ Testing Framework
 # ============================================================================
-if(USE_SYSTEM_DEPENDENCIES)
-  find_package(GTest QUIET)
-endif()
-
-if(NOT GTest_FOUND)
-  message(STATUS "Fetching GoogleTest...")
-  FetchContent_Declare(
-    googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG        v1.14.0
-    GIT_SHALLOW    TRUE
-  )
-
-  # Configure GoogleTest
-  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-  set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
-  set(INSTALL_GTEST OFF)
-
-  FetchContent_MakeAvailable(googletest)
-endif()
+message(STATUS "Fetching doctest...")
+FetchContent_Declare(
+  doctest
+  GIT_REPOSITORY https://github.com/doctest/doctest.git
+  GIT_TAG        v2.4.11
+  GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(doctest)
 
 # ============================================================================
 # OpenMP - Parallel processing support

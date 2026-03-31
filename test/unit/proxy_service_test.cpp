@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <thread>
 #include <atomic>
@@ -138,9 +138,8 @@ class MockDataNodeService : public proto::VectorDBService::Service {
 // Test Fixture
 // ============================================================================
 
-class ProxyServiceTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+struct ProxyServiceTest {
+  ProxyServiceTest() {
     // Create mock services
     mock_coordinator_ = std::make_unique<MockCoordinatorService>();
     mock_query_node_1_ = std::make_unique<MockQueryNodeService>(1);
@@ -171,7 +170,7 @@ class ProxyServiceTest : public ::testing::Test {
         std::vector<std::string>{data_node_address_});
   }
 
-  void TearDown() override {
+  ~ProxyServiceTest() {
     proxy_service_.reset();
 
     if (coordinator_server_) coordinator_server_->Shutdown();
@@ -225,23 +224,23 @@ class ProxyServiceTest : public ::testing::Test {
 // Health Check Tests
 // ============================================================================
 
-TEST_F(ProxyServiceTest, HealthCheck) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "HealthCheck") {
   grpc::ServerContext context;
   proto::HealthCheckRequest request;
   proto::HealthCheckResponse response;
 
   auto status = proxy_service_->HealthCheck(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.status(), proto::HealthCheckResponse::SERVING);
-  EXPECT_EQ(response.message(), "Proxy is healthy");
+  CHECK(status.ok());
+  CHECK_EQ(response.status(), proto::HealthCheckResponse::SERVING);
+  CHECK_EQ(response.message(), "Proxy is healthy");
 }
 
 // ============================================================================
 // Coordinator Routing Tests
 // ============================================================================
 
-TEST_F(ProxyServiceTest, CreateCollectionRoutesToCoordinator) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "CreateCollectionRoutesToCoordinator") {
   grpc::ServerContext context;
   proto::CreateCollectionRequest request;
   request.set_collection_name("test_collection");
@@ -252,13 +251,13 @@ TEST_F(ProxyServiceTest, CreateCollectionRoutesToCoordinator) {
 
   auto status = proxy_service_->CreateCollection(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_GT(response.collection_id(), 0);
-  EXPECT_EQ(response.collection_id(), 42);
-  EXPECT_EQ(mock_coordinator_->create_collection_calls.load(), 1);
+  CHECK(status.ok());
+  CHECK_GT(response.collection_id(), 0);
+  CHECK_EQ(response.collection_id(), 42);
+  CHECK_EQ(mock_coordinator_->create_collection_calls.load(), 1);
 }
 
-TEST_F(ProxyServiceTest, DropCollectionRoutesToCoordinator) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "DropCollectionRoutesToCoordinator") {
   grpc::ServerContext context;
   proto::DropCollectionRequest request;
   request.set_collection_name("test_collection");
@@ -266,42 +265,42 @@ TEST_F(ProxyServiceTest, DropCollectionRoutesToCoordinator) {
 
   auto status = proxy_service_->DropCollection(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_FALSE(response.message().empty());
-  EXPECT_EQ(mock_coordinator_->drop_collection_calls.load(), 1);
+  CHECK(status.ok());
+  CHECK_FALSE(response.message().empty());
+  CHECK_EQ(mock_coordinator_->drop_collection_calls.load(), 1);
 }
 
-TEST_F(ProxyServiceTest, ListCollectionsRoutesToCoordinator) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "ListCollectionsRoutesToCoordinator") {
   grpc::ServerContext context;
   proto::ListCollectionsRequest request;
   proto::ListCollectionsResponse response;
 
   auto status = proxy_service_->ListCollections(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.collections_size(), 1);
-  EXPECT_EQ(response.collections(0).collection_name(), "test_collection");
-  EXPECT_EQ(mock_coordinator_->list_collections_calls.load(), 1);
+  CHECK(status.ok());
+  CHECK_EQ(response.collections_size(), 1);
+  CHECK_EQ(response.collections(0).collection_name(), "test_collection");
+  CHECK_EQ(mock_coordinator_->list_collections_calls.load(), 1);
 }
 
-TEST_F(ProxyServiceTest, GetStatsRoutesToCoordinator) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "GetStatsRoutesToCoordinator") {
   grpc::ServerContext context;
   proto::GetStatsRequest request;
   proto::GetStatsResponse response;
 
   auto status = proxy_service_->GetStats(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.total_collections(), 1);
-  EXPECT_EQ(response.total_vectors(), 100);
-  EXPECT_EQ(mock_coordinator_->get_stats_calls.load(), 1);
+  CHECK(status.ok());
+  CHECK_EQ(response.total_collections(), 1);
+  CHECK_EQ(response.total_vectors(), 100);
+  CHECK_EQ(mock_coordinator_->get_stats_calls.load(), 1);
 }
 
 // ============================================================================
 // Query Node Routing Tests
 // ============================================================================
 
-TEST_F(ProxyServiceTest, SearchRoutesToQueryNode) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "SearchRoutesToQueryNode") {
   grpc::ServerContext context;
   proto::SearchRequest request;
   request.set_collection_name("test_collection");
@@ -315,17 +314,17 @@ TEST_F(ProxyServiceTest, SearchRoutesToQueryNode) {
 
   auto status = proxy_service_->Search(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.results().size(), 1);
+  CHECK(status.ok());
+  CHECK_EQ(response.results().size(), 1);
 
   // Verify at least one query node received the request
   int total_search_calls =
       mock_query_node_1_->search_calls.load() +
       mock_query_node_2_->search_calls.load();
-  EXPECT_EQ(total_search_calls, 1);
+  CHECK_EQ(total_search_calls, 1);
 }
 
-TEST_F(ProxyServiceTest, SearchRoundRobinLoadBalancing) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "SearchRoundRobinLoadBalancing") {
   // Make 4 search requests
   for (int i = 0; i < 4; ++i) {
     grpc::ServerContext context;
@@ -340,23 +339,23 @@ TEST_F(ProxyServiceTest, SearchRoundRobinLoadBalancing) {
     proto::SearchResponse response;
 
     auto status = proxy_service_->Search(&context, &request, &response);
-    EXPECT_TRUE(status.ok());
+    CHECK(status.ok());
   }
 
   // Verify round-robin distribution (should be 2 calls to each node)
   int node_1_calls = mock_query_node_1_->search_calls.load();
   int node_2_calls = mock_query_node_2_->search_calls.load();
 
-  EXPECT_EQ(node_1_calls + node_2_calls, 4);
-  EXPECT_EQ(node_1_calls, 2);
-  EXPECT_EQ(node_2_calls, 2);
+  CHECK_EQ(node_1_calls + node_2_calls, 4);
+  CHECK_EQ(node_1_calls, 2);
+  CHECK_EQ(node_2_calls, 2);
 }
 
 // ============================================================================
 // Data Node Routing Tests
 // ============================================================================
 
-TEST_F(ProxyServiceTest, InsertRoutesToDataNode) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "InsertRoutesToDataNode") {
   grpc::ServerContext context;
   proto::InsertRequest request;
   request.set_collection_name("test_collection");
@@ -370,12 +369,12 @@ TEST_F(ProxyServiceTest, InsertRoutesToDataNode) {
 
   auto status = proxy_service_->Insert(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.inserted_count(), 1);
-  EXPECT_EQ(mock_data_node_->insert_calls.load(), 1);
+  CHECK(status.ok());
+  CHECK_EQ(response.inserted_count(), 1);
+  CHECK_EQ(mock_data_node_->insert_calls.load(), 1);
 }
 
-TEST_F(ProxyServiceTest, GetRoutesToDataNode) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "GetRoutesToDataNode") {
   grpc::ServerContext context;
   proto::GetRequest request;
   request.set_collection_name("test_collection");
@@ -384,12 +383,12 @@ TEST_F(ProxyServiceTest, GetRoutesToDataNode) {
 
   auto status = proxy_service_->Get(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.vectors().size(), 1);
-  EXPECT_EQ(mock_data_node_->get_calls.load(), 1);
+  CHECK(status.ok());
+  CHECK_EQ(response.vectors().size(), 1);
+  CHECK_EQ(mock_data_node_->get_calls.load(), 1);
 }
 
-TEST_F(ProxyServiceTest, DeleteRoutesToDataNode) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "DeleteRoutesToDataNode") {
   grpc::ServerContext context;
   proto::DeleteRequest request;
   request.set_collection_name("test_collection");
@@ -398,12 +397,12 @@ TEST_F(ProxyServiceTest, DeleteRoutesToDataNode) {
 
   auto status = proxy_service_->Delete(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_GE(response.deleted_count(), 0);
-  EXPECT_EQ(mock_data_node_->delete_calls.load(), 1);
+  CHECK(status.ok());
+  CHECK_GE(response.deleted_count(), 0);
+  CHECK_EQ(mock_data_node_->delete_calls.load(), 1);
 }
 
-TEST_F(ProxyServiceTest, UpdateMetadataRoutesToDataNode) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "UpdateMetadataRoutesToDataNode") {
   grpc::ServerContext context;
   proto::UpdateMetadataRequest request;
   request.set_collection_name("test_collection");
@@ -413,16 +412,16 @@ TEST_F(ProxyServiceTest, UpdateMetadataRoutesToDataNode) {
 
   auto status = proxy_service_->UpdateMetadata(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_FALSE(response.message().empty());
-  EXPECT_EQ(mock_data_node_->update_metadata_calls.load(), 1);
+  CHECK(status.ok());
+  CHECK_FALSE(response.message().empty());
+  CHECK_EQ(mock_data_node_->update_metadata_calls.load(), 1);
 }
 
 // ============================================================================
 // Error Handling Tests
 // ============================================================================
 
-TEST_F(ProxyServiceTest, NoCoordinatorAvailable) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "NoCoordinatorAvailable") {
   // Shutdown coordinator
   coordinator_server_->Shutdown();
   coordinator_server_.reset();
@@ -448,10 +447,10 @@ TEST_F(ProxyServiceTest, NoCoordinatorAvailable) {
   // The status might be OK initially due to lazy connection
   // but the response will indicate failure
   // Or it might return UNAVAILABLE immediately
-  EXPECT_TRUE(!status.ok() || response.collection_id() == 0);
+  CHECK((!status.ok() || response.collection_id() == 0));
 }
 
-TEST_F(ProxyServiceTest, NoQueryNodeFallsBackToDataNode) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "NoQueryNodeFallsBackToDataNode") {
   // Create proxy with no query nodes — should fall back to data nodes for search
   auto proxy = std::make_unique<network::ProxyService>(
       std::vector<std::string>{coordinator_address_},
@@ -468,10 +467,10 @@ TEST_F(ProxyServiceTest, NoQueryNodeFallsBackToDataNode) {
 
   // Should attempt data node instead of returning UNAVAILABLE
   auto status = proxy->Search(&context, &request, &response);
-  EXPECT_NE(status.error_code(), grpc::StatusCode::UNAVAILABLE);
+  CHECK_NE(status.error_code(), grpc::StatusCode::UNAVAILABLE);
 }
 
-TEST_F(ProxyServiceTest, NoDataNodeAvailable) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "NoDataNodeAvailable") {
   // Create proxy with no data nodes
   auto proxy = std::make_unique<network::ProxyService>(
       std::vector<std::string>{coordinator_address_},
@@ -485,15 +484,15 @@ TEST_F(ProxyServiceTest, NoDataNodeAvailable) {
 
   auto status = proxy->Insert(&context, &request, &response);
 
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::UNAVAILABLE);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::UNAVAILABLE);
 }
 
 // ============================================================================
 // Lazy Client Initialization Tests
 // ============================================================================
 
-TEST_F(ProxyServiceTest, LazyClientInitialization) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "LazyClientInitialization") {
   // Create new proxy (clients not initialized yet)
   auto proxy = std::make_unique<network::ProxyService>(
       std::vector<std::string>{coordinator_address_},
@@ -511,11 +510,11 @@ TEST_F(ProxyServiceTest, LazyClientInitialization) {
 
   auto status = proxy->CreateCollection(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_GT(response.collection_id(), 0);
+  CHECK(status.ok());
+  CHECK_GT(response.collection_id(), 0);
 }
 
-TEST_F(ProxyServiceTest, ConcurrentRequests) {
+TEST_CASE_FIXTURE(ProxyServiceTest, "ConcurrentRequests") {
   std::vector<std::thread> threads;
   std::atomic<int> success_count{0};
 
@@ -545,11 +544,11 @@ TEST_F(ProxyServiceTest, ConcurrentRequests) {
     t.join();
   }
 
-  EXPECT_EQ(success_count.load(), 10);
+  CHECK_EQ(success_count.load(), 10);
 
   // Verify total calls distributed across query nodes
   int total_calls =
       mock_query_node_1_->search_calls.load() +
       mock_query_node_2_->search_calls.load();
-  EXPECT_EQ(total_calls, 10);
+  CHECK_EQ(total_calls, 10);
 }
