@@ -26,4 +26,6 @@ target_compile_options(gvdb_compute PRIVATE
   -Wall
   -Wextra
   -Werror
+  # GCC 13 false positive on spdlog/fmt internals
+  $<$<CXX_COMPILER_ID:GNU>:-Wno-array-bounds>
 )
