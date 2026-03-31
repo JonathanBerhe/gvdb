@@ -3,6 +3,7 @@
 
 #include "faiss_base.h"
 
+#include <cstring>
 #include <fstream>
 
 #include <faiss/index_io.h>
