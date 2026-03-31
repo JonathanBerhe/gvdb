@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 
 #include "absl/strings/str_cat.h"

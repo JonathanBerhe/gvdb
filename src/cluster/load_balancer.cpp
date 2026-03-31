@@ -4,6 +4,7 @@
 #include "cluster/load_balancer.h"
 #include "utils/logger.h"
 #include <algorithm>
+#include <mutex>
 #include <random>
 
 namespace gvdb {

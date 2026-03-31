@@ -4,6 +4,7 @@
 #include "consensus/metadata_store.h"
 #include "utils/logger.h"
 #include "absl/strings/str_cat.h"
+#include <mutex>
 
 namespace gvdb {
 namespace consensus {
