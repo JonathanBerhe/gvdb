@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 
 #include <atomic>
 #include <chrono>
@@ -21,9 +21,9 @@ namespace test {
 // Logger Tests
 // ============================================================================
 
-class LoggerTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+class LoggerTest {
+ public:
+  LoggerTest() {
     // Clean up any existing logger
     Logger::Shutdown();
 
@@ -32,7 +32,7 @@ class LoggerTest : public ::testing::Test {
     fs::create_directories(log_dir_);
   }
 
-  void TearDown() override {
+  ~LoggerTest() {
     Logger::Shutdown();
 
     // Clean up log files
@@ -44,14 +44,14 @@ class LoggerTest : public ::testing::Test {
   fs::path log_dir_;
 };
 
-TEST_F(LoggerTest, InitializeWithDefaultConfig) {
+TEST_CASE_FIXTURE(LoggerTest, "InitializeWithDefaultConfig") {
   LogConfig config;
   config.console_enabled = true;
   config.file_enabled = false;
   config.level = LogLevel::INFO;
 
   auto status = Logger::Initialize(config);
-  EXPECT_TRUE(status.ok()) << status.message();
+  CHECK_MESSAGE(status.ok(), status.message());
 
   // Should be able to log without errors
   LOG_INFO("Test message");
@@ -60,7 +60,7 @@ TEST_F(LoggerTest, InitializeWithDefaultConfig) {
   Logger::Instance().Flush();
 }
 
-TEST_F(LoggerTest, InitializeWithFileLogging) {
+TEST_CASE_FIXTURE(LoggerTest, "InitializeWithFileLogging") {
   LogConfig config;
   config.console_enabled = false;
   config.file_enabled = true;
@@ -68,7 +68,7 @@ TEST_F(LoggerTest, InitializeWithFileLogging) {
   config.level = LogLevel::DEBUG;
 
   auto status = Logger::Initialize(config);
-  EXPECT_TRUE(status.ok()) << status.message();
+  CHECK_MESSAGE(status.ok(), status.message());
 
   LOG_INFO("Test info message");
   LOG_DEBUG("Test debug message");
@@ -76,32 +76,32 @@ TEST_F(LoggerTest, InitializeWithFileLogging) {
   Logger::Instance().Flush();
 
   // Verify log file was created
-  EXPECT_TRUE(fs::exists(config.file_path));
+  CHECK(fs::exists(config.file_path));
 }
 
-TEST_F(LoggerTest, DoubleInitializeFails) {
+TEST_CASE_FIXTURE(LoggerTest, "DoubleInitializeFails") {
   LogConfig config;
   config.console_enabled = true;
   config.file_enabled = false;
 
   auto status1 = Logger::Initialize(config);
-  EXPECT_TRUE(status1.ok());
+  CHECK(status1.ok());
 
   auto status2 = Logger::Initialize(config);
-  EXPECT_FALSE(status2.ok());
-  EXPECT_EQ(status2.code(), absl::StatusCode::kAlreadyExists);
+  CHECK_FALSE(status2.ok());
+  CHECK_EQ(status2.code(), absl::StatusCode::kAlreadyExists);
 }
 
-TEST_F(LoggerTest, InvalidConfigFails) {
+TEST_CASE_FIXTURE(LoggerTest, "InvalidConfigFails") {
   LogConfig config;
   config.max_file_size = 0;  // Invalid
 
   auto status = Logger::Initialize(config);
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.code(), absl::StatusCode::kInvalidArgument);
 }
 
-TEST_F(LoggerTest, SetLogLevel) {
+TEST_CASE_FIXTURE(LoggerTest, "SetLogLevel") {
   LogConfig config;
   config.console_enabled = false;
   config.file_enabled = true;
@@ -109,7 +109,7 @@ TEST_F(LoggerTest, SetLogLevel) {
   config.level = LogLevel::WARN;
 
   auto status = Logger::Initialize(config);
-  ASSERT_TRUE(status.ok());
+  REQUIRE(status.ok());
 
   LOG_DEBUG("Should not appear");
   LOG_INFO("Should not appear");
@@ -126,18 +126,18 @@ TEST_F(LoggerTest, SetLogLevel) {
   std::string content((std::istreambuf_iterator<char>(log_file)),
                       std::istreambuf_iterator<char>());
 
-  EXPECT_EQ(content.find("Should not appear"), std::string::npos);
-  EXPECT_NE(content.find("Should appear"), std::string::npos);
+  CHECK_EQ(content.find("Should not appear"), std::string::npos);
+  CHECK_NE(content.find("Should appear"), std::string::npos);
 }
 
-TEST_F(LoggerTest, LogWithParameters) {
+TEST_CASE_FIXTURE(LoggerTest, "LogWithParameters") {
   LogConfig config;
   config.console_enabled = true;
   config.file_enabled = false;
   config.level = LogLevel::INFO;
 
   auto status = Logger::Initialize(config);
-  ASSERT_TRUE(status.ok());
+  REQUIRE(status.ok());
 
   LOG_INFO("Test with int: {}", 42);
   LOG_INFO("Test with string: {}", "hello");
@@ -150,17 +150,17 @@ TEST_F(LoggerTest, LogWithParameters) {
 // ThreadPool Tests
 // ============================================================================
 
-TEST(ThreadPoolTest, CreateWithDefaultThreads) {
+TEST_CASE("ThreadPoolTest - CreateWithDefaultThreads") {
   ThreadPool pool;
-  EXPECT_GT(pool.size(), 0);
+  CHECK_GT(pool.size(), 0);
 }
 
-TEST(ThreadPoolTest, CreateWithSpecificThreads) {
+TEST_CASE("ThreadPoolTest - CreateWithSpecificThreads") {
   ThreadPool pool(4);
-  EXPECT_EQ(pool.size(), 4);
+  CHECK_EQ(pool.size(), 4);
 }
 
-TEST(ThreadPoolTest, EnqueueSimpleTask) {
+TEST_CASE("ThreadPoolTest - EnqueueSimpleTask") {
   ThreadPool pool(2);
 
   std::atomic<int> counter{0};
@@ -170,11 +170,11 @@ TEST(ThreadPoolTest, EnqueueSimpleTask) {
     return 42;
   });
 
-  EXPECT_EQ(future.get(), 42);
-  EXPECT_EQ(counter.load(), 1);
+  CHECK_EQ(future.get(), 42);
+  CHECK_EQ(counter.load(), 1);
 }
 
-TEST(ThreadPoolTest, EnqueueMultipleTasks) {
+TEST_CASE("ThreadPoolTest - EnqueueMultipleTasks") {
   ThreadPool pool(4);
 
   std::atomic<int> counter{0};
@@ -190,22 +190,22 @@ TEST(ThreadPoolTest, EnqueueMultipleTasks) {
 
   // Wait for all tasks and verify results
   for (int i = 0; i < 100; ++i) {
-    EXPECT_EQ(futures[i].get(), i);
+    CHECK_EQ(futures[i].get(), i);
   }
 
-  EXPECT_EQ(counter.load(), 100);
+  CHECK_EQ(counter.load(), 100);
 }
 
-TEST(ThreadPoolTest, EnqueueWithParameters) {
+TEST_CASE("ThreadPoolTest - EnqueueWithParameters") {
   ThreadPool pool(2);
 
   auto add = [](int a, int b) { return a + b; };
 
   auto future = pool.enqueue(add, 10, 32);
-  EXPECT_EQ(future.get(), 42);
+  CHECK_EQ(future.get(), 42);
 }
 
-TEST(ThreadPoolTest, PendingTasksCount) {
+TEST_CASE("ThreadPoolTest - PendingTasksCount") {
   ThreadPool pool(1);  // Single thread
 
   std::atomic<bool> block{true};
@@ -224,13 +224,13 @@ TEST(ThreadPoolTest, PendingTasksCount) {
 
   // Should have pending tasks
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  EXPECT_GT(pool.pending(), 0);
+  CHECK_GT(pool.pending(), 0);
 
   // Unblock
   block.store(false);
 }
 
-TEST(ThreadPoolTest, ParallelExecution) {
+TEST_CASE("ThreadPoolTest - ParallelExecution") {
   ThreadPool pool(4);
 
   std::atomic<int> concurrent_count{0};
@@ -258,10 +258,10 @@ TEST(ThreadPoolTest, ParallelExecution) {
   }
 
   // With 4 threads and 8 tasks, should have seen 4 concurrent executions
-  EXPECT_GE(max_concurrent.load(), 4);
+  CHECK_GE(max_concurrent.load(), 4);
 }
 
-TEST(ThreadPoolTest, DestructorWaitsForTasks) {
+TEST_CASE("ThreadPoolTest - DestructorWaitsForTasks") {
   std::atomic<int> counter{0};
 
   {
@@ -278,24 +278,24 @@ TEST(ThreadPoolTest, DestructorWaitsForTasks) {
   }
 
   // All tasks should have completed
-  EXPECT_EQ(counter.load(), 10);
+  CHECK_EQ(counter.load(), 10);
 }
 
 // ============================================================================
 // Timer Tests
 // ============================================================================
 
-TEST(TimerTest, MeasureElapsedTime) {
+TEST_CASE("TimerTest - MeasureElapsedTime") {
   Timer timer;
 
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   int64_t elapsed_millis = timer.elapsed_millis();
-  EXPECT_GE(elapsed_millis, 90);   // Allow some tolerance
-  EXPECT_LE(elapsed_millis, 150);
+  CHECK_GE(elapsed_millis, 90);   // Allow some tolerance
+  CHECK_LE(elapsed_millis, 150);
 }
 
-TEST(TimerTest, Reset) {
+TEST_CASE("TimerTest - Reset") {
   Timer timer;
 
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -304,11 +304,11 @@ TEST(TimerTest, Reset) {
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   int64_t elapsed = timer.elapsed_millis();
-  EXPECT_GE(elapsed, 40);
-  EXPECT_LE(elapsed, 80);  // Should be ~50ms, not ~100ms
+  CHECK_GE(elapsed, 40);
+  CHECK_LE(elapsed, 80);  // Should be ~50ms, not ~100ms
 }
 
-TEST(ScopedTimerTest, CallbackOnDestruction) {
+TEST_CASE("ScopedTimerTest - CallbackOnDestruction") {
   int64_t measured_time = 0;
 
   {
@@ -319,40 +319,40 @@ TEST(ScopedTimerTest, CallbackOnDestruction) {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
 
-  EXPECT_GE(measured_time, 40'000);   // 40ms in microseconds
-  EXPECT_LE(measured_time, 100'000);  // 100ms in microseconds
+  CHECK_GE(measured_time, 40'000);   // 40ms in microseconds
+  CHECK_LE(measured_time, 100'000);  // 100ms in microseconds
 }
 
-TEST(TimerTest, MeasureMicrosUtility) {
+TEST_CASE("TimerTest - MeasureMicrosUtility") {
   int64_t elapsed = measure_micros([] {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
   });
 
-  EXPECT_GE(elapsed, 40'000);
-  EXPECT_LE(elapsed, 100'000);
+  CHECK_GE(elapsed, 40'000);
+  CHECK_LE(elapsed, 100'000);
 }
 
-TEST(TimerTest, MeasureSecondsUtility) {
+TEST_CASE("TimerTest - MeasureSecondsUtility") {
   double elapsed = measure_seconds([] {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   });
 
-  EXPECT_GE(elapsed, 0.09);
-  EXPECT_LE(elapsed, 0.15);
+  CHECK_GE(elapsed, 0.09);
+  CHECK_LE(elapsed, 0.15);
 }
 
 // ============================================================================
 // Integration Tests
 // ============================================================================
 
-TEST(UtilsIntegrationTest, ThreadPoolWithTimerAndLogger) {
+TEST_CASE("UtilsIntegrationTest - ThreadPoolWithTimerAndLogger") {
   // Initialize logger
   LogConfig config;
   config.console_enabled = true;
   config.file_enabled = false;
   config.level = LogLevel::INFO;
   auto status = Logger::Initialize(config);
-  ASSERT_TRUE(status.ok());
+  REQUIRE(status.ok());
 
   ThreadPool pool(4);
 
@@ -383,7 +383,7 @@ TEST(UtilsIntegrationTest, ThreadPoolWithTimerAndLogger) {
   int64_t total_elapsed = overall_timer.elapsed_millis();
   LOG_INFO("All {} tasks completed in {} ms", completed.load(), total_elapsed);
 
-  EXPECT_EQ(completed.load(), 10);
+  CHECK_EQ(completed.load(), 10);
 
   Logger::Instance().Flush();
   Logger::Shutdown();

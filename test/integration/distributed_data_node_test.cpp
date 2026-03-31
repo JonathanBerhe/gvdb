@@ -1,7 +1,7 @@
 // test/integration/distributed_data_node_test.cpp
-// Integration test: coordinator creates collection → data node serves Insert/Search
+// Integration test: coordinator creates collection -> data node serves Insert/Search
 
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <filesystem>
 #include <memory>
@@ -24,9 +24,9 @@
 namespace gvdb {
 namespace test {
 
-class DistributedDataNodeTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+class DistributedDataNodeTest {
+ public:
+  DistributedDataNodeTest() {
     // Clean up test directories
     std::filesystem::remove_all("/tmp/gvdb-distributed-dn-test");
     std::filesystem::create_directories("/tmp/gvdb-distributed-dn-test/coordinator");
@@ -102,7 +102,7 @@ class DistributedDataNodeTest : public ::testing::Test {
     coord_builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
     coord_builder.SetMaxSendMessageSize(256 * 1024 * 1024);
     coord_server_ = coord_builder.BuildAndStart();
-    ASSERT_NE(coord_server_, nullptr);
+    REQUIRE_NE(coord_server_, nullptr);
 
     // Create data node VectorDBService pointing at coordinator
     auto dn_resolver = network::MakeCachedCoordinatorResolver(coord_server_address_);
@@ -110,7 +110,7 @@ class DistributedDataNodeTest : public ::testing::Test {
         dn_segment_manager_, dn_query_executor_, std::move(dn_resolver));
   }
 
-  void TearDown() override {
+  ~DistributedDataNodeTest() {
     dn_vectordb_service_.reset();
     coord_vectordb_service_.reset();
     coord_internal_service_.reset();
@@ -141,14 +141,14 @@ class DistributedDataNodeTest : public ::testing::Test {
     grpc::ServerBuilder builder;
     int port = 0;
     builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
-    // Register a dummy service temporarily — we'll restart with real services
+    // Register a dummy service temporarily -- we'll restart with real services
     coord_internal_service_ = std::make_unique<network::InternalService>(
         shard_manager_, coord_segment_manager_, coord_query_executor_);
     builder.RegisterService(coord_internal_service_.get());
     builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
     builder.SetMaxSendMessageSize(256 * 1024 * 1024);
     coord_server_ = builder.BuildAndStart();
-    ASSERT_NE(coord_server_, nullptr);
+    REQUIRE_NE(coord_server_, nullptr);
     coord_server_address_ = "localhost:" + std::to_string(port);
   }
 
@@ -164,7 +164,7 @@ class DistributedDataNodeTest : public ::testing::Test {
     builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
     builder.SetMaxSendMessageSize(256 * 1024 * 1024);
     dn_server_ = builder.BuildAndStart();
-    ASSERT_NE(dn_server_, nullptr);
+    REQUIRE_NE(dn_server_, nullptr);
     dn_server_address_ = "localhost:" + std::to_string(port);
   }
 
@@ -179,7 +179,7 @@ class DistributedDataNodeTest : public ::testing::Test {
     node_registry_->UpdateNode(proto_node);
   }
 
- protected:
+ public:
   std::unique_ptr<index::IndexFactory> index_factory_;
 
   // Coordinator components
@@ -202,8 +202,8 @@ class DistributedDataNodeTest : public ::testing::Test {
   std::string dn_server_address_;
 };
 
-// Test: Coordinator creates collection → segment appears on data node
-TEST_F(DistributedDataNodeTest, CoordinatorCreatesSegmentOnDataNode) {
+// Test: Coordinator creates collection -> segment appears on data node
+TEST_CASE_FIXTURE(DistributedDataNodeTest, "CoordinatorCreatesSegmentOnDataNode") {
   // Create collection via coordinator
   proto::CreateCollectionRequest create_req;
   create_req.set_collection_name("test_distributed");
@@ -214,20 +214,22 @@ TEST_F(DistributedDataNodeTest, CoordinatorCreatesSegmentOnDataNode) {
   proto::CreateCollectionResponse create_resp;
   grpc::ServerContext ctx;
   auto status = coord_vectordb_service_->CreateCollection(&ctx, &create_req, &create_resp);
-  ASSERT_TRUE(status.ok()) << "CreateCollection failed: " << status.error_message();
-  EXPECT_GT(create_resp.collection_id(), 0);
+  INFO("CreateCollection failed: " << status.error_message());
+  REQUIRE(status.ok());
+  CHECK_GT(create_resp.collection_id(), 0);
 
   uint32_t collection_id = create_resp.collection_id();
 
   // Verify segment was created on data node (shard 0)
   auto segment_id = cluster::ShardSegmentId(core::CollectionId(collection_id), 0);
   auto* segment = dn_segment_manager_->GetSegment(segment_id);
-  ASSERT_NE(segment, nullptr) << "Segment not found on data node after CreateCollection";
-  EXPECT_EQ(segment->GetDimension(), 128);
+  INFO("Segment not found on data node after CreateCollection");
+  REQUIRE_NE(segment, nullptr);
+  CHECK_EQ(segment->GetDimension(), 128);
 }
 
 // Test: Insert vectors on data node via VectorDBService
-TEST_F(DistributedDataNodeTest, InsertVectorsOnDataNode) {
+TEST_CASE_FIXTURE(DistributedDataNodeTest, "InsertVectorsOnDataNode") {
   // Create collection via coordinator
   proto::CreateCollectionRequest create_req;
   create_req.set_collection_name("test_insert");
@@ -238,7 +240,8 @@ TEST_F(DistributedDataNodeTest, InsertVectorsOnDataNode) {
   proto::CreateCollectionResponse create_resp;
   grpc::ServerContext ctx1;
   auto create_status = coord_vectordb_service_->CreateCollection(&ctx1, &create_req, &create_resp);
-  ASSERT_TRUE(create_status.ok()) << create_status.error_message();
+  INFO(create_status.error_message());
+  REQUIRE(create_status.ok());
 
   // Insert vectors via data node's VectorDBService
   proto::InsertRequest insert_req;
@@ -258,12 +261,13 @@ TEST_F(DistributedDataNodeTest, InsertVectorsOnDataNode) {
   proto::InsertResponse insert_resp;
   grpc::ServerContext ctx2;
   auto insert_status = dn_vectordb_service_->Insert(&ctx2, &insert_req, &insert_resp);
-  ASSERT_TRUE(insert_status.ok()) << "Insert failed: " << insert_status.error_message();
-  EXPECT_EQ(insert_resp.inserted_count(), 5);
+  INFO("Insert failed: " << insert_status.error_message());
+  REQUIRE(insert_status.ok());
+  CHECK_EQ(insert_resp.inserted_count(), 5);
 }
 
 // Test: Search on data node returns inserted vectors
-TEST_F(DistributedDataNodeTest, SearchOnDataNode) {
+TEST_CASE_FIXTURE(DistributedDataNodeTest, "SearchOnDataNode") {
   // Create collection
   proto::CreateCollectionRequest create_req;
   create_req.set_collection_name("test_search");
@@ -273,7 +277,7 @@ TEST_F(DistributedDataNodeTest, SearchOnDataNode) {
 
   proto::CreateCollectionResponse create_resp;
   grpc::ServerContext ctx1;
-  ASSERT_TRUE(coord_vectordb_service_->CreateCollection(&ctx1, &create_req, &create_resp).ok());
+  REQUIRE(coord_vectordb_service_->CreateCollection(&ctx1, &create_req, &create_resp).ok());
 
   // Insert vectors
   proto::InsertRequest insert_req;
@@ -292,7 +296,7 @@ TEST_F(DistributedDataNodeTest, SearchOnDataNode) {
 
   proto::InsertResponse insert_resp;
   grpc::ServerContext ctx2;
-  ASSERT_TRUE(dn_vectordb_service_->Insert(&ctx2, &insert_req, &insert_resp).ok());
+  REQUIRE(dn_vectordb_service_->Insert(&ctx2, &insert_req, &insert_resp).ok());
 
   // Search for vector closest to [1, 0, 0, 0]
   proto::SearchRequest search_req;
@@ -308,16 +312,17 @@ TEST_F(DistributedDataNodeTest, SearchOnDataNode) {
   proto::SearchResponse search_resp;
   grpc::ServerContext ctx3;
   auto search_status = dn_vectordb_service_->Search(&ctx3, &search_req, &search_resp);
-  ASSERT_TRUE(search_status.ok()) << "Search failed: " << search_status.error_message();
-  EXPECT_EQ(search_resp.results_size(), 3);
+  INFO("Search failed: " << search_status.error_message());
+  REQUIRE(search_status.ok());
+  CHECK_EQ(search_resp.results_size(), 3);
 
   // First result should be vector 1 (exact match)
-  EXPECT_EQ(search_resp.results(0).id(), 1);
-  EXPECT_NEAR(search_resp.results(0).distance(), 0.0f, 0.001f);
+  CHECK_EQ(search_resp.results(0).id(), 1);
+  CHECK(search_resp.results(0).distance() == doctest::Approx(0.0f).epsilon(0.001f));
 }
 
 // Test: Get vectors by ID on data node
-TEST_F(DistributedDataNodeTest, GetVectorsOnDataNode) {
+TEST_CASE_FIXTURE(DistributedDataNodeTest, "GetVectorsOnDataNode") {
   // Create collection + insert
   proto::CreateCollectionRequest create_req;
   create_req.set_collection_name("test_get");
@@ -327,7 +332,7 @@ TEST_F(DistributedDataNodeTest, GetVectorsOnDataNode) {
 
   proto::CreateCollectionResponse create_resp;
   grpc::ServerContext ctx1;
-  ASSERT_TRUE(coord_vectordb_service_->CreateCollection(&ctx1, &create_req, &create_resp).ok());
+  REQUIRE(coord_vectordb_service_->CreateCollection(&ctx1, &create_req, &create_resp).ok());
 
   proto::InsertRequest insert_req;
   insert_req.set_collection_name("test_get");
@@ -342,7 +347,7 @@ TEST_F(DistributedDataNodeTest, GetVectorsOnDataNode) {
 
   proto::InsertResponse insert_resp;
   grpc::ServerContext ctx2;
-  ASSERT_TRUE(dn_vectordb_service_->Insert(&ctx2, &insert_req, &insert_resp).ok());
+  REQUIRE(dn_vectordb_service_->Insert(&ctx2, &insert_req, &insert_resp).ok());
 
   // Get vector by ID
   proto::GetRequest get_req;
@@ -352,13 +357,14 @@ TEST_F(DistributedDataNodeTest, GetVectorsOnDataNode) {
   proto::GetResponse get_resp;
   grpc::ServerContext ctx3;
   auto get_status = dn_vectordb_service_->Get(&ctx3, &get_req, &get_resp);
-  ASSERT_TRUE(get_status.ok()) << "Get failed: " << get_status.error_message();
-  EXPECT_EQ(get_resp.vectors_size(), 1);
-  EXPECT_EQ(get_resp.vectors(0).id(), 42);
+  INFO("Get failed: " << get_status.error_message());
+  REQUIRE(get_status.ok());
+  CHECK_EQ(get_resp.vectors_size(), 1);
+  CHECK_EQ(get_resp.vectors(0).id(), 42);
 }
 
-// TODO: Rewrite for multi-shard — needs separate fixture with 2 data nodes
-TEST_F(DistributedDataNodeTest, DISABLED_DistributedSearchAcrossDataNodes) {
+// TODO: Rewrite for multi-shard -- needs separate fixture with 2 data nodes
+TEST_CASE_FIXTURE(DistributedDataNodeTest, "DistributedSearchAcrossDataNodes" * doctest::skip(true)) {
   // Create collection via coordinator
   proto::CreateCollectionRequest create_req;
   create_req.set_collection_name("test_distributed_search");
@@ -368,7 +374,7 @@ TEST_F(DistributedDataNodeTest, DISABLED_DistributedSearchAcrossDataNodes) {
 
   proto::CreateCollectionResponse create_resp;
   grpc::ServerContext ctx1;
-  ASSERT_TRUE(coord_vectordb_service_->CreateCollection(&ctx1, &create_req, &create_resp).ok());
+  REQUIRE(coord_vectordb_service_->CreateCollection(&ctx1, &create_req, &create_resp).ok());
 
   // Insert vectors on data node (directly via dn_vectordb_service_)
   proto::InsertRequest insert_req;
@@ -388,8 +394,8 @@ TEST_F(DistributedDataNodeTest, DISABLED_DistributedSearchAcrossDataNodes) {
 
   proto::InsertResponse insert_resp;
   grpc::ServerContext ctx2;
-  ASSERT_TRUE(dn_vectordb_service_->Insert(&ctx2, &insert_req, &insert_resp).ok());
-  EXPECT_EQ(insert_resp.inserted_count(), 5);
+  REQUIRE(dn_vectordb_service_->Insert(&ctx2, &insert_req, &insert_resp).ok());
+  CHECK_EQ(insert_resp.inserted_count(), 5);
 
   // Now create a "query node" VectorDBService that has NO local data
   // It should fan out to data nodes via distributed search
@@ -401,7 +407,7 @@ TEST_F(DistributedDataNodeTest, DISABLED_DistributedSearchAcrossDataNodes) {
   auto qn_service = std::make_unique<network::VectorDBService>(
       qn_segment_manager, qn_query_executor, std::move(qn_resolver));
 
-  // Search from query node — should trigger distributed fan-out to data node
+  // Search from query node -- should trigger distributed fan-out to data node
   proto::SearchRequest search_req;
   search_req.set_collection_name("test_distributed_search");
   search_req.set_top_k(3);
@@ -415,20 +421,20 @@ TEST_F(DistributedDataNodeTest, DISABLED_DistributedSearchAcrossDataNodes) {
   proto::SearchResponse search_resp;
   grpc::ServerContext ctx3;
   auto search_status = qn_service->Search(&ctx3, &search_req, &search_resp);
-  ASSERT_TRUE(search_status.ok())
-      << "Distributed search failed: " << search_status.error_message();
+  INFO("Distributed search failed: " << search_status.error_message());
+  REQUIRE(search_status.ok());
 
   // Should get results from the data node
-  EXPECT_GT(search_resp.results_size(), 0);
-  EXPECT_LE(search_resp.results_size(), 3);
+  CHECK_GT(search_resp.results_size(), 0);
+  CHECK_LE(search_resp.results_size(), 3);
 
   // First result should be vector 1 (closest to query [1,0,0,0])
-  EXPECT_EQ(search_resp.results(0).id(), 1);
-  EXPECT_NEAR(search_resp.results(0).distance(), 0.0f, 0.001f);
+  CHECK_EQ(search_resp.results(0).id(), 1);
+  CHECK(search_resp.results(0).distance() == doctest::Approx(0.0f).epsilon(0.001f));
 }
 
 // Test: Coordinator replicates segment data between nodes
-TEST_F(DistributedDataNodeTest, ReplicateSegmentBetweenNodes) {
+TEST_CASE_FIXTURE(DistributedDataNodeTest, "ReplicateSegmentBetweenNodes") {
   // Create collection (segment on data node)
   proto::CreateCollectionRequest create_req;
   create_req.set_collection_name("test_replication");
@@ -438,7 +444,7 @@ TEST_F(DistributedDataNodeTest, ReplicateSegmentBetweenNodes) {
 
   proto::CreateCollectionResponse create_resp;
   grpc::ServerContext ctx1;
-  ASSERT_TRUE(coord_vectordb_service_->CreateCollection(&ctx1, &create_req, &create_resp).ok());
+  REQUIRE(coord_vectordb_service_->CreateCollection(&ctx1, &create_req, &create_resp).ok());
   uint32_t collection_id = create_resp.collection_id();
 
   // Insert vectors on data node
@@ -457,7 +463,7 @@ TEST_F(DistributedDataNodeTest, ReplicateSegmentBetweenNodes) {
 
   proto::InsertResponse insert_resp;
   grpc::ServerContext ctx2;
-  ASSERT_TRUE(dn_vectordb_service_->Insert(&ctx2, &insert_req, &insert_resp).ok());
+  REQUIRE(dn_vectordb_service_->Insert(&ctx2, &insert_req, &insert_resp).ok());
 
   // Start a second data node
   auto dn2_segment_manager = std::make_shared<storage::SegmentManager>(
@@ -476,7 +482,7 @@ TEST_F(DistributedDataNodeTest, ReplicateSegmentBetweenNodes) {
   dn2_builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
   dn2_builder.SetMaxSendMessageSize(256 * 1024 * 1024);
   auto dn2_server = dn2_builder.BuildAndStart();
-  ASSERT_NE(dn2_server, nullptr);
+  REQUIRE_NE(dn2_server, nullptr);
   std::string dn2_address = "localhost:" + std::to_string(dn2_port);
 
   // Register second data node
@@ -493,12 +499,14 @@ TEST_F(DistributedDataNodeTest, ReplicateSegmentBetweenNodes) {
   core::NodeId target = core::MakeNodeId(200);
 
   auto status = coordinator_->ReplicateSegmentData(seg_id, source, target);
-  ASSERT_TRUE(status.ok()) << "Replication failed: " << status.message();
+  INFO("Replication failed: " << status.message());
+  REQUIRE(status.ok());
 
   // Verify data node 2 now has the segment with vectors
   auto* replicated_segment = dn2_segment_manager->GetSegment(seg_id);
-  ASSERT_NE(replicated_segment, nullptr) << "Replicated segment not found on node 2";
-  EXPECT_EQ(replicated_segment->GetVectorCount(), 3);
+  INFO("Replicated segment not found on node 2");
+  REQUIRE_NE(replicated_segment, nullptr);
+  CHECK_EQ(replicated_segment->GetVectorCount(), 3);
 
   // Cleanup
   dn2_server->Shutdown();
@@ -506,7 +514,7 @@ TEST_F(DistributedDataNodeTest, ReplicateSegmentBetweenNodes) {
 }
 
 // Test: Coordinator handles failed node by promoting replica
-TEST_F(DistributedDataNodeTest, FailoverPromotion) {
+TEST_CASE_FIXTURE(DistributedDataNodeTest, "FailoverPromotion") {
   // Register a second data node
   proto::internal::NodeInfo proto_node2;
   proto_node2.set_node_id(200);
@@ -520,15 +528,15 @@ TEST_F(DistributedDataNodeTest, FailoverPromotion) {
   core::NodeId primary = core::MakeNodeId(100);
   core::NodeId replica = core::MakeNodeId(200);
 
-  ASSERT_TRUE(shard_manager_->SetPrimaryNode(shard, primary).ok());
-  ASSERT_TRUE(shard_manager_->AddReplica(shard, replica).ok());
+  REQUIRE(shard_manager_->SetPrimaryNode(shard, primary).ok());
+  REQUIRE(shard_manager_->AddReplica(shard, replica).ok());
 
   // Verify primary is node 100
   auto primary_before = shard_manager_->GetPrimaryNode(shard);
-  ASSERT_TRUE(primary_before.ok());
-  EXPECT_EQ(*primary_before, primary);
+  REQUIRE(primary_before.ok());
+  CHECK_EQ(*primary_before, primary);
 
-  // Simulate node 100 failure — remove from registry
+  // Simulate node 100 failure -- remove from registry
   node_registry_->RemoveNode(100);
 
   // Trigger failover
@@ -536,8 +544,8 @@ TEST_F(DistributedDataNodeTest, FailoverPromotion) {
 
   // Verify replica (node 200) was promoted to primary
   auto primary_after = shard_manager_->GetPrimaryNode(shard);
-  ASSERT_TRUE(primary_after.ok());
-  EXPECT_EQ(*primary_after, replica);
+  REQUIRE(primary_after.ok());
+  CHECK_EQ(*primary_after, replica);
 }
 
 }  // namespace test

@@ -1,7 +1,7 @@
 // test/integration/segment_replication_integration_test.cpp
 // Integration tests for segment replication (Phase 5)
 
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <memory>
 #include <thread>
@@ -23,9 +23,9 @@
 namespace gvdb {
 namespace test {
 
-class SegmentReplicationIntegrationTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+class SegmentReplicationIntegrationTest {
+ public:
+  SegmentReplicationIntegrationTest() {
     // Create index factory
     index_factory_ = std::make_unique<index::IndexFactory>();
 
@@ -66,8 +66,8 @@ class SegmentReplicationIntegrationTest : public ::testing::Test {
     builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
     builder.SetMaxSendMessageSize(256 * 1024 * 1024);
     server_ = builder.BuildAndStart();
-    ASSERT_NE(server_, nullptr);
-    ASSERT_GT(server_port_, 0);
+    REQUIRE_NE(server_, nullptr);
+    REQUIRE_GT(server_port_, 0);
 
     server_address_ = absl::StrFormat("localhost:%d", server_port_);
 
@@ -87,7 +87,7 @@ class SegmentReplicationIntegrationTest : public ::testing::Test {
         std::move(resolver));
   }
 
-  void TearDown() override {
+  ~SegmentReplicationIntegrationTest() {
     server_->Shutdown();
     coord_segment_manager_->Clear();
     data_segment_manager_->Clear();
@@ -114,17 +114,17 @@ class SegmentReplicationIntegrationTest : public ::testing::Test {
 };
 
 // Test: Data node pulls segment from coordinator on search
-TEST_F(SegmentReplicationIntegrationTest, DataNodePullsSegmentOnSearch) {
+TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "DataNodePullsSegmentOnSearch") {
   // 1. Create collection on coordinator
   auto collection_id = coordinator_->CreateCollection(
       "test_collection", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
-  ASSERT_TRUE(collection_id.ok());
+  REQUIRE(collection_id.ok());
 
   // 2. Create segment on coordinator using ShardSegmentId scheme
   core::SegmentId segment_id = cluster::ShardSegmentId(*collection_id, 0);
   auto create_seg_status = coord_segment_manager_->CreateSegmentWithId(
       segment_id, *collection_id, 128, core::MetricType::L2, core::IndexType::FLAT);
-  ASSERT_TRUE(create_seg_status.ok());
+  REQUIRE(create_seg_status.ok());
 
   // Insert some test vectors
   std::vector<core::Vector> vectors;
@@ -139,16 +139,16 @@ TEST_F(SegmentReplicationIntegrationTest, DataNodePullsSegmentOnSearch) {
   }
 
   auto insert_status = coord_segment_manager_->WriteVectors(segment_id, vectors, ids);
-  ASSERT_TRUE(insert_status.ok());
+  REQUIRE(insert_status.ok());
 
   // 3. Also create segment on data node (simulate coordinator push)
   auto dn_create = data_segment_manager_->CreateSegmentWithId(
       segment_id, *collection_id, 128, core::MetricType::L2, core::IndexType::FLAT);
-  ASSERT_TRUE(dn_create.ok());
+  REQUIRE(dn_create.ok());
   auto* dn_seg = data_segment_manager_->GetSegment(segment_id);
-  ASSERT_NE(dn_seg, nullptr);
+  REQUIRE_NE(dn_seg, nullptr);
   auto dn_insert = dn_seg->AddVectors(vectors, ids);
-  ASSERT_TRUE(dn_insert.ok());
+  REQUIRE(dn_insert.ok());
   core::IndexConfig cfg;
   cfg.index_type = core::IndexType::FLAT;
   cfg.dimension = 128;
@@ -174,20 +174,21 @@ TEST_F(SegmentReplicationIntegrationTest, DataNodePullsSegmentOnSearch) {
   grpc::Status status = data_vectordb_service_->Search(&context, &request, &response);
 
   // 6. Verify search succeeded
-  ASSERT_TRUE(status.ok()) << "Search failed: " << status.error_message();
-  EXPECT_GT(response.results_size(), 0);
-  EXPECT_LE(response.results_size(), 3);
+  INFO("Search failed: " << status.error_message());
+  REQUIRE(status.ok());
+  CHECK_GT(response.results_size(), 0);
+  CHECK_LE(response.results_size(), 3);
 
   // 7. Verify search results are reasonable (vector 0 should be closest)
-  EXPECT_EQ(response.results(0).id(), 1);  // VectorId 1 (index 0)
+  CHECK_EQ(response.results(0).id(), 1);  // VectorId 1 (index 0)
 }
 
 // Test: Multiple searches reuse cached segment
-TEST_F(SegmentReplicationIntegrationTest, MultipleSearchesReuseCachedSegment) {
+TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCachedSegment") {
   // Create collection and segment on coordinator
   auto collection_id = coordinator_->CreateCollection(
       "reuse_test", 64, core::MetricType::L2, core::IndexType::FLAT, 1);
-  ASSERT_TRUE(collection_id.ok());
+  REQUIRE(collection_id.ok());
 
   core::SegmentId segment_id = cluster::ShardSegmentId(*collection_id, 0);
 
@@ -195,7 +196,7 @@ TEST_F(SegmentReplicationIntegrationTest, MultipleSearchesReuseCachedSegment) {
   if (!coord_segment_manager_->GetSegment(segment_id)) {
     auto cs = coord_segment_manager_->CreateSegmentWithId(
         segment_id, *collection_id, 64, core::MetricType::L2, core::IndexType::FLAT);
-    ASSERT_TRUE(cs.ok());
+    REQUIRE(cs.ok());
   }
 
   // Insert vectors
@@ -212,7 +213,7 @@ TEST_F(SegmentReplicationIntegrationTest, MultipleSearchesReuseCachedSegment) {
   if (!data_segment_manager_->GetSegment(segment_id)) {
     auto ds = data_segment_manager_->CreateSegmentWithId(
         segment_id, *collection_id, 64, core::MetricType::L2, core::IndexType::FLAT);
-    ASSERT_TRUE(ds.ok());
+    REQUIRE(ds.ok());
     auto* dn_seg = data_segment_manager_->GetSegment(segment_id);
     dn_seg->AddVectors(vectors, ids);
     core::IndexConfig cfg;
@@ -235,11 +236,11 @@ TEST_F(SegmentReplicationIntegrationTest, MultipleSearchesReuseCachedSegment) {
   grpc::ServerContext context1;
   proto::SearchResponse response1;
   grpc::Status status1 = data_vectordb_service_->Search(&context1, &request1, &response1);
-  ASSERT_TRUE(status1.ok());
+  REQUIRE(status1.ok());
 
   // Verify segment is now cached
   auto* cached_segment = data_segment_manager_->GetSegment(segment_id);
-  ASSERT_NE(cached_segment, nullptr);
+  REQUIRE_NE(cached_segment, nullptr);
 
   // Second search (should reuse cached segment)
   proto::SearchRequest request2;
@@ -254,16 +255,16 @@ TEST_F(SegmentReplicationIntegrationTest, MultipleSearchesReuseCachedSegment) {
   grpc::ServerContext context2;
   proto::SearchResponse response2;
   grpc::Status status2 = data_vectordb_service_->Search(&context2, &request2, &response2);
-  ASSERT_TRUE(status2.ok());
-  EXPECT_GT(response2.results_size(), 0);
+  REQUIRE(status2.ok());
+  CHECK_GT(response2.results_size(), 0);
 }
 
 // Test: Segment not found on coordinator
-TEST_F(SegmentReplicationIntegrationTest, SearchEmptyCollectionReturnsNoResults) {
+TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "SearchEmptyCollectionReturnsNoResults") {
   // Create collection (segment is created on data node by coordinator)
   auto collection_id = coordinator_->CreateCollection(
       "empty_collection", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
-  ASSERT_TRUE(collection_id.ok());
+  REQUIRE(collection_id.ok());
 
   // Search empty collection — should succeed with 0 results
   proto::SearchRequest request;
@@ -279,8 +280,9 @@ TEST_F(SegmentReplicationIntegrationTest, SearchEmptyCollectionReturnsNoResults)
   proto::SearchResponse response;
   grpc::Status status = data_vectordb_service_->Search(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok()) << status.error_message();
-  EXPECT_EQ(response.results_size(), 0);
+  INFO(status.error_message());
+  CHECK(status.ok());
+  CHECK_EQ(response.results_size(), 0);
 }
 
 } // namespace test

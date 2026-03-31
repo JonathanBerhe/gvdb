@@ -1,7 +1,7 @@
 #include "consensus/gvdb_log_store.h"
 #include "consensus/gvdb_state_manager.h"
 
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <libnuraft/nuraft.hxx>
 
 #include <chrono>
@@ -29,9 +29,9 @@ using nuraft::ulong;
 // Phase 1: Single-Node Persistence Tests
 // ============================================================================
 
-class ConsensusSingleNodeTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+class ConsensusSingleNodeTest {
+ public:
+  ConsensusSingleNodeTest() {
     // Create unique temporary directory for each test
     test_dir_ = std::filesystem::temp_directory_path() /
                 ("gvdb_consensus_single_" +
@@ -42,7 +42,7 @@ class ConsensusSingleNodeTest : public ::testing::Test {
     state_path_ = (test_dir_ / "state").string();
   }
 
-  void TearDown() override {
+  ~ConsensusSingleNodeTest() {
     // Clean up test directory
     if (std::filesystem::exists(test_dir_)) {
       std::filesystem::remove_all(test_dir_);
@@ -62,7 +62,7 @@ class ConsensusSingleNodeTest : public ::testing::Test {
 };
 
 // Test 1: Basic restart recovery
-TEST_F(ConsensusSingleNodeTest, BasicRestartRecovery) {
+TEST_CASE_FIXTURE(ConsensusSingleNodeTest, "BasicRestartRecovery") {
   const int kNumEntries = 50;
 
   // Phase 1: Create server and append entries
@@ -74,11 +74,11 @@ TEST_F(ConsensusSingleNodeTest, BasicRestartRecovery) {
     for (int i = 1; i <= kNumEntries; ++i) {
       auto entry = create_log_entry(1, "entry_" + std::to_string(i));
       ulong idx = log_store->append(entry);
-      EXPECT_EQ(idx, static_cast<ulong>(i));
+      CHECK_EQ(idx, static_cast<ulong>(i));
     }
 
     // Verify entries exist
-    EXPECT_EQ(log_store->next_slot(), kNumEntries + 1);
+    CHECK_EQ(log_store->next_slot(), kNumEntries + 1);
 
     // Update server state
     auto server_state = nuraft::cs_new<srv_state>();
@@ -95,25 +95,26 @@ TEST_F(ConsensusSingleNodeTest, BasicRestartRecovery) {
     auto log_store = state_mgr->load_log_store();
 
     // Verify all entries recovered
-    EXPECT_EQ(log_store->next_slot(), kNumEntries + 1);
-    EXPECT_EQ(log_store->start_index(), 1);
+    CHECK_EQ(log_store->next_slot(), kNumEntries + 1);
+    CHECK_EQ(log_store->start_index(), 1);
 
     for (int i = 1; i <= kNumEntries; ++i) {
       auto entry = log_store->entry_at(i);
-      ASSERT_NE(entry, nullptr) << "Entry " << i << " not found";
-      EXPECT_EQ(entry->get_term(), 1);
+      INFO("Entry " << i << " not found");
+      REQUIRE_NE(entry, nullptr);
+      CHECK_EQ(entry->get_term(), 1);
     }
 
     // Verify server state recovered
     auto server_state = state_mgr->read_state();
-    ASSERT_NE(server_state, nullptr);
-    EXPECT_EQ(server_state->get_term(), 5);
-    EXPECT_EQ(server_state->get_voted_for(), 1);
+    REQUIRE_NE(server_state, nullptr);
+    CHECK_EQ(server_state->get_term(), 5);
+    CHECK_EQ(server_state->get_voted_for(), 1);
   }
 }
 
 // Test 2: Crash recovery (simulated power loss)
-TEST_F(ConsensusSingleNodeTest, CrashRecovery) {
+TEST_CASE_FIXTURE(ConsensusSingleNodeTest, "CrashRecovery") {
   const int kEntriesBeforeCrash = 30;
   const int kEntriesAfterCrash = 20;
 
@@ -137,7 +138,7 @@ TEST_F(ConsensusSingleNodeTest, CrashRecovery) {
     auto log_store = state_mgr->load_log_store();
 
     // Verify pre-crash data recovered
-    EXPECT_EQ(log_store->next_slot(), kEntriesBeforeCrash + 1);
+    CHECK_EQ(log_store->next_slot(), kEntriesBeforeCrash + 1);
 
     // Continue normal operation
     for (int i = 1; i <= kEntriesAfterCrash; ++i) {
@@ -145,25 +146,25 @@ TEST_F(ConsensusSingleNodeTest, CrashRecovery) {
       log_store->append(entry);
     }
 
-    EXPECT_EQ(log_store->next_slot(), kEntriesBeforeCrash + kEntriesAfterCrash + 1);
+    CHECK_EQ(log_store->next_slot(), kEntriesBeforeCrash + kEntriesAfterCrash + 1);
 
     // Verify all entries present
     for (int i = 1; i <= kEntriesBeforeCrash; ++i) {
       auto entry = log_store->entry_at(i);
-      ASSERT_NE(entry, nullptr);
-      EXPECT_EQ(entry->get_term(), 1);
+      REQUIRE_NE(entry, nullptr);
+      CHECK_EQ(entry->get_term(), 1);
     }
 
     for (int i = 1; i <= kEntriesAfterCrash; ++i) {
       auto entry = log_store->entry_at(kEntriesBeforeCrash + i);
-      ASSERT_NE(entry, nullptr);
-      EXPECT_EQ(entry->get_term(), 2);
+      REQUIRE_NE(entry, nullptr);
+      CHECK_EQ(entry->get_term(), 2);
     }
   }
 }
 
 // Test 3: Log compaction with recovery
-TEST_F(ConsensusSingleNodeTest, LogCompactionRecovery) {
+TEST_CASE_FIXTURE(ConsensusSingleNodeTest, "LogCompactionRecovery") {
   const int kTotalEntries = 100;
   const int kCompactUpTo = 60;
 
@@ -179,17 +180,17 @@ TEST_F(ConsensusSingleNodeTest, LogCompactionRecovery) {
     }
 
     // Compact up to index 60
-    EXPECT_TRUE(log_store->compact(kCompactUpTo));
-    EXPECT_EQ(log_store->start_index(), kCompactUpTo + 1);
+    CHECK(log_store->compact(kCompactUpTo));
+    CHECK_EQ(log_store->start_index(), kCompactUpTo + 1);
 
     // Verify compacted entries are gone
     for (int i = 1; i <= kCompactUpTo; ++i) {
-      EXPECT_EQ(log_store->entry_at(i), nullptr);
+      CHECK_EQ(log_store->entry_at(i), nullptr);
     }
 
     // Verify remaining entries exist
     for (int i = kCompactUpTo + 1; i <= kTotalEntries; ++i) {
-      EXPECT_NE(log_store->entry_at(i), nullptr);
+      CHECK_NE(log_store->entry_at(i), nullptr);
     }
 
     log_store->flush();
@@ -201,23 +202,24 @@ TEST_F(ConsensusSingleNodeTest, LogCompactionRecovery) {
     auto log_store = state_mgr->load_log_store();
 
     // Verify start index recovered
-    EXPECT_EQ(log_store->start_index(), kCompactUpTo + 1);
+    CHECK_EQ(log_store->start_index(), kCompactUpTo + 1);
 
     // Verify compacted entries still gone
     for (int i = 1; i <= kCompactUpTo; ++i) {
-      EXPECT_EQ(log_store->entry_at(i), nullptr);
+      CHECK_EQ(log_store->entry_at(i), nullptr);
     }
 
     // Verify remaining entries still exist
     for (int i = kCompactUpTo + 1; i <= kTotalEntries; ++i) {
       auto entry = log_store->entry_at(i);
-      ASSERT_NE(entry, nullptr) << "Entry " << i << " not found after restart";
+      INFO("Entry " << i << " not found after restart");
+      REQUIRE_NE(entry, nullptr);
     }
   }
 }
 
 // Test 4: Configuration persistence
-TEST_F(ConsensusSingleNodeTest, ConfigurationPersistence) {
+TEST_CASE_FIXTURE(ConsensusSingleNodeTest, "ConfigurationPersistence") {
   // Phase 1: Create multi-server configuration
   {
     auto state_mgr = nuraft::cs_new<GvdbStateManager>(1, "localhost:9000", log_path_, state_path_);
@@ -237,8 +239,8 @@ TEST_F(ConsensusSingleNodeTest, ConfigurationPersistence) {
     auto state_mgr = nuraft::cs_new<GvdbStateManager>(1, "localhost:9000", log_path_, state_path_);
     auto config = state_mgr->load_config();
 
-    ASSERT_NE(config, nullptr);
-    EXPECT_EQ(config->get_servers().size(), 3);
+    REQUIRE_NE(config, nullptr);
+    CHECK_EQ(config->get_servers().size(), 3);
 
     // Verify server IDs
     std::vector<int> server_ids;
@@ -247,9 +249,9 @@ TEST_F(ConsensusSingleNodeTest, ConfigurationPersistence) {
     }
     std::sort(server_ids.begin(), server_ids.end());
 
-    EXPECT_EQ(server_ids[0], 1);
-    EXPECT_EQ(server_ids[1], 2);
-    EXPECT_EQ(server_ids[2], 3);
+    CHECK_EQ(server_ids[0], 1);
+    CHECK_EQ(server_ids[1], 2);
+    CHECK_EQ(server_ids[2], 3);
   }
 }
 
@@ -257,8 +259,8 @@ TEST_F(ConsensusSingleNodeTest, ConfigurationPersistence) {
 // Phase 2: Multi-Node Cluster Tests (In-Process)
 // ============================================================================
 
-class ConsensusMultiNodeTest : public ::testing::Test {
- protected:
+class ConsensusMultiNodeTest {
+ public:
   struct RaftNode {
     int node_id;
     std::string endpoint;
@@ -267,14 +269,14 @@ class ConsensusMultiNodeTest : public ::testing::Test {
     ptr<GvdbStateManager> state_mgr;
   };
 
-  void SetUp() override {
+  ConsensusMultiNodeTest() {
     test_dir_ = std::filesystem::temp_directory_path() /
                 ("gvdb_consensus_multi_" +
                  std::to_string(std::chrono::system_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(test_dir_);
   }
 
-  void TearDown() override {
+  ~ConsensusMultiNodeTest() {
     // Clean up all nodes
     nodes_.clear();
 
@@ -312,7 +314,7 @@ class ConsensusMultiNodeTest : public ::testing::Test {
 };
 
 // Test 1: Cluster formation and restart
-TEST_F(ConsensusMultiNodeTest, ClusterFormationAndRestart) {
+TEST_CASE_FIXTURE(ConsensusMultiNodeTest, "ClusterFormationAndRestart") {
   const int kNumNodes = 3;
   const int kNumEntries = 20;
 
@@ -351,18 +353,18 @@ TEST_F(ConsensusMultiNodeTest, ClusterFormationAndRestart) {
 
     // Verify log recovered
     auto log_store = node.state_mgr->load_log_store();
-    EXPECT_EQ(log_store->next_slot(), kNumEntries + 1);
+    CHECK_EQ(log_store->next_slot(), kNumEntries + 1);
 
     // Verify configuration recovered
     auto config = node.state_mgr->load_config();
-    EXPECT_EQ(config->get_servers().size(), kNumNodes);
+    CHECK_EQ(config->get_servers().size(), kNumNodes);
 
     nodes_.push_back(std::move(node));
   }
 }
 
 // Test 2: Leader crash and recovery
-TEST_F(ConsensusMultiNodeTest, LeaderCrashRecovery) {
+TEST_CASE_FIXTURE(ConsensusMultiNodeTest, "LeaderCrashRecovery") {
   const int kNumNodes = 3;
 
   // Create nodes with initial data
@@ -398,19 +400,19 @@ TEST_F(ConsensusMultiNodeTest, LeaderCrashRecovery) {
     auto log_store = recovered.state_mgr->load_log_store();
 
     // Verify leader's log recovered
-    EXPECT_EQ(log_store->next_slot(), 51);
+    CHECK_EQ(log_store->next_slot(), 51);
 
     // Verify state recovered
     auto state = recovered.state_mgr->read_state();
-    ASSERT_NE(state, nullptr);
-    EXPECT_EQ(state->get_term(), 5);
+    REQUIRE_NE(state, nullptr);
+    CHECK_EQ(state->get_term(), 5);
 
     nodes_[0] = std::move(recovered);
   }
 }
 
 // Test 3: Majority crash recovery
-TEST_F(ConsensusMultiNodeTest, MajorityCrashRecovery) {
+TEST_CASE_FIXTURE(ConsensusMultiNodeTest, "MajorityCrashRecovery") {
   const int kNumNodes = 5;
   const int kNumEntries = 30;
 
@@ -440,11 +442,11 @@ TEST_F(ConsensusMultiNodeTest, MajorityCrashRecovery) {
     auto log_store = recovered.state_mgr->load_log_store();
 
     // Verify data recovered
-    EXPECT_EQ(log_store->next_slot(), kNumEntries + 1);
+    CHECK_EQ(log_store->next_slot(), kNumEntries + 1);
 
     for (int e = 1; e <= kNumEntries; ++e) {
       auto entry = log_store->entry_at(e);
-      ASSERT_NE(entry, nullptr);
+      REQUIRE_NE(entry, nullptr);
     }
 
     nodes_[node_id - 1] = std::move(recovered);

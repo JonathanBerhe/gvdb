@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <thread>
 
@@ -51,9 +51,9 @@ class MockInternalService : public proto::internal::InternalService::Service {
 // Test Fixture
 // ============================================================================
 
-class InternalClientTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+class InternalClientTest {
+ public:
+  InternalClientTest() {
     // Create mock service
     mock_service_ = std::make_unique<MockInternalService>();
 
@@ -65,7 +65,7 @@ class InternalClientTest : public ::testing::Test {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
-  void TearDown() override {
+  ~InternalClientTest() {
     if (server_) {
       server_->Shutdown();
     }
@@ -89,32 +89,32 @@ class InternalClientTest : public ::testing::Test {
 // GrpcInternalServiceClientFactory Tests
 // ============================================================================
 
-TEST_F(InternalClientTest, FactoryCreatesClientSuccessfully) {
+TEST_CASE_FIXTURE(InternalClientTest, "FactoryCreatesClientSuccessfully") {
   cluster::GrpcInternalServiceClientFactory factory;
 
   auto client = factory.CreateClient(core::MakeNodeId(1), server_address_);
 
-  ASSERT_NE(client, nullptr);
+  REQUIRE_NE(client, nullptr);
 }
 
-TEST_F(InternalClientTest, FactoryCreatesClientWithInvalidAddress) {
+TEST_CASE_FIXTURE(InternalClientTest, "FactoryCreatesClientWithInvalidAddress") {
   cluster::GrpcInternalServiceClientFactory factory;
 
   // Even with invalid address, client creation succeeds (lazy connection)
   auto client = factory.CreateClient(core::MakeNodeId(1), "invalid:99999");
 
-  EXPECT_NE(client, nullptr);
+  CHECK_NE(client, nullptr);
 }
 
 // ============================================================================
 // GrpcInternalServiceClient RPC Tests
 // ============================================================================
 
-TEST_F(InternalClientTest, CreateSegmentSucceeds) {
+TEST_CASE_FIXTURE(InternalClientTest, "CreateSegmentSucceeds") {
   // Create client
   cluster::GrpcInternalServiceClientFactory factory;
   auto client = factory.CreateClient(core::MakeNodeId(1), server_address_);
-  ASSERT_NE(client, nullptr);
+  REQUIRE_NE(client, nullptr);
 
   // Call CreateSegment RPC
   grpc::ClientContext context;
@@ -127,20 +127,20 @@ TEST_F(InternalClientTest, CreateSegmentSucceeds) {
 
   auto status = client->CreateSegment(&context, request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_TRUE(response.success());
-  EXPECT_EQ(response.segment_id(), 12345);
-  EXPECT_EQ(mock_service_->create_segment_calls.load(), 1);
+  CHECK(status.ok());
+  CHECK(response.success());
+  CHECK_EQ(response.segment_id(), 12345);
+  CHECK_EQ(mock_service_->create_segment_calls.load(), 1);
 }
 
-TEST_F(InternalClientTest, CreateSegmentFailsWithError) {
+TEST_CASE_FIXTURE(InternalClientTest, "CreateSegmentFailsWithError") {
   // Set mock to fail
   mock_service_->should_fail = true;
 
   // Create client
   cluster::GrpcInternalServiceClientFactory factory;
   auto client = factory.CreateClient(core::MakeNodeId(1), server_address_);
-  ASSERT_NE(client, nullptr);
+  REQUIRE_NE(client, nullptr);
 
   // Call CreateSegment RPC (should fail)
   grpc::ClientContext context;
@@ -151,16 +151,16 @@ TEST_F(InternalClientTest, CreateSegmentFailsWithError) {
 
   auto status = client->CreateSegment(&context, request, &response);
 
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::INTERNAL);
-  EXPECT_EQ(mock_service_->create_segment_calls.load(), 1);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::INTERNAL);
+  CHECK_EQ(mock_service_->create_segment_calls.load(), 1);
 }
 
-TEST_F(InternalClientTest, DeleteSegmentSucceeds) {
+TEST_CASE_FIXTURE(InternalClientTest, "DeleteSegmentSucceeds") {
   // Create client
   cluster::GrpcInternalServiceClientFactory factory;
   auto client = factory.CreateClient(core::MakeNodeId(1), server_address_);
-  ASSERT_NE(client, nullptr);
+  REQUIRE_NE(client, nullptr);
 
   // Call DeleteSegment RPC
   grpc::ClientContext context;
@@ -170,19 +170,19 @@ TEST_F(InternalClientTest, DeleteSegmentSucceeds) {
 
   auto status = client->DeleteSegment(&context, request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_TRUE(response.success());
-  EXPECT_EQ(mock_service_->delete_segment_calls.load(), 1);
+  CHECK(status.ok());
+  CHECK(response.success());
+  CHECK_EQ(mock_service_->delete_segment_calls.load(), 1);
 }
 
-TEST_F(InternalClientTest, DeleteSegmentFailsWithNotFound) {
+TEST_CASE_FIXTURE(InternalClientTest, "DeleteSegmentFailsWithNotFound") {
   // Set mock to fail
   mock_service_->should_fail = true;
 
   // Create client
   cluster::GrpcInternalServiceClientFactory factory;
   auto client = factory.CreateClient(core::MakeNodeId(1), server_address_);
-  ASSERT_NE(client, nullptr);
+  REQUIRE_NE(client, nullptr);
 
   // Call DeleteSegment RPC (should fail)
   grpc::ClientContext context;
@@ -192,16 +192,16 @@ TEST_F(InternalClientTest, DeleteSegmentFailsWithNotFound) {
 
   auto status = client->DeleteSegment(&context, request, &response);
 
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
-  EXPECT_EQ(mock_service_->delete_segment_calls.load(), 1);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
+  CHECK_EQ(mock_service_->delete_segment_calls.load(), 1);
 }
 
-TEST_F(InternalClientTest, MultipleRPCCallsSucceed) {
+TEST_CASE_FIXTURE(InternalClientTest, "MultipleRPCCallsSucceed") {
   // Create client
   cluster::GrpcInternalServiceClientFactory factory;
   auto client = factory.CreateClient(core::MakeNodeId(1), server_address_);
-  ASSERT_NE(client, nullptr);
+  REQUIRE_NE(client, nullptr);
 
   // Call CreateSegment multiple times
   for (int i = 0; i < 5; ++i) {
@@ -214,41 +214,41 @@ TEST_F(InternalClientTest, MultipleRPCCallsSucceed) {
     proto::internal::CreateSegmentResponse response;
 
     auto status = client->CreateSegment(&context, request, &response);
-    EXPECT_TRUE(status.ok());
+    CHECK(status.ok());
   }
 
-  EXPECT_EQ(mock_service_->create_segment_calls.load(), 5);
+  CHECK_EQ(mock_service_->create_segment_calls.load(), 5);
 }
 
 // ============================================================================
 // NullInternalServiceClientFactory Tests
 // ============================================================================
 
-TEST_F(InternalClientTest, NullFactoryReturnsNullptr) {
+TEST_CASE_FIXTURE(InternalClientTest, "NullFactoryReturnsNullptr") {
   cluster::NullInternalServiceClientFactory factory;
 
   auto client = factory.CreateClient(core::MakeNodeId(1), server_address_);
 
-  EXPECT_EQ(client, nullptr);
+  CHECK_EQ(client, nullptr);
 }
 
-TEST_F(InternalClientTest, NullFactoryReturnsNullptrForAnyAddress) {
+TEST_CASE_FIXTURE(InternalClientTest, "NullFactoryReturnsNullptrForAnyAddress") {
   cluster::NullInternalServiceClientFactory factory;
 
   auto client1 = factory.CreateClient(core::MakeNodeId(1), "localhost:50051");
   auto client2 = factory.CreateClient(core::MakeNodeId(2), "192.168.1.1:8080");
   auto client3 = factory.CreateClient(core::MakeNodeId(3), "invalid:99999");
 
-  EXPECT_EQ(client1, nullptr);
-  EXPECT_EQ(client2, nullptr);
-  EXPECT_EQ(client3, nullptr);
+  CHECK_EQ(client1, nullptr);
+  CHECK_EQ(client2, nullptr);
+  CHECK_EQ(client3, nullptr);
 }
 
 // ============================================================================
 // Connection Handling Tests
 // ============================================================================
 
-TEST_F(InternalClientTest, ClientHandlesServerUnavailable) {
+TEST_CASE_FIXTURE(InternalClientTest, "ClientHandlesServerUnavailable") {
   // Shutdown server
   server_->Shutdown();
   server_.reset();
@@ -259,7 +259,7 @@ TEST_F(InternalClientTest, ClientHandlesServerUnavailable) {
   // Create client (should succeed - lazy connection)
   cluster::GrpcInternalServiceClientFactory factory;
   auto client = factory.CreateClient(core::MakeNodeId(1), server_address_);
-  ASSERT_NE(client, nullptr);
+  REQUIRE_NE(client, nullptr);
 
   // Call RPC (should fail with UNAVAILABLE)
   grpc::ClientContext context;
@@ -271,17 +271,17 @@ TEST_F(InternalClientTest, ClientHandlesServerUnavailable) {
 
   auto status = client->CreateSegment(&context, request, &response);
 
-  EXPECT_FALSE(status.ok());
+  CHECK_FALSE(status.ok());
   // Status code should indicate connection failure
-  EXPECT_TRUE(status.error_code() == grpc::StatusCode::UNAVAILABLE ||
-              status.error_code() == grpc::StatusCode::DEADLINE_EXCEEDED);
+  CHECK((status.error_code() == grpc::StatusCode::UNAVAILABLE ||
+              status.error_code() == grpc::StatusCode::DEADLINE_EXCEEDED));
 }
 
-TEST_F(InternalClientTest, ClientReconnectsAfterServerRestart) {
+TEST_CASE_FIXTURE(InternalClientTest, "ClientReconnectsAfterServerRestart") {
   // Create client
   cluster::GrpcInternalServiceClientFactory factory;
   auto client = factory.CreateClient(core::MakeNodeId(1), server_address_);
-  ASSERT_NE(client, nullptr);
+  REQUIRE_NE(client, nullptr);
 
   // First RPC succeeds
   {
@@ -294,7 +294,7 @@ TEST_F(InternalClientTest, ClientReconnectsAfterServerRestart) {
     proto::internal::CreateSegmentResponse response;
 
     auto status = client->CreateSegment(&context, request, &response);
-    EXPECT_TRUE(status.ok());
+    CHECK(status.ok());
   }
 
   // Shutdown server
@@ -317,7 +317,7 @@ TEST_F(InternalClientTest, ClientReconnectsAfterServerRestart) {
     proto::internal::CreateSegmentResponse response;
 
     auto status = client->CreateSegment(&context, request, &response);
-    EXPECT_TRUE(status.ok());
+    CHECK(status.ok());
   }
 }
 
@@ -325,11 +325,11 @@ TEST_F(InternalClientTest, ClientReconnectsAfterServerRestart) {
 // Concurrent Client Tests
 // ============================================================================
 
-TEST_F(InternalClientTest, ConcurrentRPCCalls) {
+TEST_CASE_FIXTURE(InternalClientTest, "ConcurrentRPCCalls") {
   // Create client
   cluster::GrpcInternalServiceClientFactory factory;
   auto client = factory.CreateClient(core::MakeNodeId(1), server_address_);
-  ASSERT_NE(client, nullptr);
+  REQUIRE_NE(client, nullptr);
 
   // Launch multiple threads making concurrent RPC calls
   std::vector<std::thread> threads;
@@ -357,20 +357,20 @@ TEST_F(InternalClientTest, ConcurrentRPCCalls) {
     t.join();
   }
 
-  EXPECT_EQ(success_count.load(), 10);
-  EXPECT_EQ(mock_service_->create_segment_calls.load(), 10);
+  CHECK_EQ(success_count.load(), 10);
+  CHECK_EQ(mock_service_->create_segment_calls.load(), 10);
 }
 
-TEST_F(InternalClientTest, MultipleClientsToSameServer) {
+TEST_CASE_FIXTURE(InternalClientTest, "MultipleClientsToSameServer") {
   // Create multiple clients
   cluster::GrpcInternalServiceClientFactory factory;
   auto client1 = factory.CreateClient(core::MakeNodeId(1), server_address_);
   auto client2 = factory.CreateClient(core::MakeNodeId(2), server_address_);
   auto client3 = factory.CreateClient(core::MakeNodeId(3), server_address_);
 
-  ASSERT_NE(client1, nullptr);
-  ASSERT_NE(client2, nullptr);
-  ASSERT_NE(client3, nullptr);
+  REQUIRE_NE(client1, nullptr);
+  REQUIRE_NE(client2, nullptr);
+  REQUIRE_NE(client3, nullptr);
 
   // All clients should be able to make RPC calls
   {
@@ -382,7 +382,7 @@ TEST_F(InternalClientTest, MultipleClientsToSameServer) {
     request.set_index_type("FLAT");
     proto::internal::CreateSegmentResponse response;
     auto status = client1->CreateSegment(&context, request, &response);
-    EXPECT_TRUE(status.ok());
+    CHECK(status.ok());
   }
 
   {
@@ -394,7 +394,7 @@ TEST_F(InternalClientTest, MultipleClientsToSameServer) {
     request.set_index_type("HNSW");
     proto::internal::CreateSegmentResponse response;
     auto status = client2->CreateSegment(&context, request, &response);
-    EXPECT_TRUE(status.ok());
+    CHECK(status.ok());
   }
 
   {
@@ -403,9 +403,9 @@ TEST_F(InternalClientTest, MultipleClientsToSameServer) {
     request.set_segment_id(12345);
     proto::internal::DeleteSegmentResponse response;
     auto status = client3->DeleteSegment(&context, request, &response);
-    EXPECT_TRUE(status.ok());
+    CHECK(status.ok());
   }
 
-  EXPECT_EQ(mock_service_->create_segment_calls.load(), 2);
-  EXPECT_EQ(mock_service_->delete_segment_calls.load(), 1);
+  CHECK_EQ(mock_service_->create_segment_calls.load(), 2);
+  CHECK_EQ(mock_service_->delete_segment_calls.load(), 1);
 }

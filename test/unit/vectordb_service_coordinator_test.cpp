@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <filesystem>
 
 #include "network/vectordb_service.h"
@@ -17,9 +17,8 @@ using namespace gvdb;
 // Test Fixture for COORDINATOR Mode
 // ============================================================================
 
-class VectorDBServiceCoordinatorTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+struct VectorDBServiceCoordinatorTest {
+  VectorDBServiceCoordinatorTest() {
     // Create test directories
     test_dir_ = "/tmp/gvdb_vectordb_coordinator_test";
     raft_dir_ = test_dir_ + "/raft";
@@ -63,7 +62,7 @@ class VectorDBServiceCoordinatorTest : public ::testing::Test {
         segment_manager_, query_executor_, std::move(resolver));
   }
 
-  void TearDown() override {
+  ~VectorDBServiceCoordinatorTest() {
     service_.reset();
     coordinator_.reset();
     node_registry_.reset();
@@ -90,34 +89,34 @@ class VectorDBServiceCoordinatorTest : public ::testing::Test {
 // Basic Functionality Tests
 // ============================================================================
 
-TEST_F(VectorDBServiceCoordinatorTest, HealthCheck) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "HealthCheck") {
   grpc::ServerContext context;
   proto::HealthCheckRequest request;
   proto::HealthCheckResponse response;
 
   auto status = service_->HealthCheck(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.status(), proto::HealthCheckResponse::SERVING);
+  CHECK(status.ok());
+  CHECK_EQ(response.status(), proto::HealthCheckResponse::SERVING);
 }
 
-TEST_F(VectorDBServiceCoordinatorTest, GetStatsEmpty) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "GetStatsEmpty") {
   grpc::ServerContext context;
   proto::GetStatsRequest request;
   proto::GetStatsResponse response;
 
   auto status = service_->GetStats(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.total_collections(), 0);
-  EXPECT_EQ(response.total_vectors(), 0);
+  CHECK(status.ok());
+  CHECK_EQ(response.total_collections(), 0);
+  CHECK_EQ(response.total_vectors(), 0);
 }
 
 // ============================================================================
 // Collection Management Tests
 // ============================================================================
 
-TEST_F(VectorDBServiceCoordinatorTest, CreateCollection) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "CreateCollection") {
   grpc::ServerContext context;
   proto::CreateCollectionRequest request;
   request.set_collection_name("test_collection");
@@ -131,17 +130,17 @@ TEST_F(VectorDBServiceCoordinatorTest, CreateCollection) {
   if (!status.ok()) {
     std::cerr << "CreateCollection failed: " << status.error_message() << std::endl;
   }
-  EXPECT_TRUE(status.ok()) << "Error: " << status.error_message();
-  EXPECT_GT(response.collection_id(), 0);
+  INFO("Error: ", status.error_message()); CHECK(status.ok());
+  CHECK_GT(response.collection_id(), 0);
 
   // Verify collection exists in coordinator
   auto collections = coordinator_->ListCollections();
-  EXPECT_EQ(collections.size(), 1);
-  EXPECT_EQ(collections[0].collection_name, "test_collection");
-  EXPECT_EQ(collections[0].dimension, 128);
+  CHECK_EQ(collections.size(), 1);
+  CHECK_EQ(collections[0].collection_name, "test_collection");
+  CHECK_EQ(collections[0].dimension, 128);
 }
 
-TEST_F(VectorDBServiceCoordinatorTest, CreateDuplicateCollection) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "CreateDuplicateCollection") {
   // Create first collection
   {
     grpc::ServerContext context;
@@ -153,7 +152,7 @@ TEST_F(VectorDBServiceCoordinatorTest, CreateDuplicateCollection) {
     proto::CreateCollectionResponse response;
 
     auto status = service_->CreateCollection(&context, &request, &response);
-    EXPECT_TRUE(status.ok());
+    CHECK(status.ok());
   }
 
   // Try to create duplicate
@@ -168,12 +167,12 @@ TEST_F(VectorDBServiceCoordinatorTest, CreateDuplicateCollection) {
 
     auto status = service_->CreateCollection(&context, &request, &response);
 
-    EXPECT_FALSE(status.ok());
-    EXPECT_EQ(status.error_code(), grpc::StatusCode::ALREADY_EXISTS);
+    CHECK_FALSE(status.ok());
+    CHECK_EQ(status.error_code(), grpc::StatusCode::ALREADY_EXISTS);
   }
 }
 
-TEST_F(VectorDBServiceCoordinatorTest, ListCollections) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "ListCollections") {
   // Create two collections
   {
     grpc::ServerContext context;
@@ -204,19 +203,19 @@ TEST_F(VectorDBServiceCoordinatorTest, ListCollections) {
 
   auto status = service_->ListCollections(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.collections_size(), 2);
+  CHECK(status.ok());
+  CHECK_EQ(response.collections_size(), 2);
 
   // Verify collection names
   std::set<std::string> names;
   for (const auto& col : response.collections()) {
     names.insert(col.collection_name());
   }
-  EXPECT_TRUE(names.count("collection_1") > 0);
-  EXPECT_TRUE(names.count("collection_2") > 0);
+  CHECK(names.count("collection_1") > 0);
+  CHECK(names.count("collection_2") > 0);
 }
 
-TEST_F(VectorDBServiceCoordinatorTest, DropCollection) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "DropCollection") {
   // Create collection
   {
     grpc::ServerContext context;
@@ -238,16 +237,16 @@ TEST_F(VectorDBServiceCoordinatorTest, DropCollection) {
 
     auto status = service_->DropCollection(&context, &request, &response);
 
-    EXPECT_TRUE(status.ok());
-    EXPECT_FALSE(response.message().empty());
+    CHECK(status.ok());
+    CHECK_FALSE(response.message().empty());
   }
 
   // Verify collection no longer exists
   auto collections = coordinator_->ListCollections();
-  EXPECT_EQ(collections.size(), 0);
+  CHECK_EQ(collections.size(), 0);
 }
 
-TEST_F(VectorDBServiceCoordinatorTest, DropNonexistentCollection) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "DropNonexistentCollection") {
   grpc::ServerContext context;
   proto::DropCollectionRequest request;
   request.set_collection_name("nonexistent_collection");
@@ -255,15 +254,15 @@ TEST_F(VectorDBServiceCoordinatorTest, DropNonexistentCollection) {
 
   auto status = service_->DropCollection(&context, &request, &response);
 
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
 }
 
 // ============================================================================
 // Vector Operations Tests
 // ============================================================================
 
-TEST_F(VectorDBServiceCoordinatorTest, InsertAndSearch) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "InsertAndSearch") {
   // Create collection (metadata operation - works on coordinator)
   grpc::ServerContext create_context;
   proto::CreateCollectionRequest create_request;
@@ -273,7 +272,7 @@ TEST_F(VectorDBServiceCoordinatorTest, InsertAndSearch) {
   create_request.set_index_type(proto::CreateCollectionRequest::FLAT);
   proto::CreateCollectionResponse create_response;
   auto create_status = service_->CreateCollection(&create_context, &create_request, &create_response);
-  ASSERT_TRUE(create_status.ok());
+  REQUIRE(create_status.ok());
 
   // Attempt to insert vectors (should fail - coordinators don't handle data operations)
   grpc::ServerContext insert_context;
@@ -293,8 +292,8 @@ TEST_F(VectorDBServiceCoordinatorTest, InsertAndSearch) {
   auto insert_status = service_->Insert(&insert_context, &insert_request, &insert_response);
 
   // Coordinator nodes reject vector operations - they should be sent to data nodes
-  EXPECT_FALSE(insert_status.ok());
-  EXPECT_EQ(insert_status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
+  CHECK_FALSE(insert_status.ok());
+  CHECK_EQ(insert_status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
 
   // Skip search test since we can't insert vectors on coordinator
   return;
@@ -313,17 +312,17 @@ TEST_F(VectorDBServiceCoordinatorTest, InsertAndSearch) {
 
   auto search_status = service_->Search(&search_context, &search_request, &search_response);
 
-  EXPECT_TRUE(search_status.ok());
-  EXPECT_GT(search_response.results().size(), 0);
-  EXPECT_LE(search_response.results().size(), 3);
+  CHECK(search_status.ok());
+  CHECK_GT(search_response.results().size(), 0);
+  CHECK_LE(search_response.results().size(), 3);
 
   // First result should be vector ID 6 (closest to 5.0)
   if (search_response.results().size() > 0) {
-    EXPECT_EQ(search_response.results(0).id(), 6);
+    CHECK_EQ(search_response.results(0).id(), 6);
   }
 }
 
-TEST_F(VectorDBServiceCoordinatorTest, GetVectors) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "GetVectors") {
   // Create collection (metadata operation - works on coordinator)
   {
     grpc::ServerContext context;
@@ -348,11 +347,11 @@ TEST_F(VectorDBServiceCoordinatorTest, GetVectors) {
   auto status = service_->Get(&context, &request, &response);
 
   // Coordinator nodes reject vector operations
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
 }
 
-TEST_F(VectorDBServiceCoordinatorTest, DeleteVectors) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "DeleteVectors") {
   // Create collection and insert vectors
   {
     grpc::ServerContext context;
@@ -392,15 +391,15 @@ TEST_F(VectorDBServiceCoordinatorTest, DeleteVectors) {
   auto status = service_->Delete(&context, &request, &response);
 
   // Coordinator nodes reject vector operations
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
 }
 
 // ============================================================================
 // Error Handling Tests
 // ============================================================================
 
-TEST_F(VectorDBServiceCoordinatorTest, InsertToNonexistentCollection) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "InsertToNonexistentCollection") {
   grpc::ServerContext context;
   proto::InsertRequest request;
   request.set_collection_name("nonexistent_collection");
@@ -412,11 +411,11 @@ TEST_F(VectorDBServiceCoordinatorTest, InsertToNonexistentCollection) {
   auto status = service_->Insert(&context, &request, &response);
 
   // Coordinator nodes reject all vector operations (regardless of collection existence)
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
 }
 
-TEST_F(VectorDBServiceCoordinatorTest, SearchNonexistentCollection) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "SearchNonexistentCollection") {
   grpc::ServerContext context;
   proto::SearchRequest request;
   request.set_collection_name("nonexistent_collection");
@@ -430,11 +429,11 @@ TEST_F(VectorDBServiceCoordinatorTest, SearchNonexistentCollection) {
 
   auto status = service_->Search(&context, &request, &response);
 
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
 }
 
-TEST_F(VectorDBServiceCoordinatorTest, CreateCollectionWithInvalidDimension) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "CreateCollectionWithInvalidDimension") {
   grpc::ServerContext context;
   proto::CreateCollectionRequest request;
   request.set_collection_name("test_collection");
@@ -445,11 +444,11 @@ TEST_F(VectorDBServiceCoordinatorTest, CreateCollectionWithInvalidDimension) {
 
   auto status = service_->CreateCollection(&context, &request, &response);
 
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
 }
 
-TEST_F(VectorDBServiceCoordinatorTest, InsertWithDimensionMismatch) {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "InsertWithDimensionMismatch") {
   // Create collection with dimension 128 (metadata operation - works on coordinator)
   {
     grpc::ServerContext context;
@@ -477,6 +476,6 @@ TEST_F(VectorDBServiceCoordinatorTest, InsertWithDimensionMismatch) {
   auto status = service_->Insert(&context, &request, &response);
 
   // Coordinator nodes reject all vector operations before validation
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
 }

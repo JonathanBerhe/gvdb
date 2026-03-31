@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <filesystem>
 #include <thread>
@@ -65,9 +65,8 @@ class MockCoordinatorInternalService : public proto::internal::InternalService::
 // Test Fixture for DISTRIBUTED Mode
 // ============================================================================
 
-class VectorDBServiceDistributedTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+struct VectorDBServiceDistributedTest {
+  VectorDBServiceDistributedTest() {
     // Create test directory
     test_dir_ = "/tmp/gvdb_vectordb_distributed_test";
     std::filesystem::create_directories(test_dir_);
@@ -92,7 +91,7 @@ class VectorDBServiceDistributedTest : public ::testing::Test {
         segment_manager_, query_executor_, std::move(resolver));
   }
 
-  void TearDown() override {
+  ~VectorDBServiceDistributedTest() {
     // CRITICAL: Destroy service BEFORE shutting down server
     // VectorDBService may have pending RPC calls to coordinator
     service_.reset();
@@ -140,40 +139,40 @@ class VectorDBServiceDistributedTest : public ::testing::Test {
 // Basic Functionality Tests
 // ============================================================================
 
-TEST_F(VectorDBServiceDistributedTest, HealthCheck) {
+TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "HealthCheck") {
   grpc::ServerContext context;
   proto::HealthCheckRequest request;
   proto::HealthCheckResponse response;
 
   auto status = service_->HealthCheck(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.status(), proto::HealthCheckResponse::SERVING);
+  CHECK(status.ok());
+  CHECK_EQ(response.status(), proto::HealthCheckResponse::SERVING);
 }
 
-TEST_F(VectorDBServiceDistributedTest, GetStatsEmpty) {
+TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "GetStatsEmpty") {
   grpc::ServerContext context;
   proto::GetStatsRequest request;
   proto::GetStatsResponse response;
 
   auto status = service_->GetStats(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.total_collections(), 0);
-  EXPECT_EQ(response.total_vectors(), 0);
+  CHECK(status.ok());
+  CHECK_EQ(response.total_collections(), 0);
+  CHECK_EQ(response.total_vectors(), 0);
 }
 
 // ============================================================================
 // Metadata Pull-on-Miss Tests
 // ============================================================================
 
-TEST_F(VectorDBServiceDistributedTest, SearchPullsMetadataFromCoordinator) {
+TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "SearchPullsMetadataFromCoordinator") {
   // Insert vectors first (requires collection to exist in segment manager)
   // Segment ID uses ShardSegmentId scheme: collection_id * 1000 + shard_index
   auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
   auto create_status = segment_manager_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
-  ASSERT_TRUE(create_status.ok());
+  REQUIRE(create_status.ok());
 
   // Add some test vectors
   std::vector<core::Vector> vectors;
@@ -187,9 +186,9 @@ TEST_F(VectorDBServiceDistributedTest, SearchPullsMetadataFromCoordinator) {
   }
 
   auto* segment = segment_manager_->GetSegment(segment_id);
-  ASSERT_NE(segment, nullptr);
+  REQUIRE_NE(segment, nullptr);
   auto add_status = segment->AddVectors(vectors, ids);
-  ASSERT_TRUE(add_status.ok());
+  REQUIRE(add_status.ok());
 
   // Build index and seal segment
   core::IndexConfig index_config;
@@ -197,9 +196,9 @@ TEST_F(VectorDBServiceDistributedTest, SearchPullsMetadataFromCoordinator) {
   index_config.dimension = 128;
   index_config.metric_type = core::MetricType::L2;
   auto index_result = index_factory_->CreateIndex(index_config);
-  ASSERT_TRUE(index_result.ok());
+  REQUIRE(index_result.ok());
   auto seal_status = segment->Seal(index_result.value().release());
-  ASSERT_TRUE(seal_status.ok());
+  REQUIRE(seal_status.ok());
 
   // Now search - this should trigger metadata pull from coordinator
   grpc::ServerContext context;
@@ -215,19 +214,19 @@ TEST_F(VectorDBServiceDistributedTest, SearchPullsMetadataFromCoordinator) {
 
   auto status = service_->Search(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_GT(response.results().size(), 0);
+  CHECK(status.ok());
+  CHECK_GT(response.results().size(), 0);
 
   // Verify coordinator was called for metadata
-  EXPECT_GE(mock_coordinator_->get_collection_metadata_calls.load(), 1);
+  CHECK_GE(mock_coordinator_->get_collection_metadata_calls.load(), 1);
 }
 
-TEST_F(VectorDBServiceDistributedTest, MetadataCacheReusedOnSecondSearch) {
+TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "MetadataCacheReusedOnSecondSearch") {
   // Set up collection and vectors
   auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
   auto create_status = segment_manager_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
-  ASSERT_TRUE(create_status.ok());
+  REQUIRE(create_status.ok());
 
   std::vector<core::Vector> vectors;
   for (int i = 0; i < 10; ++i) {
@@ -240,9 +239,9 @@ TEST_F(VectorDBServiceDistributedTest, MetadataCacheReusedOnSecondSearch) {
   }
 
   auto* segment = segment_manager_->GetSegment(segment_id);
-  ASSERT_NE(segment, nullptr);
+  REQUIRE_NE(segment, nullptr);
   auto add_status = segment->AddVectors(vectors, ids);
-  ASSERT_TRUE(add_status.ok());
+  REQUIRE(add_status.ok());
 
   // Build index and seal segment
   core::IndexConfig index_config;
@@ -250,9 +249,9 @@ TEST_F(VectorDBServiceDistributedTest, MetadataCacheReusedOnSecondSearch) {
   index_config.dimension = 128;
   index_config.metric_type = core::MetricType::L2;
   auto index_result = index_factory_->CreateIndex(index_config);
-  ASSERT_TRUE(index_result.ok());
+  REQUIRE(index_result.ok());
   auto seal_status = segment->Seal(index_result.value().release());
-  ASSERT_TRUE(seal_status.ok());
+  REQUIRE(seal_status.ok());
 
   // First search - pulls metadata
   {
@@ -268,7 +267,7 @@ TEST_F(VectorDBServiceDistributedTest, MetadataCacheReusedOnSecondSearch) {
     proto::SearchResponse response;
 
     auto status = service_->Search(&context, &request, &response);
-    EXPECT_TRUE(status.ok());
+    CHECK(status.ok());
   }
 
   int calls_after_first_search = mock_coordinator_->get_collection_metadata_calls.load();
@@ -287,16 +286,16 @@ TEST_F(VectorDBServiceDistributedTest, MetadataCacheReusedOnSecondSearch) {
     proto::SearchResponse response;
 
     auto status = service_->Search(&context, &request, &response);
-    EXPECT_TRUE(status.ok());
+    CHECK(status.ok());
   }
 
   int calls_after_second_search = mock_coordinator_->get_collection_metadata_calls.load();
 
   // Metadata should be cached - coordinator calls should not increase
-  EXPECT_EQ(calls_after_first_search, calls_after_second_search);
+  CHECK_EQ(calls_after_first_search, calls_after_second_search);
 }
 
-TEST_F(VectorDBServiceDistributedTest, SearchNonexistentCollectionFailsGracefully) {
+TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "SearchNonexistentCollectionFailsGracefully") {
   mock_coordinator_->should_fail = true;
 
   grpc::ServerContext context;
@@ -312,21 +311,21 @@ TEST_F(VectorDBServiceDistributedTest, SearchNonexistentCollectionFailsGracefull
 
   auto status = service_->Search(&context, &request, &response);
 
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
-  EXPECT_GE(mock_coordinator_->get_collection_metadata_calls.load(), 1);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
+  CHECK_GE(mock_coordinator_->get_collection_metadata_calls.load(), 1);
 }
 
 // ============================================================================
 // Vector Operations Tests
 // ============================================================================
 
-TEST_F(VectorDBServiceDistributedTest, InsertVectors) {
+TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "InsertVectors") {
   // Create segment for collection
   auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
   auto create_status = segment_manager_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
-  ASSERT_TRUE(create_status.ok());
+  REQUIRE(create_status.ok());
 
   grpc::ServerContext context;
   proto::InsertRequest request;
@@ -346,19 +345,19 @@ TEST_F(VectorDBServiceDistributedTest, InsertVectors) {
 
   auto status = service_->Insert(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.inserted_count(), 5);
+  CHECK(status.ok());
+  CHECK_EQ(response.inserted_count(), 5);
 
   // Verify metadata was pulled from coordinator
-  EXPECT_GE(mock_coordinator_->get_collection_metadata_calls.load(), 1);
+  CHECK_GE(mock_coordinator_->get_collection_metadata_calls.load(), 1);
 }
 
-TEST_F(VectorDBServiceDistributedTest, GetVectors) {
+TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "GetVectors") {
   // Create segment and add vectors
   auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
   auto create_status = segment_manager_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
-  ASSERT_TRUE(create_status.ok());
+  REQUIRE(create_status.ok());
 
   std::vector<core::Vector> vectors;
   for (int i = 0; i < 5; ++i) {
@@ -371,7 +370,7 @@ TEST_F(VectorDBServiceDistributedTest, GetVectors) {
   }
 
   auto* segment = segment_manager_->GetSegment(segment_id);
-  ASSERT_NE(segment, nullptr);
+  REQUIRE_NE(segment, nullptr);
   segment->AddVectors(vectors, ids);
 
   grpc::ServerContext context;
@@ -384,19 +383,19 @@ TEST_F(VectorDBServiceDistributedTest, GetVectors) {
 
   auto status = service_->Get(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_EQ(response.vectors_size(), 3);
+  CHECK(status.ok());
+  CHECK_EQ(response.vectors_size(), 3);
 
   // Verify metadata was pulled
-  EXPECT_GE(mock_coordinator_->get_collection_metadata_calls.load(), 1);
+  CHECK_GE(mock_coordinator_->get_collection_metadata_calls.load(), 1);
 }
 
-TEST_F(VectorDBServiceDistributedTest, DeleteVectors) {
+TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "DeleteVectors") {
   // Create segment and add vectors
   auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
   auto create_status = segment_manager_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
-  ASSERT_TRUE(create_status.ok());
+  REQUIRE(create_status.ok());
 
   std::vector<core::Vector> vectors;
   for (int i = 0; i < 5; ++i) {
@@ -409,7 +408,7 @@ TEST_F(VectorDBServiceDistributedTest, DeleteVectors) {
   }
 
   auto* segment = segment_manager_->GetSegment(segment_id);
-  ASSERT_NE(segment, nullptr);
+  REQUIRE_NE(segment, nullptr);
   segment->AddVectors(vectors, ids);
 
   grpc::ServerContext context;
@@ -421,18 +420,18 @@ TEST_F(VectorDBServiceDistributedTest, DeleteVectors) {
 
   auto status = service_->Delete(&context, &request, &response);
 
-  EXPECT_TRUE(status.ok());
-  EXPECT_GE(response.deleted_count(), 0);
+  CHECK(status.ok());
+  CHECK_GE(response.deleted_count(), 0);
 
   // Verify metadata was pulled
-  EXPECT_GE(mock_coordinator_->get_collection_metadata_calls.load(), 1);
+  CHECK_GE(mock_coordinator_->get_collection_metadata_calls.load(), 1);
 }
 
 // ============================================================================
 // Error Handling Tests
 // ============================================================================
 
-TEST_F(VectorDBServiceDistributedTest, CoordinatorUnavailableDuringSearch) {
+TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "CoordinatorUnavailableDuringSearch") {
   // Shutdown coordinator
   coordinator_server_->Shutdown();
   coordinator_server_.reset();
@@ -454,10 +453,10 @@ TEST_F(VectorDBServiceDistributedTest, CoordinatorUnavailableDuringSearch) {
   auto status = service_->Search(&context, &request, &response);
 
   // Should fail because coordinator is unavailable
-  EXPECT_FALSE(status.ok());
+  CHECK_FALSE(status.ok());
 }
 
-TEST_F(VectorDBServiceDistributedTest, InsertWithEmptyVectorList) {
+TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "InsertWithEmptyVectorList") {
   grpc::ServerContext context;
   proto::InsertRequest request;
   request.set_collection_name("test_collection");
@@ -466,16 +465,16 @@ TEST_F(VectorDBServiceDistributedTest, InsertWithEmptyVectorList) {
 
   auto status = service_->Insert(&context, &request, &response);
 
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
 }
 
-TEST_F(VectorDBServiceDistributedTest, SearchWithInvalidDimension) {
+TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "SearchWithInvalidDimension") {
   // Create segment with dimension 128
   auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
   auto create_status = segment_manager_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
-  ASSERT_TRUE(create_status.ok());
+  REQUIRE(create_status.ok());
 
   grpc::ServerContext context;
   proto::SearchRequest request;
@@ -490,5 +489,5 @@ TEST_F(VectorDBServiceDistributedTest, SearchWithInvalidDimension) {
 
   auto status = service_->Search(&context, &request, &response);
 
-  EXPECT_FALSE(status.ok());
+  CHECK_FALSE(status.ok());
 }

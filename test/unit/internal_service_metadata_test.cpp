@@ -3,7 +3,7 @@
 #include "cluster/shard_manager.h"
 #include "cluster/node_registry.h"
 #include "internal.grpc.pb.h"
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <chrono>
 
@@ -11,9 +11,9 @@ using namespace gvdb;
 using namespace gvdb::network;
 using namespace gvdb::cluster;
 
-class InternalServiceMetadataTest : public ::testing::Test {
- protected:
-  void SetUp() override {
+class InternalServiceMetadataTest {
+ public:
+  InternalServiceMetadataTest() {
     // Create dependencies
     shard_manager_ = std::make_shared<ShardManager>(8, ShardingStrategy::HASH);
     node_registry_ = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
@@ -48,11 +48,11 @@ class InternalServiceMetadataTest : public ::testing::Test {
 };
 
 // Test getting collection metadata by name
-TEST_F(InternalServiceMetadataTest, GetCollectionMetadataByName) {
+TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetCollectionMetadataByName") {
   // Create a collection in the coordinator
   auto collection_id = coordinator_->CreateCollection(
       "test_collection", 128, core::MetricType::L2, core::IndexType::HNSW, 1);
-  ASSERT_TRUE(collection_id.ok());
+  REQUIRE(collection_id.ok());
 
   // Query metadata via InternalService
   grpc::ServerContext context;
@@ -63,21 +63,21 @@ TEST_F(InternalServiceMetadataTest, GetCollectionMetadataByName) {
   auto status = internal_service_->GetCollectionMetadata(&context, &request, &response);
 
   // Verify success
-  EXPECT_TRUE(status.ok());
-  EXPECT_TRUE(response.found());
-  EXPECT_EQ(response.metadata().collection_name(), "test_collection");
-  EXPECT_EQ(response.metadata().dimension(), 128);
-  EXPECT_EQ(response.metadata().metric_type(), "L2");
-  EXPECT_EQ(response.metadata().index_type(), "HNSW");
-  EXPECT_EQ(response.metadata().collection_id(), core::ToUInt32(collection_id.value()));
+  CHECK(status.ok());
+  CHECK(response.found());
+  CHECK_EQ(response.metadata().collection_name(), "test_collection");
+  CHECK_EQ(response.metadata().dimension(), 128);
+  CHECK_EQ(response.metadata().metric_type(), "L2");
+  CHECK_EQ(response.metadata().index_type(), "HNSW");
+  CHECK_EQ(response.metadata().collection_id(), core::ToUInt32(collection_id.value()));
 }
 
 // Test getting collection metadata by ID
-TEST_F(InternalServiceMetadataTest, GetCollectionMetadataById) {
+TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetCollectionMetadataById") {
   // Create a collection in the coordinator
   auto collection_id = coordinator_->CreateCollection(
       "test_collection2", 256, core::MetricType::INNER_PRODUCT, core::IndexType::IVF_FLAT, 1);
-  ASSERT_TRUE(collection_id.ok());
+  REQUIRE(collection_id.ok());
 
   // Query metadata by ID via InternalService
   grpc::ServerContext context;
@@ -88,16 +88,16 @@ TEST_F(InternalServiceMetadataTest, GetCollectionMetadataById) {
   auto status = internal_service_->GetCollectionMetadata(&context, &request, &response);
 
   // Verify success
-  EXPECT_TRUE(status.ok());
-  EXPECT_TRUE(response.found());
-  EXPECT_EQ(response.metadata().collection_name(), "test_collection2");
-  EXPECT_EQ(response.metadata().dimension(), 256);
-  EXPECT_EQ(response.metadata().metric_type(), "INNER_PRODUCT");
-  EXPECT_EQ(response.metadata().index_type(), "IVF_FLAT");
+  CHECK(status.ok());
+  CHECK(response.found());
+  CHECK_EQ(response.metadata().collection_name(), "test_collection2");
+  CHECK_EQ(response.metadata().dimension(), 256);
+  CHECK_EQ(response.metadata().metric_type(), "INNER_PRODUCT");
+  CHECK_EQ(response.metadata().index_type(), "IVF_FLAT");
 }
 
 // Test getting non-existent collection by name
-TEST_F(InternalServiceMetadataTest, GetNonExistentCollectionByName) {
+TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetNonExistentCollectionByName") {
   grpc::ServerContext context;
   proto::internal::GetCollectionMetadataRequest request;
   request.set_collection_name("nonexistent");
@@ -106,12 +106,12 @@ TEST_F(InternalServiceMetadataTest, GetNonExistentCollectionByName) {
   auto status = internal_service_->GetCollectionMetadata(&context, &request, &response);
 
   // Should succeed but not found
-  EXPECT_TRUE(status.ok());
-  EXPECT_FALSE(response.found());
+  CHECK(status.ok());
+  CHECK_FALSE(response.found());
 }
 
 // Test getting non-existent collection by ID
-TEST_F(InternalServiceMetadataTest, GetNonExistentCollectionById) {
+TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetNonExistentCollectionById") {
   grpc::ServerContext context;
   proto::internal::GetCollectionMetadataRequest request;
   request.set_collection_id(999999);
@@ -120,12 +120,12 @@ TEST_F(InternalServiceMetadataTest, GetNonExistentCollectionById) {
   auto status = internal_service_->GetCollectionMetadata(&context, &request, &response);
 
   // Should succeed but not found
-  EXPECT_TRUE(status.ok());
-  EXPECT_FALSE(response.found());
+  CHECK(status.ok());
+  CHECK_FALSE(response.found());
 }
 
 // Test with no coordinator
-TEST_F(InternalServiceMetadataTest, GetMetadataWithoutCoordinator) {
+TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetMetadataWithoutCoordinator") {
   // Create InternalService without coordinator
   auto service_without_coordinator = std::make_unique<InternalService>(
       shard_manager_, segment_manager_, query_executor_,
@@ -139,12 +139,12 @@ TEST_F(InternalServiceMetadataTest, GetMetadataWithoutCoordinator) {
   auto status = service_without_coordinator->GetCollectionMetadata(&context, &request, &response);
 
   // Should succeed but not found
-  EXPECT_TRUE(status.ok());
-  EXPECT_FALSE(response.found());
+  CHECK(status.ok());
+  CHECK_FALSE(response.found());
 }
 
 // Test with different metric types
-TEST_F(InternalServiceMetadataTest, DifferentMetricTypes) {
+TEST_CASE_FIXTURE(InternalServiceMetadataTest, "DifferentMetricTypes") {
   struct TestCase {
     std::string name;
     core::MetricType metric_type;
@@ -160,7 +160,7 @@ TEST_F(InternalServiceMetadataTest, DifferentMetricTypes) {
   for (const auto& tc : test_cases) {
     auto collection_id = coordinator_->CreateCollection(
         tc.name, 128, tc.metric_type, core::IndexType::FLAT, 1);
-    ASSERT_TRUE(collection_id.ok());
+    REQUIRE(collection_id.ok());
 
     grpc::ServerContext context;
     proto::internal::GetCollectionMetadataRequest request;
@@ -169,14 +169,14 @@ TEST_F(InternalServiceMetadataTest, DifferentMetricTypes) {
 
     auto status = internal_service_->GetCollectionMetadata(&context, &request, &response);
 
-    EXPECT_TRUE(status.ok());
-    EXPECT_TRUE(response.found());
-    EXPECT_EQ(response.metadata().metric_type(), tc.expected_metric_str);
+    CHECK(status.ok());
+    CHECK(response.found());
+    CHECK_EQ(response.metadata().metric_type(), tc.expected_metric_str);
   }
 }
 
 // Test with different index types
-TEST_F(InternalServiceMetadataTest, DifferentIndexTypes) {
+TEST_CASE_FIXTURE(InternalServiceMetadataTest, "DifferentIndexTypes") {
   struct TestCase {
     std::string name;
     core::IndexType index_type;
@@ -194,7 +194,7 @@ TEST_F(InternalServiceMetadataTest, DifferentIndexTypes) {
   for (const auto& tc : test_cases) {
     auto collection_id = coordinator_->CreateCollection(
         tc.name, 128, core::MetricType::L2, tc.index_type, 1);
-    ASSERT_TRUE(collection_id.ok());
+    REQUIRE(collection_id.ok());
 
     grpc::ServerContext context;
     proto::internal::GetCollectionMetadataRequest request;
@@ -203,14 +203,14 @@ TEST_F(InternalServiceMetadataTest, DifferentIndexTypes) {
 
     auto status = internal_service_->GetCollectionMetadata(&context, &request, &response);
 
-    EXPECT_TRUE(status.ok());
-    EXPECT_TRUE(response.found());
-    EXPECT_EQ(response.metadata().index_type(), tc.expected_index_str);
+    CHECK(status.ok());
+    CHECK(response.found());
+    CHECK_EQ(response.metadata().index_type(), tc.expected_index_str);
   }
 }
 
 // Test invalid request (no collection_id or collection_name)
-TEST_F(InternalServiceMetadataTest, InvalidRequest) {
+TEST_CASE_FIXTURE(InternalServiceMetadataTest, "InvalidRequest") {
   grpc::ServerContext context;
   proto::internal::GetCollectionMetadataRequest request;
   // Don't set collection_id or collection_name
@@ -219,6 +219,6 @@ TEST_F(InternalServiceMetadataTest, InvalidRequest) {
   auto status = internal_service_->GetCollectionMetadata(&context, &request, &response);
 
   // Should return error
-  EXPECT_FALSE(status.ok());
-  EXPECT_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
 }
