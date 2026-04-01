@@ -8,6 +8,7 @@
 
 #include "network/proxy_service.h"
 #include "utils/server_bootstrap.h"
+#include "utils/env_flags.h"
 
 struct ProxyArgs {
   int node_id = 1;
@@ -79,6 +80,10 @@ int main(int argc, char** argv) {
   if (!ParseArgs(argc, argv, args)) return 1;
 
   using namespace gvdb;
+
+  // Env vars override CLI flags
+  args.bind_address = utils::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
+  args.data_dir = utils::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
   utils::ServerBootstrap::InstallSignalHandlers();
 
   auto log_status = utils::ServerBootstrap::InitializeLogger(

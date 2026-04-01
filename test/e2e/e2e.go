@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"os"
 	"time"
 
 	pb "gvdb/integration-tests/pb"
@@ -21,20 +20,13 @@ const (
 	timeout         = 30 * time.Second
 )
 
-func getServerAddr() string {
-	if addr := os.Getenv("GVDB_SERVER_ADDR"); addr != "" {
-		return addr
-	}
-	return "localhost:50051" // Default to coordinator for single-node mode
-}
-
 type E2ETest struct {
 	conn   *grpc.ClientConn
 	client pb.VectorDBServiceClient
 }
 
 func NewE2ETest() (*E2ETest, error) {
-	serverAddr := getServerAddr()
+	serverAddr := GetServerAddr()
 	fmt.Printf("\nStep 1: Connecting to server...\n")
 	fmt.Printf("   Server address: %s\n", serverAddr)
 	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -71,6 +63,17 @@ func (t *E2ETest) healthCheck() error {
 	return nil
 }
 
+func (t *E2ETest) cleanupStale() error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Drop collection if it exists from a previous failed run
+	t.client.DropCollection(ctx, &pb.DropCollectionRequest{
+		CollectionName: collectionName,
+	})
+	return nil
+}
+
 func (t *E2ETest) createCollection() error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -98,7 +101,7 @@ func (t *E2ETest) insertVectors() error {
 	// Generate random vectors
 	vectors := make([]*pb.VectorWithId, numVectors)
 	for i := 0; i < numVectors; i++ {
-		vec := generateRandomVector(dimension)
+		vec := GenerateRandomVector(dimension)
 		vectors[i] = &pb.VectorWithId{
 			Id:     uint64(i + 1),
 			Vector: vec,
@@ -123,7 +126,7 @@ func (t *E2ETest) search() error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	query := generateRandomVector(dimension)
+	query := GenerateRandomVector(dimension)
 	req := &pb.SearchRequest{
 		CollectionName: collectionName,
 		QueryVector:    query,
@@ -398,25 +401,6 @@ func (t *E2ETest) dropCollection() error {
 	return nil
 }
 
-func generateRandomVector(dim uint32) *pb.Vector {
-	values := make([]float32, dim)
-	var sum float32
-	for i := range values {
-		values[i] = rand.Float32()*2 - 1 // Range [-1, 1]
-		sum += values[i] * values[i]
-	}
-
-	// Normalize
-	norm := float32(1.0 / (sum + 1e-10))
-	for i := range values {
-		values[i] *= norm
-	}
-
-	return &pb.Vector{
-		Values:    values,
-		Dimension: dim,
-	}
-}
 
 func RunE2ETest() bool {
 	fmt.Println("======================================================================")
@@ -440,6 +424,7 @@ func RunE2ETest() bool {
 	}{
 		{"Connecting to server", func() error { return nil }}, // Already connected
 		{"Health check", test.healthCheck},
+		{"Cleaning up stale data", test.cleanupStale},
 		{"Creating collection", test.createCollection},
 		{"Inserting vectors", test.insertVectors},
 		{"Searching for similar vectors", test.search},
@@ -451,7 +436,7 @@ func RunE2ETest() bool {
 		{"Running multiple searches", func() error {
 			searchTimes := []float32{}
 			for i := 0; i < 5; i++ {
-				query := generateRandomVector(dimension)
+				query := GenerateRandomVector(dimension)
 				req := &pb.SearchRequest{
 					CollectionName: collectionName,
 					QueryVector:    query,

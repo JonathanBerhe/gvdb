@@ -4,6 +4,7 @@
 #pragma once
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -87,19 +88,25 @@ class ProxyService final : public proto::VectorDBService::Service {
   // gRPC clients (lazy initialized)
   std::mutex clients_mutex_;
   std::unique_ptr<proto::VectorDBService::Stub> coordinator_client_;
+  std::unique_ptr<proto::internal::InternalService::Stub> coordinator_internal_client_;
   std::vector<QueryNode> query_nodes_;  // Query nodes with load balancing
   std::vector<std::unique_ptr<proto::VectorDBService::Stub>> data_clients_;
+
+  // Dynamic data node clients (by address, for shard-aware routing)
+  std::map<std::string, std::unique_ptr<proto::VectorDBService::Stub>> data_client_by_addr_;
 
   // Load balancer for query nodes
   std::unique_ptr<cluster::LoadBalancer> load_balancer_;
 
-  // Round-robin counter for data node routing
+  // Round-robin counter for data node routing (fallback)
   std::atomic<uint32_t> data_node_counter_{0};
 
   // Helper methods
   proto::VectorDBService::Stub* GetCoordinatorClient();
+  proto::internal::InternalService::Stub* GetCoordinatorInternalClient();
   proto::VectorDBService::Stub* GetQueryNodeClient();
   proto::VectorDBService::Stub* GetDataNodeClient(int shard_id);
+  proto::VectorDBService::Stub* GetDataNodeClientForCollection(const std::string& collection_name);
 };
 
 }  // namespace network

@@ -10,6 +10,12 @@ SERVER_PORT=50051
 SERVER_DATA_DIR="/tmp/gvdb-integration-test"
 SERVER_PID=""
 
+# Cloud-native: use GVDB_SERVER_ADDR or default to localhost:$SERVER_PORT
+export GVDB_SERVER_ADDR="${GVDB_SERVER_ADDR:-localhost:$SERVER_PORT}"
+
+# NO_SERVER=true skips starting a local server (for running against external endpoints)
+NO_SERVER="${NO_SERVER:-false}"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -75,10 +81,10 @@ check_dependencies() {
         exit 1
     fi
 
-    # Check server binary
-    if [ ! -f "$SERVER_BIN" ]; then
+    # Check server binary (only if we need to start one)
+    if [ "$NO_SERVER" = "false" ] && [ ! -f "$SERVER_BIN" ]; then
         log_error "Server binary not found at: $SERVER_BIN"
-        log_error "Please build the project first: cmake --build build --target gvdb-single-node"
+        log_error "Please build the project first: make build"
         exit 1
     fi
 
@@ -161,7 +167,7 @@ build_test() {
     log_info "Building $TEST_NAME..."
 
     cd "$SCRIPT_DIR"
-    go build -o "./${TEST_NAME}_test" "$TEST_FILE"
+    go build -o "./${TEST_NAME}_test" "$TEST_FILE" helpers.go
 
     if [ $? -ne 0 ]; then
         log_error "Failed to build $TEST_NAME"
@@ -200,6 +206,8 @@ main() {
     echo "GVDB End-to-End Test Suite (Go)"
     echo "======================================================================"
     echo ""
+    log_info "Server address: $GVDB_SERVER_ADDR"
+    echo ""
 
     # Setup
     check_dependencies
@@ -215,8 +223,12 @@ main() {
     log_success "All tests built"
     echo ""
 
-    # Start server
-    start_server
+    # Start server (unless running against external endpoint)
+    if [ "$NO_SERVER" = "true" ]; then
+        log_info "Skipping server start (NO_SERVER=true)"
+    else
+        start_server
+    fi
 
     # Track test results
     TOTAL_TESTS=0
@@ -256,7 +268,7 @@ main() {
 
     if [ $FAILED_TESTS -eq 0 ]; then
         echo ""
-        log_success "ALL INTEGRATION TESTS PASSED! 🎉"
+        log_success "ALL INTEGRATION TESTS PASSED!"
         echo ""
         return 0
     else

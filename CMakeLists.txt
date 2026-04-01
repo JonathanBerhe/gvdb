@@ -40,12 +40,15 @@ if(NOT absl_FOUND)
     GIT_SHALLOW    TRUE
   )
 
-  # Configure Abseil
+  # Configure Abseil (save/restore BUILD_TESTING to avoid polluting parent scope)
   set(ABSL_PROPAGATE_CXX_STD ON)
   set(ABSL_ENABLE_INSTALL OFF)
+  set(_SAVE_BUILD_TESTING ${BUILD_TESTING})
   set(BUILD_TESTING OFF)
 
   FetchContent_MakeAvailable(abseil-cpp)
+
+  set(BUILD_TESTING ${_SAVE_BUILD_TESTING})
 endif()
 
 # ============================================================================
@@ -66,6 +69,16 @@ FetchContent_MakeAvailable(doctest)
 # For containers: Install libomp in your Dockerfile
 # For macOS development: brew install libomp
 # For Linux: apt-get install libomp-dev or yum install libomp-devel
+if(APPLE AND EXISTS "/opt/homebrew/opt/libomp")
+  set(OpenMP_ROOT "/opt/homebrew/opt/libomp")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include")
+  set(OpenMP_C_FLAGS "-Xpreprocessor -fopenmp")
+  set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp")
+  set(OpenMP_C_LIB_NAMES "omp")
+  set(OpenMP_CXX_LIB_NAMES "omp")
+  set(OpenMP_omp_LIBRARY "/opt/homebrew/opt/libomp/lib/libomp.dylib")
+endif()
 find_package(OpenMP)
 
 if(NOT OpenMP_FOUND)
@@ -104,10 +117,13 @@ if(NOT faiss_FOUND)
   set(FAISS_ENABLE_GPU OFF CACHE BOOL "" FORCE)
   set(FAISS_ENABLE_PYTHON OFF CACHE BOOL "" FORCE)
   set(FAISS_ENABLE_C_API OFF CACHE BOOL "" FORCE)
-  set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
+  # Save BUILD_TESTING before Faiss overrides it, restore after
+  set(_SAVE_BT_FAISS ${BUILD_TESTING})
+  set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(faiss)
+  set(BUILD_TESTING ${_SAVE_BT_FAISS} CACHE BOOL "" FORCE)
 endif()
 
 # ============================================================================
@@ -366,5 +382,7 @@ add_subdirectory(src/network)
 add_subdirectory(src/cluster)
 add_subdirectory(src/consensus)
 add_subdirectory(src/main)
-add_subdirectory(test/unit)
-add_subdirectory(test/integration)
+if(BUILD_TESTING)
+  add_subdirectory(test/unit)
+  add_subdirectory(test/integration)
+endif()

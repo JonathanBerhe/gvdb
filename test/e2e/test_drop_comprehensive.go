@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	serverAddr := "localhost:50051"
+	serverAddr := GetServerAddr()
 	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)

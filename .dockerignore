@@ -1,0 +1,11 @@
+build/
+.git/
+test/
+grafana/
+docs/
+*.md
+!config.example.yaml
+test_compute_data/
+.claude/
+.vscode/
+.idea/

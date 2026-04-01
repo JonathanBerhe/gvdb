@@ -7,6 +7,7 @@ add_library(gvdb_utils
   metrics.cpp
   config.cpp
   server_bootstrap.cpp
+  env_flags.cpp
 )
 
 # Link dependencies

@@ -16,10 +16,12 @@
 #include "network/internal_service.h"
 #include "network/collection_resolver.h"
 #include "utils/server_bootstrap.h"
+#include "utils/env_flags.h"
 
 struct DataNodeArgs {
   int node_id = 101;
   std::string bind_address = "0.0.0.0:50060";
+  std::string advertise_address;
   std::string data_dir = "/tmp/gvdb/data_node";
   std::vector<std::string> coordinator_addresses;
   std::vector<int> assigned_shards;
@@ -31,6 +33,7 @@ void PrintUsage(const char* program_name) {
             << "Options:\n"
             << "  --node-id ID                Data node ID (default: 101)\n"
             << "  --bind-address ADDR         gRPC bind address (default: 0.0.0.0:50060)\n"
+            << "  --advertise-address ADDR    Address advertised to coordinator (default: bind-address)\n"
             << "  --data-dir PATH             Data directory (default: /tmp/gvdb/data_node)\n"
             << "  --coordinator ADDR          Coordinator addresses (comma-separated)\n"
             << "  --shards SHARD_IDS          Comma-separated shard IDs\n"
@@ -61,6 +64,8 @@ bool ParseArgs(int argc, char** argv, DataNodeArgs& args) {
       args.node_id = std::stoi(argv[++i]);
     } else if (arg == "--bind-address" && i + 1 < argc) {
       args.bind_address = argv[++i];
+    } else if (arg == "--advertise-address" && i + 1 < argc) {
+      args.advertise_address = argv[++i];
     } else if (arg == "--data-dir" && i + 1 < argc) {
       args.data_dir = argv[++i];
     } else if (arg == "--coordinator" && i + 1 < argc) {
@@ -91,6 +96,11 @@ int main(int argc, char** argv) {
   if (!ParseArgs(argc, argv, args)) return 1;
 
   using namespace gvdb;
+
+  // Env vars override CLI flags
+  args.bind_address = utils::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
+  args.advertise_address = utils::ResolveFlag("GVDB_ADVERTISE_ADDRESS", args.advertise_address);
+  args.data_dir = utils::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
   utils::ServerBootstrap::InstallSignalHandlers();
 
   auto log_status = utils::ServerBootstrap::InitializeLogger(
@@ -150,8 +160,10 @@ int main(int argc, char** argv) {
     // 5. Heartbeat sender
     std::unique_ptr<cluster::HeartbeatSender> heartbeat;
     if (!args.coordinator_addresses.empty()) {
+      std::string heartbeat_addr = args.advertise_address.empty()
+          ? args.bind_address : args.advertise_address;
       heartbeat = std::make_unique<cluster::HeartbeatSender>(
-          args.coordinator_addresses[0], args.node_id, args.bind_address,
+          args.coordinator_addresses[0], args.node_id, heartbeat_addr,
           proto::internal::NodeType::NODE_TYPE_DATA_NODE,
           utils::ServerBootstrap::ShutdownFlag());
       heartbeat->Start();

@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gvdb-query-node
+  namespace: gvdb
+spec:
+  serviceName: query-node
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gvdb-query-node
+  template:
+    metadata:
+      labels:
+        app: gvdb-query-node
+    spec:
+      initContainers:
+        - name: wait-for-coordinator
+          image: gvdb:latest
+          imagePullPolicy: Never
+          command: ["sh", "-c"]
+          args:
+            - |
+              echo "Waiting for coordinator..."
+              until nc -z gvdb-coordinator-0.coordinator.gvdb.svc.cluster.local 50051; do
+                sleep 2
+              done
+              echo "Coordinator is ready"
+      containers:
+        - name: query-node
+          image: gvdb:latest
+          imagePullPolicy: Never
+          command: ["sh", "-c"]
+          args:
+            - |
+              ORDINAL=${HOSTNAME##*-}
+              NODE_ID=$((201 + ORDINAL))
+              ADVERTISE="${HOSTNAME}.query-node.gvdb.svc.cluster.local:50070"
+              exec /usr/local/bin/gvdb-query-node \
+                --node-id $NODE_ID \
+                --bind-address 0.0.0.0:50070 \
+                --advertise-address $ADVERTISE \
+                --data-dir /data/gvdb/query_node \
+                --coordinator gvdb-coordinator-0.coordinator.gvdb.svc.cluster.local:50051 \
+                --memory-limit-gb 4
+          ports:
+            - containerPort: 50070
+              name: grpc
+          volumeMounts:
+            - name: data
+              mountPath: /data/gvdb/query_node
+            - name: config
+              mountPath: /etc/gvdb
+          readinessProbe:
+            tcpSocket:
+              port: 50070
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50070
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+      volumes:
+        - name: config
+          configMap:
+            name: gvdb-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

@@ -18,8 +18,7 @@ import (
 )
 
 const (
-	serverAddr = "localhost:50051"
-	timeout    = 30 * time.Second
+	timeout = 30 * time.Second
 )
 
 type TestResult struct {
@@ -38,7 +37,7 @@ func NewFuzzyTester() (*FuzzyTester, error) {
 	// Increase message size limits to match server (256 MB)
 	// Supports high-dimensional vectors (e.g., 10K × 3072D = 123 MB)
 	maxMsgSize := 256 * 1024 * 1024
-	conn, err := grpc.Dial(serverAddr,
+	conn, err := grpc.Dial(GetServerAddr(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxMsgSize),
@@ -68,26 +67,6 @@ func (ft *FuzzyTester) recordTest(name string, passed bool, details string) {
 	}
 	fmt.Printf("  %s %s: %s\n", status, name, details)
 	ft.results = append(ft.results, TestResult{name, passed, details})
-}
-
-func generateRandomVector(dim uint32) *pb.Vector {
-	values := make([]float32, dim)
-	var sum float32
-	for i := range values {
-		values[i] = rand.Float32()*2 - 1 // Range [-1, 1]
-		sum += values[i] * values[i]
-	}
-
-	// Normalize
-	norm := float32(1.0 / (sum + 1e-10))
-	for i := range values {
-		values[i] *= norm
-	}
-
-	return &pb.Vector{
-		Values:    values,
-		Dimension: dim,
-	}
 }
 
 func (ft *FuzzyTester) testInvalidCollectionNames() {
@@ -341,7 +320,7 @@ func (ft *FuzzyTester) testEmptyOperations() {
 	ctx, cancel = context.WithTimeout(context.Background(), timeout)
 	searchReq := &pb.SearchRequest{
 		CollectionName: collectionName,
-		QueryVector:    generateRandomVector(128),
+		QueryVector:    GenerateRandomVector(128),
 		TopK:           10,
 	}
 
@@ -372,7 +351,7 @@ func (ft *FuzzyTester) testNonexistentCollection() {
 	insertReq := &pb.InsertRequest{
 		CollectionName: nonexistentName,
 		Vectors: []*pb.VectorWithId{
-			{Id: 1, Vector: generateRandomVector(128)},
+			{Id: 1, Vector: GenerateRandomVector(128)},
 		},
 	}
 
@@ -393,7 +372,7 @@ func (ft *FuzzyTester) testNonexistentCollection() {
 	ctx, cancel = context.WithTimeout(context.Background(), timeout)
 	searchReq := &pb.SearchRequest{
 		CollectionName: nonexistentName,
-		QueryVector:    generateRandomVector(128),
+		QueryVector:    GenerateRandomVector(128),
 		TopK:           10,
 	}
 
@@ -441,7 +420,7 @@ func (ft *FuzzyTester) testLargeBatchInsert() {
 		for i := 0; i < batchSize; i++ {
 			vectors[i] = &pb.VectorWithId{
 				Id:     uint64(i),
-				Vector: generateRandomVector(128),
+				Vector: GenerateRandomVector(128),
 			}
 		}
 
