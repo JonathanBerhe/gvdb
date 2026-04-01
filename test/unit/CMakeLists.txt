@@ -39,6 +39,26 @@ set_tests_properties(IndexTests PROPERTIES
   TIMEOUT 120
 )
 
+# TurboQuant index tests
+add_executable(turboquant_tests
+  turboquant_test.cpp
+)
+
+target_link_libraries(turboquant_tests
+  PRIVATE
+    gvdb_index
+    gvdb_core
+    doctest::doctest_with_main
+)
+
+# Add test to CTest
+add_test(NAME TurboQuantTests COMMAND turboquant_tests)
+
+# Set test properties
+set_tests_properties(TurboQuantTests PROPERTIES
+  TIMEOUT 120
+)
+
 # Storage module tests
 add_executable(storage_tests
   storage_test.cpp

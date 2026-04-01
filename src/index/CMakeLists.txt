@@ -8,6 +8,8 @@ add_library(gvdb_index
   faiss_ivf.cpp
   index_factory.cpp
   index_manager.cpp
+  turboquant/turboquant_codec.cpp
+  turboquant/turboquant_index.cpp
 )
 
 # Set target properties
@@ -24,6 +26,7 @@ target_include_directories(gvdb_index
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/turboquant
     /opt/homebrew/opt/libomp/include
 )
 
