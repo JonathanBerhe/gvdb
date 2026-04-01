@@ -46,6 +46,11 @@ class IndexFactory : public core::IIndexFactory {
                  IVFQuantizationType quantization = IVFQuantizationType::NONE,
                  int pq_m = 8, int pq_nbits = 8);
 
+  [[nodiscard]] static core::StatusOr<std::unique_ptr<core::IVectorIndex>>
+  CreateTurboQuantIndex(core::Dimension dimension, core::MetricType metric,
+                        int bit_width = 4, bool use_qjl = true,
+                        int qjl_dim = 0);
+
   // Check if GPU is available for GPU indexes
   [[nodiscard]] static bool IsGPUAvailable();
 

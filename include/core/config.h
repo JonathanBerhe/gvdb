@@ -41,6 +41,13 @@ struct IndexConfig {
     int pq_nbits = 8;          // Number of bits per subquantizer
   } ivf_params;
 
+  // TurboQuant-specific parameters
+  struct TurboQuantParams {
+    int bit_width = 4;           // Bits per dimension (1, 2, 4, or 8)
+    bool use_qjl = true;        // Enable QJL bias correction (Stage 2)
+    int qjl_projection_dim = 0; // QJL projection dimensions (0 = auto: padded_dim/4)
+  } turboquant_params;
+
   // General parameters
   bool use_gpu = false;        // Use GPU acceleration if available
   int num_threads = 0;         // Number of threads (0 = auto-detect)

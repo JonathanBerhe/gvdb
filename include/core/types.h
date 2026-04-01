@@ -46,7 +46,8 @@ enum class IndexType {
   HNSW,      // Hierarchical Navigable Small World
   IVF_FLAT,  // Inverted File with exhaustive search
   IVF_PQ,    // Inverted File with Product Quantization
-  IVF_SQ     // Inverted File with Scalar Quantization
+  IVF_SQ,    // Inverted File with Scalar Quantization
+  TURBOQUANT // TurboQuant online quantization (data-oblivious)
 };
 
 // Segment states in the storage lifecycle
