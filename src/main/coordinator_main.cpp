@@ -22,10 +22,12 @@
 #include "network/vectordb_service.h"
 #include "network/collection_resolver.h"
 #include "utils/server_bootstrap.h"
+#include "utils/env_flags.h"
 
 struct CoordinatorArgs {
   int node_id = 1;
   std::string bind_address = "0.0.0.0:50051";
+  std::string advertise_address;
   std::string raft_address = "0.0.0.0:8300";
   std::vector<std::string> raft_peers;
   std::string data_dir = "/tmp/gvdb/coordinator";
@@ -38,6 +40,7 @@ void PrintUsage(const char* program_name) {
             << "Options:\n"
             << "  --node-id ID             Node ID (default: 1)\n"
             << "  --bind-address ADDR      gRPC bind address (default: 0.0.0.0:50051)\n"
+            << "  --advertise-address ADDR Address advertised to peers (default: bind-address)\n"
             << "  --raft-address ADDR      Raft listen address (default: 0.0.0.0:8300)\n"
             << "  --raft-peers PEERS       Comma-separated Raft peer addresses\n"
             << "  --data-dir PATH          Data directory (default: /tmp/gvdb/coordinator)\n"
@@ -56,6 +59,8 @@ bool ParseArgs(int argc, char** argv, CoordinatorArgs& args) {
       args.node_id = std::stoi(argv[++i]);
     } else if (arg == "--bind-address" && i + 1 < argc) {
       args.bind_address = argv[++i];
+    } else if (arg == "--advertise-address" && i + 1 < argc) {
+      args.advertise_address = argv[++i];
     } else if (arg == "--raft-address" && i + 1 < argc) {
       args.raft_address = argv[++i];
     } else if (arg == "--raft-peers" && i + 1 < argc) {
@@ -89,6 +94,12 @@ int main(int argc, char** argv) {
   if (!ParseArgs(argc, argv, args)) return 1;
 
   using namespace gvdb;
+
+  // Env vars override CLI flags
+  args.bind_address = utils::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
+  args.advertise_address = utils::ResolveFlag("GVDB_ADVERTISE_ADDRESS", args.advertise_address);
+  args.data_dir = utils::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
+  args.raft_address = utils::ResolveFlag("GVDB_RAFT_ADDRESS", args.raft_address);
   utils::ServerBootstrap::InstallSignalHandlers();
 
   auto log_status = utils::ServerBootstrap::InitializeLogger(

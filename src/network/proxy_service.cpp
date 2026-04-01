@@ -87,6 +87,49 @@ proto::VectorDBService::Stub* ProxyService::GetQueryNodeClient() {
   return nullptr;
 }
 
+proto::internal::InternalService::Stub* ProxyService::GetCoordinatorInternalClient() {
+  std::lock_guard<std::mutex> lock(clients_mutex_);
+  if (!coordinator_internal_client_ && !coordinator_addrs_.empty()) {
+    auto channel = grpc::CreateChannel(coordinator_addrs_[0],
+                                      grpc::InsecureChannelCredentials());
+    coordinator_internal_client_ = proto::internal::InternalService::NewStub(channel);
+  }
+  return coordinator_internal_client_.get();
+}
+
+proto::VectorDBService::Stub* ProxyService::GetDataNodeClientForCollection(
+    const std::string& collection_name) {
+  // Ask the coordinator which data node owns this collection's shard
+  auto* internal_client = GetCoordinatorInternalClient();
+  if (!internal_client) {
+    return nullptr;
+  }
+
+  // RouteQuery returns shard→node mappings; top_k is unused for routing
+  proto::internal::RouteQueryRequest route_req;
+  route_req.set_collection_name(collection_name);
+  route_req.set_top_k(0);
+
+  proto::internal::RouteQueryResponse route_resp;
+  grpc::ClientContext ctx;
+  auto status = internal_client->RouteQuery(&ctx, route_req, &route_resp);
+
+  if (!status.ok() || route_resp.target_node_addresses_size() == 0) {
+    return nullptr;
+  }
+
+  const std::string& addr = route_resp.target_node_addresses(0);
+
+  std::lock_guard<std::mutex> lock(clients_mutex_);
+  auto it = data_client_by_addr_.find(addr);
+  if (it == data_client_by_addr_.end()) {
+    auto channel = grpc::CreateChannel(addr, grpc::InsecureChannelCredentials());
+    data_client_by_addr_[addr] = proto::VectorDBService::NewStub(channel);
+    return data_client_by_addr_[addr].get();
+  }
+  return it->second.get();
+}
+
 proto::VectorDBService::Stub* ProxyService::GetDataNodeClient(int shard_id) {
   std::lock_guard<std::mutex> lock(clients_mutex_);
   if (data_clients_.empty() && !data_node_addrs_.empty()) {
@@ -166,8 +209,12 @@ grpc::Status ProxyService::Insert(
     const proto::InsertRequest* request,
     proto::InsertResponse* response) {
 
-  int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-  auto* client = GetDataNodeClient(shard);
+  auto* client = GetDataNodeClientForCollection(request->collection_name());
+  if (!client) {
+    // Fallback to round-robin
+    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
+    client = GetDataNodeClient(shard);
+  }
   if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
   }
@@ -182,8 +229,11 @@ grpc::Status ProxyService::Get(
     const proto::GetRequest* request,
     proto::GetResponse* response) {
 
-  int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-  auto* client = GetDataNodeClient(shard);
+  auto* client = GetDataNodeClientForCollection(request->collection_name());
+  if (!client) {
+    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
+    client = GetDataNodeClient(shard);
+  }
   if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
   }
@@ -198,8 +248,11 @@ grpc::Status ProxyService::Delete(
     const proto::DeleteRequest* request,
     proto::DeleteResponse* response) {
 
-  int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-  auto* client = GetDataNodeClient(shard);
+  auto* client = GetDataNodeClientForCollection(request->collection_name());
+  if (!client) {
+    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
+    client = GetDataNodeClient(shard);
+  }
   if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
   }
@@ -214,8 +267,11 @@ grpc::Status ProxyService::UpdateMetadata(
     const proto::UpdateMetadataRequest* request,
     proto::UpdateMetadataResponse* response) {
 
-  int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-  auto* client = GetDataNodeClient(shard);
+  auto* client = GetDataNodeClientForCollection(request->collection_name());
+  if (!client) {
+    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
+    client = GetDataNodeClient(shard);
+  }
   if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
   }

@@ -14,7 +14,6 @@ import (
 )
 
 const (
-	serverAddr             = "localhost:50051"
 	metadataTestCollection = "metadata_test_collection"
 	metadataTestDimension  = 128
 	metadataTestTimeout    = 30 * time.Second
@@ -26,7 +25,7 @@ type MetadataTest struct {
 }
 
 func NewMetadataTest() (*MetadataTest, error) {
-	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect: %v", err)
 	}
@@ -80,7 +79,7 @@ func (t *MetadataTest) insertVectorsWithMetadata() error {
 	categories := []string{"Running", "Basketball", "Training", "Casual"}
 
 	for i := 0; i < 100; i++ {
-		vec := generateRandomVector(metadataTestDimension)
+		vec := GenerateRandomVector(metadataTestDimension)
 
 		// Create metadata for each vector
 		metadata := &pb.Metadata{
@@ -138,7 +137,7 @@ func (t *MetadataTest) searchWithSimpleFilter() error {
 	ctx, cancel := context.WithTimeout(context.Background(), metadataTestTimeout)
 	defer cancel()
 
-	query := generateRandomVector(metadataTestDimension)
+	query := GenerateRandomVector(metadataTestDimension)
 
 	// Search for Nike products under $150
 	req := &pb.SearchRequest{
@@ -202,7 +201,7 @@ func (t *MetadataTest) searchWithComplexFilter() error {
 	ctx, cancel := context.WithTimeout(context.Background(), metadataTestTimeout)
 	defer cancel()
 
-	query := generateRandomVector(metadataTestDimension)
+	query := GenerateRandomVector(metadataTestDimension)
 
 	// Search for in-stock items that are either (Nike under $100) or (Adidas with rating > 4.0)
 	req := &pb.SearchRequest{
@@ -261,7 +260,7 @@ func (t *MetadataTest) searchWithLikeFilter() error {
 	ctx, cancel := context.WithTimeout(context.Background(), metadataTestTimeout)
 	defer cancel()
 
-	query := generateRandomVector(metadataTestDimension)
+	query := GenerateRandomVector(metadataTestDimension)
 
 	// Search for products with category containing "ing" (Running, Training)
 	req := &pb.SearchRequest{
@@ -313,7 +312,7 @@ func (t *MetadataTest) searchWithInFilter() error {
 	ctx, cancel := context.WithTimeout(context.Background(), metadataTestTimeout)
 	defer cancel()
 
-	query := generateRandomVector(metadataTestDimension)
+	query := GenerateRandomVector(metadataTestDimension)
 
 	// Search for specific brands using IN operator
 	req := &pb.SearchRequest{
@@ -365,7 +364,7 @@ func (t *MetadataTest) searchWithoutFilter() error {
 	ctx, cancel := context.WithTimeout(context.Background(), metadataTestTimeout)
 	defer cancel()
 
-	query := generateRandomVector(metadataTestDimension)
+	query := GenerateRandomVector(metadataTestDimension)
 
 	// Search without filter but request metadata
 	req := &pb.SearchRequest{
@@ -412,7 +411,7 @@ func (t *MetadataTest) searchWithoutMetadata() error {
 	ctx, cancel := context.WithTimeout(context.Background(), metadataTestTimeout)
 	defer cancel()
 
-	query := generateRandomVector(metadataTestDimension)
+	query := GenerateRandomVector(metadataTestDimension)
 
 	// Search with filter but don't request metadata
 	req := &pb.SearchRequest{
@@ -507,26 +506,6 @@ func RunMetadataTest() bool {
 	fmt.Println("✅ Metadata Filtering Test PASSED")
 	fmt.Println("======================================================================")
 	return true
-}
-
-func generateRandomVector(dim uint32) *pb.Vector {
-	values := make([]float32, dim)
-	var sum float32
-	for i := range values {
-		values[i] = rand.Float32()*2 - 1 // Range [-1, 1]
-		sum += values[i] * values[i]
-	}
-
-	// Normalize
-	norm := float32(1.0 / (sum + 1e-10))
-	for i := range values {
-		values[i] *= norm
-	}
-
-	return &pb.Vector{
-		Values:    values,
-		Dimension: dim,
-	}
 }
 
 func main() {

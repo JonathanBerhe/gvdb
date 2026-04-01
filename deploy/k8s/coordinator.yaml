@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gvdb-coordinator
+  namespace: gvdb
+spec:
+  serviceName: coordinator
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gvdb-coordinator
+  template:
+    metadata:
+      labels:
+        app: gvdb-coordinator
+    spec:
+      containers:
+        - name: coordinator
+          image: gvdb:latest
+          imagePullPolicy: Never
+          command: ["sh", "-c"]
+          args:
+            - |
+              ADVERTISE="${HOSTNAME}.coordinator.gvdb.svc.cluster.local:50051"
+              exec /usr/local/bin/gvdb-coordinator \
+                --node-id 1 \
+                --bind-address 0.0.0.0:50051 \
+                --advertise-address $ADVERTISE \
+                --raft-address 0.0.0.0:8300 \
+                --data-dir /data/gvdb/coordinator \
+                --single-node
+          ports:
+            - containerPort: 50051
+              name: grpc
+            - containerPort: 8300
+              name: raft
+            - containerPort: 9091
+              name: metrics
+          volumeMounts:
+            - name: data
+              mountPath: /data/gvdb/coordinator
+            - name: config
+              mountPath: /etc/gvdb
+          readinessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+      volumes:
+        - name: config
+          configMap:
+            name: gvdb-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

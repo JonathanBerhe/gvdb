@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	pb "gvdb/test/e2e/pb"
+	pb "gvdb/integration-tests/pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -36,7 +36,7 @@ func TestMetadataSync(coordinatorAddr, dataNodeAddr string) error {
 	createReq := &pb.CreateCollectionRequest{
 		CollectionName: collectionName,
 		Dimension:      768,
-		MetricType:     pb.CreateCollectionRequest_L2,
+		Metric:         pb.CreateCollectionRequest_L2,
 		IndexType:      pb.CreateCollectionRequest_HNSW,
 	}
 
@@ -142,8 +142,11 @@ func TestMetadataSync(coordinatorAddr, dataNodeAddr string) error {
 }
 
 func main() {
-	coordinatorAddr := "localhost:50051"
-	dataNodeAddr := "localhost:50060"
+	coordinatorAddr := GetServerAddr()
+	dataNodeAddr := os.Getenv("GVDB_DATA_NODE_ADDR")
+	if dataNodeAddr == "" {
+		dataNodeAddr = "localhost:50060"
+	}
 
 	// Allow custom addresses via command line
 	if len(os.Args) > 1 {

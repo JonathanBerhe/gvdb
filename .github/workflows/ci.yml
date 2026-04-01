@@ -50,16 +50,12 @@ jobs:
           restore-keys: |
             fetchcontent-
 
-      - name: Configure
-        run: |
-          cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}
-
       - name: Build
-        run: cmake --build build -j$(nproc)
+        run: >
+          make build
+          BUILD_TYPE=Release
+          CMAKE_EXTRA="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}"
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure --timeout 300
+        run: make test

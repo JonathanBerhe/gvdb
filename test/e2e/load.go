@@ -17,7 +17,6 @@ import (
 )
 
 const (
-	serverAddr         = "localhost:50051"
 	timeout            = 30 * time.Second
 	loadTestCollection = "load_test_collection"
 	loadTestDimension  = 128
@@ -75,28 +74,8 @@ func (r *LoadTestResults) PrintResults(testName string) {
 	fmt.Println("======================================================================")
 }
 
-func generateRandomVector(dim uint32) *pb.Vector {
-	values := make([]float32, dim)
-	var sum float32
-	for i := range values {
-		values[i] = rand.Float32()*2 - 1 // Range [-1, 1]
-		sum += values[i] * values[i]
-	}
-
-	// Normalize
-	norm := float32(1.0 / (sum + 1e-10))
-	for i := range values {
-		values[i] *= norm
-	}
-
-	return &pb.Vector{
-		Values:    values,
-		Dimension: dim,
-	}
-}
-
 func setupLoadTestCollection() error {
-	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return err
 	}
@@ -125,7 +104,7 @@ func setupLoadTestCollection() error {
 }
 
 func cleanupLoadTestCollection() {
-	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return
 	}
@@ -146,7 +125,7 @@ func cleanupLoadTestCollection() {
 func insertWorker(threadID int, results *LoadTestResults, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		atomic.AddInt32(&results.failedOps, int32(opsPerThread))
 		return
@@ -162,7 +141,7 @@ func insertWorker(threadID int, results *LoadTestResults, wg *sync.WaitGroup) {
 			vecID := uint64(threadID*opsPerThread*batchSize + i*batchSize + j)
 			vectors[j] = &pb.VectorWithId{
 				Id:     vecID,
-				Vector: generateRandomVector(loadTestDimension),
+				Vector: GenerateRandomVector(loadTestDimension),
 			}
 		}
 
@@ -189,7 +168,7 @@ func insertWorker(threadID int, results *LoadTestResults, wg *sync.WaitGroup) {
 func searchWorker(threadID int, results *LoadTestResults, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		atomic.AddInt32(&results.failedOps, int32(opsPerThread))
 		return
@@ -199,7 +178,7 @@ func searchWorker(threadID int, results *LoadTestResults, wg *sync.WaitGroup) {
 	client := pb.NewVectorDBServiceClient(conn)
 
 	for i := 0; i < opsPerThread; i++ {
-		query := generateRandomVector(loadTestDimension)
+		query := GenerateRandomVector(loadTestDimension)
 		req := &pb.SearchRequest{
 			CollectionName: loadTestCollection,
 			QueryVector:    query,
@@ -333,7 +312,7 @@ func RunLoadTest() bool {
 		collectionName := fmt.Sprintf("hd_test_%dd", test.dim)
 
 		// Create collection
-		conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			log.Printf("⚠️  Skipping %dD test: connection failed", test.dim)
 			continue
@@ -364,7 +343,7 @@ func RunLoadTest() bool {
 		for i := 0; i < test.batch; i++ {
 			vectors[i] = &pb.VectorWithId{
 				Id:     uint64(i + 1),
-				Vector: generateRandomVector(test.dim),
+				Vector: GenerateRandomVector(test.dim),
 			}
 		}
 
@@ -424,7 +403,7 @@ func RunLoadTest() bool {
 		collectionName := fmt.Sprintf("concurrent_hd_%dd_%dthreads", test.dim, test.threads)
 
 		// Create collection
-		conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			log.Printf("⚠️  Skipping concurrent %dD test: connection failed", test.dim)
 			continue
@@ -477,13 +456,13 @@ func RunLoadTest() bool {
 					vecID := uint64(tid*test.perThread + i + 1)
 					vectors[i] = &pb.VectorWithId{
 						Id:     vecID,
-						Vector: generateRandomVector(test.dim),
+						Vector: GenerateRandomVector(test.dim),
 					}
 				}
 
 				// Insert
 				maxMsgSize := 256 * 1024 * 1024
-				conn, err := grpc.Dial(serverAddr,
+				conn, err := grpc.Dial(GetServerAddr(),
 					grpc.WithTransportCredentials(insecure.NewCredentials()),
 					grpc.WithDefaultCallOptions(
 						grpc.MaxCallRecvMsgSize(maxMsgSize),
@@ -549,7 +528,7 @@ func RunLoadTest() bool {
 		}
 
 		// Cleanup collection
-		conn2, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn2, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err == nil {
 			client := pb.NewVectorDBServiceClient(conn2)
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -583,7 +562,7 @@ func RunLoadTest() bool {
 		collectionName := fmt.Sprintf("search_hd_%dd", test.dim)
 
 		// Create and populate collection
-		conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			log.Printf("⚠️  Skipping search %dD test: connection failed", test.dim)
 			continue
@@ -616,12 +595,12 @@ func RunLoadTest() bool {
 		for i := 0; i < test.dataSize; i++ {
 			vectors[i] = &pb.VectorWithId{
 				Id:     uint64(i + 1),
-				Vector: generateRandomVector(test.dim),
+				Vector: GenerateRandomVector(test.dim),
 			}
 		}
 
 		maxMsgSize := 256 * 1024 * 1024
-		conn2, _ := grpc.Dial(serverAddr,
+		conn2, _ := grpc.Dial(GetServerAddr(),
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithDefaultCallOptions(
 				grpc.MaxCallRecvMsgSize(maxMsgSize),
@@ -659,7 +638,7 @@ func RunLoadTest() bool {
 			go func(tid int) {
 				defer wg.Done()
 
-				conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+				conn, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 				if err != nil {
 					atomic.AddInt32(&failCount, int32(test.searches))
 					return
@@ -669,7 +648,7 @@ func RunLoadTest() bool {
 				client := pb.NewVectorDBServiceClient(conn)
 
 				for i := 0; i < test.searches; i++ {
-					query := generateRandomVector(test.dim)
+					query := GenerateRandomVector(test.dim)
 					req := &pb.SearchRequest{
 						CollectionName: collectionName,
 						QueryVector:    query,
@@ -723,7 +702,7 @@ func RunLoadTest() bool {
 		conn.Close()
 
 		// Cleanup
-		conn3, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn3, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err == nil {
 			client := pb.NewVectorDBServiceClient(conn3)
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)

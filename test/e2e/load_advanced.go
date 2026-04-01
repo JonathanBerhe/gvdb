@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -17,17 +16,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
-
-var (
-	serverAddr = getServerAddr()
-)
-
-func getServerAddr() string {
-	if addr := os.Getenv("SERVER_ADDR"); addr != "" {
-		return addr
-	}
-	return "localhost:50051"
-}
 
 const (
 	timeout                   = 30 * time.Second
@@ -91,26 +79,6 @@ func (r *FilterTestResults) PrintResults() {
 	}
 }
 
-func generateRandomVector(dim uint32) *pb.Vector {
-	values := make([]float32, dim)
-	var sum float32
-	for i := range values {
-		values[i] = rand.Float32()*2 - 1
-		sum += values[i] * values[i]
-	}
-
-	// Normalize
-	norm := float32(1.0 / (sum + 1e-10))
-	for i := range values {
-		values[i] *= norm
-	}
-
-	return &pb.Vector{
-		Values:    values,
-		Dimension: dim,
-	}
-}
-
 func generateMetadata(id int) *pb.Metadata {
 	brands := []string{"Nike", "Adidas", "Puma", "Reebok"}
 	categories := []string{"Running", "Training", "Basketball", "Soccer"}
@@ -150,7 +118,7 @@ func generateMetadata(id int) *pb.Metadata {
 func filteredSearchWorker(threadID int, collectionName string, filterExpr string, filterType string, results *FilterTestResults, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		atomic.AddInt32(&results.failedOps, int32(searchesPerThread))
 		return
@@ -160,7 +128,7 @@ func filteredSearchWorker(threadID int, collectionName string, filterExpr string
 	client := pb.NewVectorDBServiceClient(conn)
 
 	for i := 0; i < searchesPerThread; i++ {
-		query := generateRandomVector(testDimension)
+		query := GenerateRandomVector(testDimension)
 		req := &pb.SearchRequest{
 			CollectionName:  collectionName,
 			QueryVector:     query,
@@ -239,7 +207,7 @@ func testIndexTypePerformance(config IndexTestConfig) error {
 	collectionName := fmt.Sprintf("test_%s_%d", config.Name, time.Now().Unix())
 
 	// Create collection
-	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("failed to connect: %v", err)
 	}
@@ -282,7 +250,7 @@ func testIndexTypePerformance(config IndexTestConfig) error {
 		for i := start; i < end; i++ {
 			vectors = append(vectors, &pb.VectorWithId{
 				Id:       uint64(i + 1),
-				Vector:   generateRandomVector(config.Dimension),
+				Vector:   GenerateRandomVector(config.Dimension),
 				Metadata: generateMetadata(i),
 			})
 		}
@@ -355,7 +323,7 @@ func RunAdvancedLoadTest() bool {
 	filterTestCollection := fmt.Sprintf("filter_test_%d", time.Now().Unix())
 
 	fmt.Println("\nStep 1: Creating collection for filtered search tests...")
-	conn, err := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Printf("Failed to connect: %v", err)
 		return false
@@ -396,7 +364,7 @@ func RunAdvancedLoadTest() bool {
 		for i := start; i < end; i++ {
 			vectors = append(vectors, &pb.VectorWithId{
 				Id:       uint64(i + 1),
-				Vector:   generateRandomVector(testDimension),
+				Vector:   GenerateRandomVector(testDimension),
 				Metadata: generateMetadata(i),
 			})
 		}
@@ -430,7 +398,7 @@ func RunAdvancedLoadTest() bool {
 	fmt.Println("✅ Filtered search test completed")
 
 	// Cleanup filter test collection
-	conn2, _ := grpc.Dial(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn2, _ := grpc.Dial(GetServerAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if conn2 != nil {
 		client2 := pb.NewVectorDBServiceClient(conn2)
 		ctx3, cancel3 := context.WithTimeout(context.Background(), timeout)
