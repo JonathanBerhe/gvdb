@@ -1,6 +1,6 @@
 image:
   repository: gvdb
-  tag: latest
+  tag: ""          # defaults to Chart appVersion
   pullPolicy: IfNotPresent
 
 coordinator:

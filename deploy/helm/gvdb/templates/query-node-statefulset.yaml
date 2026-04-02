@@ -18,7 +18,7 @@ spec:
     spec:
       initContainers:
         - name: wait-for-coordinator
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ include "gvdb.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["sh", "-c"]
           args:
@@ -30,7 +30,7 @@ spec:
               echo "Coordinator is ready"
       containers:
         - name: query-node
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ include "gvdb.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["sh", "-c"]
           args:

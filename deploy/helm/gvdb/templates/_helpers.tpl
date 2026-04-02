@@ -6,6 +6,13 @@ Full name: release name
 {{- end }}
 
 {{/*
+Container image with tag (falls back to appVersion)
+*/}}
+{{- define "gvdb.image" -}}
+{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{/*
 Common labels
 */}}
 {{- define "gvdb.labels" -}}
