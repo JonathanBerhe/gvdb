@@ -410,6 +410,99 @@ grpc::Status VectorDBService::Insert(
   return grpc::Status::OK;
 }
 
+grpc::Status VectorDBService::StreamInsert(
+    grpc::ServerContext* context,
+    grpc::ServerReader<proto::InsertRequest>* reader,
+    proto::InsertResponse* response) {
+
+  if (!resolver_->SupportsDataOps()) {
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+        "Insert operations not supported on coordinator nodes.");
+  }
+
+  uint64_t total_inserted = 0;
+  proto::InsertRequest chunk;
+
+  while (reader->Read(&chunk)) {
+    if (chunk.vectors().empty()) continue;
+
+    auto segment_ids_result = resolver_->GetSegmentIds(chunk.collection_name());
+    if (!segment_ids_result.ok()) {
+      return toGrpcStatus(segment_ids_result.status());
+    }
+    const auto& segment_ids = *segment_ids_result;
+    size_t num_shards = segment_ids.size();
+
+    auto* first_segment = segment_manager_->GetSegment(segment_ids[0]);
+    if (!first_segment) {
+      return toGrpcStatus(absl::NotFoundError("Segment not found"));
+    }
+    uint32_t dimension = first_segment->GetDimension();
+
+    struct ShardBatch {
+      std::vector<core::Vector> vectors;
+      std::vector<core::VectorId> ids;
+      std::vector<core::Metadata> metadata;
+      bool has_metadata = false;
+    };
+    std::vector<ShardBatch> shard_batches(num_shards);
+
+    for (const auto& proto_vec : chunk.vectors()) {
+      auto vec_result = fromProto(proto_vec);
+      if (!vec_result.ok()) return toGrpcStatus(vec_result.status());
+
+      core::VectorId vid = vec_result->first;
+      uint32_t shard_idx = static_cast<uint32_t>(
+          core::ToUInt64(vid) % num_shards);
+
+      auto& batch = shard_batches[shard_idx];
+      batch.ids.push_back(vid);
+      batch.vectors.push_back(std::move(vec_result->second));
+
+      if (proto_vec.has_metadata()) {
+        batch.has_metadata = true;
+        auto meta_result = fromProto(proto_vec.metadata());
+        if (!meta_result.ok()) return toGrpcStatus(meta_result.status());
+        batch.metadata.push_back(std::move(*meta_result));
+      } else if (batch.has_metadata) {
+        batch.metadata.push_back(core::Metadata{});
+      }
+    }
+
+    for (const auto& batch : shard_batches) {
+      for (const auto& vec : batch.vectors) {
+        if (vec.dimension() != dimension) {
+          return toGrpcStatus(absl::InvalidArgumentError(
+              absl::StrFormat("Vector dimension mismatch: expected %d, got %d",
+                              dimension, vec.dimension())));
+        }
+      }
+    }
+
+    for (uint32_t i = 0; i < num_shards; ++i) {
+      auto& batch = shard_batches[i];
+      if (batch.ids.empty()) continue;
+
+      auto* segment = segment_manager_->GetSegment(segment_ids[i]);
+      if (!segment) continue;
+
+      absl::Status status;
+      if (batch.has_metadata) {
+        status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata);
+      } else {
+        status = segment->AddVectors(batch.vectors, batch.ids);
+      }
+
+      if (!status.ok()) return toGrpcStatus(status);
+      total_inserted += batch.ids.size();
+    }
+  }
+
+  response->set_inserted_count(total_inserted);
+  response->set_message("Vectors inserted successfully");
+  return grpc::Status::OK;
+}
+
 grpc::Status VectorDBService::Search(
     grpc::ServerContext* context,
     const proto::SearchRequest* request,

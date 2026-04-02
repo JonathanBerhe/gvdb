@@ -57,6 +57,10 @@ class ProxyService final : public proto::VectorDBService::Service {
                      const proto::InsertRequest* request,
                      proto::InsertResponse* response) override;
 
+  grpc::Status StreamInsert(grpc::ServerContext* context,
+                           grpc::ServerReader<proto::InsertRequest>* reader,
+                           proto::InsertResponse* response) override;
+
   grpc::Status Get(grpc::ServerContext* context,
                   const proto::GetRequest* request,
                   proto::GetResponse* response) override;
