@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.4](https://github.com/JonathanBerhe/gvdb/compare/v0.1.3...v0.1.4) (2026-04-02)
+
+
+### Bug Fixes
+
+* **ci:** lowercase OCI registry names for ghcr.io ([c8c4fdd](https://github.com/JonathanBerhe/gvdb/commit/c8c4fddd4ceb15fb26b51a2ae54940f347aa96dc))
+* **ci:** lowercase OCI registry names for ghcr.io compatibility ([c9b07a5](https://github.com/JonathanBerhe/gvdb/commit/c9b07a50674a56d797a7f63087f5cc852dcc4f2d))
+* **ci:** skip build-and-test on push for non-code changes ([2e08896](https://github.com/JonathanBerhe/gvdb/commit/2e0889621f39f36fc6712398f74711f25e920084))
+
 ## [0.1.3](https://github.com/JonathanBerhe/gvdb/compare/v0.1.2...v0.1.3) (2026-04-02)
 
 
