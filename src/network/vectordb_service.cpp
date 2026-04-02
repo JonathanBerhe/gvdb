@@ -415,6 +415,11 @@ grpc::Status VectorDBService::StreamInsert(
     grpc::ServerReader<proto::InsertRequest>* reader,
     proto::InsertResponse* response) {
 
+  utils::MetricsTimer timer(
+      utils::MetricsRegistry::Instance(),
+      utils::MetricsTimer::OperationType::INSERT,
+      "stream");
+
   if (!resolver_->SupportsDataOps()) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
         "Insert operations not supported on coordinator nodes.");
@@ -422,9 +427,11 @@ grpc::Status VectorDBService::StreamInsert(
 
   uint64_t total_inserted = 0;
   proto::InsertRequest chunk;
+  std::string collection_name;
 
   while (reader->Read(&chunk)) {
     if (chunk.vectors().empty()) continue;
+    if (collection_name.empty()) collection_name = chunk.collection_name();
 
     auto segment_ids_result = resolver_->GetSegmentIds(chunk.collection_name());
     if (!segment_ids_result.ok()) {
@@ -493,10 +500,17 @@ grpc::Status VectorDBService::StreamInsert(
         status = segment->AddVectors(batch.vectors, batch.ids);
       }
 
-      if (!status.ok()) return toGrpcStatus(status);
+      if (!status.ok()) {
+        utils::MetricsRegistry::Instance().RecordInsert(collection_name, false, 0);
+        return toGrpcStatus(status);
+      }
       total_inserted += batch.ids.size();
     }
   }
+
+  utils::MetricsRegistry::Instance().RecordInsert(
+      collection_name, true, total_inserted);
+  utils::MetricsRegistry::Instance().RecordBatchSize(total_inserted);
 
   response->set_inserted_count(total_inserted);
   response->set_message("Vectors inserted successfully");
@@ -646,29 +660,48 @@ grpc::Status VectorDBService::Get(
                                  request->ids().size(),
                                  request->collection_name());
 
+  utils::MetricsTimer timer(
+      utils::MetricsRegistry::Instance(),
+      utils::MetricsTimer::OperationType::GET,
+      request->collection_name());
+
   if (request->ids().empty()) {
+    utils::MetricsRegistry::Instance().RecordGet(
+        request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
         "IDs list cannot be empty");
   }
 
   constexpr size_t MAX_GET_BATCH_SIZE = 10000;
   if (request->ids().size() > MAX_GET_BATCH_SIZE) {
+    utils::MetricsRegistry::Instance().RecordGet(
+        request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
         absl::StrCat("Cannot get more than ", MAX_GET_BATCH_SIZE,
                      " vectors in one request. Requested: ", request->ids().size()));
   }
 
   if (!resolver_->SupportsDataOps()) {
+    utils::MetricsRegistry::Instance().RecordGet(
+        request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
         "Get operations not supported on coordinator nodes. "
         "Send get requests to data nodes instead.");
   }
 
   auto segment_id_result = resolver_->GetSegmentId(request->collection_name());
-  if (!segment_id_result.ok()) return toGrpcStatus(segment_id_result.status());
+  if (!segment_id_result.ok()) {
+    utils::MetricsRegistry::Instance().RecordGet(
+        request->collection_name(), false);
+    return toGrpcStatus(segment_id_result.status());
+  }
 
   auto* segment = GetOrReplicateSegment(*segment_id_result);
-  if (!segment) return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  if (!segment) {
+    utils::MetricsRegistry::Instance().RecordGet(
+        request->collection_name(), false);
+    return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  }
 
   std::vector<core::VectorId> ids;
   ids.reserve(request->ids().size());
@@ -691,6 +724,9 @@ grpc::Status VectorDBService::Get(
     response->add_not_found_ids(core::ToUInt64(id));
   }
 
+  utils::MetricsRegistry::Instance().RecordGet(
+      request->collection_name(), true);
+
   return grpc::Status::OK;
 }
 
@@ -703,29 +739,48 @@ grpc::Status VectorDBService::Delete(
                                  request->ids().size(),
                                  request->collection_name());
 
+  utils::MetricsTimer timer(
+      utils::MetricsRegistry::Instance(),
+      utils::MetricsTimer::OperationType::DELETE,
+      request->collection_name());
+
   if (request->ids().empty()) {
+    utils::MetricsRegistry::Instance().RecordDelete(
+        request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
         "IDs list cannot be empty");
   }
 
   constexpr size_t MAX_DELETE_BATCH_SIZE = 10000;
   if (request->ids().size() > MAX_DELETE_BATCH_SIZE) {
+    utils::MetricsRegistry::Instance().RecordDelete(
+        request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
         absl::StrCat("Cannot delete more than ", MAX_DELETE_BATCH_SIZE,
                      " vectors in one request. Requested: ", request->ids().size()));
   }
 
   if (!resolver_->SupportsDataOps()) {
+    utils::MetricsRegistry::Instance().RecordDelete(
+        request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
         "Delete operations not supported on coordinator nodes. "
         "Send delete requests to data nodes instead.");
   }
 
   auto segment_id_result = resolver_->GetSegmentId(request->collection_name());
-  if (!segment_id_result.ok()) return toGrpcStatus(segment_id_result.status());
+  if (!segment_id_result.ok()) {
+    utils::MetricsRegistry::Instance().RecordDelete(
+        request->collection_name(), false);
+    return toGrpcStatus(segment_id_result.status());
+  }
 
   auto* segment = GetOrReplicateSegment(*segment_id_result);
-  if (!segment) return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  if (!segment) {
+    utils::MetricsRegistry::Instance().RecordDelete(
+        request->collection_name(), false);
+    return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  }
 
   std::vector<core::VectorId> ids;
   ids.reserve(request->ids().size());
@@ -734,7 +789,11 @@ grpc::Status VectorDBService::Delete(
   }
 
   auto result = segment->DeleteVectors(ids);
-  if (!result.ok()) return toGrpcStatus(result.status());
+  if (!result.ok()) {
+    utils::MetricsRegistry::Instance().RecordDelete(
+        request->collection_name(), false);
+    return toGrpcStatus(result.status());
+  }
 
   response->set_deleted_count(result->deleted_count);
   for (const auto& id : result->not_found_ids) {
@@ -743,6 +802,9 @@ grpc::Status VectorDBService::Delete(
   response->set_message(absl::StrCat(
       "Deleted ", result->deleted_count, " vector(s) from collection '",
       request->collection_name(), "'"));
+
+  utils::MetricsRegistry::Instance().RecordDelete(
+      request->collection_name(), true);
 
   return grpc::Status::OK;
 }
@@ -755,39 +817,67 @@ grpc::Status VectorDBService::UpdateMetadata(
   utils::Logger::Instance().Info("UpdateMetadata: ID {} in {}",
                                  request->id(), request->collection_name());
 
+  utils::MetricsTimer timer(
+      utils::MetricsRegistry::Instance(),
+      utils::MetricsTimer::OperationType::UPDATE_METADATA,
+      request->collection_name());
+
   if (request->id() == 0) {
+    utils::MetricsRegistry::Instance().RecordUpdateMetadata(
+        request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
         "Vector ID cannot be 0");
   }
 
   if (request->metadata().fields().empty()) {
+    utils::MetricsRegistry::Instance().RecordUpdateMetadata(
+        request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
         "Metadata cannot be empty");
   }
 
   if (!resolver_->SupportsDataOps()) {
+    utils::MetricsRegistry::Instance().RecordUpdateMetadata(
+        request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
         "UpdateMetadata operations not supported on coordinator nodes. "
         "Send metadata update requests to data nodes instead.");
   }
 
   auto segment_id_result = resolver_->GetSegmentId(request->collection_name());
-  if (!segment_id_result.ok()) return toGrpcStatus(segment_id_result.status());
+  if (!segment_id_result.ok()) {
+    utils::MetricsRegistry::Instance().RecordUpdateMetadata(
+        request->collection_name(), false);
+    return toGrpcStatus(segment_id_result.status());
+  }
 
   auto* segment = segment_manager_->GetSegment(*segment_id_result);
-  if (!segment) return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  if (!segment) {
+    utils::MetricsRegistry::Instance().RecordUpdateMetadata(
+        request->collection_name(), false);
+    return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  }
 
   auto metadata_result = fromProto(request->metadata());
-  if (!metadata_result.ok()) return toGrpcStatus(metadata_result.status());
+  if (!metadata_result.ok()) {
+    utils::MetricsRegistry::Instance().RecordUpdateMetadata(
+        request->collection_name(), false);
+    return toGrpcStatus(metadata_result.status());
+  }
 
   auto vector_id = core::MakeVectorId(request->id());
   auto status = segment->UpdateMetadata(vector_id, *metadata_result, request->merge());
 
   if (!status.ok()) {
+    utils::MetricsRegistry::Instance().RecordUpdateMetadata(
+        request->collection_name(), false);
     response->set_updated(false);
     response->set_message(std::string(status.message()));
     return toGrpcStatus(status);
   }
+
+  utils::MetricsRegistry::Instance().RecordUpdateMetadata(
+      request->collection_name(), true);
 
   response->set_updated(true);
   response->set_message(absl::StrCat(

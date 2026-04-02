@@ -38,6 +38,24 @@ MetricsRegistry::MetricsRegistry()
                                 .Help("Total number of search requests")
                                 .Register(*registry_);
 
+  // Get request counter: labels = {collection, status}
+  get_requests_total_ = &prometheus::BuildCounter()
+                              .Name("gvdb_get_requests_total")
+                              .Help("Total number of get requests")
+                              .Register(*registry_);
+
+  // Delete request counter: labels = {collection, status}
+  delete_requests_total_ = &prometheus::BuildCounter()
+                                .Name("gvdb_delete_requests_total")
+                                .Help("Total number of delete requests")
+                                .Register(*registry_);
+
+  // UpdateMetadata request counter: labels = {collection, status}
+  update_metadata_requests_total_ = &prometheus::BuildCounter()
+                                         .Name("gvdb_update_metadata_requests_total")
+                                         .Help("Total number of update metadata requests")
+                                         .Register(*registry_);
+
   // gRPC error counter: labels = {error_code}
   grpc_errors_total_ = &prometheus::BuildCounter()
                             .Name("gvdb_grpc_errors_total")
@@ -58,6 +76,27 @@ MetricsRegistry::MetricsRegistry()
       &prometheus::BuildHistogram()
            .Name("gvdb_search_duration_seconds")
            .Help("Search request duration in seconds")
+           .Register(*registry_);
+
+  // Get latency histogram
+  get_duration_seconds_ =
+      &prometheus::BuildHistogram()
+           .Name("gvdb_get_duration_seconds")
+           .Help("Get request duration in seconds")
+           .Register(*registry_);
+
+  // Delete latency histogram
+  delete_duration_seconds_ =
+      &prometheus::BuildHistogram()
+           .Name("gvdb_delete_duration_seconds")
+           .Help("Delete request duration in seconds")
+           .Register(*registry_);
+
+  // UpdateMetadata latency histogram
+  update_metadata_duration_seconds_ =
+      &prometheus::BuildHistogram()
+           .Name("gvdb_update_metadata_duration_seconds")
+           .Help("Update metadata request duration in seconds")
            .Register(*registry_);
 
   // Batch size histogram
@@ -178,6 +217,51 @@ void MetricsRegistry::RecordSearchLatency(const std::string& collection_name,
 }
 
 // ============================================================================
+// Get Metrics
+// ============================================================================
+
+void MetricsRegistry::RecordGet(const std::string& collection_name, bool success) {
+  std::string status = success ? "success" : "error";
+  get_requests_total_->Add({{"collection", collection_name}, {"status", status}}).Increment();
+}
+
+void MetricsRegistry::RecordGetLatency(const std::string& collection_name, double duration_seconds) {
+  static const auto buckets = prometheus::Histogram::BucketBoundaries{
+      0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0};
+  get_duration_seconds_->Add({{"collection", collection_name}}, buckets).Observe(duration_seconds);
+}
+
+// ============================================================================
+// Delete Metrics
+// ============================================================================
+
+void MetricsRegistry::RecordDelete(const std::string& collection_name, bool success) {
+  std::string status = success ? "success" : "error";
+  delete_requests_total_->Add({{"collection", collection_name}, {"status", status}}).Increment();
+}
+
+void MetricsRegistry::RecordDeleteLatency(const std::string& collection_name, double duration_seconds) {
+  static const auto buckets = prometheus::Histogram::BucketBoundaries{
+      0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0};
+  delete_duration_seconds_->Add({{"collection", collection_name}}, buckets).Observe(duration_seconds);
+}
+
+// ============================================================================
+// UpdateMetadata Metrics
+// ============================================================================
+
+void MetricsRegistry::RecordUpdateMetadata(const std::string& collection_name, bool success) {
+  std::string status = success ? "success" : "error";
+  update_metadata_requests_total_->Add({{"collection", collection_name}, {"status", status}}).Increment();
+}
+
+void MetricsRegistry::RecordUpdateMetadataLatency(const std::string& collection_name, double duration_seconds) {
+  static const auto buckets = prometheus::Histogram::BucketBoundaries{
+      0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0};
+  update_metadata_duration_seconds_->Add({{"collection", collection_name}}, buckets).Observe(duration_seconds);
+}
+
+// ============================================================================
 // System Metrics
 // ============================================================================
 
@@ -218,6 +302,15 @@ MetricsTimer::~MetricsTimer() {
       break;
     case OperationType::SEARCH:
       registry_.RecordSearchLatency(collection_name_, duration_seconds);
+      break;
+    case OperationType::GET:
+      registry_.RecordGetLatency(collection_name_, duration_seconds);
+      break;
+    case OperationType::DELETE:
+      registry_.RecordDeleteLatency(collection_name_, duration_seconds);
+      break;
+    case OperationType::UPDATE_METADATA:
+      registry_.RecordUpdateMetadataLatency(collection_name_, duration_seconds);
       break;
   }
 }

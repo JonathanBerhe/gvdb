@@ -91,6 +91,27 @@ class MetricsRegistry {
   void RecordSearchLatency(const std::string& collection_name, double duration_seconds);
 
   // ============================================================================
+  // Get Metrics
+  // ============================================================================
+
+  void RecordGet(const std::string& collection_name, bool success);
+  void RecordGetLatency(const std::string& collection_name, double duration_seconds);
+
+  // ============================================================================
+  // Delete Metrics
+  // ============================================================================
+
+  void RecordDelete(const std::string& collection_name, bool success);
+  void RecordDeleteLatency(const std::string& collection_name, double duration_seconds);
+
+  // ============================================================================
+  // UpdateMetadata Metrics
+  // ============================================================================
+
+  void RecordUpdateMetadata(const std::string& collection_name, bool success);
+  void RecordUpdateMetadataLatency(const std::string& collection_name, double duration_seconds);
+
+  // ============================================================================
   // System Metrics
   // ============================================================================
 
@@ -124,11 +145,17 @@ class MetricsRegistry {
   prometheus::Family<prometheus::Counter>* insert_requests_total_;
   prometheus::Family<prometheus::Counter>* insert_vectors_total_;
   prometheus::Family<prometheus::Counter>* search_requests_total_;
+  prometheus::Family<prometheus::Counter>* get_requests_total_;
+  prometheus::Family<prometheus::Counter>* delete_requests_total_;
+  prometheus::Family<prometheus::Counter>* update_metadata_requests_total_;
   prometheus::Family<prometheus::Counter>* grpc_errors_total_;
 
   // Latency histograms (in seconds)
   prometheus::Family<prometheus::Histogram>* insert_duration_seconds_;
   prometheus::Family<prometheus::Histogram>* search_duration_seconds_;
+  prometheus::Family<prometheus::Histogram>* get_duration_seconds_;
+  prometheus::Family<prometheus::Histogram>* delete_duration_seconds_;
+  prometheus::Family<prometheus::Histogram>* update_metadata_duration_seconds_;
 
   // Batch size histogram
   prometheus::Family<prometheus::Histogram>* insert_batch_size_;
@@ -150,7 +177,7 @@ class MetricsRegistry {
  */
 class MetricsTimer {
  public:
-  enum class OperationType { INSERT, SEARCH };
+  enum class OperationType { INSERT, SEARCH, GET, DELETE, UPDATE_METADATA };
 
   MetricsTimer(MetricsRegistry& registry, OperationType type,
                const std::string& collection_name);

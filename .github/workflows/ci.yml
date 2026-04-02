@@ -3,6 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '.github/workflows/**'
+      - 'grafana/**'
+      - 'deploy/**'
+      - 'clients/**'
+      - '*.md'
+      - '.release-please-manifest.json'
+      - 'release-please-config.json'
   pull_request:
     branches: [main]
 
