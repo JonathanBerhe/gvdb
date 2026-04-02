@@ -5,7 +5,7 @@ services:
     image: prom/prometheus:latest
     container_name: gvdb-prometheus
     ports:
-      - "9091:9090"  # Note: 9091 on host to avoid conflict with GVDB metrics on :9090
+      - "9091:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
@@ -25,6 +25,9 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./gvdb-dashboard.json:/var/lib/grafana/dashboards/gvdb-dashboard.json:ro
     restart: unless-stopped
     depends_on:
       - prometheus
