@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5](https://github.com/JonathanBerhe/gvdb/compare/v0.1.4...v0.1.5) (2026-04-02)
+
+
+### Bug Fixes
+
+* **ci:** chain Docker/Helm/PyPI releases off release-please ([72a24cb](https://github.com/JonathanBerhe/gvdb/commit/72a24cb6b6ea9ffe58ba7492eabe33c6d98927ae))
+* **ci:** chain Docker/Helm/PyPI releases off release-please output ([e0d9765](https://github.com/JonathanBerhe/gvdb/commit/e0d9765f5f20b35c58a625c694383b7fb2b7ce30))
+
 ## [0.1.4](https://github.com/JonathanBerhe/gvdb/compare/v0.1.3...v0.1.4) (2026-04-02)
 
 
