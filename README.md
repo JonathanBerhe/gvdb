@@ -73,11 +73,33 @@ graph TB
 
 ## Quick Start
 
-### Build
+### Deploy on Kubernetes (Helm)
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
+helm install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
+  --namespace gvdb --create-namespace
+
+# Scale data nodes
+helm upgrade gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
+  --namespace gvdb --set dataNode.replicas=5
+
+# Connect
+kubectl port-forward -n gvdb svc/gvdb-proxy 50050:50050
+```
+
+### Deploy locally with Kind
+
+```bash
+make deploy   # builds image, creates kind cluster, installs via Helm
+make status   # check pods
+```
+
+### Build from source
+
+```bash
+make build          # Debug build
+make build-release  # Release build
+make test           # Run all C++ tests (37 suites)
 ```
 
 ### Run (single-node)
@@ -86,13 +108,13 @@ cmake --build build -j$(nproc)
 ./build/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb
 ```
 
-### Run (distributed)
+### Run (distributed, bare metal)
 
 ```bash
 # Coordinator
 ./build/bin/gvdb-coordinator --node-id 1 --bind-address 0.0.0.0:50051
 
-# Data node
+# Data node (use --advertise-address in containers)
 ./build/bin/gvdb-data-node --node-id 101 --bind-address 0.0.0.0:50060 \
   --coordinator localhost:50051
 
@@ -100,6 +122,32 @@ cmake --build build -j$(nproc)
 ./build/bin/gvdb-proxy --coordinators localhost:50051 \
   --data-nodes localhost:50060
 ```
+
+## Helm Chart Configuration
+
+All values are configurable via `--set` or a custom `values.yaml`:
+
+```bash
+helm install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
+  --set dataNode.replicas=3 \
+  --set queryNode.replicas=2 \
+  --set proxy.service.type=LoadBalancer \
+  --set image.tag=v1.2.0
+```
+
+Key values:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `dataNode.replicas` | `2` | Number of data nodes |
+| `queryNode.replicas` | `1` | Number of query nodes |
+| `proxy.service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer` |
+| `image.repository` | `gvdb` | Container image |
+| `image.tag` | `latest` | Image tag |
+| `dataNode.storage.size` | `5Gi` | PVC size per data node |
+| `dataNode.memoryLimitGb` | `4` | Memory limit for vector storage |
+
+See [`deploy/helm/gvdb/values.yaml`](deploy/helm/gvdb/values.yaml) for all options.
 
 ## Configuration
 
@@ -122,6 +170,8 @@ logging:
   level: info
 ```
 
+All binaries support environment variables (`GVDB_BIND_ADDRESS`, `GVDB_ADVERTISE_ADDRESS`, `GVDB_DATA_DIR`) for cloud-native deployments.
+
 ## Build Requirements
 
 - C++20 compiler (GCC 11+, Clang 14+)
@@ -131,11 +181,9 @@ logging:
 ## Tests
 
 ```bash
-# Run all tests
-ctest --test-dir build --output-on-failure
-
-# Run a specific suite
-ctest --test-dir build --output-on-failure -R StorageTests
+make test             # C++ unit + integration tests (37 suites)
+make test-e2e         # Go e2e tests against local server
+make test-e2e-kind    # Go e2e tests against kind cluster
 ```
 
 See [test/README.md](test/README.md) for details on the test structure.

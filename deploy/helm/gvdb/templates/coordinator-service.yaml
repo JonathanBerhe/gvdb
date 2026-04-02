@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gvdb.coordinator.serviceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.coordinator.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "gvdb.coordinator.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+    - name: raft
+      port: 8300
+      targetPort: 8300
+    - name: metrics
+      port: 9091
+      targetPort: 9091
