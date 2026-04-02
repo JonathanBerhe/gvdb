@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5](https://github.com/JonathanBerhe/gvdb/compare/v0.1.4...v0.1.5) (2026-04-02)
+
+
+### Features
+
+* **monitoring:** instrument all operations and add RED method Grafana dashboard ([9a486f6](https://github.com/JonathanBerhe/gvdb/commit/9a486f6144c893120ba167e23ba0f11cfb64b12e))
+* **monitoring:** instrument all operations and add RED method Grafana dashboard ([91b76ff](https://github.com/JonathanBerhe/gvdb/commit/91b76ffbbfdb784fb868c93cc14aa0684462ae27))
+
 ## [0.1.4](https://github.com/JonathanBerhe/gvdb/compare/v0.1.3...v0.1.4) (2026-04-02)
 
 
