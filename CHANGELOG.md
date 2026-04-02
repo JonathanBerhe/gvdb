@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/JonathanBerhe/gvdb/compare/v0.1.2...v0.1.3) (2026-04-02)
+
+
+### Features
+
+* **network:** add streaming inserts via client-streaming gRPC ([f973440](https://github.com/JonathanBerhe/gvdb/commit/f9734405b59dca32860dcf3005270d112bda0d93))
+* **network:** add streaming inserts via client-streaming gRPC ([7ad70d3](https://github.com/JonathanBerhe/gvdb/commit/7ad70d30faee3b198b5b4cef869abc1577db286f))
+
 ## [0.1.2](https://github.com/JonathanBerhe/gvdb/compare/v0.1.1...v0.1.2) (2026-04-02)
 
 
