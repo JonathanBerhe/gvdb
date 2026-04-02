@@ -1,0 +1,6 @@
+apiVersion: v2
+name: gvdb
+description: Distributed vector database for similarity search
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

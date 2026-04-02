@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "gvdb.fullname" . }}-data-node
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.dataNode.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "gvdb.dataNode.serviceName" . }}
+  replicas: {{ .Values.dataNode.replicas }}
+  selector:
+    matchLabels:
+      {{- include "gvdb.dataNode.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gvdb.dataNode.selectorLabels" . | nindent 8 }}
+    spec:
+      initContainers:
+        - name: wait-for-coordinator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              echo "Waiting for coordinator..."
+              until nc -z {{ include "gvdb.coordinator.address" . | replace ":50051" "" }} 50051; do
+                sleep 2
+              done
+              echo "Coordinator is ready"
+      containers:
+        - name: data-node
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              ORDINAL=${HOSTNAME##*-}
+              NODE_ID=$((101 + ORDINAL))
+              ADVERTISE="${HOSTNAME}.{{ include "gvdb.dataNode.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local:50060"
+              exec /usr/local/bin/gvdb-data-node \
+                --node-id $NODE_ID \
+                --bind-address 0.0.0.0:50060 \
+                --advertise-address $ADVERTISE \
+                --data-dir /data/gvdb/data_node \
+                --coordinator {{ include "gvdb.coordinator.address" . }} \
+                --memory-limit-gb {{ .Values.dataNode.memoryLimitGb }}
+          ports:
+            - containerPort: 50060
+              name: grpc
+          volumeMounts:
+            - name: data
+              mountPath: /data/gvdb/data_node
+            - name: config
+              mountPath: /etc/gvdb
+          readinessProbe:
+            tcpSocket:
+              port: 50060
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50060
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.dataNode.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "gvdb.fullname" . }}-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.dataNode.storage.storageClass }}
+        storageClassName: {{ .Values.dataNode.storage.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.dataNode.storage.size }}

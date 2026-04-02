@@ -1,0 +1,25 @@
+GVDB has been deployed!
+
+Cluster topology:
+  Coordinator:  {{ .Values.coordinator.replicas }} replica(s)
+  Data Nodes:   {{ .Values.dataNode.replicas }} replica(s)
+  Query Nodes:  {{ .Values.queryNode.replicas }} replica(s)
+  Proxy:        {{ .Values.proxy.replicas }} replica(s)
+
+To connect to the proxy:
+{{- if eq .Values.proxy.service.type "ClusterIP" }}
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "gvdb.fullname" . }}-proxy {{ .Values.proxy.service.port }}:{{ .Values.proxy.service.port }}
+{{- else if eq .Values.proxy.service.type "NodePort" }}
+  export NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[0].address}')
+  export NODE_PORT=$(kubectl get svc -n {{ .Release.Namespace }} {{ include "gvdb.fullname" . }}-proxy -o jsonpath='{.spec.ports[0].nodePort}')
+  echo "gRPC endpoint: $NODE_IP:$NODE_PORT"
+{{- else if eq .Values.proxy.service.type "LoadBalancer" }}
+  export LB_IP=$(kubectl get svc -n {{ .Release.Namespace }} {{ include "gvdb.fullname" . }}-proxy -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+  echo "gRPC endpoint: $LB_IP:{{ .Values.proxy.service.port }}"
+{{- end }}
+
+To check cluster status:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/part-of=gvdb
+
+To scale data nodes:
+  helm upgrade {{ .Release.Name }} deploy/helm/gvdb --set dataNode.replicas=5

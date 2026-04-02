@@ -1,0 +1,79 @@
+image:
+  repository: gvdb
+  tag: latest
+  pullPolicy: IfNotPresent
+
+coordinator:
+  replicas: 1
+  singleNode: true
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  storage:
+    size: 1Gi
+    storageClass: ""
+
+dataNode:
+  replicas: 2
+  memoryLimitGb: 4
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "4Gi"
+      cpu: "2000m"
+  storage:
+    size: 5Gi
+    storageClass: ""
+
+queryNode:
+  replicas: 1
+  memoryLimitGb: 4
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "4Gi"
+      cpu: "2000m"
+  storage:
+    size: 2Gi
+    storageClass: ""
+
+proxy:
+  replicas: 1
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  service:
+    type: ClusterIP
+    port: 50050
+    nodePort: ""
+
+config:
+  server:
+    maxMessageSizeMb: 256
+    maxConcurrentStreams: 1000
+  storage:
+    segmentMaxSizeMb: 512
+    walBufferSizeMb: 64
+    enableCompression: true
+    compactionThreads: 2
+  index:
+    defaultIndexType: "HNSW"
+    hnswM: 16
+    hnswEfConstruction: 200
+    hnswEfSearch: 100
+  logging:
+    level: "info"
+    consoleEnabled: true
+    fileEnabled: false

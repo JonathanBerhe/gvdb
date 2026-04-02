@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gvdb.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    server:
+      bind_address: "0.0.0.0"
+      grpc_port: 50051
+      metrics_port: 9090
+      max_message_size_mb: {{ .Values.config.server.maxMessageSizeMb }}
+      max_concurrent_streams: {{ .Values.config.server.maxConcurrentStreams }}
+    storage:
+      data_dir: "/data/gvdb"
+      segment_max_size_mb: {{ .Values.config.storage.segmentMaxSizeMb }}
+      wal_buffer_size_mb: {{ .Values.config.storage.walBufferSizeMb }}
+      enable_compression: {{ .Values.config.storage.enableCompression }}
+      compaction_threads: {{ .Values.config.storage.compactionThreads }}
+    index:
+      default_index_type: {{ .Values.config.index.defaultIndexType | quote }}
+      hnsw_m: {{ .Values.config.index.hnswM }}
+      hnsw_ef_construction: {{ .Values.config.index.hnswEfConstruction }}
+      hnsw_ef_search: {{ .Values.config.index.hnswEfSearch }}
+      use_gpu: false
+    logging:
+      level: {{ .Values.config.logging.level | quote }}
+      console_enabled: {{ .Values.config.logging.consoleEnabled }}
+      file_enabled: {{ .Values.config.logging.fileEnabled }}
+    consensus:
+      node_id: 1
+      single_node_mode: true
+      election_timeout_ms: 5000
+      heartbeat_interval_ms: 1000
+      peers: []
