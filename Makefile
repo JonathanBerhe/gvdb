@@ -1,6 +1,6 @@
 .PHONY: build build-release test test-e2e test-e2e-kind clean \
        docker-build kind-create kind-load deploy apply \
-       helm-install helm-upgrade helm-uninstall \
+       helm-install helm-upgrade helm-uninstall helm-package helm-push \
        undeploy clean-kind port-forward status
 
 # ---------------------------------------------------------------------------
@@ -13,6 +13,7 @@ IMAGE_NAME      ?= gvdb:latest
 HELM_CHART       = deploy/helm/gvdb
 HELM_RELEASE    ?= gvdb
 HELM_NAMESPACE  ?= gvdb
+HELM_REGISTRY   ?= oci://ghcr.io/jonathanberhe/charts
 K8S_DIR          = deploy/k8s
 CMAKE_JOBS      ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 CMAKE_EXTRA     ?=
@@ -58,6 +59,12 @@ helm-upgrade:
 
 helm-uninstall:
 	helm uninstall $(HELM_RELEASE) -n $(HELM_NAMESPACE)
+
+helm-package:
+	helm package $(HELM_CHART)
+
+helm-push: helm-package
+	helm push gvdb-*.tgz $(HELM_REGISTRY)
 
 # ---------------------------------------------------------------------------
 # Kind cluster

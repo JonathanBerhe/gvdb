@@ -4,3 +4,9 @@ description: Distributed vector database for similarity search
 type: application
 version: 0.1.0
 appVersion: "1.0.0"
+home: https://github.com/JonathanBerhe/gvdb
+sources:
+  - https://github.com/JonathanBerhe/gvdb
+maintainers:
+  - name: Jonathan Berhe
+    url: https://github.com/JonathanBerhe
