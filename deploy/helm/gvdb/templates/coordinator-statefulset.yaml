@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "gvdb.fullname" . }}-coordinator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.coordinator.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "gvdb.coordinator.serviceName" . }}
+  replicas: {{ .Values.coordinator.replicas }}
+  selector:
+    matchLabels:
+      {{- include "gvdb.coordinator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gvdb.coordinator.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: coordinator
+          image: "{{ include "gvdb.image" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              ADVERTISE="${HOSTNAME}.{{ include "gvdb.coordinator.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local:50051"
+              exec /usr/local/bin/gvdb-coordinator \
+                --node-id 1 \
+                --bind-address 0.0.0.0:50051 \
+                --advertise-address $ADVERTISE \
+                --raft-address 0.0.0.0:8300 \
+                --data-dir /data/gvdb/coordinator \
+                {{- if .Values.coordinator.singleNode }}
+                --single-node
+                {{- end }}
+          ports:
+            - containerPort: 50051
+              name: grpc
+            - containerPort: 8300
+              name: raft
+            - containerPort: 9091
+              name: metrics
+          volumeMounts:
+            - name: data
+              mountPath: /data/gvdb/coordinator
+            - name: config
+              mountPath: /etc/gvdb
+          readinessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.coordinator.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "gvdb.fullname" . }}-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.coordinator.storage.storageClass }}
+        storageClassName: {{ .Values.coordinator.storage.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.coordinator.storage.size }}

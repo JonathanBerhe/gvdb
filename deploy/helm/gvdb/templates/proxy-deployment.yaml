@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gvdb.fullname" . }}-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.proxy.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.proxy.replicas }}
+  selector:
+    matchLabels:
+      {{- include "gvdb.proxy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gvdb.proxy.selectorLabels" . | nindent 8 }}
+    spec:
+      initContainers:
+        - name: wait-for-coordinator
+          image: "{{ include "gvdb.image" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              echo "Waiting for coordinator..."
+              until nc -z {{ include "gvdb.coordinator.address" . | replace ":50051" "" }} 50051; do
+                sleep 2
+              done
+              echo "Coordinator is ready"
+        - name: wait-for-data-node
+          image: "{{ include "gvdb.image" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              echo "Waiting for data node..."
+              until nc -z {{ include "gvdb.fullname" . }}-data-node-0.{{ include "gvdb.dataNode.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local 50060; do
+                sleep 2
+              done
+              echo "Data node is ready"
+      containers:
+        - name: proxy
+          image: "{{ include "gvdb.image" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /usr/local/bin/gvdb-proxy
+          args:
+            - "--node-id"
+            - "1"
+            - "--bind-address"
+            - "0.0.0.0:50050"
+            - "--data-dir"
+            - "/tmp/gvdb/proxy"
+            - "--coordinators"
+            - {{ include "gvdb.coordinator.address" . | quote }}
+            - "--data-nodes"
+            - {{ include "gvdb.dataNode.addresses" . | quote }}
+            - "--query-nodes"
+            - {{ include "gvdb.queryNode.addresses" . | quote }}
+          ports:
+            - containerPort: 50050
+              name: grpc
+            - containerPort: 9050
+              name: metrics
+          readinessProbe:
+            tcpSocket:
+              port: 50050
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50050
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.proxy.resources | nindent 12 }}
