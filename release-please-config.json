@@ -12,6 +12,10 @@
         {
           "type": "generic",
           "path": "deploy/helm/gvdb/Chart.yaml"
+        },
+        {
+          "type": "generic",
+          "path": "clients/python/pyproject.toml"
         }
       ]
     }
