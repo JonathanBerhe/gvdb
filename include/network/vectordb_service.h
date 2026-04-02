@@ -49,6 +49,11 @@ class VectorDBService final : public proto::VectorDBService::Service {
       const proto::InsertRequest* request,
       proto::InsertResponse* response) override;
 
+  grpc::Status StreamInsert(
+      grpc::ServerContext* context,
+      grpc::ServerReader<proto::InsertRequest>* reader,
+      proto::InsertResponse* response) override;
+
   grpc::Status Search(
       grpc::ServerContext* context,
       const proto::SearchRequest* request,

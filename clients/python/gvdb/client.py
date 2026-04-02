@@ -175,6 +175,38 @@ class GVDBClient:
         )
         return resp.inserted_count
 
+    def stream_insert(
+        self,
+        collection: str,
+        ids: list[int],
+        vectors: list[list[float]],
+        *,
+        batch_size: int = 10000,
+        metadata: Optional[list[dict]] = None,
+    ) -> int:
+        """Stream insert vectors in batches. Returns total number inserted."""
+
+        def _chunks():
+            for start in range(0, len(ids), batch_size):
+                end = min(start + batch_size, len(ids))
+                proto_vectors = []
+                for i in range(start, end):
+                    v = pb.VectorWithId(
+                        id=ids[i],
+                        vector=pb.Vector(values=vectors[i], dimension=len(vectors[i])),
+                    )
+                    if metadata and i < len(metadata) and metadata[i]:
+                        v.metadata.CopyFrom(_to_proto_metadata(metadata[i]))
+                    proto_vectors.append(v)
+                yield pb.InsertRequest(collection_name=collection, vectors=proto_vectors)
+
+        resp = self._stub.StreamInsert(
+            _chunks(),
+            timeout=self._timeout,
+            metadata=self._metadata,
+        )
+        return resp.inserted_count
+
     def search(
         self,
         collection: str,
