@@ -13,7 +13,7 @@ pip install gvdb
 ```python
 from gvdb import GVDBClient
 
-client = GVDBClient("localhost:50051")
+client = GVDBClient("localhost:50051", api_key="your-key")  # api_key is optional
 
 # Create a collection
 client.create_collection("my_vectors", dimension=768)
