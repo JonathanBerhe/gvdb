@@ -224,6 +224,51 @@ grpc::Status ProxyService::Insert(
   return client->Insert(&client_ctx, internal_req, response);
 }
 
+grpc::Status ProxyService::StreamInsert(
+    grpc::ServerContext* context,
+    grpc::ServerReader<proto::InsertRequest>* reader,
+    proto::InsertResponse* response) {
+
+  // Read first chunk to determine collection for routing
+  proto::InsertRequest first_chunk;
+  if (!reader->Read(&first_chunk)) {
+    response->set_inserted_count(0);
+    response->set_message("Empty stream");
+    return grpc::Status::OK;
+  }
+
+  auto* client = GetDataNodeClientForCollection(first_chunk.collection_name());
+  if (!client) {
+    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
+    client = GetDataNodeClient(shard);
+  }
+  if (!client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
+  }
+
+  // Open client-side stream to data node
+  grpc::ClientContext client_ctx;
+  auto writer = client->StreamInsert(&client_ctx, response);
+
+  // Forward first chunk
+  if (!writer->Write(first_chunk)) {
+    writer->WritesDone();
+    return writer->Finish();
+  }
+
+  // Forward remaining chunks
+  proto::InsertRequest chunk;
+  while (reader->Read(&chunk)) {
+    if (!writer->Write(chunk)) {
+      writer->WritesDone();
+      return writer->Finish();
+    }
+  }
+
+  writer->WritesDone();
+  return writer->Finish();
+}
+
 grpc::Status ProxyService::Get(
     grpc::ServerContext* context,
     const proto::GetRequest* request,

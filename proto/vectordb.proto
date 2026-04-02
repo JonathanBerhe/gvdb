@@ -195,6 +195,7 @@ service VectorDBService {
 
   // Vector operations
   rpc Insert(InsertRequest) returns (InsertResponse);
+  rpc StreamInsert(stream InsertRequest) returns (InsertResponse);
   rpc Search(SearchRequest) returns (SearchResponse);
   rpc Get(GetRequest) returns (GetResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);
