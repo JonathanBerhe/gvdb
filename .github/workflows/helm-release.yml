@@ -28,6 +28,7 @@ jobs:
         run: |
           VERSION=$(grep '^version:' deploy/helm/gvdb/Chart.yaml | awk '{print $2}' | tr -d '"')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Package chart
         run: helm package deploy/helm/gvdb
@@ -36,7 +37,7 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Push to OCI registry
-        run: helm push gvdb-${{ steps.chart.outputs.version }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+        run: helm push gvdb-${{ steps.chart.outputs.version }}.tgz oci://ghcr.io/${{ steps.chart.outputs.owner }}/charts
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -47,12 +48,12 @@ jobs:
             ## Install
 
             ```bash
-            helm install gvdb oci://ghcr.io/${{ github.repository_owner }}/charts/gvdb --version ${{ steps.chart.outputs.version }}
+            helm install gvdb oci://ghcr.io/${{ steps.chart.outputs.owner }}/charts/gvdb --version ${{ steps.chart.outputs.version }}
             ```
 
             ## Upgrade
 
             ```bash
-            helm upgrade gvdb oci://ghcr.io/${{ github.repository_owner }}/charts/gvdb --version ${{ steps.chart.outputs.version }}
+            helm upgrade gvdb oci://ghcr.io/${{ steps.chart.outputs.owner }}/charts/gvdb --version ${{ steps.chart.outputs.version }}
             ```
           files: gvdb-${{ steps.chart.outputs.version }}.tgz
