@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.2](https://github.com/JonathanBerhe/gvdb/compare/v0.1.1...v0.1.2) (2026-04-02)
+
+
+### Features
+
+* **ci:** add PyPI publish workflow for Python SDK ([1c4e47e](https://github.com/JonathanBerhe/gvdb/commit/1c4e47e49a697698c49737f486ffe005acc2d187))
+* **sdk:** add api_key authentication to Python client ([97f2755](https://github.com/JonathanBerhe/gvdb/commit/97f27556c71cddecb5c0f19078ff0aa309bb16a0))
+* **sdk:** add Python client for GVDB ([ed22e32](https://github.com/JonathanBerhe/gvdb/commit/ed22e3222490603924d173af18a27d57c48aeb21))
+* **sdk:** add Python client for GVDB ([79fda95](https://github.com/JonathanBerhe/gvdb/commit/79fda956c8ec6e02793f873350228ba58e9a8725))
+
 ## [0.1.1](https://github.com/JonathanBerhe/gvdb/compare/v0.1.0...v0.1.1) (2026-04-02)
 
 
