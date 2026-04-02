@@ -33,16 +33,25 @@ class GVDBClient:
 
     Example::
 
-        client = GVDBClient("localhost:50051")
+        client = GVDBClient("localhost:50051", api_key="your-key")
         client.create_collection("docs", dimension=768)
         client.insert("docs", ids=[1, 2], vectors=[[0.1, ...], [0.2, ...]])
         results = client.search("docs", query_vector=[0.1, ...], top_k=10)
         client.close()
     """
 
-    def __init__(self, address: str = "localhost:50051", *, timeout: float = 30.0):
+    def __init__(
+        self,
+        address: str = "localhost:50051",
+        *,
+        api_key: Optional[str] = None,
+        timeout: float = 30.0,
+    ):
         self._address = address
         self._timeout = timeout
+        self._metadata = ()
+        if api_key:
+            self._metadata = (("authorization", f"Bearer {api_key}"),)
         self._channel = grpc.insecure_channel(
             address,
             options=[
@@ -66,12 +75,12 @@ class GVDBClient:
 
     def health_check(self) -> str:
         """Check server health. Returns status message."""
-        resp = self._stub.HealthCheck(pb.HealthCheckRequest(), timeout=self._timeout)
+        resp = self._stub.HealthCheck(pb.HealthCheckRequest(), timeout=self._timeout, metadata=self._metadata)
         return resp.message
 
     def get_stats(self) -> dict:
         """Get server statistics."""
-        resp = self._stub.GetStats(pb.GetStatsRequest(), timeout=self._timeout)
+        resp = self._stub.GetStats(pb.GetStatsRequest(), timeout=self._timeout, metadata=self._metadata)
         return {
             "total_collections": resp.total_collections,
             "total_vectors": resp.total_vectors,
@@ -112,6 +121,7 @@ class GVDBClient:
                 num_shards=num_shards,
             ),
             timeout=self._timeout,
+            metadata=self._metadata,
         )
         return resp.collection_id
 
@@ -120,6 +130,7 @@ class GVDBClient:
         self._stub.DropCollection(
             pb.DropCollectionRequest(collection_name=name),
             timeout=self._timeout,
+            metadata=self._metadata,
         )
 
     def list_collections(self) -> list[CollectionInfo]:
@@ -160,6 +171,7 @@ class GVDBClient:
         resp = self._stub.Insert(
             pb.InsertRequest(collection_name=collection, vectors=proto_vectors),
             timeout=self._timeout,
+            metadata=self._metadata,
         )
         return resp.inserted_count
 
@@ -183,7 +195,7 @@ class GVDBClient:
         if return_metadata:
             req.return_metadata = True
 
-        resp = self._stub.Search(req, timeout=self._timeout)
+        resp = self._stub.Search(req, timeout=self._timeout, metadata=self._metadata)
         return [
             SearchResult(
                 id=r.id,
@@ -198,6 +210,7 @@ class GVDBClient:
         resp = self._stub.Get(
             pb.GetRequest(collection_name=collection, ids=ids),
             timeout=self._timeout,
+            metadata=self._metadata,
         )
         results = []
         for v in resp.vectors:
@@ -212,6 +225,7 @@ class GVDBClient:
         resp = self._stub.Delete(
             pb.DeleteRequest(collection_name=collection, ids=ids),
             timeout=self._timeout,
+            metadata=self._metadata,
         )
         return resp.deleted_count
 
@@ -237,6 +251,7 @@ class GVDBClient:
                 mode=mode,
             ),
             timeout=self._timeout,
+            metadata=self._metadata,
         )
 
 
