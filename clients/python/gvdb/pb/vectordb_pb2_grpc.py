@@ -58,6 +58,11 @@ class VectorDBServiceStub(object):
                 request_serializer=vectordb__pb2.InsertRequest.SerializeToString,
                 response_deserializer=vectordb__pb2.InsertResponse.FromString,
                 _registered_method=True)
+        self.StreamInsert = channel.stream_unary(
+                '/gvdb.proto.VectorDBService/StreamInsert',
+                request_serializer=vectordb__pb2.InsertRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.InsertResponse.FromString,
+                _registered_method=True)
         self.Search = channel.unary_unary(
                 '/gvdb.proto.VectorDBService/Search',
                 request_serializer=vectordb__pb2.SearchRequest.SerializeToString,
@@ -123,6 +128,12 @@ class VectorDBServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StreamInsert(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Search(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -180,6 +191,11 @@ def add_VectorDBServiceServicer_to_server(servicer, server):
             ),
             'Insert': grpc.unary_unary_rpc_method_handler(
                     servicer.Insert,
+                    request_deserializer=vectordb__pb2.InsertRequest.FromString,
+                    response_serializer=vectordb__pb2.InsertResponse.SerializeToString,
+            ),
+            'StreamInsert': grpc.stream_unary_rpc_method_handler(
+                    servicer.StreamInsert,
                     request_deserializer=vectordb__pb2.InsertRequest.FromString,
                     response_serializer=vectordb__pb2.InsertResponse.SerializeToString,
             ),
@@ -324,6 +340,33 @@ class VectorDBService(object):
             request,
             target,
             '/gvdb.proto.VectorDBService/Insert',
+            vectordb__pb2.InsertRequest.SerializeToString,
+            vectordb__pb2.InsertResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamInsert(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_unary(
+            request_iterator,
+            target,
+            '/gvdb.proto.VectorDBService/StreamInsert',
             vectordb__pb2.InsertRequest.SerializeToString,
             vectordb__pb2.InsertResponse.FromString,
             options,
