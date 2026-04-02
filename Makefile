@@ -1,5 +1,6 @@
 .PHONY: build build-release test test-e2e test-e2e-kind clean \
        docker-build kind-create kind-load deploy apply \
+       helm-install helm-upgrade helm-uninstall \
        undeploy clean-kind port-forward status
 
 # ---------------------------------------------------------------------------
@@ -9,6 +10,9 @@ BUILD_DIR       ?= build
 BUILD_TYPE      ?= Debug
 CLUSTER_NAME    ?= gvdb
 IMAGE_NAME      ?= gvdb:latest
+HELM_CHART       = deploy/helm/gvdb
+HELM_RELEASE    ?= gvdb
+HELM_NAMESPACE  ?= gvdb
 K8S_DIR          = deploy/k8s
 CMAKE_JOBS      ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 CMAKE_EXTRA     ?=
@@ -44,6 +48,18 @@ docker-build:
 	docker build -t $(IMAGE_NAME) -f deploy/Dockerfile .
 
 # ---------------------------------------------------------------------------
+# Helm
+# ---------------------------------------------------------------------------
+helm-install:
+	helm install $(HELM_RELEASE) $(HELM_CHART) -n $(HELM_NAMESPACE) --create-namespace
+
+helm-upgrade:
+	helm upgrade $(HELM_RELEASE) $(HELM_CHART) -n $(HELM_NAMESPACE)
+
+helm-uninstall:
+	helm uninstall $(HELM_RELEASE) -n $(HELM_NAMESPACE)
+
+# ---------------------------------------------------------------------------
 # Kind cluster
 # ---------------------------------------------------------------------------
 kind-create:
@@ -53,8 +69,10 @@ kind-create:
 kind-load:
 	kind load docker-image $(IMAGE_NAME) --name $(CLUSTER_NAME)
 
-deploy: docker-build kind-create kind-load apply
+# Full pipeline: build image + create kind cluster + load + helm install
+deploy: docker-build kind-create kind-load helm-install
 
+# Raw manifests (alternative to Helm, for quick testing)
 apply:
 	kubectl apply -f $(K8S_DIR)/namespace.yaml
 	kubectl apply -f $(K8S_DIR)/configmap.yaml
@@ -74,14 +92,15 @@ apply:
 	@echo "  Run 'make port-forward' to access the proxy at localhost:50050"
 
 undeploy:
-	kubectl delete namespace gvdb --ignore-not-found
+	-helm uninstall $(HELM_RELEASE) -n $(HELM_NAMESPACE) 2>/dev/null
+	kubectl delete namespace $(HELM_NAMESPACE) --ignore-not-found
 
 port-forward:
 	@echo "Forwarding proxy gRPC to localhost:50050 (Ctrl+C to stop)"
-	kubectl port-forward -n gvdb svc/proxy 50050:50050
+	kubectl port-forward -n $(HELM_NAMESPACE) svc/$(HELM_RELEASE)-proxy 50050:50050
 
 status:
-	kubectl get pods -n gvdb -o wide
+	kubectl get pods -n $(HELM_NAMESPACE) -o wide
 
 clean-kind:
 	kind delete cluster --name $(CLUSTER_NAME)
