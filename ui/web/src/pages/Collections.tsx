@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type Collection } from '../lib/api'
 
-export default function Collections() {
+export default function Collections({ onSelect }: { onSelect?: (name: string) => void }) {
   const [collections, setCollections] = useState<Collection[]>([])
   const [error, setError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -60,7 +60,11 @@ export default function Collections() {
             <tbody>
               {collections.map(c => (
                 <tr key={c.id} className="border-b border-gray-100 dark:border-gray-800/50">
-                  <td className="py-3 px-4 font-medium">{c.name}</td>
+                  <td className="py-3 px-4 font-medium">
+                    <button onClick={() => onSelect?.(c.name)} className="text-blue-600 dark:text-blue-400 hover:underline">
+                      {c.name}
+                    </button>
+                  </td>
                   <td className="py-3 px-4">{c.dimension}</td>
                   <td className="py-3 px-4">{c.vector_count.toLocaleString()}</td>
                   <td className="py-3 px-4">
