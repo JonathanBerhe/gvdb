@@ -184,6 +184,27 @@ message GetStatsResponse {
 }
 
 // ============================================================================
+// Hybrid Search (BM25 + Vector)
+// ============================================================================
+
+message HybridSearchRequest {
+  string collection_name = 1;
+  Vector query_vector = 2;     // Dense vector query
+  string text_query = 3;       // Text query for BM25
+  uint32 top_k = 4;
+  string filter = 5;           // Optional metadata filter
+  bool return_metadata = 6;
+  float vector_weight = 7;     // 0.0-1.0 (default: 0.5 if both set)
+  float text_weight = 8;       // 0.0-1.0 (default: 0.5 if both set)
+  string text_field = 9;       // Metadata field for BM25 (default: "text")
+}
+
+message HybridSearchResponse {
+  repeated SearchResultEntry results = 1;
+  float query_time_ms = 2;
+}
+
+// ============================================================================
 // VectorDB Service
 // ============================================================================
 
@@ -200,6 +221,9 @@ service VectorDBService {
   rpc Get(GetRequest) returns (GetResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);
   rpc UpdateMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse);
+
+  // Hybrid search (BM25 + vector)
+  rpc HybridSearch(HybridSearchRequest) returns (HybridSearchResponse);
 
   // Health and stats
   rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);

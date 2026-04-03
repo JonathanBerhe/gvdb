@@ -10,6 +10,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "internal.grpc.pb.h"
+#include "index/bm25_index.h"
 #include <algorithm>
 #include <future>
 #include <grpcpp/grpcpp.h>
@@ -644,6 +645,124 @@ grpc::Status VectorDBService::Search(
       static_cast<uint64_t>(search_timer.elapsed_millis()),
       std::memory_order_relaxed);
 
+  return grpc::Status::OK;
+}
+
+grpc::Status VectorDBService::HybridSearch(
+    grpc::ServerContext* context,
+    const proto::HybridSearchRequest* request,
+    proto::HybridSearchResponse* response) {
+
+  utils::Timer search_timer;
+  utils::Logger::Instance().Info("HybridSearch: collection={}, text_query='{}'",
+                                  request->collection_name(), request->text_query());
+
+  bool has_vector = request->has_query_vector() && request->query_vector().dimension() > 0;
+  bool has_text = !request->text_query().empty();
+
+  if (!has_vector && !has_text) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+        "At least one of query_vector or text_query must be provided");
+  }
+
+  if (!resolver_->SupportsDataOps()) {
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+        "HybridSearch not supported on coordinator nodes");
+  }
+
+  // Resolve collection
+  auto collection_id_result = resolver_->GetCollectionId(request->collection_name());
+  if (!collection_id_result.ok()) {
+    return toGrpcStatus(collection_id_result.status());
+  }
+
+  // Convert query vector (optional — may be text-only)
+  std::optional<core::Vector> query_vector;
+  if (has_vector) {
+    auto qr = fromProto(request->query_vector());
+    if (!qr.ok()) return toGrpcStatus(qr.status());
+    query_vector = std::move(*qr);
+  }
+
+  // Get segments
+  auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
+  if (!segment_ids_result.ok()) {
+    return toGrpcStatus(segment_ids_result.status());
+  }
+
+  // Determine weights
+  float vector_weight = request->vector_weight() > 0 ? request->vector_weight() : 0.5f;
+  float text_weight = request->text_weight() > 0 ? request->text_weight() : 0.5f;
+  std::string text_field = request->text_field().empty() ? "text" : request->text_field();
+
+  // Build text index on-the-fly for segments that don't have one
+  for (const auto& seg_id : *segment_ids_result) {
+    auto* segment = segment_manager_->GetSegment(seg_id);
+    if (!segment) continue;
+
+    // Build text index from metadata if not already built
+    auto bm25 = std::make_unique<index::BM25Index>();
+    segment->BuildTextIndex(std::move(bm25), text_field);
+  }
+
+  // Search each segment
+  std::vector<core::SearchResultEntry> all_entries;
+  for (const auto& seg_id : *segment_ids_result) {
+    auto* segment = segment_manager_->GetSegment(seg_id);
+    if (!segment) continue;
+
+    core::StatusOr<core::SearchResult> result;
+
+    if (has_vector && has_text) {
+      // Full hybrid: vector + BM25 with RRF fusion
+      result = segment->SearchHybrid(
+          *query_vector, request->text_query(), request->top_k(),
+          vector_weight, text_weight, text_field);
+    } else if (has_vector) {
+      // Vector-only (fallback to regular search)
+      result = segment->Search(*query_vector, request->top_k());
+    } else {
+      // Text-only: BM25 search via text index
+      // BuildTextIndex was already called above
+      result = segment->SearchHybrid(
+          core::ZeroVector(segment->GetDimension()),
+          request->text_query(), request->top_k(),
+          0.0f, 1.0f, text_field);  // All weight on text
+    }
+
+    if (result.ok()) {
+      for (auto& entry : result->entries) {
+        all_entries.push_back(entry);
+      }
+    }
+  }
+
+  // Sort by RRF score (higher = better) and take top_k
+  std::sort(all_entries.begin(), all_entries.end(),
+            [](const auto& a, const auto& b) { return a.distance > b.distance; });
+
+  int top_k = std::min(static_cast<int>(all_entries.size()),
+                        static_cast<int>(request->top_k()));
+
+  for (int i = 0; i < top_k; ++i) {
+    auto* proto_entry = response->add_results();
+    toProto(all_entries[i], proto_entry);
+
+    if (request->return_metadata()) {
+      for (const auto& seg_id : *segment_ids_result) {
+        auto* segment = segment_manager_->GetSegment(seg_id);
+        if (segment) {
+          auto meta_result = segment->GetMetadata(all_entries[i].id);
+          if (meta_result.ok()) {
+            toProto(*meta_result, proto_entry->mutable_metadata());
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  response->set_query_time_ms(search_timer.elapsed_millis());
   return grpc::Status::OK;
 }
 

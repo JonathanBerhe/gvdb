@@ -237,6 +237,51 @@ class GVDBClient:
             for r in resp.results
         ]
 
+    def hybrid_search(
+        self,
+        collection: str,
+        *,
+        query_vector: Optional[list[float]] = None,
+        text_query: str = "",
+        top_k: int = 10,
+        vector_weight: float = 0.5,
+        text_weight: float = 0.5,
+        text_field: str = "text",
+        filter_expression: str = "",
+        return_metadata: bool = False,
+    ) -> list[SearchResult]:
+        """Hybrid search combining vector similarity and BM25 text relevance."""
+        req = pb.HybridSearchRequest(
+            collection_name=collection,
+            text_query=text_query,
+            top_k=top_k,
+            vector_weight=vector_weight,
+            text_weight=text_weight,
+            text_field=text_field,
+        )
+        if query_vector:
+            req.query_vector.CopyFrom(
+                pb.Vector(values=query_vector, dimension=len(query_vector))
+            )
+        if filter_expression:
+            req.filter = filter_expression
+        if return_metadata:
+            req.return_metadata = True
+
+        resp = self._stub.HybridSearch(
+            req,
+            timeout=self._timeout,
+            metadata=self._metadata,
+        )
+        return [
+            SearchResult(
+                id=r.id,
+                distance=r.distance,
+                metadata=_from_proto_metadata(r.metadata) if r.metadata.fields else None,
+            )
+            for r in resp.results
+        ]
+
     def get(self, collection: str, ids: list[int]) -> list[dict]:
         """Get vectors by ID. Returns list of {id, vector, metadata}."""
         resp = self._stub.Get(

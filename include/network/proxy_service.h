@@ -73,6 +73,11 @@ class ProxyService final : public proto::VectorDBService::Service {
                              const proto::UpdateMetadataRequest* request,
                              proto::UpdateMetadataResponse* response) override;
 
+  // Hybrid search → Data Nodes (shard-aware)
+  grpc::Status HybridSearch(grpc::ServerContext* context,
+                            const proto::HybridSearchRequest* request,
+                            proto::HybridSearchResponse* response) override;
+
   // Query operations → Query Nodes (load balanced)
   grpc::Status Search(grpc::ServerContext* context,
                      const proto::SearchRequest* request,
