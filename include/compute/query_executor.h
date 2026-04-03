@@ -12,6 +12,7 @@
 #include "core/vector.h"
 #include "storage/segment_manager.h"
 #include "utils/thread_pool.h"
+#include "utils/query_cache.h"
 
 namespace gvdb {
 namespace compute {
@@ -36,10 +37,12 @@ class QueryExecutor {
 
   // Execute a vector search query
   // Searches across all segments in the collection and merges results
+  // Optional filter expression for metadata filtering
   [[nodiscard]] core::StatusOr<core::SearchResult> Search(
       core::CollectionId collection_id,
       const core::Vector& query,
-      int top_k);
+      int top_k,
+      const std::string& filter = "");
 
   // Execute searches in parallel (batch query)
   [[nodiscard]] core::StatusOr<std::vector<core::SearchResult>> SearchBatch(
@@ -59,6 +62,12 @@ class QueryExecutor {
   storage::SegmentManager* segment_manager_;
   std::unique_ptr<utils::ThreadPool> owned_thread_pool_;
   utils::ThreadPool* thread_pool_;  // Points to owned or external pool
+  std::shared_ptr<utils::QueryCache> cache_;
+
+ public:
+  // Set or get the query cache (optional, nullptr disables caching)
+  void SetCache(std::shared_ptr<utils::QueryCache> cache) { cache_ = std::move(cache); }
+  utils::QueryCache* GetCache() const { return cache_.get(); }
 };
 
 }  // namespace compute

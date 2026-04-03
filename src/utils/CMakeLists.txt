@@ -8,6 +8,7 @@ add_library(gvdb_utils
   config.cpp
   server_bootstrap.cpp
   env_flags.cpp
+  query_cache.cpp
 )
 
 # Link dependencies
