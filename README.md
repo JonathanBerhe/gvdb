@@ -108,8 +108,17 @@ make test           # Run all C++ tests (37 suites)
 ### Web UI
 
 ```bash
-make build-ui                              # Build gvdb-ui binary (React + Go)
-./ui/gateway/gvdb-ui --gvdb-addr localhost:50051  # Open http://localhost:8080
+# Docker (recommended)
+docker run -p 8080:8080 ghcr.io/jonathanberhe/gvdb-ui --gvdb-addr host.docker.internal:50051
+# Open http://localhost:8080
+
+# Helm (alongside GVDB cluster)
+helm upgrade gvdb deploy/helm/gvdb --set ui.enabled=true
+kubectl port-forward -n gvdb svc/gvdb-ui 8080:8080
+
+# Build from source
+make build-ui
+./ui/gateway/gvdb-ui --gvdb-addr localhost:50051
 ```
 
 ### Run (single-node)
