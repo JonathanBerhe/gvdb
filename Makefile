@@ -120,6 +120,9 @@ build-ui:
 	@cd ui/gateway && CGO_ENABLED=0 go build -ldflags="-s -w" -o gvdb-ui .
 	@echo "Built ui/gateway/gvdb-ui ($$(du -h ui/gateway/gvdb-ui | cut -f1))"
 
+docker-build-ui:
+	docker build -t gvdb-ui:latest -f ui/Dockerfile ui/
+
 run-ui:
 	@cd ui/gateway && ./gvdb-ui $(if $(GVDB_ADDR),--gvdb-addr $(GVDB_ADDR),)
 
