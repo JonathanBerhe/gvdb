@@ -117,8 +117,8 @@ build-ui:
 	@cd ui/web && yarn install --frozen-lockfile && yarn build
 	@rm -rf ui/gateway/static/*
 	@cp -r ui/web/dist/* ui/gateway/static/
-	@cd ui/gateway && go build -o gvdb-ui .
-	@echo "Built ui/gateway/gvdb-ui"
+	@cd ui/gateway && CGO_ENABLED=0 go build -ldflags="-s -w" -o gvdb-ui .
+	@echo "Built ui/gateway/gvdb-ui ($$(du -h ui/gateway/gvdb-ui | cut -f1))"
 
 run-ui:
 	@cd ui/gateway && ./gvdb-ui $(if $(GVDB_ADDR),--gvdb-addr $(GVDB_ADDR),)

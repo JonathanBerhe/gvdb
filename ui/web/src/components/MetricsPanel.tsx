@@ -39,8 +39,8 @@ export default function MetricsPanel() {
     .reduce<Record<string, { success: number; error: number }>>((acc, m) => {
       const op = m.name.replace('gvdb_', '').replace('_requests_total', '')
       if (!acc[op]) acc[op] = { success: 0, error: 0 }
-      if (m.labels.status === 'success') acc[op].success += m.value
-      else if (m.labels.status === 'error') acc[op].error += m.value
+      if (m.labels?.status === 'success') acc[op].success += m.value
+      else if (m.labels?.status === 'error') acc[op].error += m.value
       return acc
     }, {})
 
@@ -53,7 +53,7 @@ export default function MetricsPanel() {
   const vectorCounts = metrics
     .filter(m => m.name === 'gvdb_vector_count')
     .map(m => ({
-      collection: m.labels.collection || 'unknown',
+      collection: m.labels?.collection || 'unknown',
       vectors: m.value,
     }))
 
@@ -108,7 +108,7 @@ export default function MetricsPanel() {
                 <tr key={i} className="border-b border-gray-100 dark:border-gray-800/30">
                   <td className="py-1 px-2">{m.name}</td>
                   <td className="py-1 px-2 text-gray-500">
-                    {Object.entries(m.labels).map(([k, v]) => `${k}=${v}`).join(', ')}
+                    {Object.entries(m.labels || {}).map(([k, v]) => `${k}=${v}`).join(', ')}
                   </td>
                   <td className="py-1 px-2 text-right">{m.value}</td>
                 </tr>
