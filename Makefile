@@ -1,7 +1,8 @@
 .PHONY: build build-release test test-e2e test-e2e-kind clean \
        docker-build kind-create kind-load deploy apply \
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
-       undeploy clean-kind port-forward status
+       undeploy clean-kind port-forward status \
+       build-ui run-ui
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -108,6 +109,19 @@ port-forward:
 
 status:
 	kubectl get pods -n $(HELM_NAMESPACE) -o wide
+
+# ---------------------------------------------------------------------------
+# Web UI
+# ---------------------------------------------------------------------------
+build-ui:
+	@cd ui/web && yarn install --frozen-lockfile && yarn build
+	@rm -rf ui/gateway/static/*
+	@cp -r ui/web/dist/* ui/gateway/static/
+	@cd ui/gateway && go build -o gvdb-ui .
+	@echo "Built ui/gateway/gvdb-ui"
+
+run-ui:
+	@cd ui/gateway && ./gvdb-ui $(if $(GVDB_ADDR),--gvdb-addr $(GVDB_ADDR),)
 
 clean-kind:
 	kind delete cluster --name $(CLUSTER_NAME)
