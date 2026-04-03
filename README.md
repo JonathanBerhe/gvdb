@@ -7,12 +7,14 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 ## Features
 
 - **Vector Search**: FLAT, HNSW, IVF_FLAT, IVF_PQ, IVF_SQ index types via Faiss
+- **Hybrid Search**: BM25 keyword search + vector similarity with Reciprocal Rank Fusion (RRF)
 - **Distributed Mode**: Coordinator, data nodes, query nodes, proxy with full sharding and replication
 - **Multi-Shard Collections**: Data distributed across nodes with consistent hashing (150 virtual nodes)
 - **Fault Tolerance**: Automatic failure detection, replica promotion, auto-replication
 - **Metadata Filtering**: SQL-like filters (`age > 18 AND city = 'NYC'`, `LIKE`, `IN`)
 - **Persistence**: Vectors flushed to disk, index rebuilt on startup recovery
 - **gRPC API**: Protobuf-based client/server with TLS and API key authentication
+- **Python SDK**: `pip install gvdb` — full API with hybrid search, streaming inserts, metadata
 - **Raft Consensus**: Metadata operations replicated via NuRaft
 
 ## Architecture

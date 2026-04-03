@@ -6,6 +6,7 @@
 #include "core/vector.h"
 #include "index/index_factory.h"
 #include "index/index_manager.h"
+#include "index/bm25_index.h"
 
 namespace gvdb {
 namespace index {
@@ -457,6 +458,94 @@ TEST_CASE("IndexManagerTest - Clear") {
 
   manager.Clear();
   CHECK_EQ(manager.GetIndexCount(), 0);
+}
+
+// ============================================================================
+// BM25 Index Tests
+// ============================================================================
+
+TEST_CASE("BM25Index: AddAndSearch") {
+  BM25Index idx;
+  REQUIRE(idx.AddDocument(core::MakeVectorId(1), "the quick brown fox jumps over the lazy dog").ok());
+  REQUIRE(idx.AddDocument(core::MakeVectorId(2), "the quick brown fox").ok());
+  REQUIRE(idx.AddDocument(core::MakeVectorId(3), "a lazy dog sleeps all day").ok());
+  REQUIRE(idx.AddDocument(core::MakeVectorId(4), "cats and birds in the garden").ok());
+
+  auto result = idx.Search("quick fox", 3);
+  REQUIRE(result.ok());
+  REQUIRE(result->entries.size() >= 2);
+
+  // IDs 1 and 2 contain both "quick" and "fox" — they must be in top 2
+  uint64_t id0 = core::ToUInt64(result->entries[0].id);
+  uint64_t id1 = core::ToUInt64(result->entries[1].id);
+  CHECK(((id0 == 1 && id1 == 2) || (id0 == 2 && id1 == 1)));
+
+  // Both should have positive BM25 scores
+  CHECK(result->entries[0].distance > 0.0f);
+  CHECK(result->entries[1].distance > 0.0f);
+
+  // Top result should score higher than second
+  CHECK(result->entries[0].distance >= result->entries[1].distance);
+}
+
+TEST_CASE("BM25Index: EmptyIndex") {
+  BM25Index idx;
+  auto result = idx.Search("anything", 5);
+  REQUIRE(result.ok());
+  CHECK(result->entries.empty());
+}
+
+TEST_CASE("BM25Index: NoMatchingTerms") {
+  BM25Index idx;
+  REQUIRE(idx.AddDocument(core::MakeVectorId(1), "apples oranges bananas").ok());
+  auto result = idx.Search("cars trucks", 5);
+  REQUIRE(result.ok());
+  CHECK(result->entries.empty());
+}
+
+TEST_CASE("BM25Index: SingleDocument") {
+  BM25Index idx;
+  REQUIRE(idx.AddDocument(core::MakeVectorId(42), "machine learning deep neural networks").ok());
+  auto result = idx.Search("machine learning", 1);
+  REQUIRE(result.ok());
+  REQUIRE(result->entries.size() == 1);
+  CHECK(result->entries[0].id == core::MakeVectorId(42));
+  CHECK(result->entries[0].distance > 0.0f);  // BM25 score should be positive
+}
+
+TEST_CASE("BM25Index: CaseInsensitive") {
+  BM25Index idx;
+  REQUIRE(idx.AddDocument(core::MakeVectorId(1), "Hello World UPPERCASE lowercase").ok());
+  auto result = idx.Search("hello WORLD", 1);
+  REQUIRE(result.ok());
+  REQUIRE(result->entries.size() == 1);
+  CHECK(result->entries[0].id == core::MakeVectorId(1));
+}
+
+TEST_CASE("BM25Index: DocumentCount") {
+  BM25Index idx;
+  CHECK(idx.GetDocumentCount() == 0);
+  REQUIRE(idx.AddDocument(core::MakeVectorId(1), "first document").ok());
+  CHECK(idx.GetDocumentCount() == 1);
+  REQUIRE(idx.AddDocument(core::MakeVectorId(2), "second document").ok());
+  CHECK(idx.GetDocumentCount() == 2);
+}
+
+TEST_CASE("BM25Index: MemoryUsage") {
+  BM25Index idx;
+  CHECK(idx.GetMemoryUsage() == 0);
+  REQUIRE(idx.AddDocument(core::MakeVectorId(1), "some text with several words to index").ok());
+  CHECK(idx.GetMemoryUsage() > 0);
+}
+
+TEST_CASE("BM25Index: TopKLimit") {
+  BM25Index idx;
+  for (int i = 1; i <= 20; ++i) {
+    REQUIRE(idx.AddDocument(core::MakeVectorId(i), "common shared terms everywhere").ok());
+  }
+  auto result = idx.Search("common terms", 5);
+  REQUIRE(result.ok());
+  CHECK(result->entries.size() <= 5);
 }
 
 }  // namespace
