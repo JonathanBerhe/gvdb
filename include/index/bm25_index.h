@@ -15,7 +15,7 @@ namespace index {
 // Implements the standard BM25 scoring formula with inverted index.
 class BM25Index : public ITextIndex {
  public:
-  explicit BM25Index(float k1 = 1.5f, float b = 0.75f);
+  explicit BM25Index(float k1 = 1.2f, float b = 0.75f);
   ~BM25Index() override = default;
 
   core::Status AddDocument(core::VectorId id, const std::string& text) override;
