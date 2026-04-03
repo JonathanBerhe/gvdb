@@ -18,38 +18,47 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 p-4">
-        <p className="text-red-600 dark:text-red-400">Connection error: {error}</p>
-        <p className="text-sm text-gray-500 mt-1">Is GVDB running?</p>
+      <div style={{ border: '1px solid var(--danger)', borderRadius: 8, padding: 16, background: 'var(--bg-card)' }}>
+        <p style={{ color: 'var(--danger)', margin: 0, fontSize: 14 }}>Connection error: {error}</p>
+        <p style={{ color: 'var(--text-tertiary)', margin: '4px 0 0', fontSize: 13 }}>Is GVDB running?</p>
       </div>
     )
   }
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
+      <h1 style={{ fontSize: 24, fontWeight: 600, margin: '0 0 24px', letterSpacing: -0.5 }}>Dashboard</h1>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard label="Status" value={health || '...'} color={health === 'SERVING' ? 'green' : 'gray'} />
-        <StatCard label="Collections" value={stats?.total_collections ?? '...'} />
-        <StatCard label="Total Vectors" value={stats?.total_vectors ?? '...'} />
-        <StatCard label="Avg Query Time" value={stats ? `${stats.avg_query_time_ms.toFixed(1)}ms` : '...'} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        <StatCard label="Status" value={health || '—'} highlight={health === 'SERVING'} />
+        <StatCard label="Collections" value={stats?.total_collections ?? '—'} />
+        <StatCard label="Vectors" value={stats?.total_vectors ?? '—'} />
+        <StatCard label="Avg Query" value={stats ? `${stats.avg_query_time_ms.toFixed(1)}ms` : '—'} />
       </div>
 
-      <MetricsPanel />
+      <div style={{ marginTop: 32 }}>
+        <MetricsPanel />
+      </div>
     </div>
   )
 }
 
-function StatCard({ label, value, color }: { label: string; value: string | number; color?: string }) {
-  const colorClass = color === 'green'
-    ? 'text-green-600 dark:text-green-400'
-    : 'text-gray-900 dark:text-gray-100'
-
+function StatCard({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-      <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
-      <p className={`text-2xl font-bold mt-1 ${colorClass}`}>{value}</p>
+    <div style={{
+      border: '1px solid var(--border)',
+      borderRadius: 8,
+      padding: '16px 20px',
+      background: 'var(--bg-card)',
+    }}>
+      <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: 0, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</p>
+      <p style={{
+        fontSize: 28,
+        fontWeight: 600,
+        margin: '8px 0 0',
+        letterSpacing: -0.5,
+        color: highlight ? 'var(--success)' : 'var(--text-primary)',
+      }}>{value}</p>
     </div>
   )
 }

@@ -1,29 +1,31 @@
 import { useEffect, useState } from 'react'
 import { api, type VectorEntry, type SearchResult } from '../lib/api'
 
-interface Props {
-  name: string
-  onBack: () => void
-}
+interface Props { name: string; onBack: () => void }
 
 export default function CollectionDetail({ name, onBack }: Props) {
   const [tab, setTab] = useState<'vectors' | 'search' | 'hybrid'>('vectors')
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-6">
-        <button onClick={onBack} className="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">&larr; Back</button>
-        <h1 className="text-2xl font-bold">{name}</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 13 }}>← Back</button>
+        <h1 style={{ fontSize: 24, fontWeight: 600, margin: 0, letterSpacing: -0.5 }}>{name}</h1>
       </div>
 
-      <div className="flex gap-1 mb-6 border-b border-gray-200 dark:border-gray-800">
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: 24 }}>
         {(['vectors', 'search', 'hybrid'] as const).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm capitalize ${tab === t
-              ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400 font-medium'
-              : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              padding: '8px 16px', fontSize: 13,
+              color: tab === t ? 'var(--text-primary)' : 'var(--text-tertiary)',
+              fontWeight: tab === t ? 500 : 400,
+              borderBottom: tab === t ? '2px solid var(--text-primary)' : '2px solid transparent',
+              marginBottom: -1,
+            }}
           >
             {t === 'hybrid' ? 'Hybrid Search' : t === 'search' ? 'Vector Search' : 'Vectors'}
           </button>
@@ -47,66 +49,44 @@ function VectorBrowser({ name }: { name: string }) {
 
   const load = (off: number) => {
     api.listVectors(name, limit, off, true)
-      .then(resp => {
-        setVectors(resp.vectors)
-        setTotal(resp.total_count)
-        setHasMore(resp.has_more)
-        setOffset(off)
-      })
+      .then(resp => { setVectors(resp.vectors); setTotal(resp.total_count); setHasMore(resp.has_more); setOffset(off) })
       .catch(e => setError(e.message))
   }
-
   useEffect(() => { load(0) }, [name])
 
-  if (error) return <p className="text-red-500">{error}</p>
+  if (error) return <p style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</p>
 
   return (
     <div>
-      <p className="text-sm text-gray-500 mb-4">{total} vectors total</p>
+      <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>{total} vectors</p>
       {vectors.length === 0 ? (
-        <p className="text-gray-500">No vectors in this collection.</p>
+        <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>Empty collection.</p>
       ) : (
         <>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-gray-500">
-                  <th className="py-2 px-3 font-medium">ID</th>
-                  <th className="py-2 px-3 font-medium">Dimension</th>
-                  <th className="py-2 px-3 font-medium">Metadata</th>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <th style={thStyle}>ID</th>
+                <th style={thStyle}>Dim</th>
+                <th style={thStyle}>Metadata</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vectors.map(v => (
+                <tr key={v.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ ...tdStyle, fontFamily: 'monospace' }}>{v.id}</td>
+                  <td style={tdStyle}>{v.dimension}</td>
+                  <td style={{ ...tdStyle, color: 'var(--text-tertiary)', fontSize: 12, fontFamily: 'monospace', maxWidth: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {v.metadata ? JSON.stringify(v.metadata) : '—'}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {vectors.map(v => (
-                  <tr key={v.id} className="border-b border-gray-100 dark:border-gray-800/50">
-                    <td className="py-2 px-3 font-mono">{v.id}</td>
-                    <td className="py-2 px-3">{v.dimension}</td>
-                    <td className="py-2 px-3 text-xs text-gray-500 max-w-md truncate">
-                      {v.metadata ? JSON.stringify(v.metadata) : '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex gap-2 mt-4">
-            <button
-              disabled={offset === 0}
-              onClick={() => load(Math.max(0, offset - limit))}
-              className="px-3 py-1 text-sm rounded border border-gray-300 dark:border-gray-700 disabled:opacity-30"
-            >
-              Previous
-            </button>
-            <span className="text-sm text-gray-500 py-1">
-              {offset + 1}-{Math.min(offset + limit, total)} of {total}
-            </span>
-            <button
-              disabled={!hasMore}
-              onClick={() => load(offset + limit)}
-              className="px-3 py-1 text-sm rounded border border-gray-300 dark:border-gray-700 disabled:opacity-30"
-            >
-              Next
-            </button>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+            <button disabled={offset === 0} onClick={() => load(Math.max(0, offset - limit))} style={pageBtnStyle}>Prev</button>
+            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{offset + 1}–{Math.min(offset + limit, total)} of {total}</span>
+            <button disabled={!hasMore} onClick={() => load(offset + limit)} style={pageBtnStyle}>Next</button>
           </div>
         </>
       )}
@@ -119,22 +99,19 @@ function SearchPlayground({ name, mode }: { name: string; mode: 'vector' | 'hybr
   const [textQuery, setTextQuery] = useState('')
   const [topK, setTopK] = useState(10)
   const [vectorWeight, setVectorWeight] = useState(0.5)
-  const [textWeight, setTextWeight] = useState(0.5)
   const [results, setResults] = useState<SearchResult[]>([])
   const [queryTime, setQueryTime] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   const handleSearch = async () => {
-    setError('')
-    setLoading(true)
+    setError(''); setLoading(true)
     try {
       let parsedVector: number[] = []
       if (queryVector.trim()) {
         parsedVector = JSON.parse(queryVector)
-        if (!Array.isArray(parsedVector)) throw new Error('Query vector must be a JSON array')
+        if (!Array.isArray(parsedVector)) throw new Error('Must be a JSON array')
       }
-
       let resp
       if (mode === 'hybrid') {
         resp = await api.hybridSearch(name, {
@@ -142,121 +119,88 @@ function SearchPlayground({ name, mode }: { name: string; mode: 'vector' | 'hybr
           text_query: textQuery || undefined,
           top_k: topK,
           vector_weight: vectorWeight,
-          text_weight: textWeight,
+          text_weight: 1 - vectorWeight,
           return_metadata: true,
         })
       } else {
-        if (parsedVector.length === 0) throw new Error('Query vector is required for vector search')
-        resp = await api.search(name, {
-          query_vector: parsedVector,
-          top_k: topK,
-          return_metadata: true,
-        })
+        if (parsedVector.length === 0) throw new Error('Query vector required')
+        resp = await api.search(name, { query_vector: parsedVector, top_k: topK, return_metadata: true })
       }
-
-      setResults(resp.results)
-      setQueryTime(resp.query_time_ms)
+      setResults(resp.results); setQueryTime(resp.query_time_ms)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Search failed')
-      setResults([])
-    } finally {
-      setLoading(false)
-    }
+      setError(e instanceof Error ? e.message : 'Failed'); setResults([])
+    } finally { setLoading(false) }
   }
 
   return (
     <div>
-      <div className="grid gap-4 mb-4">
-        {(mode === 'vector' || mode === 'hybrid') && (
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Query Vector (JSON array)</label>
-            <textarea
-              value={queryVector}
-              onChange={e => setQueryVector(e.target.value)}
-              placeholder='[0.1, 0.2, 0.3, ...]'
-              rows={2}
-              className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-gray-300 dark:border-gray-700 bg-transparent"
-            />
-          </div>
-        )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+        <div>
+          <label style={labelStyle}>Query Vector</label>
+          <textarea value={queryVector} onChange={e => setQueryVector(e.target.value)} placeholder="[0.1, 0.2, 0.3, ...]" rows={2} style={{ ...inputStyle, fontFamily: 'monospace', resize: 'vertical' }} />
+        </div>
 
         {mode === 'hybrid' && (
           <>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Text Query</label>
-              <input
-                value={textQuery}
-                onChange={e => setTextQuery(e.target.value)}
-                placeholder="running shoes marathon"
-                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-transparent"
-              />
+              <label style={labelStyle}>Text Query</label>
+              <input value={textQuery} onChange={e => setTextQuery(e.target.value)} placeholder="running shoes" style={inputStyle} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Vector Weight: {vectorWeight.toFixed(2)}</label>
-                <input type="range" min="0" max="1" step="0.05" value={vectorWeight}
-                  onChange={e => { setVectorWeight(Number(e.target.value)); setTextWeight(1 - Number(e.target.value)) }}
-                  className="w-full" />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Text Weight: {textWeight.toFixed(2)}</label>
-                <input type="range" min="0" max="1" step="0.05" value={textWeight}
-                  onChange={e => { setTextWeight(Number(e.target.value)); setVectorWeight(1 - Number(e.target.value)) }}
-                  className="w-full" />
-              </div>
+            <div>
+              <label style={labelStyle}>Vector Weight: {vectorWeight.toFixed(2)} / Text Weight: {(1 - vectorWeight).toFixed(2)}</label>
+              <input type="range" min="0" max="1" step="0.05" value={vectorWeight} onChange={e => setVectorWeight(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--accent)' }} />
             </div>
           </>
         )}
 
-        <div className="flex items-end gap-4">
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Top K</label>
-            <input type="number" value={topK} onChange={e => setTopK(Number(e.target.value))}
-              min={1} max={1000}
-              className="w-24 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-transparent" />
+            <label style={labelStyle}>Top K</label>
+            <input type="number" value={topK} onChange={e => setTopK(Number(e.target.value))} min={1} style={{ ...inputStyle, width: 80 }} />
           </div>
-          <button
-            onClick={handleSearch}
-            disabled={loading}
-            className="px-6 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
+          <button onClick={handleSearch} disabled={loading} style={{ ...btnPrimaryStyle, opacity: loading ? 0.5 : 1 }}>
             {loading ? 'Searching...' : 'Search'}
           </button>
         </div>
       </div>
 
-      {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+      {error && <p style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
 
       {queryTime !== null && (
-        <p className="text-sm text-gray-500 mb-4">{results.length} results in {queryTime.toFixed(2)}ms</p>
+        <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 12 }}>{results.length} results in {queryTime.toFixed(2)}ms</p>
       )}
 
       {results.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-gray-500">
-                <th className="py-2 px-3 font-medium">#</th>
-                <th className="py-2 px-3 font-medium">ID</th>
-                <th className="py-2 px-3 font-medium">Score / Distance</th>
-                <th className="py-2 px-3 font-medium">Metadata</th>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border)' }}>
+              <th style={thStyle}>#</th>
+              <th style={thStyle}>ID</th>
+              <th style={thStyle}>Score</th>
+              <th style={thStyle}>Metadata</th>
+            </tr>
+          </thead>
+          <tbody>
+            {results.map((r, i) => (
+              <tr key={r.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ ...tdStyle, color: 'var(--text-tertiary)' }}>{i + 1}</td>
+                <td style={{ ...tdStyle, fontFamily: 'monospace' }}>{r.id}</td>
+                <td style={{ ...tdStyle, fontFamily: 'monospace' }}>{r.distance.toFixed(6)}</td>
+                <td style={{ ...tdStyle, color: 'var(--text-tertiary)', fontSize: 12, fontFamily: 'monospace', maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {r.metadata ? JSON.stringify(r.metadata) : '—'}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {results.map((r, i) => (
-                <tr key={r.id} className="border-b border-gray-100 dark:border-gray-800/50">
-                  <td className="py-2 px-3 text-gray-400">{i + 1}</td>
-                  <td className="py-2 px-3 font-mono">{r.id}</td>
-                  <td className="py-2 px-3 font-mono">{r.distance.toFixed(6)}</td>
-                  <td className="py-2 px-3 text-xs text-gray-500 max-w-md truncate">
-                    {r.metadata ? JSON.stringify(r.metadata) : '-'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   )
 }
+
+const thStyle: React.CSSProperties = { padding: '8px 0', fontWeight: 500, fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'left', textTransform: 'uppercase', letterSpacing: 0.5 }
+const tdStyle: React.CSSProperties = { padding: '10px 0' }
+const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }
+const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg)', color: 'var(--text-primary)', boxSizing: 'border-box' as const }
+const pageBtnStyle: React.CSSProperties = { padding: '4px 12px', fontSize: 12, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg)', color: 'var(--text-secondary)', cursor: 'pointer' }
+const btnPrimaryStyle: React.CSSProperties = { padding: '8px 20px', fontSize: 13, fontWeight: 500, background: 'var(--text-primary)', color: 'var(--bg)', border: 'none', borderRadius: 6, cursor: 'pointer' }
