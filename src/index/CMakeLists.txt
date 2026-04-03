@@ -8,6 +8,7 @@ add_library(gvdb_index
   faiss_ivf.cpp
   index_factory.cpp
   index_manager.cpp
+  bm25_index.cpp
 )
 
 # Set target properties

@@ -15,6 +15,7 @@
 #include "core/status.h"
 #include "core/types.h"
 #include "core/vector.h"
+#include "index/text_index.h"
 
 namespace gvdb {
 namespace storage {
@@ -89,10 +90,27 @@ class Segment {
   [[nodiscard]] core::StatusOr<core::SearchResult> SearchWithFilter(
       const core::Vector& query, int k, const std::string& filter_expr) const;
 
+  // Hybrid search combining vector similarity and BM25 text relevance
+  // Uses Reciprocal Rank Fusion to combine ranked results
+  [[nodiscard]] core::StatusOr<core::SearchResult> SearchHybrid(
+      const core::Vector& query_vector,
+      const std::string& text_query,
+      int k,
+      float vector_weight = 0.5f,
+      float text_weight = 0.5f,
+      const std::string& text_field = "text") const;
+
   // Get metadata for a vector
   [[nodiscard]] core::StatusOr<core::Metadata> GetMetadata(core::VectorId id) const;
 
   // ========== State Management ==========
+
+  // Set the text index for hybrid search (call after seal with metadata text field)
+  void SetTextIndex(std::unique_ptr<index::ITextIndex> text_index);
+
+  // Build a BM25 text index from a metadata field across all vectors in this segment
+  core::Status BuildTextIndex(std::unique_ptr<index::ITextIndex> text_index,
+                               const std::string& text_field = "text");
 
   // Seal the segment (transition from GROWING to SEALED)
   // This builds the index and makes the segment immutable
@@ -161,11 +179,18 @@ class Segment {
   // Index (for SEALED state)
   std::unique_ptr<core::IVectorIndex> index_;
 
+  // Text index for BM25 hybrid search (built during seal from metadata text fields)
+  std::unique_ptr<index::ITextIndex> text_index_;
+
   // Helper methods
   [[nodiscard]] bool IsFull() const;
   [[nodiscard]] core::Status ValidateVectors(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) const;
+
+  // Brute-force search over in-memory vectors. Caller must hold the lock.
+  [[nodiscard]] core::StatusOr<core::SearchResult> BruteForceSearchUnlocked(
+      const core::Vector& query, int k) const;
 };
 
 }  // namespace storage

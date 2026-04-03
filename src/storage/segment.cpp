@@ -244,56 +244,56 @@ core::Status Segment::UpdateMetadata(
   return core::OkStatus();
 }
 
+core::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(
+    const core::Vector& query, int k) const {
+  if (vectors_.empty()) {
+    return core::SearchResult{};
+  }
+
+  std::vector<core::SearchResultEntry> results;
+  results.reserve(vectors_.size());
+
+  for (size_t i = 0; i < vectors_.size(); ++i) {
+    float distance;
+    switch (metric_) {
+      case core::MetricType::L2:
+        distance = query.L2Distance(vectors_[i]);
+        break;
+      case core::MetricType::INNER_PRODUCT:
+        distance = query.InnerProduct(vectors_[i]);
+        break;
+      case core::MetricType::COSINE:
+        distance = query.CosineDistance(vectors_[i]);
+        break;
+      default:
+        distance = query.L2Distance(vectors_[i]);
+    }
+    results.push_back({vector_ids_[i], distance});
+  }
+
+  int actual_k = std::min(k, static_cast<int>(results.size()));
+  std::partial_sort(results.begin(),
+                    results.begin() + actual_k,
+                    results.end(),
+                    [](const core::SearchResultEntry& a,
+                       const core::SearchResultEntry& b) {
+                      return a.distance < b.distance;
+                    });
+  results.resize(actual_k);
+
+  core::SearchResult result;
+  result.entries = std::move(results);
+  return result;
+}
+
 core::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
                                                      int k) const {
   std::shared_lock lock(mutex_);
 
-  // For GROWING segments, do brute-force search (real-time search capability)
   if (state_ == core::SegmentState::GROWING) {
-    if (vectors_.empty()) {
-      return core::SearchResult{};  // Empty result for empty segment
-    }
-
-    // Brute-force search: compute distance to all vectors
-    std::vector<core::SearchResultEntry> results;
-    results.reserve(vectors_.size());
-
-    for (size_t i = 0; i < vectors_.size(); ++i) {
-      float distance;
-      switch (metric_) {
-        case core::MetricType::L2:
-          distance = query.L2Distance(vectors_[i]);
-          break;
-        case core::MetricType::INNER_PRODUCT:
-          distance = query.InnerProduct(vectors_[i]);
-          break;
-        case core::MetricType::COSINE:
-          distance = query.CosineDistance(vectors_[i]);
-          break;
-        default:
-          distance = query.L2Distance(vectors_[i]);
-      }
-      results.push_back({vector_ids_[i], distance});
-    }
-
-    // Sort by distance and take top k
-    int actual_k = std::min(k, static_cast<int>(results.size()));
-    std::partial_sort(results.begin(),
-                      results.begin() + actual_k,
-                      results.end(),
-                      [](const core::SearchResultEntry& a,
-                         const core::SearchResultEntry& b) {
-                        return a.distance < b.distance;
-                      });
-
-    results.resize(actual_k);
-
-    core::SearchResult result;
-    result.entries = std::move(results);
-    return result;
+    return BruteForceSearchUnlocked(query, k);
   }
 
-  // For SEALED/FLUSHED segments, use the index
   if (state_ != core::SegmentState::SEALED &&
       state_ != core::SegmentState::FLUSHED) {
     return core::FailedPreconditionError(
@@ -306,7 +306,6 @@ core::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
         absl::StrCat("Segment ", core::ToUInt32(id_), " has no index"));
   }
 
-  // Perform search using the index
   return index_->Search(query, k);
 }
 
@@ -468,6 +467,119 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
   }
 
   return filtered_result;
+}
+
+core::StatusOr<core::SearchResult> Segment::SearchHybrid(
+    const core::Vector& query_vector,
+    const std::string& text_query,
+    int k,
+    float vector_weight,
+    float text_weight,
+    const std::string& text_field) const {
+  std::shared_lock lock(mutex_);
+
+  if (vectors_.empty() && !index_) {
+    return core::SearchResult{};
+  }
+
+  int overfetch = std::min(k * 3, std::max(1, static_cast<int>(vectors_.size())));
+
+  // 1. Dense vector search (index if sealed, brute-force if growing)
+  core::StatusOr<core::SearchResult> vector_result;
+  if (index_) {
+    vector_result = index_->Search(query_vector, overfetch);
+  } else {
+    vector_result = BruteForceSearchUnlocked(query_vector, overfetch);
+  }
+  if (!vector_result.ok()) {
+    return vector_result.status();
+  }
+
+  // 2. BM25 text search (if text index exists and text query is non-empty)
+  core::SearchResult text_result;
+  if (text_index_ && !text_query.empty()) {
+    auto bm25_result = text_index_->Search(text_query, overfetch);
+    if (bm25_result.ok()) {
+      text_result = std::move(*bm25_result);
+    }
+  }
+
+  // 3. Reciprocal Rank Fusion (RRF)
+  // Score(d) = vector_weight * 1/(k_rrf + vector_rank) + text_weight * 1/(k_rrf + text_rank)
+  constexpr float k_rrf = 60.0f;
+
+  // Build rank maps
+  std::unordered_map<uint64_t, int> vector_ranks;
+  for (int i = 0; i < static_cast<int>(vector_result->entries.size()); ++i) {
+    vector_ranks[core::ToUInt64(vector_result->entries[i].id)] = i + 1;
+  }
+
+  std::unordered_map<uint64_t, int> text_ranks;
+  for (int i = 0; i < static_cast<int>(text_result.entries.size()); ++i) {
+    text_ranks[core::ToUInt64(text_result.entries[i].id)] = i + 1;
+  }
+
+  // Collect all candidate IDs
+  std::unordered_map<uint64_t, float> fused_scores;
+  for (const auto& [id_val, rank] : vector_ranks) {
+    fused_scores[id_val] += vector_weight / (k_rrf + rank);
+  }
+  for (const auto& [id_val, rank] : text_ranks) {
+    fused_scores[id_val] += text_weight / (k_rrf + rank);
+  }
+
+  // 4. Sort by fused score and take top-k
+  std::vector<std::pair<uint64_t, float>> scored_ids(fused_scores.begin(),
+                                                      fused_scores.end());
+  std::sort(scored_ids.begin(), scored_ids.end(),
+            [](const auto& a, const auto& b) { return a.second > b.second; });
+
+  core::SearchResult result;
+  int count = std::min(k, static_cast<int>(scored_ids.size()));
+  for (int i = 0; i < count; ++i) {
+    // Use RRF score as the "distance" (higher = better)
+    result.entries.emplace_back(
+        core::MakeVectorId(scored_ids[i].first), scored_ids[i].second);
+  }
+
+  return result;
+}
+
+void Segment::SetTextIndex(std::unique_ptr<index::ITextIndex> text_index) {
+  std::unique_lock lock(mutex_);
+  text_index_ = std::move(text_index);
+}
+
+core::Status Segment::BuildTextIndex(
+    std::unique_ptr<index::ITextIndex> text_index,
+    const std::string& text_field) {
+  std::unique_lock lock(mutex_);
+
+  if (!text_index) {
+    return core::InvalidArgumentError("Text index pointer is null");
+  }
+
+  // Build from metadata: extract the text field from each vector's metadata
+  size_t indexed = 0;
+  for (const auto& [id_val, metadata] : metadata_map_) {
+    auto it = metadata.find(text_field);
+    if (it != metadata.end()) {
+      // Check if the value is a string
+      if (auto* str_val = std::get_if<std::string>(&it->second)) {
+        auto status = text_index->AddDocument(core::MakeVectorId(id_val), *str_val);
+        if (!status.ok()) return status;
+        indexed++;
+      }
+    }
+  }
+
+  text_index_ = std::move(text_index);
+
+  utils::Logger::Instance().Info(
+      "Built text index for segment {} ({} documents from '{}' field)",
+      core::ToUInt32(id_), indexed, text_field);
+
+  return core::OkStatus();
 }
 
 core::StatusOr<core::Metadata> Segment::GetMetadata(core::VectorId id) const {
