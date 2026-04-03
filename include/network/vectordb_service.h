@@ -74,6 +74,11 @@ class VectorDBService final : public proto::VectorDBService::Service {
       const proto::UpdateMetadataRequest* request,
       proto::UpdateMetadataResponse* response) override;
 
+  grpc::Status ListVectors(
+      grpc::ServerContext* context,
+      const proto::ListVectorsRequest* request,
+      proto::ListVectorsResponse* response) override;
+
   // Hybrid search (BM25 + vector)
   grpc::Status HybridSearch(
       grpc::ServerContext* context,

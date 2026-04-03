@@ -845,6 +845,55 @@ grpc::Status VectorDBService::Get(
   return grpc::Status::OK;
 }
 
+grpc::Status VectorDBService::ListVectors(
+    grpc::ServerContext* context,
+    const proto::ListVectorsRequest* request,
+    proto::ListVectorsResponse* response) {
+
+  if (!resolver_->SupportsDataOps()) {
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+        "ListVectors not supported on coordinator nodes");
+  }
+
+  auto segment_id_result = resolver_->GetSegmentId(request->collection_name());
+  if (!segment_id_result.ok()) {
+    return toGrpcStatus(segment_id_result.status());
+  }
+
+  auto* segment = segment_manager_->GetSegment(*segment_id_result);
+  if (!segment) {
+    return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  }
+
+  auto all_ids = segment->GetAllVectorIds();
+  uint64_t total = all_ids.size();
+  uint32_t limit = request->limit() > 0 ? request->limit() : 20;
+  uint64_t offset = request->offset();
+
+  response->set_total_count(total);
+  response->set_has_more(offset + limit < total);
+
+  uint64_t end = std::min(offset + limit, total);
+  for (uint64_t i = offset; i < end; ++i) {
+    std::vector<core::VectorId> ids_to_get = {all_ids[i]};
+    auto result = segment->GetVectors(ids_to_get, request->include_metadata());
+
+    for (size_t j = 0; j < result.found_ids.size(); ++j) {
+      auto* proto_vec = response->add_vectors();
+      proto_vec->set_id(core::ToUInt64(result.found_ids[j]));
+
+      auto* vec = proto_vec->mutable_vector();
+      toProto(result.found_vectors[j], vec);
+
+      if (request->include_metadata() && j < result.found_metadata.size()) {
+        toProto(result.found_metadata[j], proto_vec->mutable_metadata());
+      }
+    }
+  }
+
+  return grpc::Status::OK;
+}
+
 grpc::Status VectorDBService::Delete(
     grpc::ServerContext* context,
     const proto::DeleteRequest* request,

@@ -159,6 +159,23 @@ message UpdateMetadataResponse {
 }
 
 // ============================================================================
+// Vector Browsing (for Web UI)
+// ============================================================================
+
+message ListVectorsRequest {
+  string collection_name = 1;
+  uint32 limit = 2;           // Page size (default 20)
+  uint64 offset = 3;          // Offset for pagination
+  bool include_metadata = 4;
+}
+
+message ListVectorsResponse {
+  repeated VectorWithId vectors = 1;
+  uint64 total_count = 2;
+  bool has_more = 3;
+}
+
+// ============================================================================
 // Health and Status
 // ============================================================================
 
@@ -221,6 +238,7 @@ service VectorDBService {
   rpc Get(GetRequest) returns (GetResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);
   rpc UpdateMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse);
+  rpc ListVectors(ListVectorsRequest) returns (ListVectorsResponse);
 
   // Hybrid search (BM25 + vector)
   rpc HybridSearch(HybridSearchRequest) returns (HybridSearchResponse);
