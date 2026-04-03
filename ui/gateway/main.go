@@ -45,6 +45,7 @@ func main() {
 	mux.HandleFunc("GET /api/collections/{name}/vectors", gateway.HandleListVectors)
 	mux.HandleFunc("POST /api/collections/{name}/search", gateway.HandleSearch)
 	mux.HandleFunc("POST /api/collections/{name}/hybrid-search", gateway.HandleHybridSearch)
+	mux.HandleFunc("GET /api/metrics", gateway.HandleMetrics)
 
 	// Serve React SPA (embedded static files)
 	staticFS, err := fs.Sub(staticFiles, "static")
