@@ -115,3 +115,4 @@ test/e2e/test_ivf_pq_simple
 ui/gateway/gvdb-ui
 ui/web/node_modules/
 ui/web/dist/
+ui/gateway/gvdb-ui*
