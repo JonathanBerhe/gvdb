@@ -58,7 +58,8 @@ core::Status BM25Index::AddDocument(core::VectorId id, const std::string& text) 
 float BM25Index::ComputeIDF(uint32_t doc_freq) const {
   float N = static_cast<float>(total_docs_);
   float df = static_cast<float>(doc_freq);
-  return std::log((N - df + 0.5f) / (df + 0.5f));
+  // Lucene variant: always positive, never zero
+  return std::log(1.0f + (N - df + 0.5f) / (df + 0.5f));
 }
 
 float BM25Index::ComputeTermScore(uint32_t term_freq, uint32_t doc_len,
@@ -102,8 +103,8 @@ core::StatusOr<core::SearchResult> BM25Index::Search(
     const auto& postings = it->second;
     float idf = ComputeIDF(static_cast<uint32_t>(postings.size()));
 
-    // Skip negative IDF (term appears in >50% of docs)
-    if (idf <= 0.0f) continue;
+    // Skip negative IDF (safety net — Lucene variant is always positive)
+    if (idf < 0.0f) continue;
 
     for (const auto& posting : postings) {
       uint64_t id_val = core::ToUInt64(posting.id);
