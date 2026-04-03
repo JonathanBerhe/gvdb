@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.6](https://github.com/JonathanBerhe/gvdb/compare/v0.1.5...v0.1.6) (2026-04-03)
+
+
+### Features
+
+* **compute:** add LRU query result cache ([a664216](https://github.com/JonathanBerhe/gvdb/commit/a664216a981a6e5dc3310f3f037907a8850229d0))
+* **compute:** add LRU query result cache with 377x speedup on cache hits ([77b28d6](https://github.com/JonathanBerhe/gvdb/commit/77b28d6c943569ce3557eccf07f24b97bec5e990))
+
 ## [0.1.5](https://github.com/JonathanBerhe/gvdb/compare/v0.1.4...v0.1.5) (2026-04-02)
 
 
