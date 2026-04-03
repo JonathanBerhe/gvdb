@@ -326,6 +326,25 @@ grpc::Status ProxyService::UpdateMetadata(
   return client->UpdateMetadata(&client_ctx, internal_req, response);
 }
 
+grpc::Status ProxyService::HybridSearch(
+    grpc::ServerContext* context,
+    const proto::HybridSearchRequest* request,
+    proto::HybridSearchResponse* response) {
+
+  auto* client = GetDataNodeClientForCollection(request->collection_name());
+  if (!client) {
+    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
+    client = GetDataNodeClient(shard);
+  }
+  if (!client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
+  }
+
+  proto::HybridSearchRequest internal_req = *request;
+  grpc::ClientContext client_ctx;
+  return client->HybridSearch(&client_ctx, internal_req, response);
+}
+
 grpc::Status ProxyService::Search(
     grpc::ServerContext* context,
     const proto::SearchRequest* request,
