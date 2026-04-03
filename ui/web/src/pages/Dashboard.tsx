@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, type Stats } from '../lib/api'
+import MetricsPanel from '../components/MetricsPanel'
 
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
@@ -27,12 +28,15 @@ export default function Dashboard() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <StatCard label="Status" value={health || '...'} color={health === 'SERVING' ? 'green' : 'gray'} />
         <StatCard label="Collections" value={stats?.total_collections ?? '...'} />
         <StatCard label="Total Vectors" value={stats?.total_vectors ?? '...'} />
         <StatCard label="Avg Query Time" value={stats ? `${stats.avg_query_time_ms.toFixed(1)}ms` : '...'} />
       </div>
+
+      <MetricsPanel />
     </div>
   )
 }
