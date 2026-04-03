@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Dashboard from './pages/Dashboard'
 import Collections from './pages/Collections'
 import CollectionDetail from './pages/CollectionDetail'
@@ -8,31 +8,44 @@ type Page =
   | { kind: 'collections' }
   | { kind: 'collection-detail'; name: string }
 
+function useTheme() {
+  const [dark, setDark] = useState(() => {
+    const stored = localStorage.getItem('theme')
+    if (stored) return stored === 'dark'
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  })
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark)
+    localStorage.setItem('theme', dark ? 'dark' : 'light')
+  }, [dark])
+
+  return { dark, toggle: () => setDark(d => !d) }
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>({ kind: 'dashboard' })
-
+  const theme = useTheme()
   const nav = (kind: 'dashboard' | 'collections') => setPage({ kind })
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
-      <nav className="border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
-        <div className="max-w-7xl mx-auto px-4 flex items-center h-14 gap-6">
-          <span className="font-bold text-lg cursor-pointer" onClick={() => nav('dashboard')}>GVDB</span>
+    <div style={{ background: 'var(--bg)', color: 'var(--text-primary)', minHeight: '100vh' }}>
+      <nav style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px', display: 'flex', alignItems: 'center', height: 48, gap: 24 }}>
+          <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.3 }} onClick={() => nav('dashboard')} role="button">GVDB</span>
+          <div style={{ display: 'flex', gap: 16, flex: 1 }}>
+            <NavLink active={page.kind === 'dashboard'} onClick={() => nav('dashboard')}>Dashboard</NavLink>
+            <NavLink active={page.kind === 'collections' || page.kind === 'collection-detail'} onClick={() => nav('collections')}>Collections</NavLink>
+          </div>
           <button
-            onClick={() => nav('dashboard')}
-            className={`text-sm ${page.kind === 'dashboard' ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+            onClick={theme.toggle}
+            style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13 }}
           >
-            Dashboard
-          </button>
-          <button
-            onClick={() => nav('collections')}
-            className={`text-sm ${page.kind === 'collections' || page.kind === 'collection-detail' ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
-          >
-            Collections
+            {theme.dark ? '☀ Light' : '● Dark'}
           </button>
         </div>
       </nav>
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 24px' }}>
         {page.kind === 'dashboard' && <Dashboard />}
         {page.kind === 'collections' && (
           <Collections onSelect={(name) => setPage({ kind: 'collection-detail', name })} />
@@ -42,5 +55,24 @@ export default function App() {
         )}
       </main>
     </div>
+  )
+}
+
+function NavLink({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: 13,
+        color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+        fontWeight: active ? 500 : 400,
+        padding: 0,
+      }}
+    >
+      {children}
+    </button>
   )
 }
