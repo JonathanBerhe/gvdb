@@ -8,6 +8,8 @@
 #include <queue>
 #include <vector>
 
+#include "absl/strings/str_format.h"
+
 #include "utils/logger.h"
 #include "utils/timer.h"
 
@@ -33,21 +35,75 @@ QueryExecutor::~QueryExecutor() = default;
 core::StatusOr<core::SearchResult> QueryExecutor::Search(
     core::CollectionId collection_id,
     const core::Vector& query,
-    int top_k) {
+    int top_k,
+    const std::string& filter) {
   utils::Timer timer;
 
   if (top_k <= 0) {
     return core::InvalidArgumentError("top_k must be positive");
   }
 
-  // Use SegmentManager's search (which already searches all segments)
-  auto result = segment_manager_->SearchCollection(collection_id, query, top_k);
+  // Validate dimension against collection
+  auto seg_ids = segment_manager_->GetCollectionSegments(collection_id);
+  if (!seg_ids.empty()) {
+    auto* first_seg = segment_manager_->GetSegment(seg_ids[0]);
+    if (first_seg && query.dimension() != first_seg->GetDimension()) {
+      return core::InvalidArgumentError(
+          absl::StrFormat("Query vector dimension mismatch: expected %d, got %d",
+                          first_seg->GetDimension(), query.dimension()));
+    }
+  }
+
+  // Check cache
+  if (cache_) {
+    auto cache_key = utils::MakeCacheKey(
+        collection_id, query.data(), query.dimension(), top_k, filter);
+    auto cached = cache_->Get(cache_key, core::ToUInt32(collection_id));
+    if (cached.has_value()) {
+      utils::Logger::Instance().Debug(
+          "Cache hit for collection {} (top_k={}, filter={})",
+          core::ToUInt32(collection_id), top_k, filter.empty() ? "none" : "yes");
+      return *cached;
+    }
+  }
+
+  // Search via SegmentManager
+  core::StatusOr<core::SearchResult> result;
+  if (filter.empty()) {
+    result = segment_manager_->SearchCollection(collection_id, query, top_k);
+  } else {
+    // Filter-aware search: iterate segments and merge
+    auto seg_ids = segment_manager_->GetCollectionSegments(collection_id);
+    std::vector<core::SearchResult> partial_results;
+    for (const auto& seg_id : seg_ids) {
+      auto* segment = segment_manager_->GetSegment(seg_id);
+      if (!segment) continue;
+      auto seg_result = segment->SearchWithFilter(query, top_k, filter);
+      if (seg_result.ok()) {
+        partial_results.push_back(std::move(*seg_result));
+      }
+    }
+    if (partial_results.empty()) {
+      result = core::SearchResult{};
+    } else {
+      result = MergeResults(partial_results, top_k);
+    }
+  }
 
   if (result.ok()) {
-    LOG_DEBUG("Search completed in {} us for collection {} (top_k={})",
-              timer.elapsed_micros(),
-              core::ToUInt32(collection_id),
-              top_k);
+    utils::Logger::Instance().Debug(
+        "Search completed in {} us for collection {} (top_k={}, results={})",
+        timer.elapsed_micros(),
+        core::ToUInt32(collection_id),
+        top_k,
+        result->entries.size());
+
+    // Store in cache
+    if (cache_) {
+      auto cache_key = utils::MakeCacheKey(
+          collection_id, query.data(), query.dimension(), top_k, filter);
+      cache_->Put(cache_key, *result, core::ToUInt32(collection_id));
+    }
   }
 
   return result;
@@ -89,7 +145,7 @@ core::StatusOr<std::vector<core::SearchResult>> QueryExecutor::SearchBatch(
     results.push_back(std::move(result.value()));
   }
 
-  LOG_DEBUG("Batch search completed in {} us ({} queries, top_k={})",
+  utils::Logger::Instance().Debug("Batch search completed in {} us ({} queries, top_k={})",
             timer.elapsed_micros(),
             queries.size(),
             top_k);
