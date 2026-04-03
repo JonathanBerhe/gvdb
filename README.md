@@ -15,6 +15,7 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 - **Persistence**: Vectors flushed to disk, index rebuilt on startup recovery
 - **gRPC API**: Protobuf-based client/server with TLS and API key authentication
 - **Python SDK**: `pip install gvdb` — full API with hybrid search, streaming inserts, metadata
+- **Web UI**: Collection browser, search playground, metrics dashboard — single binary (`gvdb-ui`)
 - **Raft Consensus**: Metadata operations replicated via NuRaft
 
 ## Architecture
@@ -102,6 +103,13 @@ make status   # check pods
 make build          # Debug build
 make build-release  # Release build
 make test           # Run all C++ tests (37 suites)
+```
+
+### Web UI
+
+```bash
+make build-ui                              # Build gvdb-ui binary (React + Go)
+./ui/gateway/gvdb-ui --gvdb-addr localhost:50051  # Open http://localhost:8080
 ```
 
 ### Run (single-node)
