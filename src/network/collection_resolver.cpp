@@ -280,8 +280,29 @@ class CachedCoordinatorResolver : public ICollectionResolver {
   absl::StatusOr<core::SegmentId> GetSegmentId(const std::string& name) override {
     auto id_result = GetCollectionId(name);
     if (!id_result.ok()) return id_result.status();
-    // First shard's segment ID
     return cluster::ShardSegmentId(*id_result, 0);
+  }
+
+  absl::StatusOr<std::vector<core::SegmentId>> GetSegmentIds(
+      const std::string& name) override {
+    auto id_result = GetCollectionId(name);
+    if (!id_result.ok()) return id_result.status();
+
+    size_t shards = GetNumShards(name);
+    std::vector<core::SegmentId> ids;
+    ids.reserve(shards);
+    for (size_t i = 0; i < shards; ++i) {
+      ids.push_back(cluster::ShardSegmentId(*id_result, i));
+    }
+    return ids;
+  }
+
+  size_t GetNumShards(const std::string& name) override {
+    auto cached = cache_->GetByName(name);
+    if (cached.ok()) {
+      return cached->num_shards > 0 ? cached->num_shards : 1;
+    }
+    return 1;
   }
 
   bool SupportsDataOps() const override { return true; }
@@ -345,6 +366,8 @@ class CachedCoordinatorResolver : public ICollectionResolver {
     auto index = indexTypeFromString(pm.index_type());
     if (!index.ok()) return index.status();
     metadata.index_type = *index;
+
+    metadata.num_shards = pm.shard_count() > 0 ? pm.shard_count() : 1;
 
     cache_->Put(metadata);
     return metadata.collection_id;

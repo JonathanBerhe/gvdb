@@ -130,6 +130,18 @@ proto::VectorDBService::Stub* ProxyService::GetDataNodeClientForCollection(
   return it->second.get();
 }
 
+proto::VectorDBService::Stub* ProxyService::GetOrCreateDataClient(
+    const std::string& address) {
+  std::lock_guard<std::mutex> lock(clients_mutex_);
+  auto it = data_client_by_addr_.find(address);
+  if (it == data_client_by_addr_.end()) {
+    auto channel = grpc::CreateChannel(address, grpc::InsecureChannelCredentials());
+    data_client_by_addr_[address] = proto::VectorDBService::NewStub(channel);
+    return data_client_by_addr_[address].get();
+  }
+  return it->second.get();
+}
+
 proto::VectorDBService::Stub* ProxyService::GetDataNodeClient(int shard_id) {
   std::lock_guard<std::mutex> lock(clients_mutex_);
   if (data_clients_.empty() && !data_node_addrs_.empty()) {
@@ -209,19 +221,77 @@ grpc::Status ProxyService::Insert(
     const proto::InsertRequest* request,
     proto::InsertResponse* response) {
 
-  auto* client = GetDataNodeClientForCollection(request->collection_name());
-  if (!client) {
-    // Fallback to round-robin
-    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-    client = GetDataNodeClient(shard);
-  }
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
+  // Get shard->node mapping from coordinator
+  auto* internal_client = GetCoordinatorInternalClient();
+  if (!internal_client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No coordinator available");
   }
 
-  proto::InsertRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  return client->Insert(&client_ctx, internal_req, response);
+  proto::internal::RouteQueryRequest route_req;
+  route_req.set_collection_name(request->collection_name());
+  proto::internal::RouteQueryResponse route_resp;
+  grpc::ClientContext route_ctx;
+  auto route_status = internal_client->RouteQuery(&route_ctx, route_req, &route_resp);
+
+  if (!route_status.ok() || route_resp.target_node_addresses_size() == 0) {
+    // Fallback: single node
+    auto* client = GetDataNodeClientForCollection(request->collection_name());
+    if (!client) {
+      int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
+      client = GetDataNodeClient(shard);
+    }
+    if (!client) {
+      return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
+    }
+    proto::InsertRequest internal_req = *request;
+    grpc::ClientContext client_ctx;
+    return client->Insert(&client_ctx, internal_req, response);
+  }
+
+  int num_shards = route_resp.target_node_addresses_size();
+
+  if (num_shards == 1) {
+    // Single shard — send everything to one node
+    const std::string& addr = route_resp.target_node_addresses(0);
+    auto* client = GetOrCreateDataClient(addr);
+    if (!client) {
+      return grpc::Status(grpc::StatusCode::UNAVAILABLE, "Data node unavailable");
+    }
+    proto::InsertRequest internal_req = *request;
+    grpc::ClientContext client_ctx;
+    return client->Insert(&client_ctx, internal_req, response);
+  }
+
+  // Multi-shard: split vectors by shard and route each batch to correct node
+  std::vector<proto::InsertRequest> shard_reqs(num_shards);
+  for (int i = 0; i < num_shards; ++i) {
+    shard_reqs[i].set_collection_name(request->collection_name());
+  }
+
+  for (const auto& vec : request->vectors()) {
+    uint32_t shard_idx = static_cast<uint32_t>(vec.id() % num_shards);
+    *shard_reqs[shard_idx].add_vectors() = vec;
+  }
+
+  uint64_t total_inserted = 0;
+  for (int i = 0; i < num_shards; ++i) {
+    if (shard_reqs[i].vectors_size() == 0) continue;
+
+    const std::string& addr = route_resp.target_node_addresses(i);
+    auto* client = GetOrCreateDataClient(addr);
+    if (!client) continue;
+
+    proto::InsertResponse shard_resp;
+    grpc::ClientContext client_ctx;
+    auto status = client->Insert(&client_ctx, shard_reqs[i], &shard_resp);
+    if (status.ok()) {
+      total_inserted += shard_resp.inserted_count();
+    }
+  }
+
+  response->set_inserted_count(total_inserted);
+  response->set_message("Inserted across " + std::to_string(num_shards) + " shards");
+  return grpc::Status::OK;
 }
 
 grpc::Status ProxyService::StreamInsert(
