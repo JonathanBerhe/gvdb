@@ -7,6 +7,7 @@
 #include "faiss_hnsw.h"
 #include "faiss_ivf.h"
 #include "turboquant/turboquant_index.h"
+#include "turboquant/ivf_turboquant_index.h"
 
 namespace gvdb {
 namespace index {
@@ -44,6 +45,9 @@ core::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateIndex(
                                    config.turboquant_params.bit_width,
                                    config.turboquant_params.use_qjl,
                                    config.turboquant_params.qjl_projection_dim);
+
+    case core::IndexType::IVF_TURBOQUANT:
+      return CreateIVFTurboQuantIndex(config);
 
     default:
       return core::UnimplementedError(
@@ -111,6 +115,26 @@ IndexFactory::CreateTurboQuantIndex(core::Dimension dimension,
 
   return std::make_unique<turboquant::TurboQuantIndex>(
       dimension, metric, bit_width, use_qjl, qjl_dim);
+}
+
+core::StatusOr<std::unique_ptr<core::IVectorIndex>>
+IndexFactory::CreateIVFTurboQuantIndex(const core::IndexConfig& config) {
+  if (config.dimension <= 0) {
+    return core::InvalidArgumentError("Dimension must be positive");
+  }
+
+  const auto& p = config.ivf_turboquant_params;
+  if (p.nlist <= 0) {
+    return core::InvalidArgumentError("nlist must be positive");
+  }
+  if (p.bit_width != 1 && p.bit_width != 2 && p.bit_width != 4 && p.bit_width != 8) {
+    return core::InvalidArgumentError(
+        "IVF_TURBOQUANT bit_width must be 1, 2, 4, or 8");
+  }
+
+  return std::make_unique<turboquant::IVFTurboQuantIndex>(
+      config.dimension, config.metric_type,
+      p.nlist, p.nprobe, p.bit_width, p.use_qjl, p.qjl_dim);
 }
 
 bool IndexFactory::IsGPUAvailable() {
