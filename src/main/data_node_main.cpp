@@ -120,7 +120,7 @@ int main(int argc, char** argv) {
     auto segment_manager = std::make_shared<storage::SegmentManager>(
         args.data_dir + "/segments", index_factory.get());
     segment_manager->LoadAllSegments();
-    auto data_node = std::make_unique<cluster::DataNode>(std::move(index_factory));
+    auto data_node = std::make_unique<cluster::DataNode>(std::move(index_factory), segment_manager);
     auto query_executor = std::make_shared<compute::QueryExecutor>(
         segment_manager.get());
     query_executor->SetCache(std::make_shared<utils::QueryCache>(10000));
