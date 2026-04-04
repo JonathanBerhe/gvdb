@@ -128,6 +128,7 @@ int main(int argc, char** argv) {
     segment_manager->LoadAllSegments();
     auto query_executor = std::make_shared<compute::QueryExecutor>(
         segment_manager.get());
+    query_executor->SetCache(std::make_shared<utils::QueryCache>(10000));
 
     // 3. Cluster coordinator
     auto shard_manager = std::make_shared<cluster::ShardManager>(

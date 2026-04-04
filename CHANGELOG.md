@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.7](https://github.com/JonathanBerhe/gvdb/compare/v0.1.6...v0.1.7) (2026-04-03)
+
+
+### Features
+
+* **search:** add hybrid search with BM25 + vector RRF fusion ([6a3d5ef](https://github.com/JonathanBerhe/gvdb/commit/6a3d5efa66f002d888390fcf5e86949dfa0227fe))
+* **search:** add hybrid search with BM25 + vector RRF fusion ([e575f59](https://github.com/JonathanBerhe/gvdb/commit/e575f59955bc65fbb22fc3710d7584baad695083))
+* **search:** add hybrid search with BM25 + vector RRF fusion ([32685d7](https://github.com/JonathanBerhe/gvdb/commit/32685d7060fe17c19a2788a0557657a2b95505ec))
+* **search:** add hybrid search with BM25 + vector RRF fusion ([32e4f2a](https://github.com/JonathanBerhe/gvdb/commit/32e4f2ac63f981876e66c003a83f47411de5f75b))
+
+## [0.1.6](https://github.com/JonathanBerhe/gvdb/compare/v0.1.5...v0.1.6) (2026-04-03)
+
+
+### Features
+
+* **compute:** add LRU query result cache ([a664216](https://github.com/JonathanBerhe/gvdb/commit/a664216a981a6e5dc3310f3f037907a8850229d0))
+* **compute:** add LRU query result cache with 377x speedup on cache hits ([77b28d6](https://github.com/JonathanBerhe/gvdb/commit/77b28d6c943569ce3557eccf07f24b97bec5e990))
+
 ## [0.1.5](https://github.com/JonathanBerhe/gvdb/compare/v0.1.4...v0.1.5) (2026-04-02)
 
 

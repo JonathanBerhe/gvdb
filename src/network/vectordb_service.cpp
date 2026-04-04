@@ -10,6 +10,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "internal.grpc.pb.h"
+#include "index/bm25_index.h"
 #include <algorithm>
 #include <future>
 #include <grpcpp/grpcpp.h>
@@ -251,11 +252,19 @@ grpc::Status VectorDBService::DropCollection(
 
   utils::Logger::Instance().Info("DropCollection: {}", request->collection_name());
 
+  // Get collection ID before drop (for cache invalidation)
+  auto cid_before = resolver_->GetCollectionId(request->collection_name());
+
   auto status = resolver_->DropCollection(request->collection_name());
   if (!status.ok()) return toGrpcStatus(status);
 
   utils::MetricsRegistry::Instance().SetCollectionCount(
       resolver_->CollectionCount());
+
+  // Invalidate query cache
+  if (auto* cache = query_executor_->GetCache()) {
+    if (cid_before.ok()) cache->InvalidateCollection(core::ToUInt32(*cid_before));
+  }
 
   response->set_message("Collection dropped successfully");
   return grpc::Status::OK;
@@ -407,6 +416,12 @@ grpc::Status VectorDBService::Insert(
   response->set_inserted_count(total_inserted);
   response->set_message("Vectors inserted successfully");
 
+  // Invalidate query cache for this collection
+  if (auto* cache = query_executor_->GetCache()) {
+    auto cid = resolver_->GetCollectionId(request->collection_name());
+    if (cid.ok()) cache->InvalidateCollection(core::ToUInt32(*cid));
+  }
+
   return grpc::Status::OK;
 }
 
@@ -514,6 +529,15 @@ grpc::Status VectorDBService::StreamInsert(
 
   response->set_inserted_count(total_inserted);
   response->set_message("Vectors inserted successfully");
+
+  // Invalidate query cache
+  if (auto* cache = query_executor_->GetCache()) {
+    if (!collection_name.empty()) {
+      auto cid = resolver_->GetCollectionId(collection_name);
+      if (cid.ok()) cache->InvalidateCollection(core::ToUInt32(*cid));
+    }
+  }
+
   return grpc::Status::OK;
 }
 
@@ -581,57 +605,30 @@ grpc::Status VectorDBService::Search(
     return toGrpcStatus(absl::NotFoundError("No segments found"));
   }
 
-  // Search all local segments, merge results
-  std::vector<core::SearchResultEntry> all_entries;
+  // Delegate search to QueryExecutor (handles caching, filtering, multi-segment merge)
+  core::CollectionId collection_id = *collection_id_result;
+  auto search_result = query_executor_->Search(
+      collection_id, *query_result, request->top_k(), request->filter());
 
-  for (const auto& seg_id : segment_ids) {
-    auto* segment = segment_manager_->GetSegment(seg_id);
-    if (!segment) continue;
-
-    // Validate dimension on first segment
-    if (all_entries.empty() && query_result->dimension() != segment->GetDimension()) {
-      utils::MetricsRegistry::Instance().RecordSearch(
-          request->collection_name(), false);
-      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-          absl::StrFormat("Query vector dimension mismatch: expected %d, got %d",
-                          segment->GetDimension(), query_result->dimension()));
-    }
-
-    core::StatusOr<core::SearchResult> search_result;
-    if (!request->filter().empty()) {
-      search_result = segment->SearchWithFilter(
-          *query_result, request->top_k(), request->filter());
-    } else {
-      search_result = segment->Search(*query_result, request->top_k());
-    }
-
-    if (search_result.ok()) {
-      for (auto& entry : search_result->entries) {
-        all_entries.push_back(entry);
-      }
-    }
+  if (!search_result.ok()) {
+    utils::MetricsRegistry::Instance().RecordSearch(
+        request->collection_name(), false);
+    return toGrpcStatus(search_result.status());
   }
-
-  // Sort by distance and take top_k
-  std::sort(all_entries.begin(), all_entries.end(),
-            [](const auto& a, const auto& b) { return a.distance < b.distance; });
-
-  int top_k = std::min(static_cast<int>(all_entries.size()),
-                        static_cast<int>(request->top_k()));
 
   utils::MetricsRegistry::Instance().RecordSearch(
       request->collection_name(), true);
 
-  for (int i = 0; i < top_k; ++i) {
+  // Build response with optional metadata enrichment
+  for (const auto& entry : search_result->entries) {
     auto* proto_entry = response->add_results();
-    toProto(all_entries[i], proto_entry);
+    toProto(entry, proto_entry);
 
     if (request->return_metadata()) {
-      // Find which segment has this vector for metadata lookup
       for (const auto& seg_id : segment_ids) {
         auto* segment = segment_manager_->GetSegment(seg_id);
         if (segment) {
-          auto meta_result = segment->GetMetadata(all_entries[i].id);
+          auto meta_result = segment->GetMetadata(entry.id);
           if (meta_result.ok()) {
             toProto(*meta_result, proto_entry->mutable_metadata());
             break;
@@ -648,6 +645,124 @@ grpc::Status VectorDBService::Search(
       static_cast<uint64_t>(search_timer.elapsed_millis()),
       std::memory_order_relaxed);
 
+  return grpc::Status::OK;
+}
+
+grpc::Status VectorDBService::HybridSearch(
+    grpc::ServerContext* context,
+    const proto::HybridSearchRequest* request,
+    proto::HybridSearchResponse* response) {
+
+  utils::Timer search_timer;
+  utils::Logger::Instance().Info("HybridSearch: collection={}, text_query='{}'",
+                                  request->collection_name(), request->text_query());
+
+  bool has_vector = request->has_query_vector() && request->query_vector().dimension() > 0;
+  bool has_text = !request->text_query().empty();
+
+  if (!has_vector && !has_text) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+        "At least one of query_vector or text_query must be provided");
+  }
+
+  if (!resolver_->SupportsDataOps()) {
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+        "HybridSearch not supported on coordinator nodes");
+  }
+
+  // Resolve collection
+  auto collection_id_result = resolver_->GetCollectionId(request->collection_name());
+  if (!collection_id_result.ok()) {
+    return toGrpcStatus(collection_id_result.status());
+  }
+
+  // Convert query vector (optional — may be text-only)
+  std::optional<core::Vector> query_vector;
+  if (has_vector) {
+    auto qr = fromProto(request->query_vector());
+    if (!qr.ok()) return toGrpcStatus(qr.status());
+    query_vector = std::move(*qr);
+  }
+
+  // Get segments
+  auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
+  if (!segment_ids_result.ok()) {
+    return toGrpcStatus(segment_ids_result.status());
+  }
+
+  // Determine weights
+  float vector_weight = request->vector_weight() > 0 ? request->vector_weight() : 0.5f;
+  float text_weight = request->text_weight() > 0 ? request->text_weight() : 0.5f;
+  std::string text_field = request->text_field().empty() ? "text" : request->text_field();
+
+  // Build text index on-the-fly for segments that don't have one
+  for (const auto& seg_id : *segment_ids_result) {
+    auto* segment = segment_manager_->GetSegment(seg_id);
+    if (!segment) continue;
+
+    // Build text index from metadata if not already built
+    auto bm25 = std::make_unique<index::BM25Index>();
+    segment->BuildTextIndex(std::move(bm25), text_field);
+  }
+
+  // Search each segment
+  std::vector<core::SearchResultEntry> all_entries;
+  for (const auto& seg_id : *segment_ids_result) {
+    auto* segment = segment_manager_->GetSegment(seg_id);
+    if (!segment) continue;
+
+    core::StatusOr<core::SearchResult> result;
+
+    if (has_vector && has_text) {
+      // Full hybrid: vector + BM25 with RRF fusion
+      result = segment->SearchHybrid(
+          *query_vector, request->text_query(), request->top_k(),
+          vector_weight, text_weight, text_field);
+    } else if (has_vector) {
+      // Vector-only (fallback to regular search)
+      result = segment->Search(*query_vector, request->top_k());
+    } else {
+      // Text-only: BM25 search via text index
+      // BuildTextIndex was already called above
+      result = segment->SearchHybrid(
+          core::ZeroVector(segment->GetDimension()),
+          request->text_query(), request->top_k(),
+          0.0f, 1.0f, text_field);  // All weight on text
+    }
+
+    if (result.ok()) {
+      for (auto& entry : result->entries) {
+        all_entries.push_back(entry);
+      }
+    }
+  }
+
+  // Sort by RRF score (higher = better) and take top_k
+  std::sort(all_entries.begin(), all_entries.end(),
+            [](const auto& a, const auto& b) { return a.distance > b.distance; });
+
+  int top_k = std::min(static_cast<int>(all_entries.size()),
+                        static_cast<int>(request->top_k()));
+
+  for (int i = 0; i < top_k; ++i) {
+    auto* proto_entry = response->add_results();
+    toProto(all_entries[i], proto_entry);
+
+    if (request->return_metadata()) {
+      for (const auto& seg_id : *segment_ids_result) {
+        auto* segment = segment_manager_->GetSegment(seg_id);
+        if (segment) {
+          auto meta_result = segment->GetMetadata(all_entries[i].id);
+          if (meta_result.ok()) {
+            toProto(*meta_result, proto_entry->mutable_metadata());
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  response->set_query_time_ms(search_timer.elapsed_millis());
   return grpc::Status::OK;
 }
 
@@ -730,6 +845,55 @@ grpc::Status VectorDBService::Get(
   return grpc::Status::OK;
 }
 
+grpc::Status VectorDBService::ListVectors(
+    grpc::ServerContext* context,
+    const proto::ListVectorsRequest* request,
+    proto::ListVectorsResponse* response) {
+
+  if (!resolver_->SupportsDataOps()) {
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+        "ListVectors not supported on coordinator nodes");
+  }
+
+  auto segment_id_result = resolver_->GetSegmentId(request->collection_name());
+  if (!segment_id_result.ok()) {
+    return toGrpcStatus(segment_id_result.status());
+  }
+
+  auto* segment = segment_manager_->GetSegment(*segment_id_result);
+  if (!segment) {
+    return toGrpcStatus(absl::NotFoundError("Segment not found"));
+  }
+
+  auto all_ids = segment->GetAllVectorIds();
+  uint64_t total = all_ids.size();
+  uint32_t limit = request->limit() > 0 ? request->limit() : 20;
+  uint64_t offset = request->offset();
+
+  response->set_total_count(total);
+  response->set_has_more(offset + limit < total);
+
+  uint64_t end = std::min(offset + limit, total);
+  for (uint64_t i = offset; i < end; ++i) {
+    std::vector<core::VectorId> ids_to_get = {all_ids[i]};
+    auto result = segment->GetVectors(ids_to_get, request->include_metadata());
+
+    for (size_t j = 0; j < result.found_ids.size(); ++j) {
+      auto* proto_vec = response->add_vectors();
+      proto_vec->set_id(core::ToUInt64(result.found_ids[j]));
+
+      auto* vec = proto_vec->mutable_vector();
+      toProto(result.found_vectors[j], vec);
+
+      if (request->include_metadata() && j < result.found_metadata.size()) {
+        toProto(result.found_metadata[j], proto_vec->mutable_metadata());
+      }
+    }
+  }
+
+  return grpc::Status::OK;
+}
+
 grpc::Status VectorDBService::Delete(
     grpc::ServerContext* context,
     const proto::DeleteRequest* request,
@@ -805,6 +969,12 @@ grpc::Status VectorDBService::Delete(
 
   utils::MetricsRegistry::Instance().RecordDelete(
       request->collection_name(), true);
+
+  // Invalidate query cache
+  if (auto* cache = query_executor_->GetCache()) {
+    auto cid = resolver_->GetCollectionId(request->collection_name());
+    if (cid.ok()) cache->InvalidateCollection(core::ToUInt32(*cid));
+  }
 
   return grpc::Status::OK;
 }
