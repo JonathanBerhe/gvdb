@@ -47,7 +47,8 @@ enum class IndexType {
   IVF_FLAT,  // Inverted File with exhaustive search
   IVF_PQ,    // Inverted File with Product Quantization
   IVF_SQ,    // Inverted File with Scalar Quantization
-  TURBOQUANT // TurboQuant online quantization (data-oblivious)
+  TURBOQUANT,     // TurboQuant online quantization (data-oblivious)
+  IVF_TURBOQUANT  // IVF partitioning + TurboQuant compression
 };
 
 // Segment states in the storage lifecycle

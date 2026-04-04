@@ -51,6 +51,9 @@ class IndexFactory : public core::IIndexFactory {
                         int bit_width = 4, bool use_qjl = true,
                         int qjl_dim = 0);
 
+  [[nodiscard]] static core::StatusOr<std::unique_ptr<core::IVectorIndex>>
+  CreateIVFTurboQuantIndex(const core::IndexConfig& config);
+
   // Check if GPU is available for GPU indexes
   [[nodiscard]] static bool IsGPUAvailable();
 
