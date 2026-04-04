@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.9](https://github.com/JonathanBerhe/gvdb/compare/v0.1.8...v0.1.9) (2026-04-04)
+
+
+### Features
+
+* **python:** add upsert() and range_search() to Python SDK ([4c34722](https://github.com/JonathanBerhe/gvdb/commit/4c34722115a5886f560ea646d3823586469539e4))
+* **storage,index:** add scalar metadata indexes, upsert, and range search ([2bfb975](https://github.com/JonathanBerhe/gvdb/commit/2bfb975434280f77aca90112c1c7fc463ce4629d))
+* **storage,index:** add scalar metadata indexes, upsert, and range search ([dac227e](https://github.com/JonathanBerhe/gvdb/commit/dac227e9a067dbc061b14897ec4e3ce8adbb23a9))
+
 ## [0.1.8](https://github.com/JonathanBerhe/gvdb/compare/v0.1.7...v0.1.8) (2026-04-04)
 
 
