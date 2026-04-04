@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.8](https://github.com/JonathanBerhe/gvdb/compare/v0.1.7...v0.1.8) (2026-04-04)
+
+
+### Features
+
+* **index:** add TurboQuant data-oblivious vector quantization ([35eadf1](https://github.com/JonathanBerhe/gvdb/commit/35eadf1227b87d3aa91a5b822acf1b042f3ba699))
+* **network:** add ListVectors RPC for web UI vector browsing ([a590e43](https://github.com/JonathanBerhe/gvdb/commit/a590e4374ee44b5a712c53a93534e1d83e7ff140))
+* **ui:** add build-ui/run-ui Makefile targets and update README ([61d9085](https://github.com/JonathanBerhe/gvdb/commit/61d9085be7ab7af5f9fab134d1b1512e95c55fd1))
+* **ui:** add collection detail page with vector browser and search playground ([b8c936a](https://github.com/JonathanBerhe/gvdb/commit/b8c936a042ee242920ee926d4800ecd447c49670))
+* **ui:** add Docker image and Helm sidecar deployment for web UI ([06a5aa1](https://github.com/JonathanBerhe/gvdb/commit/06a5aa175cede9de59f9e9a350aa7a9f06e43b83))
+* **ui:** add Go REST gateway with collection/search/hybrid endpoints ([9c91305](https://github.com/JonathanBerhe/gvdb/commit/9c91305102b45035d9b0e2232772eb0eb92511a3))
+* **ui:** add metrics dashboard with Recharts charts and Prometheus proxy ([272f61d](https://github.com/JonathanBerhe/gvdb/commit/272f61dc6bafdfaa80074ae88a3e91f9c4491a4f))
+* **ui:** add web management UI with React SPA and Go REST gateway ([5fee951](https://github.com/JonathanBerhe/gvdb/commit/5fee9510729778564eba105682476aea534ddc87))
+* **ui:** add web management UI with React SPA and Go REST gateway ([ce692b5](https://github.com/JonathanBerhe/gvdb/commit/ce692b5fff934bec3316cefbc38f1fd358e8e245))
+* **ui:** redesign with pitch black dark mode, minimal palette, and theme toggle ([daaf739](https://github.com/JonathanBerhe/gvdb/commit/daaf739362d50eebedfcb248b317799df228afb2))
+
+
+### Bug Fixes
+
+* **index:** add missing #include &lt;mutex&gt; for GCC compatibility in TurboQuant ([577fe1a](https://github.com/JonathanBerhe/gvdb/commit/577fe1a60d891fdf91dfd5b84083aa492bb2dfc8))
+* **ui:** handle null labels in metrics, reduce binary size with strip flags ([06870a0](https://github.com/JonathanBerhe/gvdb/commit/06870a048211c87dbc6f056b6ed231f7cde02d29))
+
 ## [0.1.7](https://github.com/JonathanBerhe/gvdb/compare/v0.1.6...v0.1.7) (2026-04-03)
 
 
