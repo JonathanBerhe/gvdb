@@ -4,6 +4,7 @@
 #ifndef GVDB_INDEX_TURBOQUANT_INDEX_H_
 #define GVDB_INDEX_TURBOQUANT_INDEX_H_
 
+#include <mutex>
 #include <shared_mutex>
 #include <vector>
 
