@@ -1508,3 +1508,308 @@ TEST_CASE_FIXTURE(StorageTest, "LoadAllSegmentsRecovery") {
   CHECK_EQ(search_result->entries.size(), 2);
   CHECK_EQ(search_result->entries[0].id, core::MakeVectorId(1));
 }
+
+// ============================================================================
+// Upsert Tests
+// ============================================================================
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentUpsertInsertNew") {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(5);
+  auto ids = CreateTestVectorIds(5);
+  std::vector<core::Metadata> metadata(5);
+  for (size_t i = 0; i < 5; ++i) {
+    metadata[i]["name"] = std::string("vec_" + std::to_string(i));
+  }
+
+  auto result = segment.UpsertVectors(vectors, ids, metadata);
+  REQUIRE(result.ok());
+  CHECK_EQ(result->inserted_count, 5);
+  CHECK_EQ(result->updated_count, 0);
+  CHECK_EQ(segment.GetVectorCount(), 5);
+}
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentUpsertReplaceExisting") {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors = CreateTestVectors(3);
+  auto ids = CreateTestVectorIds(3);
+  std::vector<core::Metadata> meta1(3);
+  meta1[0]["label"] = std::string("original");
+
+  REQUIRE(segment.UpsertVectors(vectors, ids, meta1).ok());
+  CHECK_EQ(segment.GetVectorCount(), 3);
+
+  // Upsert same IDs with new data
+  auto new_vectors = CreateTestVectors(3);
+  std::vector<core::Metadata> meta2(3);
+  meta2[0]["label"] = std::string("updated");
+
+  auto result = segment.UpsertVectors(new_vectors, ids, meta2);
+  REQUIRE(result.ok());
+  CHECK_EQ(result->inserted_count, 0);
+  CHECK_EQ(result->updated_count, 3);
+  CHECK_EQ(segment.GetVectorCount(), 3);
+
+  // Verify metadata was updated
+  auto md = segment.GetMetadata(ids[0]);
+  REQUIRE(md.ok());
+  auto label = std::get<std::string>(md->at("label"));
+  CHECK_EQ(label, "updated");
+}
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentUpsertMixed") {
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  auto vectors1 = CreateTestVectors(3);
+  auto ids1 = CreateTestVectorIds(3, 1);  // IDs 1,2,3
+  std::vector<core::Metadata> meta1(3);
+  REQUIRE(segment.UpsertVectors(vectors1, ids1, meta1).ok());
+
+  // Upsert: IDs 2,3 exist, 4,5 are new
+  auto vectors2 = CreateTestVectors(4);
+  auto ids2 = CreateTestVectorIds(4, 2);  // IDs 2,3,4,5
+  std::vector<core::Metadata> meta2(4);
+
+  auto result = segment.UpsertVectors(vectors2, ids2, meta2);
+  REQUIRE(result.ok());
+  CHECK_EQ(result->inserted_count, 2);
+  CHECK_EQ(result->updated_count, 2);
+  CHECK_EQ(segment.GetVectorCount(), 5);  // 1 + (2,3 replaced) + 4,5
+}
+
+// ============================================================================
+// Range Search Tests
+// ============================================================================
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentRangeSearchGrowing") {
+  dimension_ = 4;
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Create vectors at known distances from origin
+  std::vector<core::Vector> vectors;
+  vectors.push_back(core::Vector({0.1f, 0.0f, 0.0f, 0.0f}));  // dist ~0.01
+  vectors.push_back(core::Vector({1.0f, 0.0f, 0.0f, 0.0f}));  // dist ~1.0
+  vectors.push_back(core::Vector({5.0f, 0.0f, 0.0f, 0.0f}));  // dist ~25.0
+  auto ids = CreateTestVectorIds(3);
+
+  REQUIRE(segment.AddVectors(vectors, ids).ok());
+
+  core::Vector query({0.0f, 0.0f, 0.0f, 0.0f});
+
+  // Radius 2.0 (L2 distance) should find first two vectors
+  auto result = segment.SearchRange(query, 2.0f);
+  REQUIRE(result.ok());
+  CHECK_EQ(result->entries.size(), 2);
+  // Should be sorted by distance
+  CHECK_LT(result->entries[0].distance, result->entries[1].distance);
+}
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentRangeSearchSealed") {
+  dimension_ = 4;
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  std::vector<core::Vector> vectors;
+  vectors.push_back(core::Vector({0.1f, 0.0f, 0.0f, 0.0f}));
+  vectors.push_back(core::Vector({1.0f, 0.0f, 0.0f, 0.0f}));
+  vectors.push_back(core::Vector({5.0f, 0.0f, 0.0f, 0.0f}));
+  auto ids = CreateTestVectorIds(3);
+
+  REQUIRE(segment.AddVectors(vectors, ids).ok());
+
+  // Seal segment
+  core::IndexConfig config;
+  config.index_type = core::IndexType::FLAT;
+  config.dimension = dimension_;
+  config.metric_type = metric_;
+  auto index_result = index_factory_->CreateIndex(config);
+  REQUIRE(index_result.ok());
+  REQUIRE(segment.Seal(index_result->release()).ok());
+
+  core::Vector query({0.0f, 0.0f, 0.0f, 0.0f});
+  auto result = segment.SearchRange(query, 2.0f);
+  REQUIRE(result.ok());
+  CHECK_GE(result->entries.size(), 1);  // At least the close vector
+}
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentRangeSearchMaxResults") {
+  dimension_ = 4;
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Add 10 vectors all very close to origin
+  std::vector<core::Vector> vectors;
+  for (int i = 0; i < 10; ++i) {
+    vectors.push_back(core::Vector({0.01f * (i + 1), 0.0f, 0.0f, 0.0f}));
+  }
+  auto ids = CreateTestVectorIds(10);
+  REQUIRE(segment.AddVectors(vectors, ids).ok());
+
+  core::Vector query({0.0f, 0.0f, 0.0f, 0.0f});
+  // All within radius 1.0, but limit to 3
+  auto result = segment.SearchRange(query, 1.0f, 3);
+  REQUIRE(result.ok());
+  CHECK_EQ(result->entries.size(), 3);
+}
+
+// ============================================================================
+// Scalar Index Tests
+// ============================================================================
+
+TEST_CASE_FIXTURE(StorageTest, "ScalarIndexBasicLookup") {
+  storage::ScalarIndex idx;
+
+  idx.Add(1, core::MetadataValue(std::string("Nike")));
+  idx.Add(2, core::MetadataValue(std::string("Adidas")));
+  idx.Add(3, core::MetadataValue(std::string("Nike")));
+
+  auto result = idx.LookupEqual(core::MetadataValue(std::string("Nike")));
+  CHECK_EQ(result.size(), 2);
+  CHECK(result.count(1));
+  CHECK(result.count(3));
+}
+
+TEST_CASE_FIXTURE(StorageTest, "ScalarIndexRangeLookup") {
+  storage::ScalarIndex idx;
+
+  idx.Add(1, core::MetadataValue(int64_t(10)));
+  idx.Add(2, core::MetadataValue(int64_t(50)));
+  idx.Add(3, core::MetadataValue(int64_t(100)));
+  idx.Add(4, core::MetadataValue(int64_t(200)));
+
+  core::MetadataValue max_val(int64_t(100));
+  auto result = idx.LookupRange(nullptr, &max_val);
+  CHECK_GE(result.size(), 3);  // IDs 1,2,3 (value <= 100)
+  CHECK(result.count(1));
+  CHECK(result.count(2));
+  CHECK(result.count(3));
+}
+
+TEST_CASE_FIXTURE(StorageTest, "ScalarIndexInLookup") {
+  storage::ScalarIndex idx;
+
+  idx.Add(1, core::MetadataValue(std::string("shoes")));
+  idx.Add(2, core::MetadataValue(std::string("electronics")));
+  idx.Add(3, core::MetadataValue(std::string("clothing")));
+  idx.Add(4, core::MetadataValue(std::string("shoes")));
+
+  std::vector<core::MetadataValue> values = {
+      core::MetadataValue(std::string("shoes")),
+      core::MetadataValue(std::string("clothing"))};
+  auto result = idx.LookupIn(values);
+  CHECK_EQ(result.size(), 3);  // IDs 1,3,4
+}
+
+TEST_CASE_FIXTURE(StorageTest, "ScalarIndexPrefixLookup") {
+  storage::ScalarIndex idx;
+
+  idx.Add(1, core::MetadataValue(std::string("Nike Air Max")));
+  idx.Add(2, core::MetadataValue(std::string("Nike Dunk")));
+  idx.Add(3, core::MetadataValue(std::string("Adidas Ultra")));
+
+  auto result = idx.LookupPrefix("Nike");
+  CHECK_EQ(result.size(), 2);
+  CHECK(result.count(1));
+  CHECK(result.count(2));
+}
+
+TEST_CASE_FIXTURE(StorageTest, "ScalarIndexSetBuildAndEvaluate") {
+  storage::ScalarIndexSet idx_set;
+
+  std::unordered_map<uint64_t, core::Metadata> metadata_map;
+  metadata_map[1] = {{"brand", core::MetadataValue(std::string("Nike"))},
+                     {"price", core::MetadataValue(int64_t(100))}};
+  metadata_map[2] = {{"brand", core::MetadataValue(std::string("Adidas"))},
+                     {"price", core::MetadataValue(int64_t(150))}};
+  metadata_map[3] = {{"brand", core::MetadataValue(std::string("Nike"))},
+                     {"price", core::MetadataValue(int64_t(200))}};
+
+  idx_set.BuildFromMetadata(metadata_map);
+  CHECK(idx_set.HasIndexes());
+
+  // Test: brand = 'Nike'
+  core::ComparisonNode filter("brand", core::ComparisonOp::EQUAL,
+                               core::MetadataValue(std::string("Nike")));
+  auto result = idx_set.Evaluate(filter);
+  REQUIRE(result.has_value());
+  CHECK_EQ(result->size(), 2);
+  CHECK(result->count(1));
+  CHECK(result->count(3));
+}
+
+TEST_CASE_FIXTURE(StorageTest, "ScalarIndexSearchWithFilterAcceleration") {
+  dimension_ = 4;
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  // Insert vectors with metadata
+  std::vector<core::Vector> vectors;
+  std::vector<core::VectorId> ids;
+  std::vector<core::Metadata> metadata;
+
+  for (int i = 0; i < 20; ++i) {
+    vectors.push_back(core::Vector({
+        static_cast<float>(i) * 0.1f, 0.0f, 0.0f, 0.0f}));
+    ids.push_back(core::MakeVectorId(i + 1));
+    core::Metadata md;
+    md["category"] = (i < 10) ? core::MetadataValue(std::string("shoes"))
+                               : core::MetadataValue(std::string("electronics"));
+    md["price"] = core::MetadataValue(int64_t(50 + i * 10));
+    metadata.push_back(md);
+  }
+
+  REQUIRE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  core::Vector query({0.0f, 0.0f, 0.0f, 0.0f});
+
+  // Search with filter: category = 'shoes' — scalar index narrows to 10 vectors
+  auto result = segment.SearchWithFilter(query, 5, "category = 'shoes'");
+  REQUIRE(result.ok());
+  CHECK_EQ(result->entries.size(), 5);
+
+  // All returned vectors should be in shoes category (IDs 1-10)
+  for (const auto& entry : result->entries) {
+    CHECK_LE(core::ToUInt64(entry.id), 10);
+  }
+}
+
+TEST_CASE_FIXTURE(StorageTest, "ScalarIndexAndFilter") {
+  dimension_ = 4;
+  auto segment_id = core::MakeSegmentId(1);
+  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
+
+  std::vector<core::Vector> vectors;
+  std::vector<core::VectorId> ids;
+  std::vector<core::Metadata> metadata;
+
+  for (int i = 0; i < 10; ++i) {
+    vectors.push_back(core::Vector({
+        static_cast<float>(i) * 0.1f, 0.0f, 0.0f, 0.0f}));
+    ids.push_back(core::MakeVectorId(i + 1));
+    core::Metadata md;
+    md["brand"] = (i % 2 == 0)
+                      ? core::MetadataValue(std::string("Nike"))
+                      : core::MetadataValue(std::string("Adidas"));
+    md["price"] = core::MetadataValue(int64_t(100 + i * 50));
+    metadata.push_back(md);
+  }
+
+  REQUIRE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+
+  core::Vector query({0.0f, 0.0f, 0.0f, 0.0f});
+
+  // AND filter: brand = 'Nike' AND price < 300
+  auto result = segment.SearchWithFilter(query, 10,
+      "brand = 'Nike' AND price < 300");
+  REQUIRE(result.ok());
+  // Nike: IDs 1,3,5,7,9 (even indices 0,2,4,6,8)
+  // Price < 300: IDs with price 100,150,200,250 (indices 0,1,2,3)
+  // Intersection (Nike AND price < 300): indices 0,2 -> IDs 1,3
+  CHECK_GE(result->entries.size(), 2);
+}

@@ -541,6 +541,174 @@ grpc::Status VectorDBService::StreamInsert(
   return grpc::Status::OK;
 }
 
+// ============================================================================
+// Upsert
+// ============================================================================
+
+grpc::Status VectorDBService::Upsert(
+    grpc::ServerContext* context,
+    const proto::UpsertRequest* request,
+    proto::UpsertResponse* response) {
+  if (request->collection_name().empty()) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Collection name is required");
+  }
+  if (request->vectors().empty()) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "No vectors provided");
+  }
+
+  if (!resolver_->SupportsDataOps()) {
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+        "Upsert operations not supported on coordinator nodes");
+  }
+
+  auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
+  if (!segment_ids_result.ok()) {
+    return toGrpcStatus(segment_ids_result.status());
+  }
+  const auto& segment_ids = *segment_ids_result;
+
+  // Find a GROWING segment
+  storage::Segment* growing_segment = nullptr;
+  for (auto seg_id : segment_ids) {
+    auto* seg = segment_manager_->GetSegment(seg_id);
+    if (seg && seg->CanAcceptWrites()) {
+      growing_segment = seg;
+      break;
+    }
+  }
+  if (!growing_segment) {
+    return grpc::Status(grpc::StatusCode::RESOURCE_EXHAUSTED, "No writable segment available");
+  }
+
+  // Convert proto vectors
+  std::vector<core::Vector> vectors;
+  std::vector<core::VectorId> ids;
+  std::vector<core::Metadata> metadata;
+  vectors.reserve(request->vectors_size());
+  ids.reserve(request->vectors_size());
+  metadata.reserve(request->vectors_size());
+
+  for (const auto& proto_vec : request->vectors()) {
+    auto vec_result = fromProto(proto_vec);
+    if (!vec_result.ok()) {
+      return toGrpcStatus(vec_result.status());
+    }
+    ids.push_back(vec_result->first);
+    vectors.push_back(std::move(vec_result->second));
+
+    if (proto_vec.has_metadata()) {
+      auto meta_result = fromProto(proto_vec.metadata());
+      if (!meta_result.ok()) {
+        return toGrpcStatus(meta_result.status());
+      }
+      metadata.push_back(std::move(*meta_result));
+    } else {
+      metadata.push_back(core::Metadata{});
+    }
+  }
+
+  auto upsert_result = growing_segment->UpsertVectors(vectors, ids, metadata);
+  if (!upsert_result.ok()) {
+    return toGrpcStatus(upsert_result.status());
+  }
+
+  response->set_upserted_count(upsert_result->inserted_count + upsert_result->updated_count);
+  response->set_inserted_count(upsert_result->inserted_count);
+  response->set_updated_count(upsert_result->updated_count);
+  response->set_message("Upsert completed");
+
+  utils::Logger::Instance().Debug("Upsert: {} inserted, {} updated in collection '{}'",
+      upsert_result->inserted_count, upsert_result->updated_count,
+      request->collection_name());
+
+  return grpc::Status::OK;
+}
+
+// ============================================================================
+// Range Search
+// ============================================================================
+
+grpc::Status VectorDBService::RangeSearch(
+    grpc::ServerContext* context,
+    const proto::RangeSearchRequest* request,
+    proto::RangeSearchResponse* response) {
+  utils::Timer timer;
+
+  if (request->collection_name().empty()) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Collection name is required");
+  }
+  if (!request->has_query_vector()) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Query vector is required");
+  }
+  if (request->radius() <= 0) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Radius must be positive");
+  }
+
+  auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
+  if (!segment_ids_result.ok()) {
+    return toGrpcStatus(segment_ids_result.status());
+  }
+  const auto& segment_ids = *segment_ids_result;
+
+  auto query_result = fromProto(request->query_vector());
+  if (!query_result.ok()) {
+    return toGrpcStatus(query_result.status());
+  }
+
+  int max_results = request->max_results() > 0 ? request->max_results() : 1000;
+
+  // Search each segment and merge results
+  std::vector<core::SearchResultEntry> all_results;
+  for (auto seg_id : segment_ids) {
+    auto* segment = GetOrReplicateSegment(seg_id);
+    if (!segment) continue;
+
+    core::StatusOr<core::SearchResult> seg_result;
+    if (request->filter().empty()) {
+      seg_result = segment->SearchRange(*query_result, request->radius(), max_results);
+    } else {
+      seg_result = segment->SearchRangeWithFilter(
+          *query_result, request->radius(), request->filter(), max_results);
+    }
+
+    if (seg_result.ok()) {
+      all_results.insert(all_results.end(),
+                         seg_result->entries.begin(), seg_result->entries.end());
+    }
+  }
+
+  // Sort by distance and limit
+  std::sort(all_results.begin(), all_results.end(),
+            [](const auto& a, const auto& b) { return a.distance < b.distance; });
+  if (static_cast<int>(all_results.size()) > max_results) {
+    all_results.resize(max_results);
+  }
+
+  // Build response
+  for (const auto& entry : all_results) {
+    auto* proto_entry = response->add_results();
+    toProto(entry, proto_entry);
+
+    if (request->return_metadata()) {
+      for (auto seg_id : segment_ids) {
+        auto* segment = segment_manager_->GetSegment(seg_id);
+        if (segment) {
+          auto meta = segment->GetMetadata(entry.id);
+          if (meta.ok()) {
+            toProto(*meta, proto_entry->mutable_metadata());
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  response->set_query_time_ms(static_cast<float>(timer.elapsed_millis()));
+  total_queries_++;
+
+  return grpc::Status::OK;
+}
+
 grpc::Status VectorDBService::Search(
     grpc::ServerContext* context,
     const proto::SearchRequest* request,
