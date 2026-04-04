@@ -3,9 +3,9 @@
 import grpc
 import warnings
 
-from gvdb.pb import vectordb_pb2 as vectordb__pb2
+import vectordb_pb2 as vectordb__pb2
 
-GRPC_GENERATED_VERSION = '1.80.0'
+GRPC_GENERATED_VERSION = '1.76.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -63,10 +63,20 @@ class VectorDBServiceStub(object):
                 request_serializer=vectordb__pb2.InsertRequest.SerializeToString,
                 response_deserializer=vectordb__pb2.InsertResponse.FromString,
                 _registered_method=True)
+        self.Upsert = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/Upsert',
+                request_serializer=vectordb__pb2.UpsertRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.UpsertResponse.FromString,
+                _registered_method=True)
         self.Search = channel.unary_unary(
                 '/gvdb.proto.VectorDBService/Search',
                 request_serializer=vectordb__pb2.SearchRequest.SerializeToString,
                 response_deserializer=vectordb__pb2.SearchResponse.FromString,
+                _registered_method=True)
+        self.RangeSearch = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/RangeSearch',
+                request_serializer=vectordb__pb2.RangeSearchRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.RangeSearchResponse.FromString,
                 _registered_method=True)
         self.Get = channel.unary_unary(
                 '/gvdb.proto.VectorDBService/Get',
@@ -82,6 +92,11 @@ class VectorDBServiceStub(object):
                 '/gvdb.proto.VectorDBService/UpdateMetadata',
                 request_serializer=vectordb__pb2.UpdateMetadataRequest.SerializeToString,
                 response_deserializer=vectordb__pb2.UpdateMetadataResponse.FromString,
+                _registered_method=True)
+        self.ListVectors = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/ListVectors',
+                request_serializer=vectordb__pb2.ListVectorsRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.ListVectorsResponse.FromString,
                 _registered_method=True)
         self.HybridSearch = channel.unary_unary(
                 '/gvdb.proto.VectorDBService/HybridSearch',
@@ -139,7 +154,19 @@ class VectorDBServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Upsert(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Search(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RangeSearch(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -158,6 +185,12 @@ class VectorDBServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def UpdateMetadata(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListVectors(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -211,10 +244,20 @@ def add_VectorDBServiceServicer_to_server(servicer, server):
                     request_deserializer=vectordb__pb2.InsertRequest.FromString,
                     response_serializer=vectordb__pb2.InsertResponse.SerializeToString,
             ),
+            'Upsert': grpc.unary_unary_rpc_method_handler(
+                    servicer.Upsert,
+                    request_deserializer=vectordb__pb2.UpsertRequest.FromString,
+                    response_serializer=vectordb__pb2.UpsertResponse.SerializeToString,
+            ),
             'Search': grpc.unary_unary_rpc_method_handler(
                     servicer.Search,
                     request_deserializer=vectordb__pb2.SearchRequest.FromString,
                     response_serializer=vectordb__pb2.SearchResponse.SerializeToString,
+            ),
+            'RangeSearch': grpc.unary_unary_rpc_method_handler(
+                    servicer.RangeSearch,
+                    request_deserializer=vectordb__pb2.RangeSearchRequest.FromString,
+                    response_serializer=vectordb__pb2.RangeSearchResponse.SerializeToString,
             ),
             'Get': grpc.unary_unary_rpc_method_handler(
                     servicer.Get,
@@ -230,6 +273,11 @@ def add_VectorDBServiceServicer_to_server(servicer, server):
                     servicer.UpdateMetadata,
                     request_deserializer=vectordb__pb2.UpdateMetadataRequest.FromString,
                     response_serializer=vectordb__pb2.UpdateMetadataResponse.SerializeToString,
+            ),
+            'ListVectors': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListVectors,
+                    request_deserializer=vectordb__pb2.ListVectorsRequest.FromString,
+                    response_serializer=vectordb__pb2.ListVectorsResponse.SerializeToString,
             ),
             'HybridSearch': grpc.unary_unary_rpc_method_handler(
                     servicer.HybridSearch,
@@ -397,6 +445,33 @@ class VectorDBService(object):
             _registered_method=True)
 
     @staticmethod
+    def Upsert(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/Upsert',
+            vectordb__pb2.UpsertRequest.SerializeToString,
+            vectordb__pb2.UpsertResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def Search(request,
             target,
             options=(),
@@ -413,6 +488,33 @@ class VectorDBService(object):
             '/gvdb.proto.VectorDBService/Search',
             vectordb__pb2.SearchRequest.SerializeToString,
             vectordb__pb2.SearchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RangeSearch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/RangeSearch',
+            vectordb__pb2.RangeSearchRequest.SerializeToString,
+            vectordb__pb2.RangeSearchResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -494,6 +596,33 @@ class VectorDBService(object):
             '/gvdb.proto.VectorDBService/UpdateMetadata',
             vectordb__pb2.UpdateMetadataRequest.SerializeToString,
             vectordb__pb2.UpdateMetadataResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListVectors(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/ListVectors',
+            vectordb__pb2.ListVectorsRequest.SerializeToString,
+            vectordb__pb2.ListVectorsResponse.FromString,
             options,
             channel_credentials,
             insecure,
