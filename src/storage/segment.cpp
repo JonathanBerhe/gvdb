@@ -248,6 +248,20 @@ core::Status Segment::UpdateMetadata(
   return core::OkStatus();
 }
 
+float Segment::ComputeDistance(const core::Vector& a,
+                               const core::Vector& b) const {
+  switch (metric_) {
+    case core::MetricType::L2:
+      return a.L2Distance(b);
+    case core::MetricType::INNER_PRODUCT:
+      return -a.InnerProduct(b);
+    case core::MetricType::COSINE:
+      return a.CosineDistance(b);
+    default:
+      return a.L2Distance(b);
+  }
+}
+
 core::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(
     const core::Vector& query, int k) const {
   if (vectors_.empty()) {
@@ -258,20 +272,7 @@ core::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(
   results.reserve(vectors_.size());
 
   for (size_t i = 0; i < vectors_.size(); ++i) {
-    float distance;
-    switch (metric_) {
-      case core::MetricType::L2:
-        distance = query.L2Distance(vectors_[i]);
-        break;
-      case core::MetricType::INNER_PRODUCT:
-        distance = query.InnerProduct(vectors_[i]);
-        break;
-      case core::MetricType::COSINE:
-        distance = query.CosineDistance(vectors_[i]);
-        break;
-      default:
-        distance = query.L2Distance(vectors_[i]);
-    }
+    float distance = ComputeDistance(query, vectors_[i]);
     results.push_back({vector_ids_[i], distance});
   }
 
@@ -460,20 +461,7 @@ core::StatusOr<core::SearchResult> Segment::SearchRange(
   if (state_ == core::SegmentState::GROWING) {
     // Brute-force range search for GROWING segments
     for (size_t i = 0; i < vectors_.size(); ++i) {
-      float distance;
-      switch (metric_) {
-        case core::MetricType::L2:
-          distance = query.L2Distance(vectors_[i]);
-          break;
-        case core::MetricType::INNER_PRODUCT:
-          distance = -query.InnerProduct(vectors_[i]);
-          break;
-        case core::MetricType::COSINE:
-          distance = query.CosineDistance(vectors_[i]);
-          break;
-        default:
-          distance = query.L2Distance(vectors_[i]);
-      }
+      float distance = ComputeDistance(query, vectors_[i]);
       if (distance <= radius) {
         result.entries.emplace_back(vector_ids_[i], distance);
         if (max_results > 0 &&
@@ -498,7 +486,7 @@ core::StatusOr<core::SearchResult> Segment::SearchRange(
     } else {
       // Fallback: brute-force using stored vectors
       for (size_t i = 0; i < vectors_.size(); ++i) {
-        float distance = query.L2Distance(vectors_[i]);
+        float distance = ComputeDistance(query, vectors_[i]);
         if (distance <= radius) {
           result.entries.emplace_back(vector_ids_[i], distance);
           if (max_results > 0 &&
@@ -601,15 +589,7 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
         }
       }
 
-      float distance;
-      if (metric_ == core::MetricType::L2) {
-        distance = query.L2Distance(vectors_[i]);
-      } else if (metric_ == core::MetricType::INNER_PRODUCT) {
-        distance = -query.InnerProduct(vectors_[i]);
-      } else {
-        distance = query.CosineDistance(vectors_[i]);
-      }
-
+      float distance = ComputeDistance(query, vectors_[i]);
       results.emplace_back(vector_ids_[i], distance);
     }
 
