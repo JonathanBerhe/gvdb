@@ -15,6 +15,7 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 - **Persistence**: Vectors flushed to disk, index rebuilt on startup recovery
 - **gRPC API**: Protobuf-based client/server with TLS and API key authentication
 - **Python SDK**: `pip install gvdb` — full API with hybrid search, streaming inserts, metadata
+- **CLI & TUI**: Interactive terminal UI (Bubble Tea) + scriptable CLI (Cobra) — single binary (`gvdb`)
 - **Web UI**: Collection browser, search playground, metrics dashboard — single binary (`gvdb-ui`)
 - **Raft Consensus**: Metadata operations replicated via NuRaft
 
@@ -121,6 +122,29 @@ make build-ui
 ./ui/gateway/gvdb-ui --gvdb-addr localhost:50051
 ```
 
+### CLI
+
+```bash
+# Install
+go install gvdb-cli@latest
+# or: brew install jonathanberhe/tap/gvdb
+
+# Interactive TUI (collections, vectors, search, metrics)
+gvdb
+
+# Scriptable commands
+gvdb health
+gvdb collection list -o json
+gvdb collection create --name products --dimension 768 --metric cosine
+gvdb search --collection products --vector '[0.1,0.2,...]' --top-k 10
+gvdb search --collection products --text-query "running shoes" --hybrid
+gvdb import --collection products --file vectors.jsonl
+
+# Build from source
+make build-cli
+./cli/gvdb --help
+```
+
 ### Run (single-node)
 
 ```bash
@@ -203,6 +227,7 @@ All binaries support environment variables (`GVDB_BIND_ADDRESS`, `GVDB_ADVERTISE
 make test             # C++ unit + integration tests (37 suites)
 make test-e2e         # Go e2e tests against local server
 make test-e2e-kind    # Go e2e tests against kind cluster
+make test-cli         # CLI Go tests
 ```
 
 See [test/README.md](test/README.md) for details on the test structure.

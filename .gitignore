@@ -116,3 +116,6 @@ ui/gateway/gvdb-ui
 ui/web/node_modules/
 ui/web/dist/
 ui/gateway/gvdb-ui*
+
+# CLI binary
+cli/gvdb
