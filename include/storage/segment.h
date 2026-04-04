@@ -16,6 +16,7 @@
 #include "core/types.h"
 #include "core/vector.h"
 #include "index/text_index.h"
+#include "storage/scalar_index.h"
 
 namespace gvdb {
 namespace storage {
@@ -100,6 +101,25 @@ class Segment {
       float text_weight = 0.5f,
       const std::string& text_field = "text") const;
 
+  // Upsert: insert or replace vector (only valid for GROWING state)
+  struct UpsertResult {
+    uint64_t inserted_count;
+    uint64_t updated_count;
+  };
+  [[nodiscard]] core::StatusOr<UpsertResult> UpsertVectors(
+      const std::vector<core::Vector>& vectors,
+      const std::vector<core::VectorId>& ids,
+      const std::vector<core::Metadata>& metadata);
+
+  // Range search: find all vectors within distance radius
+  [[nodiscard]] core::StatusOr<core::SearchResult> SearchRange(
+      const core::Vector& query, float radius, int max_results = 1000) const;
+
+  // Range search with metadata filter
+  [[nodiscard]] core::StatusOr<core::SearchResult> SearchRangeWithFilter(
+      const core::Vector& query, float radius, const std::string& filter_expr,
+      int max_results = 1000) const;
+
   // Get metadata for a vector
   [[nodiscard]] core::StatusOr<core::Metadata> GetMetadata(core::VectorId id) const;
 
@@ -181,6 +201,9 @@ class Segment {
 
   // Text index for BM25 hybrid search (built during seal from metadata text fields)
   std::unique_ptr<index::ITextIndex> text_index_;
+
+  // Scalar indexes on metadata fields (built incrementally + during seal)
+  ScalarIndexSet scalar_indexes_;
 
   // Helper methods
   [[nodiscard]] bool IsFull() const;
