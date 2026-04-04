@@ -507,6 +507,238 @@ TEST_CASE("TurboQuant - HighDimensional") {
   CHECK(found_self);
 }
 
+// ============================================================================
+// IVF_TURBOQUANT Tests
+// ============================================================================
+
+TEST_CASE("IVFTurboQuant - Factory creation") {
+  core::IndexConfig config;
+  config.index_type = core::IndexType::IVF_TURBOQUANT;
+  config.dimension = 64;
+  config.metric_type = core::MetricType::L2;
+  config.ivf_turboquant_params.nlist = 4;
+  config.ivf_turboquant_params.nprobe = 2;
+  config.ivf_turboquant_params.bit_width = 4;
+
+  IndexFactory factory;
+  auto result = factory.CreateIndex(config);
+  REQUIRE(result.ok());
+  CHECK_EQ(result.value()->GetDimension(), 64);
+  CHECK_EQ(result.value()->GetIndexType(), core::IndexType::IVF_TURBOQUANT);
+}
+
+TEST_CASE("IVFTurboQuant - Invalid bit width rejected") {
+  core::IndexConfig config;
+  config.index_type = core::IndexType::IVF_TURBOQUANT;
+  config.dimension = 64;
+  config.metric_type = core::MetricType::L2;
+  config.ivf_turboquant_params.bit_width = 3;
+
+  IndexFactory factory;
+  auto result = factory.CreateIndex(config);
+  CHECK_FALSE(result.ok());
+}
+
+TEST_CASE("IVFTurboQuant - Build and search L2") {
+  core::IndexConfig config;
+  config.index_type = core::IndexType::IVF_TURBOQUANT;
+  config.dimension = 32;
+  config.metric_type = core::MetricType::L2;
+  config.ivf_turboquant_params.nlist = 4;
+  config.ivf_turboquant_params.nprobe = 4;  // Search all clusters
+  config.ivf_turboquant_params.bit_width = 4;
+
+  IndexFactory factory;
+  auto index_result = factory.CreateIndex(config);
+  REQUIRE(index_result.ok());
+  auto& index = *index_result.value();
+
+  auto vectors = CreateTestVectors(200, 32);
+  auto ids = CreateTestIds(200);
+
+  auto build_status = index.Build(vectors, ids);
+  INFO("Build failed: " << build_status.message());
+  REQUIRE(build_status.ok());
+
+  CHECK(index.IsTrained());
+  CHECK_EQ(index.GetVectorCount(), 200);
+
+  // Search for first vector
+  auto search_result = index.Search(vectors[0], 5);
+  REQUIRE(search_result.ok());
+  CHECK_GE(search_result->entries.size(), 1);
+
+  // First result should be close to the query
+  bool found_self = false;
+  for (const auto& e : search_result->entries) {
+    if (core::ToUInt64(e.id) == 1) found_self = true;
+  }
+  CHECK(found_self);
+}
+
+TEST_CASE("IVFTurboQuant - Build and search COSINE") {
+  core::IndexConfig config;
+  config.index_type = core::IndexType::IVF_TURBOQUANT;
+  config.dimension = 32;
+  config.metric_type = core::MetricType::COSINE;
+  config.ivf_turboquant_params.nlist = 4;
+  config.ivf_turboquant_params.nprobe = 4;
+  config.ivf_turboquant_params.bit_width = 4;
+
+  IndexFactory factory;
+  auto index_result = factory.CreateIndex(config);
+  REQUIRE(index_result.ok());
+  auto& index = *index_result.value();
+
+  auto vectors = CreateTestVectors(200, 32);
+  auto ids = CreateTestIds(200);
+
+  REQUIRE(index.Build(vectors, ids).ok());
+
+  auto search_result = index.Search(vectors[0], 5);
+  REQUIRE(search_result.ok());
+  CHECK_GE(search_result->entries.size(), 1);
+}
+
+TEST_CASE("IVFTurboQuant - Range search") {
+  core::IndexConfig config;
+  config.index_type = core::IndexType::IVF_TURBOQUANT;
+  config.dimension = 32;
+  config.metric_type = core::MetricType::L2;
+  config.ivf_turboquant_params.nlist = 4;
+  config.ivf_turboquant_params.nprobe = 4;
+  config.ivf_turboquant_params.bit_width = 4;
+
+  IndexFactory factory;
+  auto index_result = factory.CreateIndex(config);
+  REQUIRE(index_result.ok());
+  auto& index = *index_result.value();
+
+  auto vectors = CreateTestVectors(200, 32);
+  auto ids = CreateTestIds(200);
+  REQUIRE(index.Build(vectors, ids).ok());
+
+  // Range search with large radius should find vectors
+  auto result = index.SearchRange(vectors[0], 1000.0f);
+  REQUIRE(result.ok());
+  CHECK_GE(result->entries.size(), 1);
+}
+
+TEST_CASE("IVFTurboQuant - Remove vector") {
+  core::IndexConfig config;
+  config.index_type = core::IndexType::IVF_TURBOQUANT;
+  config.dimension = 32;
+  config.metric_type = core::MetricType::L2;
+  config.ivf_turboquant_params.nlist = 4;
+  config.ivf_turboquant_params.nprobe = 4;
+  config.ivf_turboquant_params.bit_width = 4;
+
+  IndexFactory factory;
+  auto index_result = factory.CreateIndex(config);
+  REQUIRE(index_result.ok());
+  auto& index = *index_result.value();
+
+  auto vectors = CreateTestVectors(100, 32);
+  auto ids = CreateTestIds(100);
+  REQUIRE(index.Build(vectors, ids).ok());
+  CHECK_EQ(index.GetVectorCount(), 100);
+
+  auto rm_status = index.Remove(core::MakeVectorId(1));
+  REQUIRE(rm_status.ok());
+  CHECK_EQ(index.GetVectorCount(), 99);
+}
+
+TEST_CASE("IVFTurboQuant - Serialize and deserialize") {
+  std::string test_path = "/tmp/gvdb_ivf_tq_test.idx";
+
+  core::IndexConfig config;
+  config.index_type = core::IndexType::IVF_TURBOQUANT;
+  config.dimension = 32;
+  config.metric_type = core::MetricType::L2;
+  config.ivf_turboquant_params.nlist = 4;
+  config.ivf_turboquant_params.nprobe = 4;
+  config.ivf_turboquant_params.bit_width = 4;
+
+  IndexFactory factory;
+  auto index_result = factory.CreateIndex(config);
+  REQUIRE(index_result.ok());
+  auto& index = *index_result.value();
+
+  auto vectors = CreateTestVectors(100, 32);
+  auto ids = CreateTestIds(100);
+  REQUIRE(index.Build(vectors, ids).ok());
+
+  // Serialize
+  REQUIRE(index.Serialize(test_path).ok());
+
+  // Create new index and deserialize
+  auto index2_result = factory.CreateIndex(config);
+  REQUIRE(index2_result.ok());
+  auto& index2 = *index2_result.value();
+  REQUIRE(index2.Deserialize(test_path).ok());
+
+  CHECK_EQ(index2.GetVectorCount(), 100);
+
+  // Search should work on deserialized index
+  auto search_result = index2.Search(vectors[0], 5);
+  REQUIRE(search_result.ok());
+  CHECK_GE(search_result->entries.size(), 1);
+
+  std::filesystem::remove(test_path);
+}
+
+TEST_CASE("IVFTurboQuant - Different bit widths") {
+  for (int bw : {1, 2, 4, 8}) {
+    INFO("bit_width = " << bw);
+
+    core::IndexConfig config;
+    config.index_type = core::IndexType::IVF_TURBOQUANT;
+    config.dimension = 32;
+    config.metric_type = core::MetricType::L2;
+    config.ivf_turboquant_params.nlist = 4;
+    config.ivf_turboquant_params.nprobe = 4;
+    config.ivf_turboquant_params.bit_width = bw;
+
+    IndexFactory factory;
+    auto index_result = factory.CreateIndex(config);
+    REQUIRE(index_result.ok());
+    auto& index = *index_result.value();
+
+    auto vectors = CreateTestVectors(100, 32);
+    auto ids = CreateTestIds(100);
+    REQUIRE(index.Build(vectors, ids).ok());
+
+    auto search_result = index.Search(vectors[0], 5);
+    REQUIRE(search_result.ok());
+    CHECK_GE(search_result->entries.size(), 1);
+  }
+}
+
+TEST_CASE("IVFTurboQuant - Memory compression") {
+  core::IndexConfig config;
+  config.index_type = core::IndexType::IVF_TURBOQUANT;
+  config.dimension = 768;  // Realistic embedding dimension
+  config.metric_type = core::MetricType::L2;
+  config.ivf_turboquant_params.nlist = 4;
+  config.ivf_turboquant_params.nprobe = 2;
+  config.ivf_turboquant_params.bit_width = 4;
+
+  IndexFactory factory;
+  auto index_result = factory.CreateIndex(config);
+  REQUIRE(index_result.ok());
+  auto& index = *index_result.value();
+
+  auto vectors = CreateTestVectors(100, 768);
+  auto ids = CreateTestIds(100);
+  REQUIRE(index.Build(vectors, ids).ok());
+
+  size_t memory = index.GetMemoryUsage();
+  size_t float32_size = 100 * 768 * sizeof(float);  // 307,200 bytes
+
+  // At 4-bit, expect significant compression (at least 4x)
+  CHECK_LT(memory, float32_size / 2);
+}
+
 }  // namespace
 }  // namespace index
 }  // namespace gvdb

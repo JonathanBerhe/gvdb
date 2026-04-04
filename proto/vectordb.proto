@@ -64,6 +64,8 @@ message CreateCollectionRequest {
     IVF_FLAT = 2;
     IVF_PQ = 3;    // Inverted File with Product Quantization
     IVF_SQ = 4;    // Inverted File with Scalar Quantization
+    IVF_TURBOQUANT = 5;  // IVF + TurboQuant compression (sub-linear + extreme compression)
+    TURBOQUANT = 6;      // TurboQuant online quantization (data-oblivious)
   }
   IndexType index_type = 4;
 

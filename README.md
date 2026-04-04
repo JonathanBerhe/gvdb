@@ -6,7 +6,8 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 
 ## Features
 
-- **Vector Search**: FLAT, HNSW, IVF_FLAT, IVF_PQ, IVF_SQ index types via Faiss
+- **Vector Search**: FLAT, HNSW, IVF_FLAT, IVF_PQ, IVF_SQ, TurboQuant, IVF_TURBOQUANT index types
+- **TurboQuant**: Data-oblivious online quantization (ICLR 2026) — 1/2/4/8-bit compression with near-optimal distortion. IVF_TURBOQUANT combines IVF partitioning with TurboQuant for sub-linear search at extreme compression (7.5x at 4-bit on 768D)
 - **Hybrid Search**: BM25 keyword search + vector similarity with Reciprocal Rank Fusion (RRF)
 - **Distributed Mode**: Coordinator, data nodes, query nodes, proxy with full sharding and replication
 - **Multi-Shard Collections**: Data distributed across nodes with consistent hashing (150 virtual nodes)

@@ -10,6 +10,7 @@ add_library(gvdb_index
   index_manager.cpp
   turboquant/turboquant_codec.cpp
   turboquant/turboquant_index.cpp
+  turboquant/ivf_turboquant_index.cpp
   bm25_index.cpp
 )
 
