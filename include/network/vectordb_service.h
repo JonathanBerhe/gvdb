@@ -74,6 +74,16 @@ class VectorDBService final : public proto::VectorDBService::Service {
       const proto::UpdateMetadataRequest* request,
       proto::UpdateMetadataResponse* response) override;
 
+  grpc::Status Upsert(
+      grpc::ServerContext* context,
+      const proto::UpsertRequest* request,
+      proto::UpsertResponse* response) override;
+
+  grpc::Status RangeSearch(
+      grpc::ServerContext* context,
+      const proto::RangeSearchRequest* request,
+      proto::RangeSearchResponse* response) override;
+
   grpc::Status ListVectors(
       grpc::ServerContext* context,
       const proto::ListVectorsRequest* request,

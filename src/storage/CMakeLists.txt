@@ -5,6 +5,7 @@ add_library(gvdb_storage
   segment_manager.cpp
   local_storage.cpp
   storage_factory.cpp
+  scalar_index.cpp
 )
 
 target_include_directories(gvdb_storage

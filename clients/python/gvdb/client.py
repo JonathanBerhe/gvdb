@@ -282,6 +282,67 @@ class GVDBClient:
             for r in resp.results
         ]
 
+    def upsert(
+        self,
+        collection: str,
+        ids: list[int],
+        vectors: list[list[float]],
+        metadata: Optional[list[dict]] = None,
+    ) -> dict:
+        """Upsert vectors (insert or replace). Returns counts."""
+        proto_vectors = []
+        for i, (vid, vec) in enumerate(zip(ids, vectors)):
+            v = pb.VectorWithId(
+                id=vid,
+                vector=pb.Vector(values=vec, dimension=len(vec)),
+            )
+            if metadata and i < len(metadata) and metadata[i]:
+                v.metadata.CopyFrom(_to_proto_metadata(metadata[i]))
+            proto_vectors.append(v)
+
+        resp = self._stub.Upsert(
+            pb.UpsertRequest(collection_name=collection, vectors=proto_vectors),
+            timeout=self._timeout,
+            metadata=self._metadata,
+        )
+        return {
+            "upserted_count": resp.upserted_count,
+            "inserted_count": resp.inserted_count,
+            "updated_count": resp.updated_count,
+        }
+
+    def range_search(
+        self,
+        collection: str,
+        query_vector: list[float],
+        *,
+        radius: float,
+        filter_expression: str = "",
+        return_metadata: bool = False,
+        max_results: int = 1000,
+    ) -> list[SearchResult]:
+        """Find all vectors within a distance radius."""
+        req = pb.RangeSearchRequest(
+            collection_name=collection,
+            query_vector=pb.Vector(values=query_vector, dimension=len(query_vector)),
+            radius=radius,
+            max_results=max_results,
+        )
+        if filter_expression:
+            req.filter = filter_expression
+        if return_metadata:
+            req.return_metadata = True
+
+        resp = self._stub.RangeSearch(req, timeout=self._timeout, metadata=self._metadata)
+        return [
+            SearchResult(
+                id=r.id,
+                distance=r.distance,
+                metadata=_from_proto_metadata(r.metadata) if r.metadata.fields else None,
+            )
+            for r in resp.results
+        ]
+
     def get(self, collection: str, ids: list[int]) -> list[dict]:
         """Get vectors by ID. Returns list of {id, vector, metadata}."""
         resp = self._stub.Get(
