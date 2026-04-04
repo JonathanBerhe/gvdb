@@ -211,6 +211,10 @@ class Segment {
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) const;
 
+  // Compute distance between two vectors using the segment's metric
+  [[nodiscard]] float ComputeDistance(const core::Vector& a,
+                                      const core::Vector& b) const;
+
   // Brute-force search over in-memory vectors. Caller must hold the lock.
   [[nodiscard]] core::StatusOr<core::SearchResult> BruteForceSearchUnlocked(
       const core::Vector& query, int k) const;
