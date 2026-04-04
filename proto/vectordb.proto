@@ -201,6 +201,40 @@ message GetStatsResponse {
 }
 
 // ============================================================================
+// Upsert (Insert or Update)
+// ============================================================================
+
+message UpsertRequest {
+  string collection_name = 1;
+  repeated VectorWithId vectors = 2;
+}
+
+message UpsertResponse {
+  uint64 upserted_count = 1;
+  uint64 inserted_count = 2;   // New vectors inserted
+  uint64 updated_count = 3;    // Existing vectors replaced
+  string message = 4;
+}
+
+// ============================================================================
+// Range Search (Find all vectors within a distance)
+// ============================================================================
+
+message RangeSearchRequest {
+  string collection_name = 1;
+  Vector query_vector = 2;
+  float radius = 3;             // Distance threshold
+  string filter = 4;            // Optional metadata filter
+  bool return_metadata = 5;
+  uint32 max_results = 6;       // Limit results (0 = unlimited, default 1000)
+}
+
+message RangeSearchResponse {
+  repeated SearchResultEntry results = 1;
+  float query_time_ms = 2;
+}
+
+// ============================================================================
 // Hybrid Search (BM25 + Vector)
 // ============================================================================
 
@@ -234,7 +268,9 @@ service VectorDBService {
   // Vector operations
   rpc Insert(InsertRequest) returns (InsertResponse);
   rpc StreamInsert(stream InsertRequest) returns (InsertResponse);
+  rpc Upsert(UpsertRequest) returns (UpsertResponse);
   rpc Search(SearchRequest) returns (SearchResponse);
+  rpc RangeSearch(RangeSearchRequest) returns (RangeSearchResponse);
   rpc Get(GetRequest) returns (GetResponse);
   rpc Delete(DeleteRequest) returns (DeleteResponse);
   rpc UpdateMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse);

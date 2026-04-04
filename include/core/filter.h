@@ -59,6 +59,10 @@ class ComparisonNode : public FilterNode {
   bool evaluate(const Metadata& metadata) const override;
   std::string to_string() const override;
 
+  const std::string& field() const { return field_; }
+  ComparisonOp op() const { return op_; }
+  const MetadataValue& value() const { return value_; }
+
  private:
   std::string field_;
   ComparisonOp op_;
@@ -74,6 +78,10 @@ class InNode : public FilterNode {
 
   bool evaluate(const Metadata& metadata) const override;
   std::string to_string() const override;
+
+  const std::string& field() const { return field_; }
+  bool is_negated() const { return negate_; }
+  const std::vector<MetadataValue>& values() const { return values_; }
 
  private:
   std::string field_;
@@ -91,6 +99,10 @@ class LogicalNode : public FilterNode {
 
   bool evaluate(const Metadata& metadata) const override;
   std::string to_string() const override;
+
+  LogicalOp op() const { return op_; }
+  const FilterNode& left() const { return *left_; }
+  const FilterNode& right() const { return *right_; }
 
  private:
   LogicalOp op_;
