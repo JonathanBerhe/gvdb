@@ -178,9 +178,13 @@ core::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectors(
     // Update memory usage
     memory_usage_ -= vectors_[idx].byte_size();
 
-    // Remove metadata if present
+    // Remove metadata and scalar index entries
     uint64_t id_uint = core::ToUInt64(vector_ids_[idx]);
-    metadata_map_.erase(id_uint);
+    auto md_it = metadata_map_.find(id_uint);
+    if (md_it != metadata_map_.end()) {
+      scalar_indexes_.RemoveVector(id_uint, md_it->second);
+      metadata_map_.erase(md_it);
+    }
 
     // Remove vector and ID using swap-and-pop for efficiency
     if (idx != vectors_.size() - 1) {
@@ -362,12 +366,193 @@ core::Status Segment::AddVectorsWithMetadata(
   vector_ids_.insert(vector_ids_.end(), ids.begin(), ids.end());
 
   for (size_t i = 0; i < ids.size(); ++i) {
-    metadata_map_[core::ToUInt64(ids[i])] = metadata[i];
+    uint64_t id_uint = core::ToUInt64(ids[i]);
+    metadata_map_[id_uint] = metadata[i];
+    scalar_indexes_.IndexVector(id_uint, metadata[i]);
   }
 
   memory_usage_ += additional_size;
 
   return core::OkStatus();
+}
+
+// ========== Upsert ==========
+
+core::StatusOr<Segment::UpsertResult> Segment::UpsertVectors(
+    const std::vector<core::Vector>& vectors,
+    const std::vector<core::VectorId>& ids,
+    const std::vector<core::Metadata>& metadata) {
+  std::unique_lock lock(mutex_);
+
+  if (state_ != core::SegmentState::GROWING) {
+    return core::FailedPreconditionError(
+        absl::StrCat("Cannot upsert in segment state: ",
+                     static_cast<int>(state_)));
+  }
+
+  auto status = ValidateVectors(vectors, ids);
+  if (!status.ok()) {
+    return status;
+  }
+
+  if (!metadata.empty() && metadata.size() != vectors.size()) {
+    return core::InvalidArgumentError("Metadata size must match vector count");
+  }
+
+  UpsertResult result{0, 0};
+
+  for (size_t i = 0; i < ids.size(); ++i) {
+    uint64_t id_uint = core::ToUInt64(ids[i]);
+    bool existed = false;
+
+    // Check if vector ID already exists — delete old entry
+    for (size_t j = 0; j < vector_ids_.size(); ++j) {
+      if (vector_ids_[j] == ids[i]) {
+        // Remove old metadata from scalar index
+        auto md_it = metadata_map_.find(id_uint);
+        if (md_it != metadata_map_.end()) {
+          scalar_indexes_.RemoveVector(id_uint, md_it->second);
+        }
+
+        memory_usage_ -= vectors_[j].byte_size();
+        metadata_map_.erase(id_uint);
+
+        // Swap-and-pop
+        if (j != vectors_.size() - 1) {
+          std::swap(vectors_[j], vectors_.back());
+          std::swap(vector_ids_[j], vector_ids_.back());
+        }
+        vectors_.pop_back();
+        vector_ids_.pop_back();
+        existed = true;
+        break;
+      }
+    }
+
+    // Insert new vector
+    vectors_.push_back(vectors[i]);
+    vector_ids_.push_back(ids[i]);
+    memory_usage_ += vectors[i].byte_size();
+
+    if (!metadata.empty()) {
+      metadata_map_[id_uint] = metadata[i];
+      scalar_indexes_.IndexVector(id_uint, metadata[i]);
+    }
+
+    if (existed) {
+      result.updated_count++;
+    } else {
+      result.inserted_count++;
+    }
+  }
+
+  return result;
+}
+
+// ========== Range Search ==========
+
+core::StatusOr<core::SearchResult> Segment::SearchRange(
+    const core::Vector& query, float radius, int max_results) const {
+  std::shared_lock lock(mutex_);
+
+  core::SearchResult result;
+
+  if (state_ == core::SegmentState::GROWING) {
+    // Brute-force range search for GROWING segments
+    for (size_t i = 0; i < vectors_.size(); ++i) {
+      float distance;
+      switch (metric_) {
+        case core::MetricType::L2:
+          distance = query.L2Distance(vectors_[i]);
+          break;
+        case core::MetricType::INNER_PRODUCT:
+          distance = -query.InnerProduct(vectors_[i]);
+          break;
+        case core::MetricType::COSINE:
+          distance = query.CosineDistance(vectors_[i]);
+          break;
+        default:
+          distance = query.L2Distance(vectors_[i]);
+      }
+      if (distance <= radius) {
+        result.entries.emplace_back(vector_ids_[i], distance);
+        if (max_results > 0 &&
+            static_cast<int>(result.entries.size()) >= max_results) {
+          break;
+        }
+      }
+    }
+  } else if (state_ == core::SegmentState::SEALED ||
+             state_ == core::SegmentState::FLUSHED) {
+    if (!index_) {
+      return core::FailedPreconditionError("Segment has no index");
+    }
+    // Use index range search if available, otherwise brute-force over vectors
+    auto index_result = index_->SearchRange(query, radius);
+    if (index_result.ok()) {
+      result = std::move(*index_result);
+      if (max_results > 0 &&
+          static_cast<int>(result.entries.size()) > max_results) {
+        result.entries.resize(max_results);
+      }
+    } else {
+      // Fallback: brute-force using stored vectors
+      for (size_t i = 0; i < vectors_.size(); ++i) {
+        float distance = query.L2Distance(vectors_[i]);
+        if (distance <= radius) {
+          result.entries.emplace_back(vector_ids_[i], distance);
+          if (max_results > 0 &&
+              static_cast<int>(result.entries.size()) >= max_results) {
+            break;
+          }
+        }
+      }
+    }
+  } else {
+    return core::FailedPreconditionError(
+        absl::StrCat("Cannot search in segment state: ",
+                     static_cast<int>(state_)));
+  }
+
+  // Sort by distance
+  std::sort(result.entries.begin(), result.entries.end(),
+            [](const auto& a, const auto& b) {
+              return a.distance < b.distance;
+            });
+
+  return result;
+}
+
+core::StatusOr<core::SearchResult> Segment::SearchRangeWithFilter(
+    const core::Vector& query, float radius, const std::string& filter_expr,
+    int max_results) const {
+  // Get range results first
+  auto range_result = SearchRange(query, radius, 0);  // No limit for pre-filter
+  if (!range_result.ok()) {
+    return range_result.status();
+  }
+
+  // Parse filter
+  auto filter = core::FilterParser::parse(filter_expr);
+  if (!filter.ok()) {
+    return filter.status();
+  }
+
+  // Post-filter
+  std::shared_lock lock(mutex_);
+  core::SearchResult filtered;
+  for (const auto& entry : range_result->entries) {
+    auto it = metadata_map_.find(core::ToUInt64(entry.id));
+    if (it != metadata_map_.end() && (*filter)->evaluate(it->second)) {
+      filtered.entries.push_back(entry);
+      if (max_results > 0 &&
+          static_cast<int>(filtered.entries.size()) >= max_results) {
+        break;
+      }
+    }
+  }
+
+  return filtered;
 }
 
 core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
@@ -380,25 +565,40 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
     return filter.status();
   }
 
+  // Try to use scalar indexes to narrow the candidate set
+  std::optional<VectorIdSet> indexed_candidates;
+  if (scalar_indexes_.HasIndexes()) {
+    indexed_candidates = scalar_indexes_.Evaluate(**filter);
+  }
+
   // For GROWING segments with brute-force search
   if (state_ == core::SegmentState::GROWING) {
     if (vectors_.empty()) {
       return core::SearchResult{};
     }
 
-    // Compute distances for vectors that match the filter
     std::vector<core::SearchResultEntry> results;
     results.reserve(vectors_.size());
 
     for (size_t i = 0; i < vectors_.size(); ++i) {
-      // Check if this vector has metadata and matches filter
-      auto it = metadata_map_.find(core::ToUInt64(vector_ids_[i]));
-      if (it != metadata_map_.end()) {
-        if (!(*filter)->evaluate(it->second)) {
-          continue;  // Skip vectors that don't match filter
+      uint64_t id_uint = core::ToUInt64(vector_ids_[i]);
+
+      // Fast path: scalar index pre-filter
+      if (indexed_candidates) {
+        if (indexed_candidates->count(id_uint) == 0) {
+          continue;  // Not in candidate set from scalar index
+        }
+        // Still need to evaluate full filter for partial index coverage
+        auto it = metadata_map_.find(id_uint);
+        if (it != metadata_map_.end() && !(*filter)->evaluate(it->second)) {
+          continue;
         }
       } else {
-        continue;  // Skip vectors without metadata
+        // Slow path: full scan with filter evaluation
+        auto it = metadata_map_.find(id_uint);
+        if (it == metadata_map_.end() || !(*filter)->evaluate(it->second)) {
+          continue;
+        }
       }
 
       float distance;
@@ -413,7 +613,6 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
       results.emplace_back(vector_ids_[i], distance);
     }
 
-    // Sort by distance
     std::partial_sort(results.begin(),
                       results.begin() + std::min(k, (int)results.size()),
                       results.end(),
@@ -421,7 +620,6 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
                         return a.distance < b.distance;
                       });
 
-    // Return top-k
     core::SearchResult result(k);
     for (int i = 0; i < std::min(k, (int)results.size()); ++i) {
       result.AddEntry(results[i].id, results[i].distance);
@@ -442,27 +640,38 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
         absl::StrCat("Segment ", core::ToUInt32(id_), " has no index"));
   }
 
-  // Search with over-fetching and post-filtering
-  // Fetch more results than needed to account for filtering
-  int fetch_k = std::min(k * 10, static_cast<int>(GetVectorCount()));
+  // Adaptive over-fetch: use smaller factor when scalar index narrows candidates
+  int fetch_k;
+  if (indexed_candidates && !indexed_candidates->empty()) {
+    // Scalar index narrows candidates — less over-fetching needed
+    fetch_k = std::min(k * 3, static_cast<int>(indexed_candidates->size()));
+    fetch_k = std::max(fetch_k, k);
+  } else {
+    fetch_k = std::min(k * 10, static_cast<int>(GetVectorCount()));
+  }
+
   auto search_result = index_->Search(query, fetch_k);
   if (!search_result.ok()) {
     return search_result.status();
   }
 
-  // Filter results
   core::SearchResult filtered_result(k);
   for (const auto& entry : search_result->entries) {
     if (filtered_result.Size() >= static_cast<size_t>(k)) {
       break;
     }
 
-    // Check metadata
-    auto it = metadata_map_.find(core::ToUInt64(entry.id));
-    if (it != metadata_map_.end()) {
-      if ((*filter)->evaluate(it->second)) {
-        filtered_result.AddEntry(entry.id, entry.distance);
-      }
+    uint64_t id_uint = core::ToUInt64(entry.id);
+
+    // Fast path: check scalar index first
+    if (indexed_candidates && indexed_candidates->count(id_uint) == 0) {
+      continue;
+    }
+
+    // Full filter evaluation (for partial index coverage or unindexed predicates)
+    auto it = metadata_map_.find(id_uint);
+    if (it != metadata_map_.end() && (*filter)->evaluate(it->second)) {
+      filtered_result.AddEntry(entry.id, entry.distance);
     }
   }
 
@@ -638,6 +847,11 @@ core::Status Segment::Seal(core::IVectorIndex* index) {
   // See STORAGE_COMPACTION_OPTIONS.md for detailed analysis of:
   // - Option 1 (current): In-memory vectors (fast compaction, 2x RAM)
   // - Option 2 (future): Disk-based vectors (slower compaction, 1x RAM)
+
+  // Build scalar indexes from all metadata (ensures full coverage after seal)
+  if (!metadata_map_.empty()) {
+    scalar_indexes_.BuildFromMetadata(metadata_map_);
+  }
 
   // Update state
   state_ = core::SegmentState::SEALED;
