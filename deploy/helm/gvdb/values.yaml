@@ -77,3 +77,21 @@ config:
     level: "info"
     consoleEnabled: true
     fileEnabled: false
+
+ui:
+  enabled: false
+  image:
+    repository: ghcr.io/jonathanberhe/gvdb-ui
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 8080
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "200m"
+  service:
+    type: ClusterIP
+    port: 8080

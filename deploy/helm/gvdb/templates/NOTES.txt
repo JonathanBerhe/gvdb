@@ -23,3 +23,13 @@ To check cluster status:
 
 To scale data nodes:
   helm upgrade {{ .Release.Name }} deploy/helm/gvdb --set dataNode.replicas=5
+{{- if .Values.ui.enabled }}
+
+Web UI:
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "gvdb.fullname" . }}-ui {{ .Values.ui.service.port }}:{{ .Values.ui.service.port }}
+  Open http://localhost:{{ .Values.ui.service.port }}
+{{- else }}
+
+To enable the Web UI:
+  helm upgrade {{ .Release.Name }} deploy/helm/gvdb --set ui.enabled=true
+{{- end }}

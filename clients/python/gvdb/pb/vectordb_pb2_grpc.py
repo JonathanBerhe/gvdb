@@ -83,6 +83,11 @@ class VectorDBServiceStub(object):
                 request_serializer=vectordb__pb2.UpdateMetadataRequest.SerializeToString,
                 response_deserializer=vectordb__pb2.UpdateMetadataResponse.FromString,
                 _registered_method=True)
+        self.HybridSearch = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/HybridSearch',
+                request_serializer=vectordb__pb2.HybridSearchRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.HybridSearchResponse.FromString,
+                _registered_method=True)
         self.HealthCheck = channel.unary_unary(
                 '/gvdb.proto.VectorDBService/HealthCheck',
                 request_serializer=vectordb__pb2.HealthCheckRequest.SerializeToString,
@@ -158,6 +163,13 @@ class VectorDBServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def HybridSearch(self, request, context):
+        """Hybrid search (BM25 + vector)
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def HealthCheck(self, request, context):
         """Health and stats
         """
@@ -218,6 +230,11 @@ def add_VectorDBServiceServicer_to_server(servicer, server):
                     servicer.UpdateMetadata,
                     request_deserializer=vectordb__pb2.UpdateMetadataRequest.FromString,
                     response_serializer=vectordb__pb2.UpdateMetadataResponse.SerializeToString,
+            ),
+            'HybridSearch': grpc.unary_unary_rpc_method_handler(
+                    servicer.HybridSearch,
+                    request_deserializer=vectordb__pb2.HybridSearchRequest.FromString,
+                    response_serializer=vectordb__pb2.HybridSearchResponse.SerializeToString,
             ),
             'HealthCheck': grpc.unary_unary_rpc_method_handler(
                     servicer.HealthCheck,
@@ -477,6 +494,33 @@ class VectorDBService(object):
             '/gvdb.proto.VectorDBService/UpdateMetadata',
             vectordb__pb2.UpdateMetadataRequest.SerializeToString,
             vectordb__pb2.UpdateMetadataResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def HybridSearch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/HybridSearch',
+            vectordb__pb2.HybridSearchRequest.SerializeToString,
+            vectordb__pb2.HybridSearchResponse.FromString,
             options,
             channel_credentials,
             insecure,

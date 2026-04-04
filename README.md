@@ -7,12 +7,15 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 ## Features
 
 - **Vector Search**: FLAT, HNSW, IVF_FLAT, IVF_PQ, IVF_SQ index types via Faiss
+- **Hybrid Search**: BM25 keyword search + vector similarity with Reciprocal Rank Fusion (RRF)
 - **Distributed Mode**: Coordinator, data nodes, query nodes, proxy with full sharding and replication
 - **Multi-Shard Collections**: Data distributed across nodes with consistent hashing (150 virtual nodes)
 - **Fault Tolerance**: Automatic failure detection, replica promotion, auto-replication
 - **Metadata Filtering**: SQL-like filters (`age > 18 AND city = 'NYC'`, `LIKE`, `IN`)
 - **Persistence**: Vectors flushed to disk, index rebuilt on startup recovery
 - **gRPC API**: Protobuf-based client/server with TLS and API key authentication
+- **Python SDK**: `pip install gvdb` — full API with hybrid search, streaming inserts, metadata
+- **Web UI**: Collection browser, search playground, metrics dashboard — single binary (`gvdb-ui`)
 - **Raft Consensus**: Metadata operations replicated via NuRaft
 
 ## Architecture
@@ -100,6 +103,22 @@ make status   # check pods
 make build          # Debug build
 make build-release  # Release build
 make test           # Run all C++ tests (37 suites)
+```
+
+### Web UI
+
+```bash
+# Docker (recommended)
+docker run -p 8080:8080 ghcr.io/jonathanberhe/gvdb-ui --gvdb-addr host.docker.internal:50051
+# Open http://localhost:8080
+
+# Helm (alongside GVDB cluster)
+helm upgrade gvdb deploy/helm/gvdb --set ui.enabled=true
+kubectl port-forward -n gvdb svc/gvdb-ui 8080:8080
+
+# Build from source
+make build-ui
+./ui/gateway/gvdb-ui --gvdb-addr localhost:50051
 ```
 
 ### Run (single-node)

@@ -123,6 +123,7 @@ int main(int argc, char** argv) {
     auto data_node = std::make_unique<cluster::DataNode>(std::move(index_factory));
     auto query_executor = std::make_shared<compute::QueryExecutor>(
         segment_manager.get());
+    query_executor->SetCache(std::make_shared<utils::QueryCache>(10000));
 
     // 2. ShardManager + InternalService
     auto shard_manager = std::make_shared<cluster::ShardManager>(
