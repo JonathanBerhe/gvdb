@@ -542,27 +542,8 @@ grpc::Status InternalService::GetCollectionMetadata(
         break;
     }
 
-    // Convert IndexType enum to string
-    switch (metadata.index_type) {
-      case core::IndexType::FLAT:
-        proto_metadata->set_index_type("FLAT");
-        break;
-      case core::IndexType::HNSW:
-        proto_metadata->set_index_type("HNSW");
-        break;
-      case core::IndexType::IVF_FLAT:
-        proto_metadata->set_index_type("IVF_FLAT");
-        break;
-      case core::IndexType::IVF_PQ:
-        proto_metadata->set_index_type("IVF_PQ");
-        break;
-      case core::IndexType::IVF_SQ:
-        proto_metadata->set_index_type("IVF_SQ");
-        break;
-      default:
-        proto_metadata->set_index_type("UNKNOWN");
-        break;
-    }
+    // Convert IndexType enum to string (reuse proto_conversions toString)
+    proto_metadata->set_index_type(toString(metadata.index_type));
 
     proto_metadata->set_vector_count(metadata.total_vectors);
     proto_metadata->set_created_at(metadata.created_at);
@@ -706,6 +687,23 @@ grpc::Status InternalService::ExecuteShardQuery(
       auto* result = response->add_results();
       result->set_id(core::ToUInt64(entry.id));
       result->set_distance(entry.distance);
+
+      if (request->return_metadata()) {
+        auto meta_result = segment->GetMetadata(entry.id);
+        if (meta_result.ok()) {
+          auto* meta_map = result->mutable_metadata();
+          for (const auto& [k, val] : *meta_result) {
+            (*meta_map)[k] = std::visit([](const auto& v) -> std::string {
+              using T = std::decay_t<decltype(v)>;
+              if constexpr (std::is_same_v<T, int64_t>) return std::to_string(v);
+              else if constexpr (std::is_same_v<T, double>) return std::to_string(v);
+              else if constexpr (std::is_same_v<T, std::string>) return v;
+              else if constexpr (std::is_same_v<T, bool>) return v ? "true" : "false";
+              return "";
+            }, val);
+          }
+        }
+      }
     }
 
     response->set_query_time_ms(static_cast<float>(timer.elapsed_millis()));
