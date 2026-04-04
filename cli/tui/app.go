@@ -73,6 +73,33 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
+		// When search view is active, only ctrl+c quits — other keys go to inputs
+		if a.active == viewSearch {
+			if msg.Type == tea.KeyCtrlC {
+				return a, tea.Quit
+			}
+			if msg.Type == tea.KeyEsc {
+				a.active = viewCollections
+				return a, a.collections.Init()
+			}
+			// Number keys switch tabs even in search
+			switch {
+			case key.Matches(msg, keys.Tab1):
+				a.active = viewCollections
+				return a, a.collections.Init()
+			case key.Matches(msg, keys.Tab2):
+				a.active = viewVectors
+				return a, nil
+			case key.Matches(msg, keys.Tab4):
+				a.active = viewMetrics
+				return a, a.metrics.Init()
+			}
+			// Delegate everything else to search view
+			var cmd tea.Cmd
+			a.search, cmd = a.search.Update(msg)
+			return a, cmd
+		}
+
 		switch {
 		case key.Matches(msg, keys.Quit):
 			return a, tea.Quit
@@ -87,16 +114,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(msg, keys.Tab3):
 			a.active = viewSearch
-			return a, nil
+			return a, a.search.Init()
 		case key.Matches(msg, keys.Tab4):
 			a.active = viewMetrics
 			return a, a.metrics.Init()
 		case key.Matches(msg, keys.TabNext):
-			a.active = (a.active + 1) % 4
-			return a, nil
+			// Don't intercept Tab when search view is active — it cycles inputs
+			if a.active != viewSearch {
+				a.active = (a.active + 1) % 4
+				return a, nil
+			}
 		case key.Matches(msg, keys.TabPrev):
-			a.active = (a.active + 3) % 4
-			return a, nil
+			if a.active != viewSearch {
+				a.active = (a.active + 3) % 4
+				return a, nil
+			}
 		}
 
 		// Handle enter on collections to drill into vectors
@@ -129,15 +161,11 @@ func (a App) View() string {
 		return "Loading..."
 	}
 
-	var b strings.Builder
-
 	// Header
 	header := lipgloss.JoinHorizontal(lipgloss.Center,
 		styleHeader.Render("GVDB"),
 		styleHelp.Render("  "+a.client.Address()),
 	)
-	b.WriteString(header)
-	b.WriteString("\n")
 
 	// Tabs
 	var tabs []string
@@ -148,33 +176,51 @@ func (a App) View() string {
 			tabs = append(tabs, styleTabInactive.Render(fmt.Sprintf("[%d] %s", i+1, name)))
 		}
 	}
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, tabs...))
-	b.WriteString("\n")
+	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
 
 	// Content
+	var content string
 	if a.showHelp {
-		b.WriteString(a.renderHelp())
+		content = a.renderHelp()
 	} else {
 		switch a.active {
 		case viewCollections:
-			b.WriteString(a.collections.View())
+			content = a.collections.View()
 		case viewVectors:
-			b.WriteString(a.vectors.View())
+			content = a.vectors.View()
 		case viewSearch:
-			b.WriteString(a.search.View())
+			content = a.search.View()
 		case viewMetrics:
-			b.WriteString(a.metrics.View())
+			content = a.metrics.View()
 		}
 	}
 
 	// Status bar
-	b.WriteString("\n")
 	status := styleStatusConnected.Render("●") + " " +
 		styleStatusBar.Render(a.client.Address()) +
 		styleHelp.Render("  ?=help  q=quit")
-	b.WriteString(status)
 
-	return b.String()
+	// Calculate content height: total - header(1) - tabbar(1) - statusbar(1) - borders(1)
+	contentHeight := a.height - 4
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	// Pad content to fill available height
+	contentStyle := lipgloss.NewStyle().
+		Width(a.width).
+		Height(contentHeight).
+		Padding(1, 2)
+
+	statusStyle := lipgloss.NewStyle().
+		Width(a.width)
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		tabBar,
+		contentStyle.Render(content),
+		statusStyle.Render(status),
+	)
 }
 
 func (a App) renderHelp() string {

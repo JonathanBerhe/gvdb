@@ -16,7 +16,7 @@ var (
 	colHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).Bold(true)
 	colCellStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#ededed"))
 	colDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	colSelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#ededed")).Bold(true).Background(lipgloss.Color("#1a1a1a"))
+	colSelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#ededed")).Bold(true).Background(lipgloss.Color("#333333"))
 	colErrStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#ee0000"))
 )
 
@@ -107,14 +107,18 @@ func (m CollectionsModel) View() string {
 	}
 
 	// Header
-	hdr := fmt.Sprintf("  %-24s %-6s %-6s %-12s %s",
+	w := m.width - 4 // account for content padding
+	if w < 80 {
+		w = 80
+	}
+	hdr := fmt.Sprintf("%-24s %-6s %-6s %-12s %s",
 		"NAME", "ID", "DIM", "METRIC", "VECTORS")
-	b.WriteString(colHeaderStyle.Render(hdr))
+	b.WriteString(colHeaderStyle.Width(w).Render(hdr))
 	b.WriteString("\n")
 
 	// Rows
 	for i, c := range m.collections {
-		row := fmt.Sprintf("  %-24s %-6d %-6d %-12s %d",
+		row := fmt.Sprintf("%-24s %-6d %-6d %-12s %d",
 			truncate(c.CollectionName, 24),
 			c.CollectionId,
 			c.Dimension,
@@ -122,9 +126,9 @@ func (m CollectionsModel) View() string {
 			c.VectorCount,
 		)
 		if i == m.cursor {
-			b.WriteString(colSelStyle.Render(row))
+			b.WriteString(colSelStyle.Width(w).Render(row))
 		} else {
-			b.WriteString(colCellStyle.Render(row))
+			b.WriteString(colCellStyle.Width(w).Render(row))
 		}
 		b.WriteString("\n")
 	}

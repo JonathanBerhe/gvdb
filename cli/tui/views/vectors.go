@@ -17,7 +17,7 @@ var (
 	vecHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).Bold(true)
 	vecCellStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#ededed"))
 	vecDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	vecSelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#ededed")).Bold(true).Background(lipgloss.Color("#1a1a1a"))
+	vecSelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#ededed")).Bold(true).Background(lipgloss.Color("#333333"))
 	vecErrStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#ee0000"))
 )
 
@@ -154,8 +154,16 @@ func (m VectorsModel) View() string {
 	}
 
 	// Header
-	hdr := fmt.Sprintf("  %-12s %-6s %s", "ID", "DIM", "METADATA")
-	b.WriteString(vecHeaderStyle.Render(hdr))
+	w := m.width - 4 // account for content padding
+	if w < 80 {
+		w = 80
+	}
+	metaWidth := w - 22 // 12 (ID) + 6 (DIM) + 4 (spacing)
+	if metaWidth < 20 {
+		metaWidth = 20
+	}
+	hdr := fmt.Sprintf("%-12s %-6s %s", "ID", "DIM", "METADATA")
+	b.WriteString(vecHeaderStyle.Width(w).Render(hdr))
 	b.WriteString("\n")
 
 	// Rows
@@ -177,16 +185,16 @@ func (m VectorsModel) View() string {
 			}
 			raw, _ := json.Marshal(md)
 			mdStr = string(raw)
-			if len(mdStr) > 60 {
-				mdStr = mdStr[:57] + "..."
+			if len(mdStr) > metaWidth {
+				mdStr = mdStr[:metaWidth-3] + "..."
 			}
 		}
 
-		row := fmt.Sprintf("  %-12d %-6d %s", v.Id, v.Vector.Dimension, mdStr)
+		row := fmt.Sprintf("%-12d %-6d %s", v.Id, v.Vector.Dimension, mdStr)
 		if i == m.cursor {
-			b.WriteString(vecSelStyle.Render(row))
+			b.WriteString(vecSelStyle.Width(w).Render(row))
 		} else {
-			b.WriteString(vecCellStyle.Render(row))
+			b.WriteString(vecCellStyle.Width(w).Render(row))
 		}
 		b.WriteString("\n")
 	}

@@ -234,8 +234,17 @@ func (m SearchModel) View() string {
 		b.WriteString(srcDimStyle.Render(fmt.Sprintf("%d results in %.2fms", len(m.results), m.queryTimeMs)))
 		b.WriteString("\n\n")
 
-		hdr := fmt.Sprintf("  %-4s %-12s %-12s %s", "#", "ID", "DISTANCE", "METADATA")
-		b.WriteString(srcLabelStyle.Render(hdr))
+		w := m.width - 4
+		if w < 80 {
+			w = 80
+		}
+		metaW := w - 34 // 4 (#) + 12 (ID) + 12 (DIST) + 6 (spacing)
+		if metaW < 20 {
+			metaW = 20
+		}
+
+		hdr := fmt.Sprintf("%-4s %-12s %-12s %s", "#", "ID", "DISTANCE", "METADATA")
+		b.WriteString(srcLabelStyle.Width(w).Render(hdr))
 		b.WriteString("\n")
 
 		for i, r := range m.results {
@@ -256,12 +265,12 @@ func (m SearchModel) View() string {
 				}
 				raw, _ := json.Marshal(md)
 				mdStr = string(raw)
-				if len(mdStr) > 50 {
-					mdStr = mdStr[:47] + "..."
+				if len(mdStr) > metaW {
+					mdStr = mdStr[:metaW-3] + "..."
 				}
 			}
-			row := fmt.Sprintf("  %-4d %-12d %-12.6f %s", i+1, r.Id, r.Distance, mdStr)
-			b.WriteString(srcResultStyle.Render(row))
+			row := fmt.Sprintf("%-4d %-12d %-12.6f %s", i+1, r.Id, r.Distance, mdStr)
+			b.WriteString(srcResultStyle.Width(w).Render(row))
 			b.WriteString("\n")
 		}
 	}
