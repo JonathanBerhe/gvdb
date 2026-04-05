@@ -15,10 +15,12 @@ namespace gvdb {
 namespace storage {
 
 SegmentManager::SegmentManager(const std::string& base_path,
-                               core::IIndexFactory* index_factory)
+                               core::IIndexFactory* index_factory,
+                               size_t max_segment_size)
     : base_path_(base_path),
       index_factory_(index_factory),
-      next_segment_id_(1) {
+      next_segment_id_(1),
+      max_segment_size_(max_segment_size) {
   // Create base directory if it doesn't exist
   std::filesystem::create_directories(base_path_);
 }
@@ -34,8 +36,8 @@ core::StatusOr<core::SegmentId> SegmentManager::CreateSegment(
   auto segment_id = AllocateSegmentId();
 
   // Create segment
-  auto segment =
-      std::make_unique<Segment>(segment_id, collection_id, dimension, metric);
+  auto segment = std::make_unique<Segment>(
+      segment_id, collection_id, dimension, metric, max_segment_size_);
 
   // Store segment
   segments_[segment_id] = std::move(segment);
@@ -60,8 +62,8 @@ core::Status SegmentManager::CreateSegmentWithId(
 
   // Create segment with provided ID
   // Note: index_type is stored for later use when sealing
-  auto segment =
-      std::make_unique<Segment>(segment_id, collection_id, dimension, metric);
+  auto segment = std::make_unique<Segment>(
+      segment_id, collection_id, dimension, metric, max_segment_size_);
 
   // Store segment
   segments_[segment_id] = std::move(segment);
@@ -436,6 +438,121 @@ void SegmentManager::Clear() {
 }
 
 // ========== Private Methods ==========
+
+// ========== Active Segment Rotation ==========
+
+void SegmentManager::SetSealCallback(SealCallback callback) {
+  seal_callback_ = std::move(callback);
+}
+
+Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
+                                             size_t required_bytes) {
+  std::unique_lock lock(mutex_);
+
+  auto coll_it = collection_segments_.find(collection_id);
+  if (coll_it == collection_segments_.end() || coll_it->second.empty()) {
+    return nullptr;
+  }
+
+  auto& seg_ids = coll_it->second;
+
+  // Find existing writable segment that can fit the batch (scan newest first)
+  for (auto it = seg_ids.rbegin(); it != seg_ids.rend(); ++it) {
+    auto seg_it = segments_.find(*it);
+    if (seg_it != segments_.end()) {
+      auto* seg = seg_it->second.get();
+      if (seg->CanAcceptWrites() &&
+          (required_bytes == 0 || seg->CanFit(required_bytes))) {
+        return seg;
+      }
+    }
+  }
+
+  // No writable segment — need to rotate.
+  // Get config from any existing segment in this collection.
+  Segment* ref = nullptr;
+  for (auto& sid : seg_ids) {
+    auto seg_it = segments_.find(sid);
+    if (seg_it != segments_.end()) {
+      ref = seg_it->second.get();
+      break;
+    }
+  }
+  if (!ref) return nullptr;
+
+  auto dim = ref->GetDimension();
+  auto metric = ref->GetMetric();
+  auto idx_type = ref->GetIndexType();
+
+  // Notify callback about GROWING segments we're rotating past.
+  // This includes segments that are fully exhausted (!CanAcceptWrites) AND
+  // segments that can't fit the required batch (triggered the rotation).
+  if (seal_callback_) {
+    for (auto& sid : seg_ids) {
+      auto seg_it = segments_.find(sid);
+      if (seg_it == segments_.end()) continue;
+      auto* seg = seg_it->second.get();
+      if (seg->GetState() == core::SegmentState::GROWING &&
+          seg->GetVectorCount() > 0 &&
+          (!seg->CanAcceptWrites() ||
+           (required_bytes > 0 && !seg->CanFit(required_bytes)))) {
+        // Release lock during callback (it may call SealSegment)
+        lock.unlock();
+        seal_callback_(sid, idx_type);
+        lock.lock();
+      }
+    }
+  }
+
+  // Re-check after callbacks: another thread may have created a writable segment
+  for (auto it = seg_ids.rbegin(); it != seg_ids.rend(); ++it) {
+    auto seg_it = segments_.find(*it);
+    if (seg_it != segments_.end()) {
+      auto* seg = seg_it->second.get();
+      if (seg->CanAcceptWrites() &&
+          (required_bytes == 0 || seg->CanFit(required_bytes))) {
+        return seg;
+      }
+    }
+  }
+
+  // Create new GROWING segment
+  auto new_id = AllocateSegmentId();
+  auto new_seg = std::make_unique<Segment>(
+      new_id, collection_id, dim, metric, max_segment_size_);
+  auto* ptr = new_seg.get();
+  segments_[new_id] = std::move(new_seg);
+  seg_ids.push_back(new_id);
+
+  utils::Logger::Instance().Info(
+      "Rotated: created new segment {} for collection {} (dim={}, metric={})",
+      core::ToUInt32(new_id), core::ToUInt32(collection_id), dim,
+      static_cast<int>(metric));
+
+  return ptr;
+}
+
+std::vector<Segment*> SegmentManager::GetQueryableSegments(
+    core::CollectionId collection_id) const {
+  std::shared_lock lock(mutex_);
+
+  std::vector<Segment*> result;
+  auto coll_it = collection_segments_.find(collection_id);
+  if (coll_it == collection_segments_.end()) return result;
+
+  for (const auto& sid : coll_it->second) {
+    auto seg_it = segments_.find(sid);
+    if (seg_it == segments_.end()) continue;
+    auto* seg = seg_it->second.get();
+    auto state = seg->GetState();
+    if (state == core::SegmentState::GROWING ||
+        state == core::SegmentState::SEALED ||
+        state == core::SegmentState::FLUSHED) {
+      result.push_back(seg);
+    }
+  }
+  return result;
+}
 
 core::SegmentId SegmentManager::AllocateSegmentId() {
   // Must be called with lock held

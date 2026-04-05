@@ -202,7 +202,24 @@ grpc::Status VectorDBService::SearchDistributed(
       auto* proto_meta = proto_entry->mutable_metadata();
       for (const auto& [k, v] : all_entries[i].metadata) {
         auto* field = &(*proto_meta->mutable_fields())[k];
-        field->set_string_value(v);
+        // Reconstruct type from string (internal proto uses map<string,string>)
+        if (v == "true" || v == "false") {
+          field->set_bool_value(v == "true");
+        } else {
+          // Try integer, then double, then fall back to string
+          char* end = nullptr;
+          long long int_val = std::strtoll(v.c_str(), &end, 10);
+          if (end != v.c_str() && *end == '\0') {
+            field->set_int_value(int_val);
+          } else {
+            double dbl_val = std::strtod(v.c_str(), &end);
+            if (end != v.c_str() && *end == '\0') {
+              field->set_double_value(dbl_val);
+            } else {
+              field->set_string_value(v);
+            }
+          }
+        }
       }
     }
   }
@@ -228,7 +245,7 @@ grpc::Status VectorDBService::CreateCollection(
 
   utils::Logger::Instance().Info("CreateCollection: {}", request->collection_name());
 
-  constexpr uint32_t MAX_DIMENSION = 8192;
+  constexpr uint32_t MAX_DIMENSION = 8192; // TODO: remove this fixed value.
   constexpr uint32_t MIN_DIMENSION = 1;
 
   if (request->dimension() < MIN_DIMENSION || request->dimension() > MAX_DIMENSION) {
@@ -407,13 +424,22 @@ grpc::Status VectorDBService::Insert(
     }
   }
 
-  // Write each shard batch to its segment
+  // Write each shard batch to its segment (with auto-rotation on full)
+  core::CollectionId collection_id = first_segment->GetCollectionId();
   size_t total_inserted = 0;
   for (uint32_t i = 0; i < num_shards; ++i) {
     auto& batch = shard_batches[i];
     if (batch.ids.empty()) continue;
 
-    auto* segment = segment_manager_->GetSegment(segment_ids[i]);
+    // Compute batch size for capacity-aware rotation
+    size_t batch_bytes = 0;
+    for (const auto& v : batch.vectors) batch_bytes += v.byte_size();
+
+    // Get a writable segment that can fit this batch
+    auto* segment = segment_manager_->GetWritableSegment(collection_id, batch_bytes);
+    if (!segment) {
+      segment = segment_manager_->GetSegment(segment_ids[i]);
+    }
     if (!segment) continue;
 
     absl::Status status;
@@ -421,6 +447,18 @@ grpc::Status VectorDBService::Insert(
       status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata);
     } else {
       status = segment->AddVectors(batch.vectors, batch.ids);
+    }
+
+    // Safety net: if segment is full despite hint, rotate and retry once
+    if (absl::IsResourceExhausted(status)) {
+      segment = segment_manager_->GetWritableSegment(collection_id, batch_bytes);
+      if (segment) {
+        if (batch.has_metadata) {
+          status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata);
+        } else {
+          status = segment->AddVectors(batch.vectors, batch.ids);
+        }
+      }
     }
 
     if (!status.ok()) {

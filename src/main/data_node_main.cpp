@@ -4,6 +4,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "cluster/data_node.h"
@@ -121,6 +122,18 @@ int main(int argc, char** argv) {
         args.data_dir + "/segments", index_factory.get());
     segment_manager->LoadAllSegments();
     auto data_node = std::make_unique<cluster::DataNode>(std::move(index_factory), segment_manager);
+
+    // Wire auto-seal: when a segment fills up, queue it for background index building
+    segment_manager->SetSealCallback(
+        [&data_node](core::SegmentId sid, core::IndexType idx_type) {
+          data_node->ScheduleBuildTask({sid, idx_type, 100});
+        });
+
+    // Background thread to process build queue (seals segments + builds indexes)
+    std::thread build_thread([&data_node]() {
+      data_node->RunBuildLoop(utils::ServerBootstrap::ShutdownFlag());
+    });
+
     auto query_executor = std::make_shared<compute::QueryExecutor>(
         segment_manager.get());
     query_executor->SetCache(std::make_shared<utils::QueryCache>(10000));
@@ -174,6 +187,7 @@ int main(int argc, char** argv) {
 
     // Graceful shutdown
     std::cout << "\nShutting down gracefully..." << std::endl;
+    if (build_thread.joinable()) build_thread.join();
     heartbeat.reset();  // Stop heartbeat thread
     server->Shutdown();
     utils::ServerBootstrap::StopMetricsServer();

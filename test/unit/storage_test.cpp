@@ -1813,3 +1813,225 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexAndFilter") {
   // Intersection (Nike AND price < 300): indices 0,2 -> IDs 1,3
   CHECK_GE(result->entries.size(), 2);
 }
+
+// ============================================================================
+// Segment Rotation Tests (auto-seal)
+// ============================================================================
+
+// Fixture with tiny segment size for fast rotation testing
+class RotationTest {
+ public:
+  // 1KB max segment size — each 4D float32 vector is 16 bytes, so ~64 vectors to fill
+  static constexpr size_t kTinyMaxSize = 1024;
+
+  RotationTest() {
+    test_dir_ = "/tmp/gvdb_rotation_test";
+    std::filesystem::remove_all(test_dir_);
+    std::filesystem::create_directories(test_dir_);
+
+    index_factory_ = std::make_unique<index::IndexFactory>();
+    manager_ = std::make_unique<storage::SegmentManager>(
+        test_dir_, index_factory_.get(), kTinyMaxSize);
+
+    collection_id_ = core::MakeCollectionId(1);
+    dimension_ = 4;
+    metric_ = core::MetricType::L2;
+  }
+
+  ~RotationTest() {
+    std::filesystem::remove_all(test_dir_);
+  }
+
+  std::vector<core::Vector> MakeVectors(size_t count) {
+    std::vector<core::Vector> vecs;
+    vecs.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+      vecs.push_back(core::RandomVector(dimension_));
+    }
+    return vecs;
+  }
+
+  std::vector<core::VectorId> MakeIds(size_t count, uint64_t start = 1) {
+    std::vector<core::VectorId> ids;
+    ids.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+      ids.push_back(core::MakeVectorId(start + i));
+    }
+    return ids;
+  }
+
+  std::string test_dir_;
+  std::unique_ptr<index::IndexFactory> index_factory_;
+  std::unique_ptr<storage::SegmentManager> manager_;
+  core::CollectionId collection_id_;
+  core::Dimension dimension_;
+  core::MetricType metric_;
+};
+
+TEST_CASE_FIXTURE(RotationTest, "ConfigurableMaxSize") {
+  // Segment with tiny max size rejects at that limit, not at 512MB
+  auto seg_id = core::MakeSegmentId(100);
+  storage::Segment segment(seg_id, collection_id_, dimension_, metric_, kTinyMaxSize);
+
+  // 4D * 4 bytes = 16 bytes per vector; 1024 / 16 = 64 vectors fit
+  auto vecs = MakeVectors(60);
+  auto ids = MakeIds(60);
+  auto status = segment.AddVectors(vecs, ids);
+  CHECK(status.ok());
+
+  // Adding 10 more (160 bytes) when segment has 960 bytes → exceeds 1024
+  auto vecs2 = MakeVectors(10);
+  auto ids2 = MakeIds(10, 61);
+  status = segment.AddVectors(vecs2, ids2);
+  CHECK(absl::IsResourceExhausted(status));
+}
+
+TEST_CASE_FIXTURE(RotationTest, "CanFit_ChecksCapacity") {
+  auto seg_id = core::MakeSegmentId(100);
+  storage::Segment segment(seg_id, collection_id_, dimension_, metric_, kTinyMaxSize);
+
+  CHECK(segment.CanFit(16));    // Empty segment, 16 bytes fits
+  CHECK(segment.CanFit(1024));  // Exactly at limit
+  CHECK_FALSE(segment.CanFit(1025));  // Over limit
+
+  // Fill to 960 bytes (60 vectors * 16 bytes)
+  auto vecs = MakeVectors(60);
+  auto ids = MakeIds(60);
+  REQUIRE(segment.AddVectors(vecs, ids).ok());
+
+  CHECK(segment.CanFit(64));        // 960 + 64 = 1024 → fits
+  CHECK_FALSE(segment.CanFit(65));  // 960 + 65 > 1024 → doesn't fit
+}
+
+TEST_CASE_FIXTURE(RotationTest, "GetWritableSegment_ReturnsWritable") {
+  // Create a segment via the manager
+  auto seg_result = manager_->CreateSegment(collection_id_, dimension_, metric_);
+  REQUIRE(seg_result.ok());
+  auto seg_id = *seg_result;
+
+  // GetWritableSegment should return it
+  auto* seg = manager_->GetWritableSegment(collection_id_);
+  REQUIRE(seg != nullptr);
+  CHECK_EQ(seg->GetId(), seg_id);
+  CHECK(seg->CanAcceptWrites());
+}
+
+TEST_CASE_FIXTURE(RotationTest, "GetWritableSegment_RotatesOnExhaustion") {
+  // This is the core bug fix test
+  auto seg_result = manager_->CreateSegment(collection_id_, dimension_, metric_);
+  REQUIRE(seg_result.ok());
+  auto original_id = *seg_result;
+
+  // Fill segment to near capacity (60 * 16 = 960 bytes, capacity is 1024)
+  auto vecs = MakeVectors(60);
+  auto ids = MakeIds(60);
+  auto* seg = manager_->GetSegment(original_id);
+  REQUIRE(seg != nullptr);
+  REQUIRE(seg->AddVectors(vecs, ids).ok());
+
+  // Segment can still accept writes (960 < 1024)
+  CHECK(seg->CanAcceptWrites());
+
+  // But it can't fit a batch of 10 vectors (160 bytes → 960 + 160 > 1024)
+  size_t batch_bytes = 10 * dimension_ * sizeof(float);  // 160 bytes
+
+  // GetWritableSegment with required_bytes should trigger rotation
+  auto* new_seg = manager_->GetWritableSegment(collection_id_, batch_bytes);
+  REQUIRE(new_seg != nullptr);
+  CHECK_NE(new_seg->GetId(), original_id);  // Must be a different segment
+  CHECK(new_seg->CanAcceptWrites());
+  CHECK(new_seg->CanFit(batch_bytes));
+
+  // Verify 10 vectors now succeed on the new segment
+  auto vecs2 = MakeVectors(10);
+  auto ids2 = MakeIds(10, 61);
+  CHECK(new_seg->AddVectors(vecs2, ids2).ok());
+}
+
+TEST_CASE_FIXTURE(RotationTest, "SealCallback_InvokedOnRotation") {
+  auto seg_result = manager_->CreateSegment(collection_id_, dimension_, metric_);
+  REQUIRE(seg_result.ok());
+  auto original_id = *seg_result;
+
+  // Track seal callback invocations
+  std::vector<core::SegmentId> sealed_ids;
+  std::vector<core::IndexType> sealed_types;
+  manager_->SetSealCallback(
+      [&sealed_ids, &sealed_types](core::SegmentId sid, core::IndexType idx) {
+        sealed_ids.push_back(sid);
+        sealed_types.push_back(idx);
+      });
+
+  // Fill the segment completely (64 vectors * 16 bytes = 1024 = max)
+  auto vecs = MakeVectors(64);
+  auto ids = MakeIds(64);
+  auto* seg = manager_->GetSegment(original_id);
+  REQUIRE(seg->AddVectors(vecs, ids).ok());
+
+  // Segment is now full: CanAcceptWrites = false (memory >= max)
+  CHECK_FALSE(seg->CanAcceptWrites());
+
+  // GetWritableSegment should fire callback for the full segment
+  auto* new_seg = manager_->GetWritableSegment(collection_id_);
+  REQUIRE(new_seg != nullptr);
+  CHECK_NE(new_seg->GetId(), original_id);
+
+  // Callback should have been called with the original segment
+  REQUIRE_EQ(sealed_ids.size(), 1);
+  CHECK_EQ(sealed_ids[0], original_id);
+}
+
+TEST_CASE_FIXTURE(RotationTest, "GetQueryableSegments_ReturnsAllStates") {
+  // Create a segment and add vectors
+  auto seg_result = manager_->CreateSegment(collection_id_, dimension_, metric_);
+  REQUIRE(seg_result.ok());
+  auto seg1_id = *seg_result;
+
+  auto vecs = MakeVectors(10);
+  auto ids = MakeIds(10);
+  auto* seg1 = manager_->GetSegment(seg1_id);
+  REQUIRE(seg1->AddVectors(vecs, ids).ok());
+
+  // Seal it
+  core::IndexConfig config;
+  config.index_type = core::IndexType::FLAT;
+  config.dimension = dimension_;
+  config.metric_type = metric_;
+  REQUIRE(manager_->SealSegment(seg1_id, config).ok());
+  CHECK_EQ(seg1->GetState(), core::SegmentState::SEALED);
+
+  // Create a second GROWING segment
+  auto seg2_result = manager_->CreateSegment(collection_id_, dimension_, metric_);
+  REQUIRE(seg2_result.ok());
+
+  // GetQueryableSegments should return both SEALED and GROWING
+  auto queryable = manager_->GetQueryableSegments(collection_id_);
+  CHECK_EQ(queryable.size(), 2);
+}
+
+TEST_CASE_FIXTURE(RotationTest, "RotationPreservesCollectionMapping") {
+  // Create segments in two collections
+  auto cid1 = core::MakeCollectionId(10);
+  auto cid2 = core::MakeCollectionId(20);
+
+  auto seg1 = manager_->CreateSegment(cid1, dimension_, metric_);
+  auto seg2 = manager_->CreateSegment(cid2, dimension_, metric_);
+  REQUIRE(seg1.ok());
+  REQUIRE(seg2.ok());
+
+  // Fill collection 1's segment completely
+  auto vecs = MakeVectors(64);
+  auto ids = MakeIds(64);
+  auto* s1 = manager_->GetSegment(*seg1);
+  REQUIRE(s1->AddVectors(vecs, ids).ok());
+
+  // Rotate collection 1 — should not affect collection 2
+  auto* new_seg = manager_->GetWritableSegment(cid1);
+  REQUIRE(new_seg != nullptr);
+  CHECK_EQ(new_seg->GetCollectionId(), cid1);
+
+  // Collection 2's segment should be unchanged
+  auto* s2 = manager_->GetWritableSegment(cid2);
+  REQUIRE(s2 != nullptr);
+  CHECK_EQ(s2->GetId(), *seg2);
+}

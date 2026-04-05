@@ -16,13 +16,15 @@ namespace gvdb {
 namespace storage {
 
 Segment::Segment(core::SegmentId id, core::CollectionId collection_id,
-                 core::Dimension dimension, core::MetricType metric)
+                 core::Dimension dimension, core::MetricType metric,
+                 size_t max_segment_size)
     : id_(id),
       collection_id_(collection_id),
       dimension_(dimension),
       metric_(metric),
       state_(core::SegmentState::GROWING),
-      memory_usage_(0) {}
+      memory_usage_(0),
+      max_segment_size_(max_segment_size) {}
 
 // ========== Data Operations ==========
 
@@ -49,10 +51,10 @@ core::Status Segment::AddVectors(const std::vector<core::Vector>& vectors,
     additional_size += vec.byte_size();
   }
 
-  if (memory_usage_ + additional_size > kMaxSegmentSize) {
+  if (memory_usage_ + additional_size > max_segment_size_) {
     return core::ResourceExhaustedError(
         absl::StrCat("Segment ", core::ToUInt32(id_),
-                     " would exceed max size ", kMaxSegmentSize));
+                     " would exceed max size ", max_segment_size_));
   }
 
   // Add vectors
@@ -356,10 +358,10 @@ core::Status Segment::AddVectorsWithMetadata(
   // Rough estimate for metadata size (conservative)
   additional_size += metadata.size() * 1024;  // ~1KB per metadata
 
-  if (memory_usage_ + additional_size > kMaxSegmentSize) {
+  if (memory_usage_ + additional_size > max_segment_size_) {
     return core::ResourceExhaustedError(
         absl::StrCat("Segment ", core::ToUInt32(id_),
-                     " would exceed max size ", kMaxSegmentSize));
+                     " would exceed max size ", max_segment_size_));
   }
 
   // Add vectors and metadata
@@ -1259,11 +1261,17 @@ bool Segment::CanAcceptWrites() const {
   return state_ == core::SegmentState::GROWING && !IsFull();
 }
 
+bool Segment::CanFit(size_t additional_bytes) const {
+  std::shared_lock lock(mutex_);
+  return state_ == core::SegmentState::GROWING &&
+         memory_usage_ + additional_bytes <= max_segment_size_;
+}
+
 // ========== Private Methods ==========
 
 bool Segment::IsFull() const {
   // Must be called with lock held
-  return memory_usage_ >= kMaxSegmentSize;
+  return memory_usage_ >= max_segment_size_;
 }
 
 core::Status Segment::ValidateVectors(
