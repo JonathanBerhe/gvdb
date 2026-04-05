@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/JonathanBerhe/gvdb/compare/v0.2.0...v0.3.0) (2026-04-04)
+
+
+### Features
+
+* **index:** add IVF_TURBOQUANT — IVF partitioning with TurboQuant compression ([76d8d2e](https://github.com/JonathanBerhe/gvdb/commit/76d8d2e0da90ee1d51d9eda070c483d70154a86f))
+* **index:** add IVF_TURBOQUANT — IVF partitioning with TurboQuant compression ([5998f4b](https://github.com/JonathanBerhe/gvdb/commit/5998f4b8d163d8df7cf96a26ab4ab8e1db4ff0f1))
+
 ## [0.2.0](https://github.com/JonathanBerhe/gvdb/compare/v0.1.8...v0.2.0) (2026-04-04)
 
 
