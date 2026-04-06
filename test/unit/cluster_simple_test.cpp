@@ -671,3 +671,164 @@ TEST_CASE_FIXTURE(CoordinatorTest, "CreateCollectionReplicationFactorExceedsNode
   CHECK_FALSE(result.ok());
   CHECK(absl::IsFailedPrecondition(result.status()));
 }
+
+// ============================================================================
+// Read Repair Tests
+// ============================================================================
+
+class MockClient : public IInternalServiceClient {
+ public:
+  uint64_t vector_count = 100;
+  bool list_fails = false;
+  bool segment_missing = false;
+  int get_segment_calls = 0;
+  int replicate_segment_calls = 0;
+
+  grpc::Status CreateSegment(
+      grpc::ClientContext*, const proto::internal::CreateSegmentRequest&,
+      proto::internal::CreateSegmentResponse* resp) override {
+    resp->set_success(true);
+    return grpc::Status::OK;
+  }
+  grpc::Status DeleteSegment(
+      grpc::ClientContext*, const proto::internal::DeleteSegmentRequest&,
+      proto::internal::DeleteSegmentResponse* resp) override {
+    resp->set_success(true);
+    return grpc::Status::OK;
+  }
+  grpc::Status ReplicateSegment(
+      grpc::ClientContext*, const proto::internal::ReplicateSegmentRequest&,
+      proto::internal::ReplicateSegmentResponse* resp) override {
+    replicate_segment_calls++;
+    resp->set_success(true);
+    return grpc::Status::OK;
+  }
+  grpc::Status GetSegment(
+      grpc::ClientContext*, const proto::internal::GetSegmentRequest&,
+      proto::internal::GetSegmentResponse* resp) override {
+    get_segment_calls++;
+    resp->set_segment_data("fake_data");
+    return grpc::Status::OK;
+  }
+  grpc::Status ListSegments(
+      grpc::ClientContext*, const proto::internal::ListSegmentsRequest& req,
+      proto::internal::ListSegmentsResponse* resp) override {
+    if (list_fails) {
+      return grpc::Status(grpc::StatusCode::UNAVAILABLE, "down");
+    }
+    if (!segment_missing) {
+      auto* info = resp->add_segments();
+      info->set_segment_id(req.collection_id() * 65536);
+      info->set_collection_id(req.collection_id());
+      info->set_vector_count(vector_count);
+    }
+    return grpc::Status::OK;
+  }
+};
+
+// Factory that returns copies of pre-configured mock clients
+class MockClientFactory : public IInternalServiceClientFactory {
+ public:
+  std::map<std::string, MockClient*> client_map;
+
+  std::unique_ptr<IInternalServiceClient> CreateClient(
+      core::NodeId, const std::string& address) override {
+    auto it = client_map.find(address);
+    if (it == client_map.end()) return nullptr;
+    return std::make_unique<MockClient>(*it->second);
+  }
+};
+
+class ReadRepairTest {
+ public:
+  ReadRepairTest() {
+    auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
+    node_registry_ = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
+    factory_ = std::make_shared<MockClientFactory>();
+
+    // Register two data nodes
+    proto::internal::NodeInfo node1;
+    node1.set_node_id(1);
+    node1.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    node1.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+    node1.set_grpc_address("node1:50051");
+    node_registry_->UpdateNode(node1);
+
+    proto::internal::NodeInfo node2;
+    node2.set_node_id(2);
+    node2.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    node2.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+    node2.set_grpc_address("node2:50051");
+    node_registry_->UpdateNode(node2);
+
+    factory_->client_map["node1:50051"] = &primary_mock_;
+    factory_->client_map["node2:50051"] = &replica_mock_;
+
+    coordinator_ = std::make_unique<Coordinator>(shard_manager, node_registry_, factory_);
+  }
+
+  core::CollectionId CreateReplicatedCollection(const std::string& name) {
+    auto result = coordinator_->CreateCollection(
+        name, 128, core::MetricType::L2, core::IndexType::FLAT, 2);
+    return result.ok() ? *result : core::kInvalidCollectionId;
+  }
+
+  std::shared_ptr<NodeRegistry> node_registry_;
+  std::shared_ptr<MockClientFactory> factory_;
+  std::unique_ptr<Coordinator> coordinator_;
+  MockClient primary_mock_;
+  MockClient replica_mock_;
+};
+
+TEST_CASE_FIXTURE(ReadRepairTest, "ReadRepair_DetectsDivergence") {
+  auto coll_id = CreateReplicatedCollection("repair_divergence");
+  REQUIRE(coll_id != core::kInvalidCollectionId);
+
+  primary_mock_.vector_count = 100;
+  replica_mock_.vector_count = 50;
+
+  coordinator_->RunConsistencyCheck();
+  CHECK_EQ(coordinator_->GetRepairQueueSize(), 0);
+}
+
+TEST_CASE_FIXTURE(ReadRepairTest, "ReadRepair_NoActionWhenConsistent") {
+  auto coll_id = CreateReplicatedCollection("repair_consistent");
+  REQUIRE(coll_id != core::kInvalidCollectionId);
+
+  primary_mock_.vector_count = 100;
+  replica_mock_.vector_count = 100;
+
+  coordinator_->RunConsistencyCheck();
+  CHECK_EQ(coordinator_->GetRepairQueueSize(), 0);
+}
+
+TEST_CASE_FIXTURE(ReadRepairTest, "ReadRepair_SkipsSingleReplicaCollections") {
+  auto result = coordinator_->CreateCollection(
+      "single_replica", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
+  REQUIRE(result.ok());
+
+  coordinator_->RunConsistencyCheck();
+  CHECK_EQ(coordinator_->GetRepairQueueSize(), 0);
+}
+
+TEST_CASE_FIXTURE(ReadRepairTest, "ReadRepair_HandlesMissingSegment") {
+  auto coll_id = CreateReplicatedCollection("repair_missing");
+  REQUIRE(coll_id != core::kInvalidCollectionId);
+
+  primary_mock_.vector_count = 100;
+  replica_mock_.segment_missing = true;
+
+  coordinator_->RunConsistencyCheck();
+  CHECK_EQ(coordinator_->GetRepairQueueSize(), 0);
+}
+
+TEST_CASE_FIXTURE(ReadRepairTest, "ReadRepair_HandlesListSegmentsFailure") {
+  auto coll_id = CreateReplicatedCollection("repair_failure");
+  REQUIRE(coll_id != core::kInvalidCollectionId);
+
+  primary_mock_.vector_count = 100;
+  replica_mock_.list_fails = true;
+
+  coordinator_->RunConsistencyCheck();
+  CHECK_EQ(coordinator_->GetRepairQueueSize(), 0);
+}

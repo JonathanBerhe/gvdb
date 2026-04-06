@@ -116,6 +116,7 @@ test/e2e/fuzzy_test
 test/e2e/load_test
 test/e2e/bench_index
 test/e2e/ivf_turboquant_test
+test/e2e/repair_test_bin
 ui/gateway/gvdb-ui
 ui/web/node_modules/
 ui/web/dist/

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/JonathanBerhe/gvdb/compare/v0.3.1...v0.4.0) (2026-04-06)
+
+
+### Features
+
+* **cluster:** coordinator-driven read repair ([16aab64](https://github.com/JonathanBerhe/gvdb/commit/16aab647e978a8f6846aa794ed4dbb83ce5f1217))
+* **cluster:** coordinator-driven read repair with background consistency checking ([6e106cb](https://github.com/JonathanBerhe/gvdb/commit/6e106cb511027b51565edd9c0dd9e94a754071b7))
+
 ## [0.3.1](https://github.com/JonathanBerhe/gvdb/compare/v0.3.0...v0.3.1) (2026-04-06)
 
 

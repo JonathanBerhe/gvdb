@@ -167,6 +167,10 @@ class Coordinator {
   void StartHealthCheckLoop();
   void StopHealthCheckLoop();
 
+  // Read repair: run consistency check (public for testing)
+  void RunConsistencyCheck();
+  size_t GetRepairQueueSize() const;
+
   // Replicate segment data from source node to target node
   absl::Status ReplicateSegmentData(
       core::SegmentId segment_id,
@@ -198,6 +202,16 @@ class Coordinator {
   void HealthCheckLoop();
   void DetectFailedNodes();
   void CheckReplication();
+  void CheckConsistency();
+  absl::Status RepairSegment(core::SegmentId segment_id,
+                             core::NodeId primary_node,
+                             core::NodeId stale_replica);
+
+  // Repair state
+  static constexpr uint32_t kRepairIntervalCycles = 6;  // every ~30s
+  uint32_t health_check_cycle_count_{0};
+  mutable std::mutex repair_mutex_;
+  std::set<core::ShardId> shards_being_repaired_;
 
   // Helper methods
   core::NodeId AllocateNodeId();

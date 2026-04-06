@@ -43,6 +43,13 @@ grpc::Status GrpcInternalServiceClient::GetSegment(
   return stub_->GetSegment(context, request, response);
 }
 
+grpc::Status GrpcInternalServiceClient::ListSegments(
+    grpc::ClientContext* context,
+    const proto::internal::ListSegmentsRequest& request,
+    proto::internal::ListSegmentsResponse* response) {
+  return stub_->ListSegments(context, request, response);
+}
+
 // ============================================================================
 // GrpcInternalServiceClientFactory Implementation
 // ============================================================================
