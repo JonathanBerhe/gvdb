@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.1](https://github.com/JonathanBerhe/gvdb/compare/v0.3.0...v0.3.1) (2026-04-06)
+
+
+### Bug Fixes
+
+* **storage,network:** iterator safety, typed shard metadata, insert error propagation ([b241984](https://github.com/JonathanBerhe/gvdb/commit/b2419847ffdd0a9752990266d0cdcf1edbc9d63b))
+* **storage:** segment rotation with capacity-aware GetWritableSegment and background build loop ([f53631f](https://github.com/JonathanBerhe/gvdb/commit/f53631f8ca5ceb7589835fec8b9b574c9e062df9))
+* **storage:** segment rotation, distributed build loop, and metadata type preservation ([6a2af72](https://github.com/JonathanBerhe/gvdb/commit/6a2af7269984f527396722b5f11d7d2e10c5b33d))
+
 ## [0.3.0](https://github.com/JonathanBerhe/gvdb/compare/v0.2.0...v0.3.0) (2026-04-04)
 
 
