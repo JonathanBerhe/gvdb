@@ -691,17 +691,7 @@ grpc::Status InternalService::ExecuteShardQuery(
       if (request->return_metadata()) {
         auto meta_result = segment->GetMetadata(entry.id);
         if (meta_result.ok()) {
-          auto* meta_map = result->mutable_metadata();
-          for (const auto& [k, val] : *meta_result) {
-            (*meta_map)[k] = std::visit([](const auto& v) -> std::string {
-              using T = std::decay_t<decltype(v)>;
-              if constexpr (std::is_same_v<T, int64_t>) return std::to_string(v);
-              else if constexpr (std::is_same_v<T, double>) return std::to_string(v);
-              else if constexpr (std::is_same_v<T, std::string>) return v;
-              else if constexpr (std::is_same_v<T, bool>) return v ? "true" : "false";
-              return "";
-            }, val);
-          }
+          toProto(*meta_result, result->mutable_metadata());
         }
       }
     }

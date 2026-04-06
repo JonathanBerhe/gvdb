@@ -7,6 +7,8 @@ package gvdb.proto.internal;
 
 option go_package = "gvdb/internal/pb";
 
+import "vectordb.proto";
+
 // ============================================================================
 // Node Information and Health
 // ============================================================================
@@ -223,7 +225,7 @@ message ExecuteShardQueryRequest {
 message SearchResult {
   uint64 id = 1;
   float distance = 2;
-  map<string, string> metadata = 3;  // Simplified for internal use
+  gvdb.proto.Metadata metadata = 3;
 }
 
 message ExecuteShardQueryResponse {

@@ -442,6 +442,7 @@ void SegmentManager::Clear() {
 // ========== Active Segment Rotation ==========
 
 void SegmentManager::SetSealCallback(SealCallback callback) {
+  std::unique_lock lock(mutex_);
   seal_callback_ = std::move(callback);
 }
 
@@ -484,11 +485,12 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
   auto metric = ref->GetMetric();
   auto idx_type = ref->GetIndexType();
 
-  // Notify callback about GROWING segments we're rotating past.
-  // This includes segments that are fully exhausted (!CanAcceptWrites) AND
-  // segments that can't fit the required batch (triggered the rotation).
+  // Snapshot IDs before dropping lock for callbacks — iterating a reference
+  // into collection_segments_ while the lock is released is unsafe if the
+  // callback modifies the map (e.g. CreateSegment appends to the vector).
   if (seal_callback_) {
-    for (auto& sid : seg_ids) {
+    std::vector<core::SegmentId> ids_snapshot(seg_ids.begin(), seg_ids.end());
+    for (auto& sid : ids_snapshot) {
       auto seg_it = segments_.find(sid);
       if (seg_it == segments_.end()) continue;
       auto* seg = seg_it->second.get();
@@ -496,7 +498,6 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
           seg->GetVectorCount() > 0 &&
           (!seg->CanAcceptWrites() ||
            (required_bytes > 0 && !seg->CanFit(required_bytes)))) {
-        // Release lock during callback (it may call SealSegment)
         lock.unlock();
         seal_callback_(sid, idx_type);
         lock.lock();
@@ -504,8 +505,15 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
     }
   }
 
-  // Re-check after callbacks: another thread may have created a writable segment
-  for (auto it = seg_ids.rbegin(); it != seg_ids.rend(); ++it) {
+  // Re-lookup after callbacks — the map may have been modified while unlocked
+  coll_it = collection_segments_.find(collection_id);
+  if (coll_it == collection_segments_.end() || coll_it->second.empty()) {
+    return nullptr;
+  }
+  auto& seg_ids_refreshed = coll_it->second;
+
+  // Re-check: another thread or callback may have created a writable segment
+  for (auto it = seg_ids_refreshed.rbegin(); it != seg_ids_refreshed.rend(); ++it) {
     auto seg_it = segments_.find(*it);
     if (seg_it != segments_.end()) {
       auto* seg = seg_it->second.get();
@@ -522,7 +530,7 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
       new_id, collection_id, dim, metric, max_segment_size_);
   auto* ptr = new_seg.get();
   segments_[new_id] = std::move(new_seg);
-  seg_ids.push_back(new_id);
+  seg_ids_refreshed.push_back(new_id);
 
   utils::Logger::Instance().Info(
       "Rotated: created new segment {} for collection {} (dim={}, metric={})",

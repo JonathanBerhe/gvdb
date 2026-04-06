@@ -117,7 +117,7 @@ grpc::Status VectorDBService::SearchDistributed(
   struct ShardEntry {
     uint64_t id;
     float distance;
-    std::map<std::string, std::string> metadata;
+    proto::Metadata metadata;
   };
   struct ShardResult {
     std::vector<ShardEntry> entries;
@@ -165,8 +165,8 @@ grpc::Status VectorDBService::SearchDistributed(
             ShardEntry entry;
             entry.id = r.id();
             entry.distance = r.distance();
-            for (const auto& [k, v] : r.metadata()) {
-              entry.metadata[k] = v;
+            if (r.metadata().fields_size() > 0) {
+              entry.metadata = r.metadata();
             }
             result.entries.push_back(std::move(entry));
           }
@@ -198,29 +198,8 @@ grpc::Status VectorDBService::SearchDistributed(
     proto_entry->set_id(all_entries[i].id);
     proto_entry->set_distance(all_entries[i].distance);
 
-    if (request->return_metadata() && !all_entries[i].metadata.empty()) {
-      auto* proto_meta = proto_entry->mutable_metadata();
-      for (const auto& [k, v] : all_entries[i].metadata) {
-        auto* field = &(*proto_meta->mutable_fields())[k];
-        // Reconstruct type from string (internal proto uses map<string,string>)
-        if (v == "true" || v == "false") {
-          field->set_bool_value(v == "true");
-        } else {
-          // Try integer, then double, then fall back to string
-          char* end = nullptr;
-          long long int_val = std::strtoll(v.c_str(), &end, 10);
-          if (end != v.c_str() && *end == '\0') {
-            field->set_int_value(int_val);
-          } else {
-            double dbl_val = std::strtod(v.c_str(), &end);
-            if (end != v.c_str() && *end == '\0') {
-              field->set_double_value(dbl_val);
-            } else {
-              field->set_string_value(v);
-            }
-          }
-        }
-      }
+    if (request->return_metadata() && all_entries[i].metadata.fields_size() > 0) {
+      *proto_entry->mutable_metadata() = all_entries[i].metadata;
     }
   }
 

@@ -121,16 +121,16 @@ int main(int argc, char** argv) {
     auto segment_manager = std::make_shared<storage::SegmentManager>(
         args.data_dir + "/segments", index_factory.get());
     segment_manager->LoadAllSegments();
-    auto data_node = std::make_unique<cluster::DataNode>(std::move(index_factory), segment_manager);
+    auto data_node = std::make_shared<cluster::DataNode>(std::move(index_factory), segment_manager);
 
     // Wire auto-seal: when a segment fills up, queue it for background index building
     segment_manager->SetSealCallback(
-        [&data_node](core::SegmentId sid, core::IndexType idx_type) {
+        [data_node](core::SegmentId sid, core::IndexType idx_type) {
           data_node->ScheduleBuildTask({sid, idx_type, 100});
         });
 
     // Background thread to process build queue (seals segments + builds indexes)
-    std::thread build_thread([&data_node]() {
+    std::thread build_thread([data_node]() {
       data_node->RunBuildLoop(utils::ServerBootstrap::ShutdownFlag());
     });
 
