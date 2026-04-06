@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <thread>
 
 #include "core/types.h"
 #include "core/vector.h"
@@ -2034,4 +2035,64 @@ TEST_CASE_FIXTURE(RotationTest, "RotationPreservesCollectionMapping") {
   auto* s2 = manager_->GetWritableSegment(cid2);
   REQUIRE(s2 != nullptr);
   CHECK_EQ(s2->GetId(), *seg2);
+}
+
+TEST_CASE_FIXTURE(RotationTest, "SetSealCallback_ThreadSafe") {
+  auto seg_result = manager_->CreateSegment(collection_id_, dimension_, metric_);
+  REQUIRE(seg_result.ok());
+
+  // Fill segment to trigger rotation path in GetWritableSegment
+  auto vecs = MakeVectors(64);
+  auto ids = MakeIds(64);
+  auto* seg = manager_->GetSegment(*seg_result);
+  REQUIRE(seg->AddVectors(vecs, ids).ok());
+
+  std::atomic<bool> done{false};
+
+  // Thread that repeatedly sets the seal callback
+  std::thread setter([&]() {
+    while (!done.load(std::memory_order_relaxed)) {
+      manager_->SetSealCallback(
+          [](core::SegmentId, core::IndexType) {});
+    }
+  });
+
+  // Main thread calls GetWritableSegment (reads seal_callback_)
+  for (int i = 0; i < 100; ++i) {
+    auto* ws = manager_->GetWritableSegment(collection_id_);
+    CHECK(ws != nullptr);
+  }
+
+  done.store(true, std::memory_order_relaxed);
+  setter.join();
+}
+
+TEST_CASE_FIXTURE(RotationTest, "SealCallback_ModifiesMap_NoInvalidation") {
+  auto seg_result = manager_->CreateSegment(collection_id_, dimension_, metric_);
+  REQUIRE(seg_result.ok());
+
+  // Register a callback that modifies collection_segments_ by creating a new segment.
+  // Before the iterator-safety fix, this would corrupt the iteration in
+  // GetWritableSegment because the callback runs while the lock is released.
+  auto cid = collection_id_;
+  auto dim = dimension_;
+  auto metric = metric_;
+  manager_->SetSealCallback(
+      [&](core::SegmentId, core::IndexType) {
+        // This calls CreateSegment which appends to collection_segments_[cid]
+        auto new_seg = manager_->CreateSegment(cid, dim, metric);
+        CHECK(new_seg.ok());
+      });
+
+  // Fill segment completely (64 * 16 = 1024 = max)
+  auto vecs = MakeVectors(64);
+  auto ids = MakeIds(64);
+  auto* seg = manager_->GetSegment(*seg_result);
+  REQUIRE(seg->AddVectors(vecs, ids).ok());
+
+  // GetWritableSegment triggers rotation → callback → CreateSegment.
+  // Must not crash from iterator invalidation.
+  auto* new_seg = manager_->GetWritableSegment(collection_id_);
+  REQUIRE(new_seg != nullptr);
+  CHECK(new_seg->CanAcceptWrites());
 }

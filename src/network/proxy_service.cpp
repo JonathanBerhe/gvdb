@@ -119,15 +119,7 @@ proto::VectorDBService::Stub* ProxyService::GetDataNodeClientForCollection(
   }
 
   const std::string& addr = route_resp.target_node_addresses(0);
-
-  std::lock_guard<std::mutex> lock(clients_mutex_);
-  auto it = data_client_by_addr_.find(addr);
-  if (it == data_client_by_addr_.end()) {
-    auto channel = grpc::CreateChannel(addr, grpc::InsecureChannelCredentials());
-    data_client_by_addr_[addr] = proto::VectorDBService::NewStub(channel);
-    return data_client_by_addr_[addr].get();
-  }
-  return it->second.get();
+  return GetOrCreateDataClient(addr);
 }
 
 proto::VectorDBService::Stub* ProxyService::GetOrCreateDataClient(
@@ -274,19 +266,43 @@ grpc::Status ProxyService::Insert(
   }
 
   uint64_t total_inserted = 0;
+  std::string first_error;
+  int failed_shards = 0;
+
   for (int i = 0; i < num_shards; ++i) {
     if (shard_reqs[i].vectors_size() == 0) continue;
 
     const std::string& addr = route_resp.target_node_addresses(i);
     auto* client = GetOrCreateDataClient(addr);
-    if (!client) continue;
+    if (!client) {
+      utils::Logger::Instance().Warn("Insert: data node unavailable for shard {}: {}", i, addr);
+      if (first_error.empty()) {
+        first_error = "Data node unavailable for shard " + std::to_string(i);
+      }
+      ++failed_shards;
+      continue;
+    }
 
     proto::InsertResponse shard_resp;
     grpc::ClientContext client_ctx;
     auto status = client->Insert(&client_ctx, shard_reqs[i], &shard_resp);
     if (status.ok()) {
       total_inserted += shard_resp.inserted_count();
+    } else {
+      utils::Logger::Instance().Warn("Insert: shard {} failed on {}: {}", i, addr,
+                                      status.error_message());
+      if (first_error.empty()) {
+        first_error = status.error_message();
+      }
+      ++failed_shards;
     }
+  }
+
+  if (failed_shards > 0) {
+    std::string msg = "Insert partially failed: " + std::to_string(failed_shards) +
+        " shard(s) failed, " + std::to_string(total_inserted) +
+        " vectors inserted: " + first_error;
+    return grpc::Status(grpc::StatusCode::INTERNAL, msg);
   }
 
   response->set_inserted_count(total_inserted);
