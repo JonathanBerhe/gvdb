@@ -48,6 +48,15 @@ struct IndexConfig {
     int qjl_projection_dim = 0; // QJL projection dimensions (0 = auto: padded_dim/4)
   } turboquant_params;
 
+  // IVF + TurboQuant parameters
+  struct IVFTurboQuantParams {
+    int nlist = 100;             // Number of IVF clusters
+    int nprobe = 10;             // Clusters to search at query time
+    int bit_width = 4;           // TurboQuant bits per dimension (1, 2, 4, 8)
+    bool use_qjl = true;        // Enable QJL bias correction
+    int qjl_dim = 0;            // QJL projection dim (0 = auto)
+  } ivf_turboquant_params;
+
   // General parameters
   bool use_gpu = false;        // Use GPU acceleration if available
   int num_threads = 0;         // Number of threads (0 = auto-detect)

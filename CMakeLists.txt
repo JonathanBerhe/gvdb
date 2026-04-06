@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(gvdb VERSION 0.1.0 LANGUAGES CXX)
+project(gvdb VERSION 0.3.1 LANGUAGES CXX) # x-release-please-version
 
 # C++ Standard
 set(CMAKE_CXX_STANDARD 20)
@@ -339,7 +339,7 @@ add_custom_command(
        -I ${PROTO_PATH}
        --plugin=protoc-gen-grpc=${_GRPC_CPP_PLUGIN_EXECUTABLE}
        ${INTERNAL_PROTO_FILE}
-  DEPENDS ${INTERNAL_PROTO_FILE}
+  DEPENDS ${INTERNAL_PROTO_FILE} ${VECTORDB_PROTO_FILE}
   COMMENT "Generating internal protobuf and gRPC C++ files"
 )
 

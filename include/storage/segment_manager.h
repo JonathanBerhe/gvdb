@@ -4,6 +4,7 @@
 #ifndef GVDB_STORAGE_SEGMENT_MANAGER_H_
 #define GVDB_STORAGE_SEGMENT_MANAGER_H_
 
+#include <functional>
 #include <memory>
 #include <shared_mutex>
 #include <unordered_map>
@@ -45,7 +46,8 @@ class SegmentManager {
  public:
   // Constructor
   explicit SegmentManager(const std::string& base_path,
-                          core::IIndexFactory* index_factory);
+                          core::IIndexFactory* index_factory,
+                          size_t max_segment_size = Segment::kMaxSegmentSize);
 
   // Disable copy and move (contains mutex and unique_ptr)
   SegmentManager(const SegmentManager&) = delete;
@@ -116,6 +118,27 @@ class SegmentManager {
       const core::Vector& query,
       int k) const;
 
+  // ========== Active Segment Rotation ==========
+
+  // Callback invoked when a segment is rotated out (full).
+  // Parameters: (old_segment_id, index_type_to_build)
+  using SealCallback = std::function<void(core::SegmentId, core::IndexType)>;
+
+  // Register a callback for segment rotation events.
+  // Typically wired to DataNode::ScheduleBuildTask.
+  void SetSealCallback(SealCallback callback);
+
+  // Get a writable GROWING segment for a collection.
+  // If the active segment is full (or can't fit required_bytes), rotates:
+  // creates a new segment, invokes the seal callback for the old one,
+  // and returns the new one.
+  [[nodiscard]] Segment* GetWritableSegment(core::CollectionId collection_id,
+                                            size_t required_bytes = 0);
+
+  // Get all queryable segments for a collection (GROWING + SEALED).
+  [[nodiscard]] std::vector<Segment*> GetQueryableSegments(
+      core::CollectionId collection_id) const;
+
   // ========== Management ==========
 
   // Load all previously-flushed segments from disk (startup recovery)
@@ -153,6 +176,12 @@ class SegmentManager {
 
   // Segment ID counter
   uint32_t next_segment_id_;
+
+  // Maximum segment size (passed to new segments)
+  size_t max_segment_size_;
+
+  // Seal callback (invoked on rotation)
+  SealCallback seal_callback_;
 
   // Helper methods
   [[nodiscard]] core::SegmentId AllocateSegmentId();
