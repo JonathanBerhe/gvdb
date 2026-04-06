@@ -285,5 +285,191 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "SearchEmptyCollectionRetur
   CHECK_EQ(response.results_size(), 0);
 }
 
+// ============================================================================
+// Read Repair Integration Test
+// ============================================================================
+
+class ReadRepairIntegrationTest {
+ public:
+  ReadRepairIntegrationTest() {
+    index_factory_ = std::make_unique<index::IndexFactory>();
+
+    // Two separate segment managers simulate two data nodes
+    primary_segment_manager_ = std::make_shared<storage::SegmentManager>(
+        "/tmp/gvdb-read-repair-test/primary", index_factory_.get());
+    replica_segment_manager_ = std::make_shared<storage::SegmentManager>(
+        "/tmp/gvdb-read-repair-test/replica", index_factory_.get());
+
+    auto primary_qe = std::make_shared<compute::QueryExecutor>(
+        primary_segment_manager_.get());
+    auto replica_qe = std::make_shared<compute::QueryExecutor>(
+        replica_segment_manager_.get());
+
+    // Shard manager and node registry
+    shard_manager_ = std::make_shared<cluster::ShardManager>(
+        8, cluster::ShardingStrategy::HASH);
+    node_registry_ = std::make_shared<cluster::NodeRegistry>(
+        std::chrono::seconds(30));
+
+    // Register two data nodes in node registry
+    proto::internal::NodeInfo node1;
+    node1.set_node_id(1);
+    node1.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    node1.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+    node1.set_grpc_address("localhost:0");  // Will be updated after server start
+    node_registry_->UpdateNode(node1);
+
+    proto::internal::NodeInfo node2;
+    node2.set_node_id(2);
+    node2.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    node2.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+    node2.set_grpc_address("localhost:0");
+    node_registry_->UpdateNode(node2);
+
+    // Create coordinator without client factory first (we set it after servers start)
+    coordinator_ = std::make_shared<cluster::Coordinator>(
+        shard_manager_, node_registry_);
+
+    // Start gRPC servers for each "data node" — each runs InternalService
+    // with its own segment manager
+    primary_internal_ = std::make_unique<network::InternalService>(
+        shard_manager_, primary_segment_manager_, primary_qe,
+        nullptr, nullptr, coordinator_);
+    replica_internal_ = std::make_unique<network::InternalService>(
+        shard_manager_, replica_segment_manager_, replica_qe,
+        nullptr, nullptr, coordinator_);
+
+    grpc::ServerBuilder builder1;
+    builder1.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &primary_port_);
+    builder1.RegisterService(primary_internal_.get());
+    builder1.SetMaxReceiveMessageSize(256 * 1024 * 1024);
+    builder1.SetMaxSendMessageSize(256 * 1024 * 1024);
+    primary_server_ = builder1.BuildAndStart();
+    REQUIRE_NE(primary_server_, nullptr);
+
+    grpc::ServerBuilder builder2;
+    builder2.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &replica_port_);
+    builder2.RegisterService(replica_internal_.get());
+    builder2.SetMaxReceiveMessageSize(256 * 1024 * 1024);
+    builder2.SetMaxSendMessageSize(256 * 1024 * 1024);
+    replica_server_ = builder2.BuildAndStart();
+    REQUIRE_NE(replica_server_, nullptr);
+
+    // Update node addresses with actual ports
+    primary_addr_ = absl::StrFormat("localhost:%d", primary_port_);
+    replica_addr_ = absl::StrFormat("localhost:%d", replica_port_);
+
+    proto::internal::NodeInfo node1_updated;
+    node1_updated.set_node_id(1);
+    node1_updated.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    node1_updated.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+    node1_updated.set_grpc_address(primary_addr_);
+    node_registry_->UpdateNode(node1_updated);
+
+    proto::internal::NodeInfo node2_updated;
+    node2_updated.set_node_id(2);
+    node2_updated.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    node2_updated.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+    node2_updated.set_grpc_address(replica_addr_);
+    node_registry_->UpdateNode(node2_updated);
+
+    // Now create a new coordinator WITH the client factory so it can make RPCs
+    auto client_factory = std::make_shared<cluster::GrpcInternalServiceClientFactory>();
+    coordinator_ = std::make_shared<cluster::Coordinator>(
+        shard_manager_, node_registry_, client_factory);
+  }
+
+  ~ReadRepairIntegrationTest() {
+    primary_server_->Shutdown();
+    replica_server_->Shutdown();
+    primary_segment_manager_->Clear();
+    replica_segment_manager_->Clear();
+  }
+
+  std::unique_ptr<index::IndexFactory> index_factory_;
+  std::shared_ptr<cluster::ShardManager> shard_manager_;
+  std::shared_ptr<cluster::NodeRegistry> node_registry_;
+  std::shared_ptr<cluster::Coordinator> coordinator_;
+
+  std::shared_ptr<storage::SegmentManager> primary_segment_manager_;
+  std::shared_ptr<storage::SegmentManager> replica_segment_manager_;
+
+  std::unique_ptr<network::InternalService> primary_internal_;
+  std::unique_ptr<network::InternalService> replica_internal_;
+
+  std::unique_ptr<grpc::Server> primary_server_;
+  std::unique_ptr<grpc::Server> replica_server_;
+
+  int primary_port_ = 0;
+  int replica_port_ = 0;
+  std::string primary_addr_;
+  std::string replica_addr_;
+};
+
+TEST_CASE_FIXTURE(ReadRepairIntegrationTest, "ReadRepairFixesDivergentReplica") {
+  // 1. Create collection with replication_factor=2
+  //    The coordinator creates the segment on the primary node via RPC.
+  auto coll_result = coordinator_->CreateCollection(
+      "repair_collection", 64, core::MetricType::L2, core::IndexType::FLAT, 2);
+  REQUIRE(coll_result.ok());
+  auto coll_id = *coll_result;
+
+  // Determine which node is primary and which is replica for shard 0
+  auto metadata = coordinator_->GetCollectionMetadata("repair_collection");
+  REQUIRE(metadata.ok());
+  auto shard_id = metadata->shard_ids[0];
+  auto primary_node = *shard_manager_->GetPrimaryNode(shard_id);
+  auto replicas = *shard_manager_->GetReplicaNodes(shard_id);
+  REQUIRE_FALSE(replicas.empty());
+  auto replica_node = replicas[0];
+
+  // Map node IDs to segment managers based on which gRPC server they run
+  // Node 1 → primary_segment_manager_ (first server)
+  // Node 2 → replica_segment_manager_ (second server)
+  auto* node1_sm = primary_segment_manager_.get();
+  auto* node2_sm = replica_segment_manager_.get();
+  auto* primary_sm = (core::ToUInt32(primary_node) == 1) ? node1_sm : node2_sm;
+  auto* replica_sm = (core::ToUInt32(replica_node) == 1) ? node1_sm : node2_sm;
+
+  // 2. The coordinator's CreateCollection already created the segment on the
+  //    primary via CreateSegment RPC. Create it on the replica too (simulating
+  //    initial replication that happened before the crash).
+  core::SegmentId seg_id = cluster::ShardSegmentId(coll_id, 0);
+
+  // Primary already has the segment from CreateCollection. Verify.
+  auto* primary_seg = primary_sm->GetSegment(seg_id);
+  REQUIRE_NE(primary_seg, nullptr);
+
+  // Replica does NOT have the segment — simulates a node that crashed before
+  // initial replication completed, or a new node joining.
+  CHECK(replica_sm->GetSegment(seg_id) == nullptr);
+
+  // 3. Insert vectors on primary ONLY (simulate writes during replica downtime)
+  std::vector<core::Vector> vectors;
+  std::vector<core::VectorId> ids;
+  for (int i = 0; i < 20; i++) {
+    std::vector<float> data(64, static_cast<float>(i));
+    vectors.push_back(core::Vector(std::move(data)));
+    ids.push_back(core::MakeVectorId(i + 1));
+  }
+  REQUIRE(primary_seg->AddVectors(vectors, ids).ok());
+  CHECK_EQ(primary_seg->GetVectorCount(), 20);
+
+  // 4. Run consistency check — coordinator detects divergence and repairs
+  coordinator_->RunConsistencyCheck();
+
+  // 5. After repair, the replica should have received the full segment via RPC.
+  //    ReplicateSegmentData calls GetSegment on primary → ReplicateSegment on replica.
+  //    The replicated segment may have a different ID (AddReplicatedSegment).
+  auto replica_segments = replica_sm->GetCollectionSegments(coll_id);
+  uint64_t replica_total = 0;
+  for (auto& sid : replica_segments) {
+    auto* seg = replica_sm->GetSegment(sid);
+    if (seg) replica_total += seg->GetVectorCount();
+  }
+
+  CHECK_EQ(replica_total, 20);
+}
+
 } // namespace test
 } // namespace gvdb

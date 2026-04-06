@@ -120,3 +120,4 @@ ui/gateway/gvdb-ui
 ui/web/node_modules/
 ui/web/dist/
 ui/gateway/gvdb-ui*
+test/e2e/repair_test_bin

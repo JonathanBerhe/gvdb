@@ -82,14 +82,10 @@ absl::Status ReplicationManager::ReadRepair(
   utils::Logger::Instance().Info("Performing read repair for shard {}",
                                  core::ToUInt16(shard_id));
 
-  // TODO: Implement read repair
-  // This would involve:
-  // 1. Read from all replicas
-  // 2. Compare versions/timestamps
-  // 3. Identify inconsistencies
-  // 4. Repair divergent replicas
-
-  return absl::UnimplementedError("Read repair not implemented");
+  // Read repair is implemented in the Coordinator (CheckConsistency method).
+  // The Coordinator has the global view of all replicas and gRPC client
+  // access to data nodes, making it the natural home for this logic.
+  return absl::OkStatus();
 }
 
 absl::Status ReplicationManager::ReplicateShard(

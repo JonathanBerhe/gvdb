@@ -38,6 +38,11 @@ class IInternalServiceClient {
       grpc::ClientContext* context,
       const proto::internal::GetSegmentRequest& request,
       proto::internal::GetSegmentResponse* response) = 0;
+
+  virtual grpc::Status ListSegments(
+      grpc::ClientContext* context,
+      const proto::internal::ListSegmentsRequest& request,
+      proto::internal::ListSegmentsResponse* response) = 0;
 };
 
 // Abstract factory for creating IInternalServiceClient instances
@@ -76,6 +81,11 @@ class GrpcInternalServiceClient : public IInternalServiceClient {
       grpc::ClientContext* context,
       const proto::internal::GetSegmentRequest& request,
       proto::internal::GetSegmentResponse* response) override;
+
+  grpc::Status ListSegments(
+      grpc::ClientContext* context,
+      const proto::internal::ListSegmentsRequest& request,
+      proto::internal::ListSegmentsResponse* response) override;
 
  private:
   std::unique_ptr<proto::internal::InternalService::Stub> stub_;
