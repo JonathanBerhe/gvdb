@@ -14,7 +14,7 @@ import (
 
 const (
 	ivfTQCollection = "e2e_ivf_turboquant"
-	ivfTQDimension  = 32
+	ivfTQDimension  = 768
 )
 
 type IVFTurboQuantTest struct {
@@ -114,6 +114,61 @@ func (t *IVFTurboQuantTest) Run() error {
 	}
 	if !found {
 		return fmt.Errorf("collection %s not found in list", ivfTQCollection)
+	}
+
+	// Step 5: Stress test — bulk insert + concurrent search
+	fmt.Println("Step 5: Stress test (5000 vectors, 50 concurrent searches)")
+	batchSize := 500
+	totalVectors := 5000
+	for batch := 0; batch < totalVectors/batchSize; batch++ {
+		batchVecs := make([]*pb.VectorWithId, batchSize)
+		for i := 0; i < batchSize; i++ {
+			id := uint64(1000 + batch*batchSize + i)
+			batchVecs[i] = &pb.VectorWithId{
+				Id:     id,
+				Vector: GenerateRandomVector(ivfTQDimension),
+				Metadata: &pb.Metadata{Fields: map[string]*pb.MetadataValue{
+					"batch": {Value: &pb.MetadataValue_IntValue{IntValue: int64(batch)}},
+				}},
+			}
+		}
+		_, err = t.client.Insert(ctx, &pb.InsertRequest{
+			CollectionName: ivfTQCollection,
+			Vectors:        batchVecs,
+		})
+		if err != nil {
+			return fmt.Errorf("stress insert batch %d: %v", batch, err)
+		}
+	}
+	fmt.Printf("   Inserted %d vectors in %d batches\n", totalVectors, totalVectors/batchSize)
+
+	// Concurrent searches
+	numSearches := 50
+	errCh := make(chan error, numSearches)
+	start := time.Now()
+	for i := 0; i < numSearches; i++ {
+		go func() {
+			_, err := t.client.Search(ctx, &pb.SearchRequest{
+				CollectionName: ivfTQCollection,
+				QueryVector:    GenerateRandomVector(ivfTQDimension),
+				TopK:           10,
+				ReturnMetadata: true,
+			})
+			errCh <- err
+		}()
+	}
+
+	var searchErrors int
+	for i := 0; i < numSearches; i++ {
+		if err := <-errCh; err != nil {
+			searchErrors++
+		}
+	}
+	elapsed := time.Since(start)
+	fmt.Printf("   %d concurrent searches in %v (%d errors)\n",
+		numSearches, elapsed, searchErrors)
+	if searchErrors > 0 {
+		return fmt.Errorf("%d search errors during stress test", searchErrors)
 	}
 
 	// Cleanup

@@ -16,8 +16,11 @@ DataNode::DataNode(std::unique_ptr<index::IndexFactory> index_factory,
 }
 
 absl::Status DataNode::ScheduleBuildTask(const BuildTask& task) {
-  std::lock_guard lock(queue_mutex_);
-  build_queue_.push(task);
+  {
+    std::lock_guard lock(queue_mutex_);
+    build_queue_.push(task);
+  }
+  build_cv_.notify_one();
 
   utils::Logger::Instance().Info("Scheduled build task for segment {}, priority: {}",
                                  core::ToUInt32(task.segment_id),
@@ -96,6 +99,22 @@ size_t DataNode::ProcessBuildQueue() {
   }
 
   return processed;
+}
+
+void DataNode::RunBuildLoop(const std::atomic<bool>& shutdown) {
+  utils::Logger::Instance().Info("Build loop started");
+  while (!shutdown.load(std::memory_order_relaxed)) {
+    {
+      std::unique_lock lock(queue_mutex_);
+      build_cv_.wait_for(lock, std::chrono::seconds(5), [this, &shutdown] {
+        return shutdown.load(std::memory_order_relaxed) || !build_queue_.empty();
+      });
+    }
+    ProcessBuildQueue();
+  }
+  // Drain remaining tasks on shutdown
+  ProcessBuildQueue();
+  utils::Logger::Instance().Info("Build loop stopped");
 }
 
 size_t DataNode::GetPendingTaskCount() const {

@@ -7,6 +7,8 @@
 #include "index/index_factory.h"
 #include "storage/segment_manager.h"
 #include "absl/status/status.h"
+#include <atomic>
+#include <condition_variable>
 #include <memory>
 #include <queue>
 #include <mutex>
@@ -39,6 +41,9 @@ class DataNode {
   // Process all pending build tasks. Returns number of tasks processed.
   size_t ProcessBuildQueue();
 
+  // Run the build loop in a dedicated thread. Blocks until shutdown is set.
+  void RunBuildLoop(const std::atomic<bool>& shutdown);
+
   // Task queue management
   size_t GetPendingTaskCount() const;
   bool HasPendingTasks() const;
@@ -51,6 +56,7 @@ class DataNode {
   std::shared_ptr<storage::SegmentManager> segment_manager_;
 
   mutable std::mutex queue_mutex_;
+  std::condition_variable build_cv_;
   std::priority_queue<BuildTask> build_queue_;
 };
 

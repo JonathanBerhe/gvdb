@@ -116,6 +116,7 @@ class ProxyService final : public proto::VectorDBService::Service {
   proto::VectorDBService::Stub* GetQueryNodeClient();
   proto::VectorDBService::Stub* GetDataNodeClient(int shard_id);
   proto::VectorDBService::Stub* GetDataNodeClientForCollection(const std::string& collection_name);
+  proto::VectorDBService::Stub* GetOrCreateDataClient(const std::string& address);
 };
 
 }  // namespace network
