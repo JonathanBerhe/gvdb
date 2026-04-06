@@ -130,6 +130,24 @@ int main(int argc, char** argv) {
         segment_manager.get());
     query_executor->SetCache(std::make_shared<utils::QueryCache>(10000));
 
+    // Wire auto-seal: when a segment fills up, seal it inline
+    auto* index_factory_ptr = index_factory.get();
+    segment_manager->SetSealCallback(
+        [segment_manager, index_factory_ptr](core::SegmentId sid, core::IndexType idx_type) {
+          core::IndexConfig config;
+          config.index_type = idx_type;
+          auto* seg = segment_manager->GetSegment(sid);
+          if (!seg) return;
+          config.dimension = seg->GetDimension();
+          config.metric_type = seg->GetMetric();
+          utils::Logger::Instance().Info("Auto-sealing segment {} ({} vectors)",
+              core::ToUInt32(sid), seg->GetVectorCount());
+          auto status = segment_manager->SealSegment(sid, config);
+          if (!status.ok()) {
+            utils::Logger::Instance().Error("Auto-seal failed: {}", status.message());
+          }
+        });
+
     // 3. Cluster coordinator
     auto shard_manager = std::make_shared<cluster::ShardManager>(
         16, cluster::ShardingStrategy::HASH);

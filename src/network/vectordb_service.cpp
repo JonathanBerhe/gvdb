@@ -114,8 +114,13 @@ grpc::Status VectorDBService::SearchDistributed(
                                   targets.size(), request->collection_name());
 
   // Fan out ExecuteShardQuery to each data node in parallel
+  struct ShardEntry {
+    uint64_t id;
+    float distance;
+    proto::Metadata metadata;
+  };
   struct ShardResult {
-    std::vector<std::pair<uint64_t, float>> entries;  // (id, distance)
+    std::vector<ShardEntry> entries;
     bool ok = false;
   };
 
@@ -138,6 +143,7 @@ grpc::Status VectorDBService::SearchDistributed(
           shard_req.set_shard_id(target.shard_id);
           shard_req.set_top_k(request->top_k());
           shard_req.set_filter(request->filter());
+          shard_req.set_return_metadata(request->return_metadata());
           for (int i = 0; i < query.dimension(); ++i) {
             shard_req.add_query_vector(query.data()[i]);
           }
@@ -156,7 +162,13 @@ grpc::Status VectorDBService::SearchDistributed(
           }
 
           for (const auto& r : shard_resp.results()) {
-            result.entries.emplace_back(r.id(), r.distance());
+            ShardEntry entry;
+            entry.id = r.id();
+            entry.distance = r.distance();
+            if (r.metadata().fields_size() > 0) {
+              entry.metadata = r.metadata();
+            }
+            result.entries.push_back(std::move(entry));
           }
           result.ok = true;
           return result;
@@ -164,26 +176,31 @@ grpc::Status VectorDBService::SearchDistributed(
   }
 
   // Collect and merge results
-  std::vector<std::pair<uint64_t, float>> all_entries;
+  std::vector<ShardEntry> all_entries;
   for (auto& future : futures) {
     auto result = future.get();
     if (result.ok) {
-      all_entries.insert(all_entries.end(),
-                         result.entries.begin(), result.entries.end());
+      for (auto& e : result.entries) {
+        all_entries.push_back(std::move(e));
+      }
     }
   }
 
   // Sort by distance ascending (L2/cosine) and take top_k
   std::sort(all_entries.begin(), all_entries.end(),
-            [](const auto& a, const auto& b) { return a.second < b.second; });
+            [](const auto& a, const auto& b) { return a.distance < b.distance; });
 
   int top_k = std::min(static_cast<int>(all_entries.size()),
                         static_cast<int>(request->top_k()));
 
   for (int i = 0; i < top_k; ++i) {
     auto* proto_entry = response->add_results();
-    proto_entry->set_id(all_entries[i].first);
-    proto_entry->set_distance(all_entries[i].second);
+    proto_entry->set_id(all_entries[i].id);
+    proto_entry->set_distance(all_entries[i].distance);
+
+    if (request->return_metadata() && all_entries[i].metadata.fields_size() > 0) {
+      *proto_entry->mutable_metadata() = all_entries[i].metadata;
+    }
   }
 
   response->set_query_time_ms(timer.elapsed_millis());
@@ -207,7 +224,7 @@ grpc::Status VectorDBService::CreateCollection(
 
   utils::Logger::Instance().Info("CreateCollection: {}", request->collection_name());
 
-  constexpr uint32_t MAX_DIMENSION = 8192;
+  constexpr uint32_t MAX_DIMENSION = 8192; // TODO: remove this fixed value.
   constexpr uint32_t MIN_DIMENSION = 1;
 
   if (request->dimension() < MIN_DIMENSION || request->dimension() > MAX_DIMENSION) {
@@ -386,13 +403,22 @@ grpc::Status VectorDBService::Insert(
     }
   }
 
-  // Write each shard batch to its segment
+  // Write each shard batch to its segment (with auto-rotation on full)
+  core::CollectionId collection_id = first_segment->GetCollectionId();
   size_t total_inserted = 0;
   for (uint32_t i = 0; i < num_shards; ++i) {
     auto& batch = shard_batches[i];
     if (batch.ids.empty()) continue;
 
-    auto* segment = segment_manager_->GetSegment(segment_ids[i]);
+    // Compute batch size for capacity-aware rotation
+    size_t batch_bytes = 0;
+    for (const auto& v : batch.vectors) batch_bytes += v.byte_size();
+
+    // Get a writable segment that can fit this batch
+    auto* segment = segment_manager_->GetWritableSegment(collection_id, batch_bytes);
+    if (!segment) {
+      segment = segment_manager_->GetSegment(segment_ids[i]);
+    }
     if (!segment) continue;
 
     absl::Status status;
@@ -400,6 +426,18 @@ grpc::Status VectorDBService::Insert(
       status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata);
     } else {
       status = segment->AddVectors(batch.vectors, batch.ids);
+    }
+
+    // Safety net: if segment is full despite hint, rotate and retry once
+    if (absl::IsResourceExhausted(status)) {
+      segment = segment_manager_->GetWritableSegment(collection_id, batch_bytes);
+      if (segment) {
+        if (batch.has_metadata) {
+          status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata);
+        } else {
+          status = segment->AddVectors(batch.vectors, batch.ids);
+        }
+      }
     }
 
     if (!status.ok()) {

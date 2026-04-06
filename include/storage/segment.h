@@ -35,7 +35,8 @@ class Segment {
  public:
   // Constructor
   Segment(core::SegmentId id, core::CollectionId collection_id,
-          core::Dimension dimension, core::MetricType metric);
+          core::Dimension dimension, core::MetricType metric,
+          size_t max_segment_size = kMaxSegmentSize);
 
   // Disable copy and move (contains mutex)
   Segment(const Segment&) = delete;
@@ -171,6 +172,9 @@ class Segment {
   // Check if segment can accept more vectors
   [[nodiscard]] bool CanAcceptWrites() const;
 
+  // Check if a specific batch of additional_bytes would fit
+  [[nodiscard]] bool CanFit(size_t additional_bytes) const;
+
   // Get maximum segment size (512 MB default)
   static constexpr size_t kMaxSegmentSize = 512 * 1024 * 1024;  // 512 MB
 
@@ -192,6 +196,7 @@ class Segment {
   std::vector<core::Vector> vectors_;
   std::vector<core::VectorId> vector_ids_;
   size_t memory_usage_;
+  size_t max_segment_size_;
 
   // Metadata storage (maps VectorId to Metadata)
   std::unordered_map<uint64_t, core::Metadata> metadata_map_;
