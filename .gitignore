@@ -112,6 +112,10 @@ test/e2e/load_advanced
 test/e2e/test_crash_client
 test/e2e/test_drop_comprehensive
 test/e2e/test_ivf_pq_simple
+test/e2e/fuzzy_test
+test/e2e/load_test
+test/e2e/bench_index
+test/e2e/ivf_turboquant_test
 ui/gateway/gvdb-ui
 ui/web/node_modules/
 ui/web/dist/
