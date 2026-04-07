@@ -39,6 +39,24 @@ set_tests_properties(IndexTests PROPERTIES
   TIMEOUT 120
 )
 
+# Sparse index tests
+add_executable(sparse_index_tests
+  sparse_index_test.cpp
+)
+
+target_link_libraries(sparse_index_tests
+  PRIVATE
+    gvdb_index
+    gvdb_core
+    doctest::doctest_with_main
+)
+
+add_test(NAME SparseIndexTests COMMAND sparse_index_tests)
+
+set_tests_properties(SparseIndexTests PROPERTIES
+  TIMEOUT 60
+)
+
 # TurboQuant index tests
 add_executable(turboquant_tests
   turboquant_test.cpp
