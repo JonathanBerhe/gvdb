@@ -139,6 +139,9 @@ class SegmentManager {
   [[nodiscard]] std::vector<Segment*> GetQueryableSegments(
       core::CollectionId collection_id) const;
 
+  // Get all segment IDs across all collections
+  [[nodiscard]] std::vector<core::SegmentId> GetAllSegmentIds() const;
+
   // ========== Management ==========
 
   // Load all previously-flushed segments from disk (startup recovery)

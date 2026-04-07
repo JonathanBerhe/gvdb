@@ -13,6 +13,7 @@
 #include "index/bm25_index.h"
 #include "index/sparse_index.h"
 #include <algorithm>
+#include <chrono>
 #include <future>
 #include <grpcpp/grpcpp.h>
 
@@ -368,6 +369,7 @@ grpc::Status VectorDBService::Insert(
     std::vector<core::VectorId> ids;
     std::vector<core::Metadata> metadata;
     std::unordered_map<uint64_t, core::SparseVector> sparse_map;
+    std::unordered_map<uint64_t, int64_t> expiry_entries;
     bool has_metadata = false;
     bool has_sparse = false;
   };
@@ -399,6 +401,12 @@ grpc::Status VectorDBService::Insert(
       if (!sparse_result.ok()) return toGrpcStatus(sparse_result.status());
       batch.has_sparse = true;
       batch.sparse_map[core::ToUInt64(vid)] = std::move(*sparse_result);
+    }
+
+    if (proto_vec.ttl_seconds() > 0) {
+      int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+      batch.expiry_entries[core::ToUInt64(vid)] = now + static_cast<int64_t>(proto_vec.ttl_seconds());
     }
   }
 
@@ -459,6 +467,12 @@ grpc::Status VectorDBService::Insert(
           request->collection_name(), false, 0);
       return toGrpcStatus(status);
     }
+
+    // Apply TTL expiry entries
+    for (const auto& [vid, expiry] : batch.expiry_entries) {
+      segment->SetExpiry(core::MakeVectorId(vid), expiry);
+    }
+
     total_inserted += batch.ids.size();
   }
 

@@ -4,6 +4,7 @@
 #include "storage/segment.h"
 
 #include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <mutex>
 #include <sstream>
@@ -109,6 +110,11 @@ Segment::GetVectorsResult Segment::GetVectors(
     bool found = false;
     for (size_t i = 0; i < vector_ids_.size(); ++i) {
       if (vector_ids_[i] == query_id) {
+        if (IsExpired(core::ToUInt64(query_id))) {
+          result.not_found_ids.push_back(query_id);
+          found = true;
+          break;
+        }
         result.found_ids.push_back(query_id);
         result.found_vectors.push_back(vectors_[i]);
 
@@ -188,6 +194,7 @@ core::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectors(
       metadata_map_.erase(md_it);
     }
     sparse_vectors_.erase(id_uint);
+    expiry_map_.erase(id_uint);
 
     // Remove vector and ID using swap-and-pop for efficiency
     if (idx != vectors_.size() - 1) {
@@ -275,6 +282,7 @@ core::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(
   results.reserve(vectors_.size());
 
   for (size_t i = 0; i < vectors_.size(); ++i) {
+    if (IsExpired(core::ToUInt64(vector_ids_[i]))) continue;
     float distance = ComputeDistance(query, vectors_[i]);
     results.push_back({vector_ids_[i], distance});
   }
@@ -314,7 +322,16 @@ core::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
         absl::StrCat("Segment ", core::ToUInt32(id_), " has no index"));
   }
 
-  return index_->Search(query, k);
+  auto result = index_->Search(query, k);
+  if (!result.ok()) return result;
+  auto& entries = result->entries;
+  entries.erase(
+      std::remove_if(entries.begin(), entries.end(),
+          [this](const core::SearchResultEntry& e) {
+            return IsExpired(core::ToUInt64(e.id));
+          }),
+      entries.end());
+  return result;
 }
 
 core::Status Segment::AddVectorsWithMetadata(
@@ -420,6 +437,42 @@ core::Status Segment::BuildSparseIndex(
   return core::OkStatus();
 }
 
+// ========== TTL ==========
+
+bool Segment::IsExpired(uint64_t vector_id_uint) const {
+  auto it = expiry_map_.find(vector_id_uint);
+  if (it == expiry_map_.end()) return false;
+  int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  return now >= it->second;
+}
+
+void Segment::SetExpiry(core::VectorId id, int64_t expiry_timestamp) {
+  std::unique_lock lock(mutex_);
+  expiry_map_[core::ToUInt64(id)] = expiry_timestamp;
+}
+
+size_t Segment::SweepExpired() {
+  std::unique_lock lock(mutex_);
+  if (state_ != core::SegmentState::GROWING) return 0;
+
+  int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+
+  std::vector<core::VectorId> to_delete;
+  for (const auto& [vid, expiry] : expiry_map_) {
+    if (now >= expiry) {
+      to_delete.push_back(core::MakeVectorId(vid));
+    }
+  }
+
+  if (to_delete.empty()) return 0;
+
+  lock.unlock();
+  auto result = DeleteVectors(to_delete);
+  return result.ok() ? result->deleted_count : 0;
+}
+
 // ========== Upsert ==========
 
 core::StatusOr<Segment::UpsertResult> Segment::UpsertVectors(
@@ -461,6 +514,7 @@ core::StatusOr<Segment::UpsertResult> Segment::UpsertVectors(
         memory_usage_ -= vectors_[j].byte_size();
         metadata_map_.erase(id_uint);
         sparse_vectors_.erase(id_uint);
+        expiry_map_.erase(id_uint);
 
         // Swap-and-pop
         if (j != vectors_.size() - 1) {
@@ -615,6 +669,8 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
     for (size_t i = 0; i < vectors_.size(); ++i) {
       uint64_t id_uint = core::ToUInt64(vector_ids_[i]);
 
+      if (IsExpired(id_uint)) continue;
+
       // Fast path: scalar index pre-filter
       if (indexed_candidates) {
         if (indexed_candidates->count(id_uint) == 0) {
@@ -686,6 +742,8 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
     }
 
     uint64_t id_uint = core::ToUInt64(entry.id);
+
+    if (IsExpired(id_uint)) continue;
 
     // Fast path: check scalar index first
     if (indexed_candidates && indexed_candidates->count(id_uint) == 0) {
@@ -1152,6 +1210,14 @@ core::StatusOr<std::string> Segment::SerializeToBytes() const {
     }
   }
 
+  // Expiry map (TTL)
+  uint64_t expiry_count = expiry_map_.size();
+  ss.write(reinterpret_cast<const char*>(&expiry_count), sizeof(expiry_count));
+  for (const auto& [vid, expiry] : expiry_map_) {
+    ss.write(reinterpret_cast<const char*>(&vid), sizeof(vid));
+    ss.write(reinterpret_cast<const char*>(&expiry), sizeof(expiry));
+  }
+
   utils::Logger::Instance().Info("Serialized segment {} ({} vectors, {} bytes)",
                                   core::ToUInt32(id_), vector_count, ss.str().size());
 
@@ -1312,6 +1378,21 @@ core::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
           entries.emplace_back(idx, val);
         }
         segment->sparse_vectors_[vid_raw] = core::SparseVector(std::move(entries));
+      }
+    }
+  }
+
+  // Expiry map (optional — old segments may not have it)
+  if (!ss.eof() && ss.good()) {
+    uint64_t expiry_count = 0;
+    ss.read(reinterpret_cast<char*>(&expiry_count), sizeof(expiry_count));
+    if (ss.good()) {
+      for (uint64_t i = 0; i < expiry_count && ss.good(); ++i) {
+        uint64_t vid = 0;
+        int64_t expiry = 0;
+        ss.read(reinterpret_cast<char*>(&vid), sizeof(vid));
+        ss.read(reinterpret_cast<char*>(&expiry), sizeof(expiry));
+        segment->expiry_map_[vid] = expiry;
       }
     }
   }

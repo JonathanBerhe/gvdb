@@ -454,6 +454,7 @@ type VectorWithId struct {
 	Vector        *Vector                `protobuf:"bytes,2,opt,name=vector,proto3" json:"vector,omitempty"`
 	Metadata      *Metadata              `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`                             // Optional metadata
 	SparseVector  *SparseVector          `protobuf:"bytes,4,opt,name=sparse_vector,json=sparseVector,proto3" json:"sparse_vector,omitempty"` // Optional sparse vector for hybrid retrieval
+	TtlSeconds    uint32                 `protobuf:"varint,5,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`      // Optional TTL in seconds (0 = no expiration)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -514,6 +515,13 @@ func (x *VectorWithId) GetSparseVector() *SparseVector {
 		return x.SparseVector
 	}
 	return nil
+}
+
+func (x *VectorWithId) GetTtlSeconds() uint32 {
+	if x != nil {
+		return x.TtlSeconds
+	}
+	return 0
 }
 
 type SearchResultEntry struct {
@@ -2299,12 +2307,14 @@ const file_vectordb_proto_rawDesc = "" +
 	"\x06fields\x18\x01 \x03(\v2 .gvdb.proto.Metadata.FieldsEntryR\x06fields\x1aT\n" +
 	"\vFieldsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12/\n" +
-	"\x05value\x18\x02 \x01(\v2\x19.gvdb.proto.MetadataValueR\x05value:\x028\x01\"\xbb\x01\n" +
+	"\x05value\x18\x02 \x01(\v2\x19.gvdb.proto.MetadataValueR\x05value:\x028\x01\"\xdc\x01\n" +
 	"\fVectorWithId\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12*\n" +
 	"\x06vector\x18\x02 \x01(\v2\x12.gvdb.proto.VectorR\x06vector\x120\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x14.gvdb.proto.MetadataR\bmetadata\x12=\n" +
-	"\rsparse_vector\x18\x04 \x01(\v2\x18.gvdb.proto.SparseVectorR\fsparseVector\"q\n" +
+	"\rsparse_vector\x18\x04 \x01(\v2\x18.gvdb.proto.SparseVectorR\fsparseVector\x12\x1f\n" +
+	"\vttl_seconds\x18\x05 \x01(\rR\n" +
+	"ttlSeconds\"q\n" +
 	"\x11SearchResultEntry\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1a\n" +
 	"\bdistance\x18\x02 \x01(\x02R\bdistance\x120\n" +

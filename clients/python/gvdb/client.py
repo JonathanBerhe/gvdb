@@ -159,11 +159,13 @@ class GVDBClient:
         vectors: list[list[float]],
         metadata: Optional[list[dict]] = None,
         sparse_vectors: Optional[list[dict[int, float]]] = None,
+        ttl_seconds: Optional[list[int]] = None,
     ) -> int:
         """Insert vectors. Returns number inserted.
 
         Args:
             sparse_vectors: Optional list of sparse vectors as {dim_index: value} dicts.
+            ttl_seconds: Optional per-vector TTL in seconds (0 = no expiration).
         """
         proto_vectors = []
         for i, (vid, vec) in enumerate(zip(ids, vectors)):
@@ -180,6 +182,8 @@ class GVDBClient:
                     indices=sorted_indices,
                     values=[sv[k] for k in sorted_indices],
                 ))
+            if ttl_seconds and i < len(ttl_seconds) and ttl_seconds[i]:
+                v.ttl_seconds = ttl_seconds[i]
             proto_vectors.append(v)
 
         resp = self._stub.Insert(
