@@ -44,6 +44,9 @@ class DataNode {
   // Run the build loop in a dedicated thread. Blocks until shutdown is set.
   void RunBuildLoop(const std::atomic<bool>& shutdown);
 
+  // Run TTL sweep loop in a dedicated thread. Sweeps expired vectors every 30s.
+  void RunTTLSweepLoop(const std::atomic<bool>& shutdown);
+
   // Task queue management
   size_t GetPendingTaskCount() const;
   bool HasPendingTasks() const;

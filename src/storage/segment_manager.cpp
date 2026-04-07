@@ -562,6 +562,16 @@ std::vector<Segment*> SegmentManager::GetQueryableSegments(
   return result;
 }
 
+std::vector<core::SegmentId> SegmentManager::GetAllSegmentIds() const {
+  std::shared_lock lock(mutex_);
+  std::vector<core::SegmentId> ids;
+  ids.reserve(segments_.size());
+  for (const auto& [seg_id, _] : segments_) {
+    ids.push_back(seg_id);
+  }
+  return ids;
+}
+
 core::SegmentId SegmentManager::AllocateSegmentId() {
   // Must be called with lock held
   return core::MakeSegmentId(next_segment_id_++);

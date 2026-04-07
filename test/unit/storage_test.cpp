@@ -2096,3 +2096,146 @@ TEST_CASE_FIXTURE(RotationTest, "SealCallback_ModifiesMap_NoInvalidation") {
   REQUIRE(new_seg != nullptr);
   CHECK(new_seg->CanAcceptWrites());
 }
+
+// ============================================================================
+// TTL Tests
+// ============================================================================
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_BasicExpiry") {
+  auto seg_id = core::MakeSegmentId(1);
+  storage::Segment segment(seg_id, collection_id_, dimension_, metric_);
+
+  auto vecs = CreateTestVectors(3);
+  auto ids = CreateTestVectorIds(3);
+  REQUIRE(segment.AddVectors(vecs, ids).ok());
+
+  // Set TTL=1 second for vector 1
+  int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  segment.SetExpiry(ids[0], now + 1);
+
+  // Immediately: vector 1 should be found
+  auto result = segment.GetVectors({ids[0]}, false);
+  CHECK_EQ(result.found_ids.size(), 1);
+
+  // Wait for expiry
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+
+  // Now: vector 1 should be expired (not found)
+  auto result2 = segment.GetVectors({ids[0]}, false);
+  CHECK_EQ(result2.found_ids.size(), 0);
+  CHECK_EQ(result2.not_found_ids.size(), 1);
+
+  // Vectors 2 and 3 (no TTL) should still be found
+  auto result3 = segment.GetVectors({ids[1], ids[2]}, false);
+  CHECK_EQ(result3.found_ids.size(), 2);
+}
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_NoExpiryWhenZero") {
+  auto seg_id = core::MakeSegmentId(1);
+  storage::Segment segment(seg_id, collection_id_, dimension_, metric_);
+
+  auto vecs = CreateTestVectors(1);
+  auto ids = CreateTestVectorIds(1);
+  REQUIRE(segment.AddVectors(vecs, ids).ok());
+
+  // No SetExpiry call → no TTL → never expires
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
+  auto result = segment.GetVectors({ids[0]}, false);
+  CHECK_EQ(result.found_ids.size(), 1);
+}
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_BruteForceSearch") {
+  auto seg_id = core::MakeSegmentId(1);
+  storage::Segment segment(seg_id, collection_id_, dimension_, metric_);
+
+  auto vecs = CreateTestVectors(5);
+  auto ids = CreateTestVectorIds(5);
+  REQUIRE(segment.AddVectors(vecs, ids).ok());
+
+  int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+
+  // Set TTL=1s for first 3 vectors
+  segment.SetExpiry(ids[0], now + 1);
+  segment.SetExpiry(ids[1], now + 1);
+  segment.SetExpiry(ids[2], now + 1);
+
+  // Immediately: search should return up to 5 results
+  auto query = core::RandomVector(dimension_);
+  auto r1 = segment.Search(query, 10);
+  REQUIRE(r1.ok());
+  CHECK_EQ(r1->entries.size(), 5);
+
+  // Wait for expiry
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+
+  // Now: search should return only 2 (non-expired)
+  auto r2 = segment.Search(query, 10);
+  REQUIRE(r2.ok());
+  CHECK_EQ(r2->entries.size(), 2);
+}
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_SweepExpired") {
+  auto seg_id = core::MakeSegmentId(1);
+  storage::Segment segment(seg_id, collection_id_, dimension_, metric_);
+
+  auto vecs = CreateTestVectors(5);
+  auto ids = CreateTestVectorIds(5);
+  REQUIRE(segment.AddVectors(vecs, ids).ok());
+  CHECK_EQ(segment.GetVectorCount(), 5);
+
+  int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  segment.SetExpiry(ids[0], now + 1);
+  segment.SetExpiry(ids[1], now + 1);
+
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+
+  size_t swept = segment.SweepExpired();
+  CHECK_EQ(swept, 2);
+  CHECK_EQ(segment.GetVectorCount(), 3);
+}
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_SerializationRoundTrip") {
+  auto seg_id = core::MakeSegmentId(1);
+  storage::Segment segment(seg_id, collection_id_, dimension_, metric_);
+
+  auto vecs = CreateTestVectors(3);
+  auto ids = CreateTestVectorIds(3);
+  REQUIRE(segment.AddVectors(vecs, ids).ok());
+
+  int64_t future_expiry = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count() + 3600;
+  segment.SetExpiry(ids[0], future_expiry);
+
+  // Serialize and deserialize
+  auto bytes = segment.SerializeToBytes();
+  REQUIRE(bytes.ok());
+  auto restored = storage::Segment::DeserializeFromBytes(*bytes);
+  REQUIRE(restored.ok());
+
+  // Vector 0 should still be found (TTL hasn't expired)
+  auto result = (*restored)->GetVectors({ids[0]}, false);
+  CHECK_EQ(result.found_ids.size(), 1);
+}
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_DeleteCleansExpiry") {
+  auto seg_id = core::MakeSegmentId(1);
+  storage::Segment segment(seg_id, collection_id_, dimension_, metric_);
+
+  auto vecs = CreateTestVectors(2);
+  auto ids = CreateTestVectorIds(2);
+  REQUIRE(segment.AddVectors(vecs, ids).ok());
+
+  int64_t future_expiry = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count() + 3600;
+  segment.SetExpiry(ids[0], future_expiry);
+
+  // Delete vector 0
+  auto del = segment.DeleteVectors({ids[0]});
+  REQUIRE(del.ok());
+  CHECK_EQ(del->deleted_count, 1);
+  CHECK_EQ(segment.GetVectorCount(), 1);
+}
