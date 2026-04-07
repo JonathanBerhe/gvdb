@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/metadata.h"
+#include "core/sparse_vector.h"
 #include "core/types.h"
 #include "core/vector.h"
 #include "absl/status/status.h"
@@ -61,6 +62,10 @@ std::string toString(core::IndexType index);
 
 // Convert core Metadata to proto Metadata
 void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata);
+
+// Sparse vector conversions
+absl::StatusOr<core::SparseVector> fromProto(const proto::SparseVector& proto_sparse);
+void toProto(const core::SparseVector& sparse, proto::SparseVector* proto_sparse);
 
 // ============================================================================
 // Status Conversions

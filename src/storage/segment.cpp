@@ -187,6 +187,7 @@ core::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectors(
       scalar_indexes_.RemoveVector(id_uint, md_it->second);
       metadata_map_.erase(md_it);
     }
+    sparse_vectors_.erase(id_uint);
 
     // Remove vector and ID using swap-and-pop for efficiency
     if (idx != vectors_.size() - 1) {
@@ -379,6 +380,46 @@ core::Status Segment::AddVectorsWithMetadata(
   return core::OkStatus();
 }
 
+// ========== Add Vectors with Sparse ==========
+
+core::Status Segment::AddVectorsWithSparse(
+    const std::vector<core::Vector>& vectors,
+    const std::vector<core::VectorId>& ids,
+    const std::vector<core::Metadata>& metadata,
+    const std::unordered_map<uint64_t, core::SparseVector>& sparse) {
+
+  // Delegate to AddVectorsWithMetadata for dense + metadata
+  auto status = AddVectorsWithMetadata(vectors, ids, metadata);
+  if (!status.ok()) return status;
+
+  // Store sparse vectors (no lock needed — AddVectorsWithMetadata already validated)
+  std::unique_lock lock(mutex_);
+  for (const auto& [vid, sv] : sparse) {
+    sparse_vectors_[vid] = sv;
+    memory_usage_ += sv.byte_size();
+  }
+
+  return core::OkStatus();
+}
+
+// ========== Build Sparse Index ==========
+
+core::Status Segment::BuildSparseIndex(
+    std::unique_ptr<index::SparseIndex> sparse_index) {
+  std::unique_lock lock(mutex_);
+  if (!sparse_index) {
+    return core::InvalidArgumentError("Sparse index pointer is null");
+  }
+
+  for (const auto& [id_val, sparse] : sparse_vectors_) {
+    auto status = sparse_index->AddVector(core::MakeVectorId(id_val), sparse);
+    if (!status.ok()) return status;
+  }
+
+  sparse_index_ = std::move(sparse_index);
+  return core::OkStatus();
+}
+
 // ========== Upsert ==========
 
 core::StatusOr<Segment::UpsertResult> Segment::UpsertVectors(
@@ -419,6 +460,7 @@ core::StatusOr<Segment::UpsertResult> Segment::UpsertVectors(
 
         memory_usage_ -= vectors_[j].byte_size();
         metadata_map_.erase(id_uint);
+        sparse_vectors_.erase(id_uint);
 
         // Swap-and-pop
         if (j != vectors_.size() - 1) {
@@ -666,7 +708,9 @@ core::StatusOr<core::SearchResult> Segment::SearchHybrid(
     int k,
     float vector_weight,
     float text_weight,
-    const std::string& text_field) const {
+    const std::string& text_field,
+    const core::SparseVector* sparse_query,
+    float sparse_weight) const {
   std::shared_lock lock(mutex_);
 
   if (vectors_.empty() && !index_) {
@@ -695,8 +739,16 @@ core::StatusOr<core::SearchResult> Segment::SearchHybrid(
     }
   }
 
+  // 2b. Sparse search (if sparse index exists and sparse query provided)
+  core::SearchResult sparse_result;
+  if (sparse_index_ && sparse_query && !sparse_query->empty()) {
+    auto sparse_search = sparse_index_->Search(*sparse_query, overfetch);
+    if (sparse_search.ok()) {
+      sparse_result = std::move(*sparse_search);
+    }
+  }
+
   // 3. Reciprocal Rank Fusion (RRF)
-  // Score(d) = vector_weight * 1/(k_rrf + vector_rank) + text_weight * 1/(k_rrf + text_rank)
   constexpr float k_rrf = 60.0f;
 
   // Build rank maps
@@ -710,6 +762,11 @@ core::StatusOr<core::SearchResult> Segment::SearchHybrid(
     text_ranks[core::ToUInt64(text_result.entries[i].id)] = i + 1;
   }
 
+  std::unordered_map<uint64_t, int> sparse_ranks;
+  for (int i = 0; i < static_cast<int>(sparse_result.entries.size()); ++i) {
+    sparse_ranks[core::ToUInt64(sparse_result.entries[i].id)] = i + 1;
+  }
+
   // Collect all candidate IDs
   std::unordered_map<uint64_t, float> fused_scores;
   for (const auto& [id_val, rank] : vector_ranks) {
@@ -717,6 +774,9 @@ core::StatusOr<core::SearchResult> Segment::SearchHybrid(
   }
   for (const auto& [id_val, rank] : text_ranks) {
     fused_scores[id_val] += text_weight / (k_rrf + rank);
+  }
+  for (const auto& [id_val, rank] : sparse_ranks) {
+    fused_scores[id_val] += sparse_weight / (k_rrf + rank);
   }
 
   // 4. Sort by fused score and take top-k
@@ -1079,6 +1139,19 @@ core::StatusOr<std::string> Segment::SerializeToBytes() const {
     core::MetadataSerializer::Serialize(metadata, ss);
   }
 
+  // Sparse vectors
+  uint64_t sparse_count = sparse_vectors_.size();
+  ss.write(reinterpret_cast<const char*>(&sparse_count), sizeof(sparse_count));
+  for (const auto& [vid_raw, sparse] : sparse_vectors_) {
+    ss.write(reinterpret_cast<const char*>(&vid_raw), sizeof(vid_raw));
+    uint32_t nnz = static_cast<uint32_t>(sparse.nnz());
+    ss.write(reinterpret_cast<const char*>(&nnz), sizeof(nnz));
+    for (const auto& [idx, val] : sparse.entries()) {
+      ss.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
+      ss.write(reinterpret_cast<const char*>(&val), sizeof(val));
+    }
+  }
+
   utils::Logger::Instance().Info("Serialized segment {} ({} vectors, {} bytes)",
                                   core::ToUInt32(id_), vector_count, ss.str().size());
 
@@ -1216,6 +1289,31 @@ core::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
     }
 
     segment->metadata_map_[vid_raw] = std::move(metadata_result.value());
+  }
+
+  // Sparse vectors (optional section — old segments may not have it)
+  if (!ss.eof() && ss.good()) {
+    uint64_t sparse_count = 0;
+    ss.read(reinterpret_cast<char*>(&sparse_count), sizeof(sparse_count));
+    if (ss.good()) {
+      for (uint64_t i = 0; i < sparse_count && ss.good(); ++i) {
+        uint64_t vid_raw = 0;
+        ss.read(reinterpret_cast<char*>(&vid_raw), sizeof(vid_raw));
+        uint32_t nnz = 0;
+        ss.read(reinterpret_cast<char*>(&nnz), sizeof(nnz));
+
+        std::vector<core::SparseVector::Entry> entries;
+        entries.reserve(nnz);
+        for (uint32_t j = 0; j < nnz && ss.good(); ++j) {
+          uint32_t idx = 0;
+          float val = 0.0f;
+          ss.read(reinterpret_cast<char*>(&idx), sizeof(idx));
+          ss.read(reinterpret_cast<char*>(&val), sizeof(val));
+          entries.emplace_back(idx, val);
+        }
+        segment->sparse_vectors_[vid_raw] = core::SparseVector(std::move(entries));
+      }
+    }
   }
 
   utils::Logger::Instance().Info("Deserialized segment {} ({} vectors, {} bytes)",

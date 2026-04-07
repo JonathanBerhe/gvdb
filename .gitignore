@@ -121,3 +121,4 @@ ui/web/node_modules/
 ui/web/dist/
 ui/gateway/gvdb-ui*
 test/e2e/repair_test_bin
+test/e2e/sparse_search_test

@@ -223,6 +223,36 @@ void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata) {
 // ============================================================================
 // Status Conversions
 // ============================================================================
+// Sparse Vector Conversions
+// ============================================================================
+
+absl::StatusOr<core::SparseVector> fromProto(const proto::SparseVector& proto_sparse) {
+  if (proto_sparse.indices_size() != proto_sparse.values_size()) {
+    return absl::InvalidArgumentError(
+        absl::StrFormat("Sparse vector indices/values size mismatch: %d indices, %d values",
+                        proto_sparse.indices_size(), proto_sparse.values_size()));
+  }
+
+  std::vector<uint32_t> indices(proto_sparse.indices().begin(),
+                                proto_sparse.indices().end());
+  std::vector<float> values(proto_sparse.values().begin(),
+                            proto_sparse.values().end());
+
+  auto sparse = core::SparseVector::FromArrays(indices, values);
+  auto status = sparse.Validate();
+  if (!status.ok()) return status;
+
+  return sparse;
+}
+
+void toProto(const core::SparseVector& sparse, proto::SparseVector* proto_sparse) {
+  for (const auto& [idx, val] : sparse.entries()) {
+    proto_sparse->add_indices(idx);
+    proto_sparse->add_values(val);
+  }
+}
+
+// ============================================================================
 
 grpc::Status toGrpcStatus(const absl::Status& status) {
   if (status.ok()) {
