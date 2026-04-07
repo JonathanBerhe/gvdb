@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/JonathanBerhe/gvdb/compare/v0.4.0...v0.5.0) (2026-04-07)
+
+
+### Features
+
+* **index:** add sparse vector support with three-way hybrid retrieval ([22df808](https://github.com/JonathanBerhe/gvdb/commit/22df80846cf59d2d8c92fd2d3537a8f08e0560b6))
+* **index:** sparse vector support with three-way hybrid retrieval ([5377528](https://github.com/JonathanBerhe/gvdb/commit/5377528a2a7f636b7c3291e12d6f146dffed03a0))
+
 ## [0.4.0](https://github.com/JonathanBerhe/gvdb/compare/v0.3.1...v0.4.0) (2026-04-06)
 
 
