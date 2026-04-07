@@ -12,6 +12,7 @@ add_library(gvdb_index
   turboquant/turboquant_index.cpp
   turboquant/ivf_turboquant_index.cpp
   bm25_index.cpp
+  sparse_index.cpp
 )
 
 # Set target properties

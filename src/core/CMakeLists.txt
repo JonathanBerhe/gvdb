@@ -6,6 +6,7 @@ add_library(gvdb_core
   status.cpp
   metadata.cpp
   filter.cpp
+  sparse_vector.cpp
 )
 
 # Set target properties
