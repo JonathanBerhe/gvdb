@@ -2,7 +2,8 @@
        docker-build kind-create kind-load deploy apply \
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
        undeploy clean-kind port-forward status \
-       build-ui run-ui
+       build-ui run-ui \
+       build-cli test-cli install-cli
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -128,3 +129,22 @@ run-ui:
 
 clean-kind:
 	kind delete cluster --name $(CLUSTER_NAME)
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+CLI_DIR      = cli
+CLI_BINARY   = gvdb
+CLI_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+CLI_LDFLAGS  = -s -w -X gvdb-cli/cmd.version=$(CLI_VERSION)
+
+build-cli:
+	@cd $(CLI_DIR) && CGO_ENABLED=0 go build -ldflags="$(CLI_LDFLAGS)" -o $(CLI_BINARY) .
+	@echo "Built $(CLI_DIR)/$(CLI_BINARY) ($$(du -h $(CLI_DIR)/$(CLI_BINARY) | cut -f1))"
+
+test-cli:
+	@cd $(CLI_DIR) && go test ./... -v
+
+install-cli: build-cli
+	@cp $(CLI_DIR)/$(CLI_BINARY) $$(go env GOPATH)/bin/$(CLI_BINARY)
+	@echo "Installed $(CLI_BINARY) to $$(go env GOPATH)/bin/"
