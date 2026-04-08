@@ -3,8 +3,9 @@
 
 #include "auth/rbac.h"
 #include "utils/config.h"
+#include "utils/logger.h"
 
-#include <algorithm>
+#include "absl/strings/str_cat.h"
 
 namespace gvdb {
 namespace auth {
@@ -52,7 +53,6 @@ bool HasCollectionAccess(const ApiKeyRole& key_role,
                          const std::string& collection) {
   if (key_role.role == Role::ADMIN) return true;
   if (collection.empty()) return true;
-  if (key_role.collections.empty()) return true;
 
   for (const auto& c : key_role.collections) {
     if (c == "*" || c == collection) return true;
@@ -60,32 +60,68 @@ bool HasCollectionAccess(const ApiKeyRole& key_role,
   return false;
 }
 
-Role RoleFromString(const std::string& role_str) {
+absl::StatusOr<Role> RoleFromString(const std::string& role_str) {
   if (role_str == "admin") return Role::ADMIN;
   if (role_str == "readwrite") return Role::READWRITE;
   if (role_str == "readonly") return Role::READONLY;
   if (role_str == "collection_admin") return Role::COLLECTION_ADMIN;
-  return Role::ADMIN;  // safe default for unrecognized
+  return absl::InvalidArgumentError(
+      absl::StrCat("Unknown role: '", role_str,
+                    "'. Must be: admin, readwrite, readonly, collection_admin"));
 }
 
-RbacStore::RbacStore(const utils::AuthConfig& config) {
-  // New role-based keys
+absl::StatusOr<std::shared_ptr<RbacStore>> RbacStore::Create(
+    const utils::AuthConfig& config) {
+  auto store = std::shared_ptr<RbacStore>(new RbacStore());
+
+  // Role-based keys
   for (const auto& r : config.roles) {
+    if (r.key.empty()) {
+      return absl::InvalidArgumentError("Auth role entry has empty key");
+    }
+
+    auto role_result = RoleFromString(r.role);
+    if (!role_result.ok()) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Auth key '", r.key, "': ", role_result.status().message()));
+    }
+
+    if (*role_result != Role::ADMIN && r.collections.empty()) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Auth key '", r.key, "' with role '", r.role,
+                        "' must specify collections (use [\"*\"] for all)"));
+    }
+
+    if (store->keys_.contains(r.key)) {
+      utils::Logger::Instance().Warn(
+          "Duplicate auth key '{}' in config — later entry wins", r.key);
+    }
+
     ApiKeyRole entry;
     entry.key = r.key;
-    entry.role = RoleFromString(r.role);
+    entry.role = *role_result;
     entry.collections = r.collections;
-    keys_[r.key] = std::move(entry);
+    store->keys_[r.key] = std::move(entry);
   }
 
   // Legacy flat api_keys treated as admin (backward compat)
   for (const auto& key : config.api_keys) {
-    if (keys_.find(key) != keys_.end()) continue;  // role-based takes precedence
+    if (key.empty()) {
+      return absl::InvalidArgumentError("Auth api_keys contains empty key");
+    }
+    if (store->keys_.contains(key)) continue;  // role-based takes precedence
     ApiKeyRole entry;
     entry.key = key;
     entry.role = Role::ADMIN;
-    keys_[key] = std::move(entry);
+    store->keys_[key] = std::move(entry);
   }
+
+  if (store->keys_.empty()) {
+    return absl::InvalidArgumentError(
+        "Auth is enabled but no API keys configured (add api_keys or roles)");
+  }
+
+  return store;
 }
 
 const ApiKeyRole* RbacStore::Lookup(const std::string& key) const {

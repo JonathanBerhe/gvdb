@@ -185,7 +185,12 @@ int main(int argc, char** argv) {
     std::shared_ptr<auth::RbacStore> rbac_store;
     std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors;
     if (config.server.auth.enabled) {
-      rbac_store = std::make_shared<auth::RbacStore>(config.server.auth);
+      auto rbac_result = auth::RbacStore::Create(config.server.auth);
+      if (!rbac_result.ok()) {
+        std::cerr << "Invalid auth config: " << rbac_result.status().message() << std::endl;
+        return 1;
+      }
+      rbac_store = std::move(*rbac_result);
       interceptors.push_back(
           std::make_unique<network::ApiKeyAuthInterceptorFactory>(rbac_store));
     }

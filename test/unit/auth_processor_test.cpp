@@ -47,7 +47,9 @@ class AuthIntegrationTest {
         {"ca-key", "collection_admin", {"test_collection"}},
     };
 
-    rbac_store_ = std::make_shared<auth::RbacStore>(auth_config);
+    auto rbac_result = auth::RbacStore::Create(auth_config);
+    REQUIRE(rbac_result.ok());
+    rbac_store_ = std::move(*rbac_result);
 
     auto resolver = network::MakeLocalResolver(segment_manager_);
     service_ = std::make_unique<network::VectorDBService>(
