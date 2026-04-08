@@ -10,13 +10,14 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 - **Sparse Vectors**: Inverted posting-list index for learned sparse retrieval (SPLADE, etc.)
 - **TurboQuant**: Data-oblivious online quantization (ICLR 2026) — 1/2/4/8-bit compression with near-optimal distortion. IVF_TURBOQUANT combines IVF partitioning with TurboQuant for sub-linear search at extreme compression (7.5x at 4-bit on 768D)
 - **Three-Way Hybrid Search**: Dense vectors + sparse vectors + BM25 text with Reciprocal Rank Fusion (RRF)
+- **Per-Vector TTL**: Time-to-live with background sweep and query-time expiry filtering. Atomic insert+TTL, serialization-safe, Python SDK support
 - **Distributed Mode**: Coordinator, data nodes, query nodes, proxy with full sharding and replication
 - **Multi-Shard Collections**: Data distributed across nodes with consistent hashing (150 virtual nodes)
 - **Fault Tolerance**: Automatic failure detection, replica promotion, auto-replication
 - **Metadata Filtering**: SQL-like filters (`age > 18 AND city = 'NYC'`, `LIKE`, `IN`)
 - **Persistence**: Vectors flushed to disk, index rebuilt on startup recovery
 - **gRPC API**: Protobuf-based client/server with TLS and API key authentication
-- **Python SDK**: `pip install gvdb` — full API with hybrid search, streaming inserts, metadata
+- **Python SDK**: `pip install gvdb` — full API with hybrid search, streaming inserts, metadata, TTL
 - **Web UI**: Collection browser, search playground, metrics dashboard — single binary (`gvdb-ui`)
 - **Raft Consensus**: Metadata operations replicated via NuRaft
 
