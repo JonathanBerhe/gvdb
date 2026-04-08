@@ -27,7 +27,9 @@ const (
 	VectorDBService_ListCollections_FullMethodName  = "/gvdb.proto.VectorDBService/ListCollections"
 	VectorDBService_Insert_FullMethodName           = "/gvdb.proto.VectorDBService/Insert"
 	VectorDBService_StreamInsert_FullMethodName     = "/gvdb.proto.VectorDBService/StreamInsert"
+	VectorDBService_Upsert_FullMethodName           = "/gvdb.proto.VectorDBService/Upsert"
 	VectorDBService_Search_FullMethodName           = "/gvdb.proto.VectorDBService/Search"
+	VectorDBService_RangeSearch_FullMethodName      = "/gvdb.proto.VectorDBService/RangeSearch"
 	VectorDBService_Get_FullMethodName              = "/gvdb.proto.VectorDBService/Get"
 	VectorDBService_Delete_FullMethodName           = "/gvdb.proto.VectorDBService/Delete"
 	VectorDBService_UpdateMetadata_FullMethodName   = "/gvdb.proto.VectorDBService/UpdateMetadata"
@@ -48,7 +50,9 @@ type VectorDBServiceClient interface {
 	// Vector operations
 	Insert(ctx context.Context, in *InsertRequest, opts ...grpc.CallOption) (*InsertResponse, error)
 	StreamInsert(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[InsertRequest, InsertResponse], error)
+	Upsert(ctx context.Context, in *UpsertRequest, opts ...grpc.CallOption) (*UpsertResponse, error)
 	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchResponse, error)
+	RangeSearch(ctx context.Context, in *RangeSearchRequest, opts ...grpc.CallOption) (*RangeSearchResponse, error)
 	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
 	UpdateMetadata(ctx context.Context, in *UpdateMetadataRequest, opts ...grpc.CallOption) (*UpdateMetadataResponse, error)
@@ -121,10 +125,30 @@ func (c *vectorDBServiceClient) StreamInsert(ctx context.Context, opts ...grpc.C
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type VectorDBService_StreamInsertClient = grpc.ClientStreamingClient[InsertRequest, InsertResponse]
 
+func (c *vectorDBServiceClient) Upsert(ctx context.Context, in *UpsertRequest, opts ...grpc.CallOption) (*UpsertResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpsertResponse)
+	err := c.cc.Invoke(ctx, VectorDBService_Upsert_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *vectorDBServiceClient) Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SearchResponse)
 	err := c.cc.Invoke(ctx, VectorDBService_Search_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorDBServiceClient) RangeSearch(ctx context.Context, in *RangeSearchRequest, opts ...grpc.CallOption) (*RangeSearchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RangeSearchResponse)
+	err := c.cc.Invoke(ctx, VectorDBService_RangeSearch_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +236,9 @@ type VectorDBServiceServer interface {
 	// Vector operations
 	Insert(context.Context, *InsertRequest) (*InsertResponse, error)
 	StreamInsert(grpc.ClientStreamingServer[InsertRequest, InsertResponse]) error
+	Upsert(context.Context, *UpsertRequest) (*UpsertResponse, error)
 	Search(context.Context, *SearchRequest) (*SearchResponse, error)
+	RangeSearch(context.Context, *RangeSearchRequest) (*RangeSearchResponse, error)
 	Get(context.Context, *GetRequest) (*GetResponse, error)
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
 	UpdateMetadata(context.Context, *UpdateMetadataRequest) (*UpdateMetadataResponse, error)
@@ -247,8 +273,14 @@ func (UnimplementedVectorDBServiceServer) Insert(context.Context, *InsertRequest
 func (UnimplementedVectorDBServiceServer) StreamInsert(grpc.ClientStreamingServer[InsertRequest, InsertResponse]) error {
 	return status.Error(codes.Unimplemented, "method StreamInsert not implemented")
 }
+func (UnimplementedVectorDBServiceServer) Upsert(context.Context, *UpsertRequest) (*UpsertResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Upsert not implemented")
+}
 func (UnimplementedVectorDBServiceServer) Search(context.Context, *SearchRequest) (*SearchResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Search not implemented")
+}
+func (UnimplementedVectorDBServiceServer) RangeSearch(context.Context, *RangeSearchRequest) (*RangeSearchResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RangeSearch not implemented")
 }
 func (UnimplementedVectorDBServiceServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Get not implemented")
@@ -371,6 +403,24 @@ func _VectorDBService_StreamInsert_Handler(srv interface{}, stream grpc.ServerSt
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type VectorDBService_StreamInsertServer = grpc.ClientStreamingServer[InsertRequest, InsertResponse]
 
+func _VectorDBService_Upsert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpsertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorDBServiceServer).Upsert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VectorDBService_Upsert_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorDBServiceServer).Upsert(ctx, req.(*UpsertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _VectorDBService_Search_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SearchRequest)
 	if err := dec(in); err != nil {
@@ -385,6 +435,24 @@ func _VectorDBService_Search_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(VectorDBServiceServer).Search(ctx, req.(*SearchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VectorDBService_RangeSearch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RangeSearchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorDBServiceServer).RangeSearch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VectorDBService_RangeSearch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorDBServiceServer).RangeSearch(ctx, req.(*RangeSearchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -539,8 +607,16 @@ var VectorDBService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _VectorDBService_Insert_Handler,
 		},
 		{
+			MethodName: "Upsert",
+			Handler:    _VectorDBService_Upsert_Handler,
+		},
+		{
 			MethodName: "Search",
 			Handler:    _VectorDBService_Search_Handler,
+		},
+		{
+			MethodName: "RangeSearch",
+			Handler:    _VectorDBService_RangeSearch_Handler,
 		},
 		{
 			MethodName: "Get",

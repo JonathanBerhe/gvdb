@@ -48,8 +48,19 @@ enum class IndexType {
   IVF_PQ,    // Inverted File with Product Quantization
   IVF_SQ,    // Inverted File with Scalar Quantization
   TURBOQUANT,     // TurboQuant online quantization (data-oblivious)
-  IVF_TURBOQUANT  // IVF partitioning + TurboQuant compression
+  IVF_TURBOQUANT, // IVF partitioning + TurboQuant compression
+  AUTO             // Automatically select based on vector count at seal time
 };
+
+// Resolve AUTO index type to a concrete type based on vector count.
+// <10K → FLAT, 10K–1M → HNSW, ≥1M → IVF_TURBOQUANT.
+// Returns the input unchanged if it is not AUTO.
+inline IndexType ResolveAutoIndexType(IndexType type, size_t vector_count) {
+  if (type != IndexType::AUTO) return type;
+  if (vector_count < 10'000) return IndexType::FLAT;
+  if (vector_count < 1'000'000) return IndexType::HNSW;
+  return IndexType::IVF_TURBOQUANT;
+}
 
 // Segment states in the storage lifecycle
 enum class SegmentState {

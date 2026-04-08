@@ -548,6 +548,55 @@ TEST_CASE("BM25Index: TopKLimit") {
   CHECK(result->entries.size() <= 5);
 }
 
+// ============================================================================
+// Auto-Index Selection Tests
+// ============================================================================
+
+TEST_CASE("ResolveAutoIndexType - selects FLAT for small counts") {
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 0),
+           core::IndexType::FLAT);
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 1),
+           core::IndexType::FLAT);
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 9'999),
+           core::IndexType::FLAT);
+}
+
+TEST_CASE("ResolveAutoIndexType - selects HNSW for medium counts") {
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 10'000),
+           core::IndexType::HNSW);
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 500'000),
+           core::IndexType::HNSW);
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 999'999),
+           core::IndexType::HNSW);
+}
+
+TEST_CASE("ResolveAutoIndexType - selects IVF_TURBOQUANT for large counts") {
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 1'000'000),
+           core::IndexType::IVF_TURBOQUANT);
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 10'000'000),
+           core::IndexType::IVF_TURBOQUANT);
+}
+
+TEST_CASE("ResolveAutoIndexType - passes through explicit types unchanged") {
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::FLAT, 1'000'000),
+           core::IndexType::FLAT);
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::HNSW, 5),
+           core::IndexType::HNSW);
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::IVF_TURBOQUANT, 100),
+           core::IndexType::IVF_TURBOQUANT);
+}
+
+TEST_CASE("IndexFactory - rejects AUTO index type") {
+  core::IndexConfig config;
+  config.index_type = core::IndexType::AUTO;
+  config.dimension = 128;
+  config.metric_type = core::MetricType::L2;
+
+  IndexFactory factory;
+  auto result = factory.CreateIndex(config);
+  CHECK_FALSE(result.ok());
+}
+
 }  // namespace
 }  // namespace index
 }  // namespace gvdb

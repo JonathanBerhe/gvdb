@@ -69,6 +69,8 @@ fromProto(proto::CreateCollectionRequest::IndexType index_type) {
       return core::IndexType::IVF_TURBOQUANT;
     case proto::CreateCollectionRequest::TURBOQUANT:
       return core::IndexType::TURBOQUANT;
+    case proto::CreateCollectionRequest::AUTO:
+      return core::IndexType::AUTO;
     default:
       return absl::InvalidArgumentError(
           absl::StrFormat("Unknown index type: %d", static_cast<int>(index_type)));
@@ -148,6 +150,8 @@ absl::StatusOr<core::IndexType> indexTypeFromString(const std::string& index_str
     return core::IndexType::TURBOQUANT;
   } else if (index_str == "IVF_TURBOQUANT") {
     return core::IndexType::IVF_TURBOQUANT;
+  } else if (index_str == "AUTO") {
+    return core::IndexType::AUTO;
   } else {
     return absl::InvalidArgumentError(
         absl::StrFormat("Unknown index type: %s", index_str));
@@ -199,6 +203,8 @@ std::string toString(core::IndexType index) {
       return "TURBOQUANT";
     case core::IndexType::IVF_TURBOQUANT:
       return "IVF_TURBOQUANT";
+    case core::IndexType::AUTO:
+      return "AUTO";
     default:
       return "UNKNOWN";
   }
