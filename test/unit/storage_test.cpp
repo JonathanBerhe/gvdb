@@ -2221,6 +2221,68 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_SerializationRoundTrip") {
   CHECK_EQ(result.found_ids.size(), 1);
 }
 
+TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_SerializationExpiredFiltered") {
+  auto seg_id = core::MakeSegmentId(1);
+  storage::Segment segment(seg_id, collection_id_, dimension_, metric_);
+
+  auto vecs = CreateTestVectors(3);
+  auto ids = CreateTestVectorIds(3);
+  REQUIRE(segment.AddVectors(vecs, ids).ok());
+
+  // Set TTL that has already expired (1 second in the past)
+  int64_t past_expiry = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count() - 1;
+  segment.SetExpiry(ids[0], past_expiry);
+
+  // Serialize and deserialize
+  auto bytes = segment.SerializeToBytes();
+  REQUIRE(bytes.ok());
+  auto restored = storage::Segment::DeserializeFromBytes(*bytes);
+  REQUIRE(restored.ok());
+
+  // Vector 0 should be expired (filtered out in GetVectors)
+  auto result = (*restored)->GetVectors({ids[0]}, false);
+  CHECK_EQ(result.found_ids.size(), 0);
+  CHECK_EQ(result.not_found_ids.size(), 1);
+
+  // Vectors 1 and 2 should still be found
+  auto result2 = (*restored)->GetVectors({ids[1], ids[2]}, false);
+  CHECK_EQ(result2.found_ids.size(), 2);
+}
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_AtomicInsertWithExpiry") {
+  auto seg_id = core::MakeSegmentId(1);
+  storage::Segment segment(seg_id, collection_id_, dimension_, metric_);
+
+  auto vecs = CreateTestVectors(3);
+  auto ids = CreateTestVectorIds(3);
+
+  // Insert with expiry entries atomically
+  int64_t future_expiry = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count() + 3600;
+  int64_t past_expiry = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count() - 1;
+
+  std::unordered_map<uint64_t, int64_t> expiry_entries;
+  expiry_entries[core::ToUInt64(ids[0])] = future_expiry;
+  expiry_entries[core::ToUInt64(ids[1])] = past_expiry;
+
+  REQUIRE(segment.AddVectors(vecs, ids, expiry_entries).ok());
+
+  // Vector 0: future TTL → found
+  auto r0 = segment.GetVectors({ids[0]}, false);
+  CHECK_EQ(r0.found_ids.size(), 1);
+
+  // Vector 1: past TTL → expired
+  auto r1 = segment.GetVectors({ids[1]}, false);
+  CHECK_EQ(r1.found_ids.size(), 0);
+  CHECK_EQ(r1.not_found_ids.size(), 1);
+
+  // Vector 2: no TTL → found
+  auto r2 = segment.GetVectors({ids[2]}, false);
+  CHECK_EQ(r2.found_ids.size(), 1);
+}
+
 TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_DeleteCleansExpiry") {
   auto seg_id = core::MakeSegmentId(1);
   storage::Segment segment(seg_id, collection_id_, dimension_, metric_);

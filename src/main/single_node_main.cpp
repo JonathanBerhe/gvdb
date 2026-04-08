@@ -150,17 +150,7 @@ int main(int argc, char** argv) {
 
     // Background TTL sweep thread
     std::thread ttl_sweep_thread([segment_manager]() {
-      while (!utils::ServerBootstrap::ShutdownFlag().load(std::memory_order_relaxed)) {
-        std::this_thread::sleep_for(std::chrono::seconds(30));
-        if (utils::ServerBootstrap::ShutdownFlag().load(std::memory_order_relaxed)) break;
-        auto all_segs = segment_manager->GetAllSegmentIds();
-        for (auto seg_id : all_segs) {
-          auto* seg = segment_manager->GetSegment(seg_id);
-          if (seg && seg->GetState() == core::SegmentState::GROWING) {
-            seg->SweepExpired();
-          }
-        }
-      }
+      segment_manager->RunTTLSweepLoop(utils::ServerBootstrap::ShutdownFlag());
     });
 
     // 3. Cluster coordinator

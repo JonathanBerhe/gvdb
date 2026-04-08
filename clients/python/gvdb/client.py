@@ -182,7 +182,7 @@ class GVDBClient:
                     indices=sorted_indices,
                     values=[sv[k] for k in sorted_indices],
                 ))
-            if ttl_seconds and i < len(ttl_seconds) and ttl_seconds[i]:
+            if ttl_seconds and i < len(ttl_seconds) and ttl_seconds[i] > 0:
                 v.ttl_seconds = ttl_seconds[i]
             proto_vectors.append(v)
 
