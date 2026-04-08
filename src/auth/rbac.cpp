@@ -45,8 +45,10 @@ bool HasPermission(Role role, Permission permission) {
         default:
           return true;
       }
+
+    default:
+      return false;
   }
-  return false;
 }
 
 bool HasCollectionAccess(const ApiKeyRole& key_role,

@@ -11,10 +11,15 @@ namespace gvdb {
 namespace network {
 
 namespace {
+bool EndsWith(const std::string& str, const std::string& suffix) {
+  if (suffix.size() > str.size()) return false;
+  return str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
 bool IsPublicMethod(const std::string& method) {
-  // HealthCheck and GetStats are always allowed without auth
-  return method.find("/HealthCheck") != std::string::npos ||
-         method.find("/GetStats") != std::string::npos;
+  // Suffix-match to prevent bypass via crafted service names
+  // (e.g. "/EvilService/HealthCheck" would match substring but not suffix).
+  return EndsWith(method, "/HealthCheck") || EndsWith(method, "/GetStats");
 }
 }  // namespace
 
@@ -25,6 +30,9 @@ ApiKeyAuthInterceptor::ApiKeyAuthInterceptor(
 
 void ApiKeyAuthInterceptor::Intercept(
     grpc::experimental::InterceptorBatchMethods* methods) {
+
+  // Clear stale thread-local auth state from previous RPC on this thread
+  auth::AuthContext::Clear();
 
   if (!rejected_ && methods->QueryInterceptionHookPoint(
           grpc::experimental::InterceptionHookPoints::

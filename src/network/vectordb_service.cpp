@@ -45,7 +45,10 @@ grpc::Status VectorDBService::CheckPermission(
   if (!rbac_store_) return grpc::Status::OK;
 
   const auto& key = auth::AuthContext::GetCurrentKey();
-  if (key.empty()) return grpc::Status::OK;
+  if (key.empty()) {
+    return grpc::Status(grpc::StatusCode::UNAUTHENTICATED,
+        "No API key in auth context");
+  }
 
   auto* role = rbac_store_->Lookup(key);
   if (!role) {
