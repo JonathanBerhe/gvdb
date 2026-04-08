@@ -13,6 +13,7 @@
 #include "index/bm25_index.h"
 #include "index/sparse_index.h"
 #include <algorithm>
+#include <chrono>
 #include <future>
 #include <grpcpp/grpcpp.h>
 
@@ -368,6 +369,7 @@ grpc::Status VectorDBService::Insert(
     std::vector<core::VectorId> ids;
     std::vector<core::Metadata> metadata;
     std::unordered_map<uint64_t, core::SparseVector> sparse_map;
+    std::unordered_map<uint64_t, int64_t> expiry_entries;
     bool has_metadata = false;
     bool has_sparse = false;
   };
@@ -399,6 +401,12 @@ grpc::Status VectorDBService::Insert(
       if (!sparse_result.ok()) return toGrpcStatus(sparse_result.status());
       batch.has_sparse = true;
       batch.sparse_map[core::ToUInt64(vid)] = std::move(*sparse_result);
+    }
+
+    if (proto_vec.ttl_seconds() > 0) {
+      int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+      batch.expiry_entries[core::ToUInt64(vid)] = now + static_cast<int64_t>(proto_vec.ttl_seconds());
     }
   }
 
@@ -433,11 +441,11 @@ grpc::Status VectorDBService::Insert(
 
     absl::Status status;
     if (batch.has_sparse) {
-      status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map);
+      status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map, batch.expiry_entries);
     } else if (batch.has_metadata) {
-      status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata);
+      status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata, batch.expiry_entries);
     } else {
-      status = segment->AddVectors(batch.vectors, batch.ids);
+      status = segment->AddVectors(batch.vectors, batch.ids, batch.expiry_entries);
     }
 
     // Safety net: if segment is full despite hint, rotate and retry once
@@ -445,11 +453,11 @@ grpc::Status VectorDBService::Insert(
       segment = segment_manager_->GetWritableSegment(collection_id, batch_bytes);
       if (segment) {
         if (batch.has_sparse) {
-          status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map);
+          status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map, batch.expiry_entries);
         } else if (batch.has_metadata) {
-          status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata);
+          status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata, batch.expiry_entries);
         } else {
-          status = segment->AddVectors(batch.vectors, batch.ids);
+          status = segment->AddVectors(batch.vectors, batch.ids, batch.expiry_entries);
         }
       }
     }
@@ -459,6 +467,7 @@ grpc::Status VectorDBService::Insert(
           request->collection_name(), false, 0);
       return toGrpcStatus(status);
     }
+
     total_inserted += batch.ids.size();
   }
 
@@ -636,6 +645,7 @@ grpc::Status VectorDBService::Upsert(
   std::vector<core::Vector> vectors;
   std::vector<core::VectorId> ids;
   std::vector<core::Metadata> metadata;
+  std::unordered_map<uint64_t, int64_t> expiry_entries;
   vectors.reserve(request->vectors_size());
   ids.reserve(request->vectors_size());
   metadata.reserve(request->vectors_size());
@@ -657,9 +667,15 @@ grpc::Status VectorDBService::Upsert(
     } else {
       metadata.push_back(core::Metadata{});
     }
+
+    if (proto_vec.ttl_seconds() > 0) {
+      int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+      expiry_entries[core::ToUInt64(vec_result->first)] = now + static_cast<int64_t>(proto_vec.ttl_seconds());
+    }
   }
 
-  auto upsert_result = growing_segment->UpsertVectors(vectors, ids, metadata);
+  auto upsert_result = growing_segment->UpsertVectors(vectors, ids, metadata, expiry_entries);
   if (!upsert_result.ok()) {
     return toGrpcStatus(upsert_result.status());
   }
