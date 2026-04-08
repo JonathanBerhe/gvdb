@@ -3,11 +3,14 @@
 
 #pragma once
 
+#include <memory>
 #include <shared_mutex>
 #include <string>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 
 namespace gvdb {
 
@@ -41,26 +44,31 @@ enum class Permission {
 struct ApiKeyRole {
   std::string key;
   Role role;
-  std::vector<std::string> collections;  // empty or ["*"] = all
+  std::vector<std::string> collections;  // ["*"] = all collections
 };
 
 // Check if a role has a specific permission.
 bool HasPermission(Role role, Permission permission);
 
 // Check if a key-role grants access to a specific collection.
-// Returns true if collections is empty, contains "*", or contains the name.
+// Returns true if role is ADMIN, collections contains "*", or contains the name.
 bool HasCollectionAccess(const ApiKeyRole& key_role,
                          const std::string& collection);
 
 // Parse a role string ("admin", "readwrite", "readonly", "collection_admin").
-// Returns ADMIN for unrecognized strings.
-Role RoleFromString(const std::string& role_str);
+// Returns InvalidArgumentError for unrecognized strings.
+absl::StatusOr<Role> RoleFromString(const std::string& role_str);
 
 // Thread-safe store of API key to role mappings.
-// Constructed from AuthConfig at startup.
+// Use Create() factory which validates the config.
 class RbacStore {
  public:
-  explicit RbacStore(const utils::AuthConfig& config);
+  // Validate config and build the store. Returns error on:
+  //   - empty key
+  //   - unrecognized role string
+  //   - non-admin role with empty collections (must specify ["*"] or explicit list)
+  static absl::StatusOr<std::shared_ptr<RbacStore>> Create(
+      const utils::AuthConfig& config);
 
   // Look up role info for an API key. Returns nullptr if not found.
   const ApiKeyRole* Lookup(const std::string& key) const;
@@ -68,6 +76,7 @@ class RbacStore {
   size_t Size() const;
 
  private:
+  RbacStore() = default;
   absl::flat_hash_map<std::string, ApiKeyRole> keys_;
   mutable std::shared_mutex mutex_;
 };

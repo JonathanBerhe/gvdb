@@ -9,6 +9,9 @@ target_link_libraries(gvdb_auth
   PUBLIC
     gvdb_utils
     absl::flat_hash_map
+    absl::status
+    absl::statusor
+    absl::strings
 )
 
 target_include_directories(gvdb_auth
