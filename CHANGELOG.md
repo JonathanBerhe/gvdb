@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.0](https://github.com/JonathanBerhe/gvdb/compare/v0.6.0...v0.7.0) (2026-04-08)
+
+
+### Features
+
+* **index:** add AUTO index type with per-segment selection ([771af33](https://github.com/JonathanBerhe/gvdb/commit/771af33785e65e59f9c53b6b64010fec0fa639f6))
+* **index:** add AUTO index type with per-segment selection ([a56c22a](https://github.com/JonathanBerhe/gvdb/commit/a56c22ad3d7dd3aeb20038d429272ddde7266d7b))
+
 ## [0.6.0](https://github.com/JonathanBerhe/gvdb/compare/v0.5.0...v0.6.0) (2026-04-08)
 
 
