@@ -4,6 +4,7 @@
 #ifndef GVDB_STORAGE_SEGMENT_MANAGER_H_
 #define GVDB_STORAGE_SEGMENT_MANAGER_H_
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <shared_mutex>
@@ -141,6 +142,10 @@ class SegmentManager {
 
   // Get all segment IDs across all collections
   [[nodiscard]] std::vector<core::SegmentId> GetAllSegmentIds() const;
+
+  // Run TTL sweep loop — blocks until shutdown. Sweeps expired vectors from
+  // GROWING segments at Segment::kTTLSweepIntervalSeconds interval.
+  void RunTTLSweepLoop(const std::atomic<bool>& shutdown);
 
   // ========== Management ==========
 

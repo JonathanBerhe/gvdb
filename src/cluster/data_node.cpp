@@ -118,23 +118,7 @@ void DataNode::RunBuildLoop(const std::atomic<bool>& shutdown) {
 }
 
 void DataNode::RunTTLSweepLoop(const std::atomic<bool>& shutdown) {
-  utils::Logger::Instance().Info("TTL sweep loop started");
-  while (!shutdown.load(std::memory_order_relaxed)) {
-    std::this_thread::sleep_for(std::chrono::seconds(30));
-    if (shutdown.load(std::memory_order_relaxed)) break;
-
-    auto all_seg_ids = segment_manager_->GetAllSegmentIds();
-    for (auto seg_id : all_seg_ids) {
-      auto* seg = segment_manager_->GetSegment(seg_id);
-      if (!seg || seg->GetState() != core::SegmentState::GROWING) continue;
-      size_t swept = seg->SweepExpired();
-      if (swept > 0) {
-        utils::Logger::Instance().Info("TTL sweep: deleted {} expired vectors from segment {}",
-                                        swept, core::ToUInt32(seg_id));
-      }
-    }
-  }
-  utils::Logger::Instance().Info("TTL sweep loop stopped");
+  segment_manager_->RunTTLSweepLoop(shutdown);
 }
 
 size_t DataNode::GetPendingTaskCount() const {

@@ -441,11 +441,11 @@ grpc::Status VectorDBService::Insert(
 
     absl::Status status;
     if (batch.has_sparse) {
-      status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map);
+      status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map, batch.expiry_entries);
     } else if (batch.has_metadata) {
-      status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata);
+      status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata, batch.expiry_entries);
     } else {
-      status = segment->AddVectors(batch.vectors, batch.ids);
+      status = segment->AddVectors(batch.vectors, batch.ids, batch.expiry_entries);
     }
 
     // Safety net: if segment is full despite hint, rotate and retry once
@@ -453,11 +453,11 @@ grpc::Status VectorDBService::Insert(
       segment = segment_manager_->GetWritableSegment(collection_id, batch_bytes);
       if (segment) {
         if (batch.has_sparse) {
-          status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map);
+          status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map, batch.expiry_entries);
         } else if (batch.has_metadata) {
-          status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata);
+          status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata, batch.expiry_entries);
         } else {
-          status = segment->AddVectors(batch.vectors, batch.ids);
+          status = segment->AddVectors(batch.vectors, batch.ids, batch.expiry_entries);
         }
       }
     }
@@ -466,11 +466,6 @@ grpc::Status VectorDBService::Insert(
       utils::MetricsRegistry::Instance().RecordInsert(
           request->collection_name(), false, 0);
       return toGrpcStatus(status);
-    }
-
-    // Apply TTL expiry entries
-    for (const auto& [vid, expiry] : batch.expiry_entries) {
-      segment->SetExpiry(core::MakeVectorId(vid), expiry);
     }
 
     total_inserted += batch.ids.size();
@@ -650,6 +645,7 @@ grpc::Status VectorDBService::Upsert(
   std::vector<core::Vector> vectors;
   std::vector<core::VectorId> ids;
   std::vector<core::Metadata> metadata;
+  std::unordered_map<uint64_t, int64_t> expiry_entries;
   vectors.reserve(request->vectors_size());
   ids.reserve(request->vectors_size());
   metadata.reserve(request->vectors_size());
@@ -671,9 +667,15 @@ grpc::Status VectorDBService::Upsert(
     } else {
       metadata.push_back(core::Metadata{});
     }
+
+    if (proto_vec.ttl_seconds() > 0) {
+      int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+      expiry_entries[core::ToUInt64(vec_result->first)] = now + static_cast<int64_t>(proto_vec.ttl_seconds());
+    }
   }
 
-  auto upsert_result = growing_segment->UpsertVectors(vectors, ids, metadata);
+  auto upsert_result = growing_segment->UpsertVectors(vectors, ids, metadata, expiry_entries);
   if (!upsert_result.ok()) {
     return toGrpcStatus(upsert_result.status());
   }

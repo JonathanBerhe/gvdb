@@ -51,14 +51,17 @@ class Segment {
   // ========== Data Operations ==========
 
   // Add vectors to segment (only valid for GROWING state)
-  [[nodiscard]] core::Status AddVectors(const std::vector<core::Vector>& vectors,
-                                         const std::vector<core::VectorId>& ids);
+  [[nodiscard]] core::Status AddVectors(
+      const std::vector<core::Vector>& vectors,
+      const std::vector<core::VectorId>& ids,
+      const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Add vectors with metadata to segment (only valid for GROWING state)
   [[nodiscard]] core::Status AddVectorsWithMetadata(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids,
-      const std::vector<core::Metadata>& metadata);
+      const std::vector<core::Metadata>& metadata,
+      const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Read specific vectors by ID (fails if any ID not found)
   [[nodiscard]] core::StatusOr<std::vector<core::Vector>> ReadVectors(
@@ -114,7 +117,8 @@ class Segment {
   [[nodiscard]] core::StatusOr<UpsertResult> UpsertVectors(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids,
-      const std::vector<core::Metadata>& metadata);
+      const std::vector<core::Metadata>& metadata,
+      const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Range search: find all vectors within distance radius
   [[nodiscard]] core::StatusOr<core::SearchResult> SearchRange(
@@ -151,7 +155,8 @@ class Segment {
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids,
       const std::vector<core::Metadata>& metadata,
-      const std::unordered_map<uint64_t, core::SparseVector>& sparse);
+      const std::unordered_map<uint64_t, core::SparseVector>& sparse,
+      const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Seal the segment (transition from GROWING to SEALED)
   // This builds the index and makes the segment immutable
@@ -198,6 +203,9 @@ class Segment {
   // Get maximum segment size (512 MB default)
   static constexpr size_t kMaxSegmentSize = 512 * 1024 * 1024;  // 512 MB
 
+  // TTL sweep interval for background sweep loops
+  static constexpr int kTTLSweepIntervalSeconds = 30;
+
   friend class SegmentManager;
 
  private:
@@ -239,10 +247,17 @@ class Segment {
 
   // Helper methods
   [[nodiscard]] bool IsFull() const;
-  [[nodiscard]] bool IsExpired(uint64_t vector_id_uint) const;
+  [[nodiscard]] bool IsExpired(uint64_t vector_id_uint, int64_t now) const;
   [[nodiscard]] core::Status ValidateVectors(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) const;
+
+  // Delete vectors without acquiring the lock. Caller must hold unique_lock.
+  [[nodiscard]] core::StatusOr<DeleteVectorsResult> DeleteVectorsUnlocked(
+      const std::vector<core::VectorId>& ids);
+
+  // Get current epoch seconds
+  [[nodiscard]] static int64_t NowEpochSeconds();
 
   // Compute distance between two vectors using the segment's metric
   [[nodiscard]] float ComputeDistance(const core::Vector& a,

@@ -29,8 +29,14 @@ Segment::Segment(core::SegmentId id, core::CollectionId collection_id,
 
 // ========== Data Operations ==========
 
+int64_t Segment::NowEpochSeconds() {
+  return std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
 core::Status Segment::AddVectors(const std::vector<core::Vector>& vectors,
-                                  const std::vector<core::VectorId>& ids) {
+                                  const std::vector<core::VectorId>& ids,
+                                  const std::unordered_map<uint64_t, int64_t>& expiry_entries) {
   std::unique_lock lock(mutex_);
 
   // Validate state
@@ -62,6 +68,11 @@ core::Status Segment::AddVectors(const std::vector<core::Vector>& vectors,
   vectors_.insert(vectors_.end(), vectors.begin(), vectors.end());
   vector_ids_.insert(vector_ids_.end(), ids.begin(), ids.end());
   memory_usage_ += additional_size;
+
+  // Apply TTL expiry entries atomically with the insert
+  for (const auto& [vid, expiry] : expiry_entries) {
+    expiry_map_[vid] = expiry;
+  }
 
   return core::OkStatus();
 }
@@ -105,12 +116,14 @@ Segment::GetVectorsResult Segment::GetVectors(
     result.found_metadata.reserve(ids.size());
   }
 
+  int64_t now = NowEpochSeconds();
+
   for (const auto& query_id : ids) {
     // Find vector with matching ID
     bool found = false;
     for (size_t i = 0; i < vector_ids_.size(); ++i) {
       if (vector_ids_[i] == query_id) {
-        if (IsExpired(core::ToUInt64(query_id))) {
+        if (IsExpired(core::ToUInt64(query_id), now)) {
           result.not_found_ids.push_back(query_id);
           found = true;
           break;
@@ -142,9 +155,9 @@ Segment::GetVectorsResult Segment::GetVectors(
   return result;
 }
 
-core::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectors(
+core::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectorsUnlocked(
     const std::vector<core::VectorId>& ids) {
-  std::unique_lock lock(mutex_);
+  // Caller must hold unique_lock on mutex_
 
   // Validate state - can only delete from GROWING segments
   if (state_ != core::SegmentState::GROWING) {
@@ -208,6 +221,12 @@ core::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectors(
   }
 
   return result;
+}
+
+core::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectors(
+    const std::vector<core::VectorId>& ids) {
+  std::unique_lock lock(mutex_);
+  return DeleteVectorsUnlocked(ids);
 }
 
 core::Status Segment::UpdateMetadata(
@@ -281,8 +300,9 @@ core::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(
   std::vector<core::SearchResultEntry> results;
   results.reserve(vectors_.size());
 
+  int64_t now = NowEpochSeconds();
   for (size_t i = 0; i < vectors_.size(); ++i) {
-    if (IsExpired(core::ToUInt64(vector_ids_[i]))) continue;
+    if (IsExpired(core::ToUInt64(vector_ids_[i]), now)) continue;
     float distance = ComputeDistance(query, vectors_[i]);
     results.push_back({vector_ids_[i], distance});
   }
@@ -322,22 +342,35 @@ core::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
         absl::StrCat("Segment ", core::ToUInt32(id_), " has no index"));
   }
 
-  auto result = index_->Search(query, k);
+  // Over-fetch to compensate for TTL-expired entries being filtered out
+  int fetch_k = std::min(k * 2, static_cast<int>(GetVectorCount()));
+  fetch_k = std::max(fetch_k, k);
+
+  auto result = index_->Search(query, fetch_k);
   if (!result.ok()) return result;
+
+  int64_t now = NowEpochSeconds();
   auto& entries = result->entries;
   entries.erase(
       std::remove_if(entries.begin(), entries.end(),
-          [this](const core::SearchResultEntry& e) {
-            return IsExpired(core::ToUInt64(e.id));
+          [this, now](const core::SearchResultEntry& e) {
+            return IsExpired(core::ToUInt64(e.id), now);
           }),
       entries.end());
+
+  // Truncate to requested k
+  if (static_cast<int>(entries.size()) > k) {
+    entries.resize(k);
+  }
+
   return result;
 }
 
 core::Status Segment::AddVectorsWithMetadata(
     const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids,
-    const std::vector<core::Metadata>& metadata) {
+    const std::vector<core::Metadata>& metadata,
+    const std::unordered_map<uint64_t, int64_t>& expiry_entries) {
   std::unique_lock lock(mutex_);
 
   // Validate state
@@ -394,6 +427,11 @@ core::Status Segment::AddVectorsWithMetadata(
 
   memory_usage_ += additional_size;
 
+  // Apply TTL expiry entries atomically with the insert
+  for (const auto& [vid, expiry] : expiry_entries) {
+    expiry_map_[vid] = expiry;
+  }
+
   return core::OkStatus();
 }
 
@@ -403,13 +441,14 @@ core::Status Segment::AddVectorsWithSparse(
     const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids,
     const std::vector<core::Metadata>& metadata,
-    const std::unordered_map<uint64_t, core::SparseVector>& sparse) {
+    const std::unordered_map<uint64_t, core::SparseVector>& sparse,
+    const std::unordered_map<uint64_t, int64_t>& expiry_entries) {
 
-  // Delegate to AddVectorsWithMetadata for dense + metadata
-  auto status = AddVectorsWithMetadata(vectors, ids, metadata);
+  // Delegate to AddVectorsWithMetadata for dense + metadata + expiry
+  auto status = AddVectorsWithMetadata(vectors, ids, metadata, expiry_entries);
   if (!status.ok()) return status;
 
-  // Store sparse vectors (no lock needed — AddVectorsWithMetadata already validated)
+  // Store sparse vectors
   std::unique_lock lock(mutex_);
   for (const auto& [vid, sv] : sparse) {
     sparse_vectors_[vid] = sv;
@@ -439,11 +478,9 @@ core::Status Segment::BuildSparseIndex(
 
 // ========== TTL ==========
 
-bool Segment::IsExpired(uint64_t vector_id_uint) const {
+bool Segment::IsExpired(uint64_t vector_id_uint, int64_t now) const {
   auto it = expiry_map_.find(vector_id_uint);
   if (it == expiry_map_.end()) return false;
-  int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
   return now >= it->second;
 }
 
@@ -456,8 +493,7 @@ size_t Segment::SweepExpired() {
   std::unique_lock lock(mutex_);
   if (state_ != core::SegmentState::GROWING) return 0;
 
-  int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
+  int64_t now = NowEpochSeconds();
 
   std::vector<core::VectorId> to_delete;
   for (const auto& [vid, expiry] : expiry_map_) {
@@ -468,9 +504,13 @@ size_t Segment::SweepExpired() {
 
   if (to_delete.empty()) return 0;
 
-  lock.unlock();
-  auto result = DeleteVectors(to_delete);
-  return result.ok() ? result->deleted_count : 0;
+  auto result = DeleteVectorsUnlocked(to_delete);
+  if (!result.ok()) {
+    utils::Logger::Instance().Error("TTL sweep delete failed for segment {}: {}",
+                                     core::ToUInt32(id_), result.status().message());
+    return 0;
+  }
+  return result->deleted_count;
 }
 
 // ========== Upsert ==========
@@ -478,7 +518,8 @@ size_t Segment::SweepExpired() {
 core::StatusOr<Segment::UpsertResult> Segment::UpsertVectors(
     const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids,
-    const std::vector<core::Metadata>& metadata) {
+    const std::vector<core::Metadata>& metadata,
+    const std::unordered_map<uint64_t, int64_t>& expiry_entries) {
   std::unique_lock lock(mutex_);
 
   if (state_ != core::SegmentState::GROWING) {
@@ -536,6 +577,12 @@ core::StatusOr<Segment::UpsertResult> Segment::UpsertVectors(
     if (!metadata.empty()) {
       metadata_map_[id_uint] = metadata[i];
       scalar_indexes_.IndexVector(id_uint, metadata[i]);
+    }
+
+    // Apply TTL for this vector if provided
+    auto expiry_it = expiry_entries.find(id_uint);
+    if (expiry_it != expiry_entries.end()) {
+      expiry_map_[id_uint] = expiry_it->second;
     }
 
     if (existed) {
@@ -657,6 +704,8 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
     indexed_candidates = scalar_indexes_.Evaluate(**filter);
   }
 
+  int64_t now = NowEpochSeconds();
+
   // For GROWING segments with brute-force search
   if (state_ == core::SegmentState::GROWING) {
     if (vectors_.empty()) {
@@ -669,7 +718,7 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
     for (size_t i = 0; i < vectors_.size(); ++i) {
       uint64_t id_uint = core::ToUInt64(vector_ids_[i]);
 
-      if (IsExpired(id_uint)) continue;
+      if (IsExpired(id_uint, now)) continue;
 
       // Fast path: scalar index pre-filter
       if (indexed_candidates) {
@@ -743,7 +792,7 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
 
     uint64_t id_uint = core::ToUInt64(entry.id);
 
-    if (IsExpired(id_uint)) continue;
+    if (IsExpired(id_uint, now)) continue;
 
     // Fast path: check scalar index first
     if (indexed_candidates && indexed_candidates->count(id_uint) == 0) {
