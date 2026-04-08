@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(gvdb VERSION 0.5.0 LANGUAGES CXX) # x-release-please-version
+project(gvdb VERSION 0.6.0 LANGUAGES CXX) # x-release-please-version
 
 # C++ Standard
 set(CMAKE_CXX_STANDARD 20)
