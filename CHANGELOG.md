@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0](https://github.com/JonathanBerhe/gvdb/compare/v0.5.0...v0.6.0) (2026-04-08)
+
+
+### Features
+
+* **storage:** add per-vector TTL with background sweep and expiry filtering ([970f110](https://github.com/JonathanBerhe/gvdb/commit/970f11013562f46ba9a8000eb5f6026996c2e160))
+* **storage:** per-vector TTL with background sweep and expiry filtering ([15b18d7](https://github.com/JonathanBerhe/gvdb/commit/15b18d72a64eb3a557e8be2fd414285ee6b64733))
+
+
+### Bug Fixes
+
+* **storage:** resolve TTL race conditions, perf, and correctness issues ([e0670a8](https://github.com/JonathanBerhe/gvdb/commit/e0670a8e722da092d1bbb908c12d97149cca4ae6))
+
 ## [0.5.0](https://github.com/JonathanBerhe/gvdb/compare/v0.4.0...v0.5.0) (2026-04-07)
 
 
