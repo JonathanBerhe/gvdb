@@ -73,7 +73,7 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState('')
   const [dimension, setDimension] = useState(128)
   const [metric, setMetric] = useState('l2')
-  const [indexType, setIndexType] = useState('hnsw')
+  const [indexType, setIndexType] = useState('auto')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -110,6 +110,7 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
         </Field>
         <Field label="Index">
           <select value={indexType} onChange={e => setIndexType(e.target.value)} style={inputStyle}>
+            <option value="auto">AUTO</option>
             <option value="hnsw">HNSW</option>
             <option value="flat">FLAT</option>
             <option value="ivf_flat">IVF_FLAT</option>

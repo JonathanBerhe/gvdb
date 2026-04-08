@@ -6,7 +6,7 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 
 ## Features
 
-- **Vector Search**: FLAT, HNSW, IVF_FLAT, IVF_PQ, IVF_SQ, TurboQuant, IVF_TURBOQUANT index types
+- **Vector Search**: FLAT, HNSW, IVF_FLAT, IVF_PQ, IVF_SQ, TurboQuant, IVF_TURBOQUANT index types + AUTO selection
 - **Sparse Vectors**: Inverted posting-list index for learned sparse retrieval (SPLADE, etc.)
 - **TurboQuant**: Data-oblivious online quantization (ICLR 2026) — 1/2/4/8-bit compression with near-optimal distortion. IVF_TURBOQUANT combines IVF partitioning with TurboQuant for sub-linear search at extreme compression (7.5x at 4-bit on 768D)
 - **Three-Way Hybrid Search**: Dense vectors + sparse vectors + BM25 text with Reciprocal Rank Fusion (RRF)

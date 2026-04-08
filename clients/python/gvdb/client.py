@@ -113,6 +113,7 @@ class GVDBClient:
             "ivf_sq": pb.CreateCollectionRequest.IVF_SQ,
             "turboquant": pb.CreateCollectionRequest.TURBOQUANT,
             "ivf_turboquant": pb.CreateCollectionRequest.IVF_TURBOQUANT,
+            "auto": pb.CreateCollectionRequest.AUTO,
         }
         resp = self._stub.CreateCollection(
             pb.CreateCollectionRequest(
