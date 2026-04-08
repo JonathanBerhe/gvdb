@@ -134,6 +134,11 @@ int main(int argc, char** argv) {
       data_node->RunBuildLoop(utils::ServerBootstrap::ShutdownFlag());
     });
 
+    // Background thread to sweep expired TTL vectors
+    std::thread ttl_sweep_thread([data_node]() {
+      data_node->RunTTLSweepLoop(utils::ServerBootstrap::ShutdownFlag());
+    });
+
     auto query_executor = std::make_shared<compute::QueryExecutor>(
         segment_manager.get());
     query_executor->SetCache(std::make_shared<utils::QueryCache>(10000));
@@ -188,6 +193,7 @@ int main(int argc, char** argv) {
     // Graceful shutdown
     std::cout << "\nShutting down gracefully..." << std::endl;
     if (build_thread.joinable()) build_thread.join();
+    if (ttl_sweep_thread.joinable()) ttl_sweep_thread.join();
     heartbeat.reset();  // Stop heartbeat thread
     server->Shutdown();
     utils::ServerBootstrap::StopMetricsServer();

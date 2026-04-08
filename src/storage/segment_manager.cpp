@@ -4,8 +4,10 @@
 #include "storage/segment_manager.h"
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <mutex>
+#include <thread>
 
 #include "absl/strings/str_cat.h"
 #include "core/config.h"
@@ -560,6 +562,38 @@ std::vector<Segment*> SegmentManager::GetQueryableSegments(
     }
   }
   return result;
+}
+
+std::vector<core::SegmentId> SegmentManager::GetAllSegmentIds() const {
+  std::shared_lock lock(mutex_);
+  std::vector<core::SegmentId> ids;
+  ids.reserve(segments_.size());
+  for (const auto& [seg_id, _] : segments_) {
+    ids.push_back(seg_id);
+  }
+  return ids;
+}
+
+void SegmentManager::RunTTLSweepLoop(const std::atomic<bool>& shutdown) {
+  utils::Logger::Instance().Info("TTL sweep loop started");
+  while (!shutdown.load(std::memory_order_relaxed)) {
+    std::this_thread::sleep_for(
+        std::chrono::seconds(Segment::kTTLSweepIntervalSeconds));
+    if (shutdown.load(std::memory_order_relaxed)) break;
+
+    auto all_seg_ids = GetAllSegmentIds();
+    for (auto seg_id : all_seg_ids) {
+      auto* seg = GetSegment(seg_id);
+      if (!seg || seg->GetState() != core::SegmentState::GROWING) continue;
+      size_t swept = seg->SweepExpired();
+      if (swept > 0) {
+        utils::Logger::Instance().Info(
+            "TTL sweep: deleted {} expired vectors from segment {}",
+            swept, core::ToUInt32(seg_id));
+      }
+    }
+  }
+  utils::Logger::Instance().Info("TTL sweep loop stopped");
 }
 
 core::SegmentId SegmentManager::AllocateSegmentId() {

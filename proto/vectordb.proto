@@ -42,6 +42,7 @@ message VectorWithId {
   Vector vector = 2;
   Metadata metadata = 3;  // Optional metadata
   SparseVector sparse_vector = 4;  // Optional sparse vector for hybrid retrieval
+  uint32 ttl_seconds = 5;  // Optional TTL in seconds (0 = no expiration)
 }
 
 message SearchResultEntry {

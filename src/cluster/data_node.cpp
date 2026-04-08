@@ -117,6 +117,10 @@ void DataNode::RunBuildLoop(const std::atomic<bool>& shutdown) {
   utils::Logger::Instance().Info("Build loop stopped");
 }
 
+void DataNode::RunTTLSweepLoop(const std::atomic<bool>& shutdown) {
+  segment_manager_->RunTTLSweepLoop(shutdown);
+}
+
 size_t DataNode::GetPendingTaskCount() const {
   std::lock_guard lock(queue_mutex_);
   return build_queue_.size();

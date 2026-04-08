@@ -148,6 +148,11 @@ int main(int argc, char** argv) {
           }
         });
 
+    // Background TTL sweep thread
+    std::thread ttl_sweep_thread([segment_manager]() {
+      segment_manager->RunTTLSweepLoop(utils::ServerBootstrap::ShutdownFlag());
+    });
+
     // 3. Cluster coordinator
     auto shard_manager = std::make_shared<cluster::ShardManager>(
         16, cluster::ShardingStrategy::HASH);
@@ -181,6 +186,7 @@ int main(int argc, char** argv) {
 
     // Graceful shutdown
     std::cout << "\nShutting down gracefully..." << std::endl;
+    if (ttl_sweep_thread.joinable()) ttl_sweep_thread.join();
     server->Shutdown();
     utils::ServerBootstrap::StopMetricsServer();
     (void)raft_node->Shutdown();
