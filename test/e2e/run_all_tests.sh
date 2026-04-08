@@ -223,6 +223,7 @@ main() {
     build_test "Sparse_Search" "sparse_search.go" || exit 1
     build_test "TTL" "ttl.go" || exit 1
     build_test "Auto_Index" "auto_index.go" || exit 1
+    build_test "RBAC" "rbac.go" || exit 1
     log_success "All tests built"
     echo ""
 
@@ -247,6 +248,7 @@ main() {
         "Sparse Search Test:Sparse_Search_test"
         "TTL Test:TTL_test"
         "Auto-Index Test:Auto_Index_test"
+        "RBAC Test:RBAC_test"
     )
 
     for TEST in "${TESTS[@]}"; do

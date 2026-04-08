@@ -8,6 +8,7 @@
 #include "utils/config.h"
 #include "core/status.h"
 #include <grpcpp/grpcpp.h>
+#include <grpcpp/support/server_interceptor.h>
 #include <atomic>
 #include <memory>
 #include <string>
@@ -51,6 +52,13 @@ class ServerBootstrap {
       const std::string& bind_address,
       const std::vector<grpc::Service*>& services,
       std::shared_ptr<grpc::ServerCredentials> credentials);
+
+  // Build and start a gRPC server with credentials + interceptors
+  static std::unique_ptr<grpc::Server> StartGrpcServer(
+      const std::string& bind_address,
+      const std::vector<grpc::Service*>& services,
+      std::shared_ptr<grpc::ServerCredentials> credentials,
+      std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors);
 
   // Create server credentials from TLS config (insecure if TLS disabled)
   static std::shared_ptr<grpc::ServerCredentials> MakeServerCredentials(

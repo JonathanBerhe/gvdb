@@ -21,7 +21,10 @@
 #include "network/internal_service.h"
 #include "network/vectordb_service.h"
 #include "network/collection_resolver.h"
+#include "network/auth_processor.h"
+#include "auth/rbac.h"
 #include "utils/server_bootstrap.h"
+#include "utils/config.h"
 #include "utils/env_flags.h"
 
 struct CoordinatorArgs {
@@ -171,14 +174,32 @@ int main(int argc, char** argv) {
     auto internal_service = std::make_unique<network::InternalService>(
         shard_manager, segment_manager, query_executor,
         node_registry, timestamp_oracle, coordinator);
+    // Load config for auth (optional)
+    utils::GVDBConfig config = utils::Config::get_default();
+    if (!args.config_file.empty()) {
+      auto cfg_result = utils::Config::load_from_file(args.config_file);
+      if (cfg_result.ok()) config = std::move(*cfg_result);
+    }
+
+    // RBAC
+    std::shared_ptr<auth::RbacStore> rbac_store;
+    std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors;
+    if (config.server.auth.enabled) {
+      rbac_store = std::make_shared<auth::RbacStore>(config.server.auth);
+      interceptors.push_back(
+          std::make_unique<network::ApiKeyAuthInterceptorFactory>(rbac_store));
+    }
+
     auto coord_resolver = network::MakeCoordinatorResolver(coordinator);
     auto vectordb_service = std::make_unique<network::VectorDBService>(
-        segment_manager, query_executor, std::move(coord_resolver));
+        segment_manager, query_executor, std::move(coord_resolver), rbac_store);
 
     // 6. Start gRPC server
+    auto credentials = utils::ServerBootstrap::MakeServerCredentials(config.server.tls);
     auto grpc_server = utils::ServerBootstrap::StartGrpcServer(
         args.bind_address,
-        {internal_service.get(), vectordb_service.get()});
+        {internal_service.get(), vectordb_service.get()},
+        credentials, std::move(interceptors));
     if (!grpc_server) {
       std::cerr << "Failed to start gRPC server on " << args.bind_address << std::endl;
       return 1;

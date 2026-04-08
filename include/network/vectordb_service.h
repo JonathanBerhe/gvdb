@@ -8,6 +8,7 @@
 #include "storage/segment_manager.h"
 #include "compute/query_executor.h"
 #include "network/collection_resolver.h"
+#include "auth/rbac.h"
 #include <memory>
 #include <atomic>
 #include <string>
@@ -23,7 +24,8 @@ class VectorDBService final : public proto::VectorDBService::Service {
   VectorDBService(
       std::shared_ptr<storage::SegmentManager> segment_manager,
       std::shared_ptr<compute::QueryExecutor> query_executor,
-      std::unique_ptr<ICollectionResolver> resolver);
+      std::unique_ptr<ICollectionResolver> resolver,
+      std::shared_ptr<auth::RbacStore> rbac_store = nullptr);
 
   ~VectorDBService();
 
@@ -107,6 +109,10 @@ class VectorDBService final : public proto::VectorDBService::Service {
       proto::GetStatsResponse* response) override;
 
  private:
+  // Check RBAC permission for the current request. Returns OK if allowed.
+  grpc::Status CheckPermission(auth::Permission perm,
+                                const std::string& collection_name) const;
+
   // Get segment locally, or pull from coordinator if in distributed mode
   storage::Segment* GetOrReplicateSegment(core::SegmentId segment_id);
 
@@ -119,6 +125,7 @@ class VectorDBService final : public proto::VectorDBService::Service {
   std::shared_ptr<storage::SegmentManager> segment_manager_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::unique_ptr<ICollectionResolver> resolver_;
+  std::shared_ptr<auth::RbacStore> rbac_store_;
 
   // Statistics
   std::atomic<uint64_t> total_queries_{0};
