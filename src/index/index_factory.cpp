@@ -49,6 +49,10 @@ core::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateIndex(
     case core::IndexType::IVF_TURBOQUANT:
       return CreateIVFTurboQuantIndex(config);
 
+    case core::IndexType::AUTO:
+      return core::InvalidArgumentError(
+          "AUTO index type must be resolved before reaching IndexFactory");
+
     default:
       return core::UnimplementedError(
           "Index type not yet implemented");

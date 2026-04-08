@@ -63,9 +63,9 @@ core::Status SegmentManager::CreateSegmentWithId(
   }
 
   // Create segment with provided ID
-  // Note: index_type is stored for later use when sealing
   auto segment = std::make_unique<Segment>(
       segment_id, collection_id, dimension, metric, max_segment_size_);
+  segment->index_type_ = index_type;
 
   // Store segment
   segments_[segment_id] = std::move(segment);
@@ -530,6 +530,7 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
   auto new_id = AllocateSegmentId();
   auto new_seg = std::make_unique<Segment>(
       new_id, collection_id, dim, metric, max_segment_size_);
+  new_seg->index_type_ = idx_type;
   auto* ptr = new_seg.get();
   segments_[new_id] = std::move(new_seg);
   seg_ids_refreshed.push_back(new_id);
