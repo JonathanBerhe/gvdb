@@ -114,8 +114,13 @@ logging:
 index:
   default_index_type: flat
 `
-	tmpConfig := "/tmp/gvdb-rbac-test-config.yaml"
-	os.WriteFile(tmpConfig, []byte(configContent), 0644)
+	tmpConfigFile, err := os.CreateTemp("", "gvdb-rbac-*.yaml")
+	if err != nil {
+		log.Fatalf("Failed to create temp config: %v", err)
+	}
+	tmpConfig := tmpConfigFile.Name()
+	tmpConfigFile.Write([]byte(configContent))
+	tmpConfigFile.Close()
 	defer os.Remove(tmpConfig)
 
 	serverBin := os.Getenv("GVDB_SERVER_BIN")
@@ -137,10 +142,34 @@ index:
 		os.RemoveAll("/tmp/gvdb-rbac-test")
 	}()
 
-	fmt.Println("\nWaiting for RBAC server to start...")
-	time.Sleep(3 * time.Second)
-
 	addr := "localhost:50052"
+
+	// Wait for server readiness via HealthCheck probe instead of fixed sleep
+	fmt.Println("\nWaiting for RBAC server to start...")
+	{
+		deadline := time.Now().Add(15 * time.Second)
+		ready := false
+		for time.Now().Before(deadline) {
+			conn, dialErr := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if dialErr == nil {
+				client := pb.NewVectorDBServiceClient(conn)
+				probeCtx, probeCancel := context.WithTimeout(context.Background(), 1*time.Second)
+				_, probeErr := client.HealthCheck(probeCtx, &pb.HealthCheckRequest{})
+				probeCancel()
+				conn.Close()
+				if probeErr == nil {
+					ready = true
+					break
+				}
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		if !ready {
+			log.Fatalf("Server did not become ready within 15 seconds")
+		}
+		fmt.Println("Server is ready")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
