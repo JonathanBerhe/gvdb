@@ -48,16 +48,20 @@ absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType in
         absl::StrCat("Segment ", core::ToUInt32(segment_id), " is empty"));
   }
 
-  // Build IndexConfig from segment metadata + requested index type
+  // Resolve AUTO to a concrete index type based on segment vector count
+  auto resolved_type = core::ResolveAutoIndexType(
+      index_type, segment->GetVectorCount());
+
+  // Build IndexConfig from segment metadata + resolved index type
   core::IndexConfig config;
-  config.index_type = index_type;
+  config.index_type = resolved_type;
   config.dimension = segment->GetDimension();
   config.metric_type = segment->GetMetric();
   // HNSW, IVF, TurboQuant params use defaults from IndexConfig struct
 
   utils::Logger::Instance().Info(
       "Building {} index for segment {} ({} vectors, dim={})",
-      static_cast<int>(index_type), core::ToUInt32(segment_id),
+      static_cast<int>(resolved_type), core::ToUInt32(segment_id),
       segment->GetVectorCount(), segment->GetDimension());
 
   auto status = segment_manager_->SealSegment(segment_id, config);
@@ -70,7 +74,7 @@ absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType in
 
   utils::Logger::Instance().Info(
       "Index built for segment {} (type={}, vectors={})",
-      core::ToUInt32(segment_id), static_cast<int>(index_type),
+      core::ToUInt32(segment_id), static_cast<int>(resolved_type),
       segment->GetVectorCount());
 
   return absl::OkStatus();

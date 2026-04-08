@@ -134,14 +134,17 @@ int main(int argc, char** argv) {
     auto* index_factory_ptr = index_factory.get();
     segment_manager->SetSealCallback(
         [segment_manager, index_factory_ptr](core::SegmentId sid, core::IndexType idx_type) {
-          core::IndexConfig config;
-          config.index_type = idx_type;
           auto* seg = segment_manager->GetSegment(sid);
           if (!seg) return;
+          auto resolved_type = core::ResolveAutoIndexType(
+              idx_type, seg->GetVectorCount());
+          core::IndexConfig config;
+          config.index_type = resolved_type;
           config.dimension = seg->GetDimension();
           config.metric_type = seg->GetMetric();
-          utils::Logger::Instance().Info("Auto-sealing segment {} ({} vectors)",
-              core::ToUInt32(sid), seg->GetVectorCount());
+          utils::Logger::Instance().Info("Auto-sealing segment {} ({} vectors, index={})",
+              core::ToUInt32(sid), seg->GetVectorCount(),
+              static_cast<int>(resolved_type));
           auto status = segment_manager->SealSegment(sid, config);
           if (!status.ok()) {
             utils::Logger::Instance().Error("Auto-seal failed: {}", status.message());
