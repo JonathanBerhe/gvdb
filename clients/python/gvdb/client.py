@@ -158,8 +158,15 @@ class GVDBClient:
         ids: list[int],
         vectors: list[list[float]],
         metadata: Optional[list[dict]] = None,
+        sparse_vectors: Optional[list[dict[int, float]]] = None,
+        ttl_seconds: Optional[list[int]] = None,
     ) -> int:
-        """Insert vectors. Returns number inserted."""
+        """Insert vectors. Returns number inserted.
+
+        Args:
+            sparse_vectors: Optional list of sparse vectors as {dim_index: value} dicts.
+            ttl_seconds: Optional per-vector TTL in seconds (0 = no expiration).
+        """
         proto_vectors = []
         for i, (vid, vec) in enumerate(zip(ids, vectors)):
             v = pb.VectorWithId(
@@ -168,6 +175,15 @@ class GVDBClient:
             )
             if metadata and i < len(metadata) and metadata[i]:
                 v.metadata.CopyFrom(_to_proto_metadata(metadata[i]))
+            if sparse_vectors and i < len(sparse_vectors) and sparse_vectors[i]:
+                sv = sparse_vectors[i]
+                sorted_indices = sorted(sv.keys())
+                v.sparse_vector.CopyFrom(pb.SparseVector(
+                    indices=sorted_indices,
+                    values=[sv[k] for k in sorted_indices],
+                ))
+            if ttl_seconds and i < len(ttl_seconds) and ttl_seconds[i] > 0:
+                v.ttl_seconds = ttl_seconds[i]
             proto_vectors.append(v)
 
         resp = self._stub.Insert(
@@ -245,14 +261,16 @@ class GVDBClient:
         *,
         query_vector: Optional[list[float]] = None,
         text_query: str = "",
+        sparse_query: Optional[dict[int, float]] = None,
         top_k: int = 10,
         vector_weight: float = 0.5,
         text_weight: float = 0.5,
+        sparse_weight: float = 0.0,
         text_field: str = "text",
         filter_expression: str = "",
         return_metadata: bool = False,
     ) -> list[SearchResult]:
-        """Hybrid search combining vector similarity and BM25 text relevance."""
+        """Hybrid search combining vector similarity, BM25 text, and sparse retrieval."""
         req = pb.HybridSearchRequest(
             collection_name=collection,
             text_query=text_query,
@@ -260,11 +278,18 @@ class GVDBClient:
             vector_weight=vector_weight,
             text_weight=text_weight,
             text_field=text_field,
+            sparse_weight=sparse_weight,
         )
         if query_vector:
             req.query_vector.CopyFrom(
                 pb.Vector(values=query_vector, dimension=len(query_vector))
             )
+        if sparse_query:
+            sorted_indices = sorted(sparse_query.keys())
+            req.sparse_query.CopyFrom(pb.SparseVector(
+                indices=sorted_indices,
+                values=[sparse_query[k] for k in sorted_indices],
+            ))
         if filter_expression:
             req.filter = filter_expression
         if return_metadata:

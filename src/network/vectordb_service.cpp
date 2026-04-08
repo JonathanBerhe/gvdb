@@ -11,7 +11,9 @@
 #include "absl/strings/str_format.h"
 #include "internal.grpc.pb.h"
 #include "index/bm25_index.h"
+#include "index/sparse_index.h"
 #include <algorithm>
+#include <chrono>
 #include <future>
 #include <grpcpp/grpcpp.h>
 
@@ -366,7 +368,10 @@ grpc::Status VectorDBService::Insert(
     std::vector<core::Vector> vectors;
     std::vector<core::VectorId> ids;
     std::vector<core::Metadata> metadata;
+    std::unordered_map<uint64_t, core::SparseVector> sparse_map;
+    std::unordered_map<uint64_t, int64_t> expiry_entries;
     bool has_metadata = false;
+    bool has_sparse = false;
   };
   std::vector<ShardBatch> shard_batches(num_shards);
 
@@ -389,6 +394,19 @@ grpc::Status VectorDBService::Insert(
       batch.metadata.push_back(std::move(*meta_result));
     } else if (batch.has_metadata) {
       batch.metadata.push_back(core::Metadata{});
+    }
+
+    if (proto_vec.has_sparse_vector() && proto_vec.sparse_vector().indices_size() > 0) {
+      auto sparse_result = fromProto(proto_vec.sparse_vector());
+      if (!sparse_result.ok()) return toGrpcStatus(sparse_result.status());
+      batch.has_sparse = true;
+      batch.sparse_map[core::ToUInt64(vid)] = std::move(*sparse_result);
+    }
+
+    if (proto_vec.ttl_seconds() > 0) {
+      int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+      batch.expiry_entries[core::ToUInt64(vid)] = now + static_cast<int64_t>(proto_vec.ttl_seconds());
     }
   }
 
@@ -422,20 +440,24 @@ grpc::Status VectorDBService::Insert(
     if (!segment) continue;
 
     absl::Status status;
-    if (batch.has_metadata) {
-      status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata);
+    if (batch.has_sparse) {
+      status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map, batch.expiry_entries);
+    } else if (batch.has_metadata) {
+      status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata, batch.expiry_entries);
     } else {
-      status = segment->AddVectors(batch.vectors, batch.ids);
+      status = segment->AddVectors(batch.vectors, batch.ids, batch.expiry_entries);
     }
 
     // Safety net: if segment is full despite hint, rotate and retry once
     if (absl::IsResourceExhausted(status)) {
       segment = segment_manager_->GetWritableSegment(collection_id, batch_bytes);
       if (segment) {
-        if (batch.has_metadata) {
-          status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata);
+        if (batch.has_sparse) {
+          status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map, batch.expiry_entries);
+        } else if (batch.has_metadata) {
+          status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata, batch.expiry_entries);
         } else {
-          status = segment->AddVectors(batch.vectors, batch.ids);
+          status = segment->AddVectors(batch.vectors, batch.ids, batch.expiry_entries);
         }
       }
     }
@@ -445,6 +467,7 @@ grpc::Status VectorDBService::Insert(
           request->collection_name(), false, 0);
       return toGrpcStatus(status);
     }
+
     total_inserted += batch.ids.size();
   }
 
@@ -622,6 +645,7 @@ grpc::Status VectorDBService::Upsert(
   std::vector<core::Vector> vectors;
   std::vector<core::VectorId> ids;
   std::vector<core::Metadata> metadata;
+  std::unordered_map<uint64_t, int64_t> expiry_entries;
   vectors.reserve(request->vectors_size());
   ids.reserve(request->vectors_size());
   metadata.reserve(request->vectors_size());
@@ -643,9 +667,15 @@ grpc::Status VectorDBService::Upsert(
     } else {
       metadata.push_back(core::Metadata{});
     }
+
+    if (proto_vec.ttl_seconds() > 0) {
+      int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+      expiry_entries[core::ToUInt64(vec_result->first)] = now + static_cast<int64_t>(proto_vec.ttl_seconds());
+    }
   }
 
-  auto upsert_result = growing_segment->UpsertVectors(vectors, ids, metadata);
+  auto upsert_result = growing_segment->UpsertVectors(vectors, ids, metadata, expiry_entries);
   if (!upsert_result.ok()) {
     return toGrpcStatus(upsert_result.status());
   }
@@ -865,10 +895,11 @@ grpc::Status VectorDBService::HybridSearch(
 
   bool has_vector = request->has_query_vector() && request->query_vector().dimension() > 0;
   bool has_text = !request->text_query().empty();
+  bool has_sparse = request->has_sparse_query() && request->sparse_query().indices_size() > 0;
 
-  if (!has_vector && !has_text) {
+  if (!has_vector && !has_text && !has_sparse) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-        "At least one of query_vector or text_query must be provided");
+        "At least one of query_vector, text_query, or sparse_query must be provided");
   }
 
   if (!resolver_->SupportsDataOps()) {
@@ -890,6 +921,15 @@ grpc::Status VectorDBService::HybridSearch(
     query_vector = std::move(*qr);
   }
 
+  // Convert sparse query (optional)
+  std::optional<core::SparseVector> sparse_query;
+  if (has_sparse) {
+    auto sq = fromProto(request->sparse_query());
+    if (!sq.ok()) return toGrpcStatus(sq.status());
+    sparse_query = std::move(*sq);
+  }
+  float sparse_weight = request->sparse_weight() > 0 ? request->sparse_weight() : 0.0f;
+
   // Get segments
   auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
   if (!segment_ids_result.ok()) {
@@ -909,6 +949,12 @@ grpc::Status VectorDBService::HybridSearch(
     // Build text index from metadata if not already built
     auto bm25 = std::make_unique<index::BM25Index>();
     segment->BuildTextIndex(std::move(bm25), text_field);
+
+    // Build sparse index from stored sparse vectors if query needs it
+    if (has_sparse) {
+      auto sparse_idx = std::make_unique<index::SparseIndex>();
+      segment->BuildSparseIndex(std::move(sparse_idx));
+    }
   }
 
   // Search each segment
@@ -919,21 +965,20 @@ grpc::Status VectorDBService::HybridSearch(
 
     core::StatusOr<core::SearchResult> result;
 
-    if (has_vector && has_text) {
-      // Full hybrid: vector + BM25 with RRF fusion
+    const core::SparseVector* sq_ptr = sparse_query ? &*sparse_query : nullptr;
+
+    if (has_vector || has_text || has_sparse) {
+      // Hybrid: any combination of vector + text + sparse with RRF fusion
+      core::Vector qv = has_vector
+          ? *query_vector
+          : core::ZeroVector(segment->GetDimension());
+      float vw = has_vector ? vector_weight : 0.0f;
+      float tw = has_text ? text_weight : 0.0f;
+      float sw = has_sparse ? sparse_weight : 0.0f;
+
       result = segment->SearchHybrid(
-          *query_vector, request->text_query(), request->top_k(),
-          vector_weight, text_weight, text_field);
-    } else if (has_vector) {
-      // Vector-only (fallback to regular search)
-      result = segment->Search(*query_vector, request->top_k());
-    } else {
-      // Text-only: BM25 search via text index
-      // BuildTextIndex was already called above
-      result = segment->SearchHybrid(
-          core::ZeroVector(segment->GetDimension()),
-          request->text_query(), request->top_k(),
-          0.0f, 1.0f, text_field);  // All weight on text
+          qv, request->text_query(), request->top_k(),
+          vw, tw, text_field, sq_ptr, sw);
     }
 
     if (result.ok()) {

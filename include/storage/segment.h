@@ -14,7 +14,9 @@
 #include "core/metadata.h"
 #include "core/status.h"
 #include "core/types.h"
+#include "core/sparse_vector.h"
 #include "core/vector.h"
+#include "index/sparse_index.h"
 #include "index/text_index.h"
 #include "storage/scalar_index.h"
 
@@ -49,14 +51,17 @@ class Segment {
   // ========== Data Operations ==========
 
   // Add vectors to segment (only valid for GROWING state)
-  [[nodiscard]] core::Status AddVectors(const std::vector<core::Vector>& vectors,
-                                         const std::vector<core::VectorId>& ids);
+  [[nodiscard]] core::Status AddVectors(
+      const std::vector<core::Vector>& vectors,
+      const std::vector<core::VectorId>& ids,
+      const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Add vectors with metadata to segment (only valid for GROWING state)
   [[nodiscard]] core::Status AddVectorsWithMetadata(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids,
-      const std::vector<core::Metadata>& metadata);
+      const std::vector<core::Metadata>& metadata,
+      const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Read specific vectors by ID (fails if any ID not found)
   [[nodiscard]] core::StatusOr<std::vector<core::Vector>> ReadVectors(
@@ -100,7 +105,9 @@ class Segment {
       int k,
       float vector_weight = 0.5f,
       float text_weight = 0.5f,
-      const std::string& text_field = "text") const;
+      const std::string& text_field = "text",
+      const core::SparseVector* sparse_query = nullptr,
+      float sparse_weight = 0.0f) const;
 
   // Upsert: insert or replace vector (only valid for GROWING state)
   struct UpsertResult {
@@ -110,7 +117,8 @@ class Segment {
   [[nodiscard]] core::StatusOr<UpsertResult> UpsertVectors(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids,
-      const std::vector<core::Metadata>& metadata);
+      const std::vector<core::Metadata>& metadata,
+      const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Range search: find all vectors within distance radius
   [[nodiscard]] core::StatusOr<core::SearchResult> SearchRange(
@@ -132,6 +140,23 @@ class Segment {
   // Build a BM25 text index from a metadata field across all vectors in this segment
   core::Status BuildTextIndex(std::unique_ptr<index::ITextIndex> text_index,
                                const std::string& text_field = "text");
+
+  // Build sparse index from stored sparse vectors
+  core::Status BuildSparseIndex(std::unique_ptr<index::SparseIndex> sparse_index);
+
+  // TTL: set expiry timestamp for a vector
+  void SetExpiry(core::VectorId id, int64_t expiry_timestamp);
+
+  // TTL: sweep expired vectors from GROWING segment (returns count deleted)
+  size_t SweepExpired();
+
+  // Add vectors with sparse data alongside dense vectors and metadata
+  [[nodiscard]] core::Status AddVectorsWithSparse(
+      const std::vector<core::Vector>& vectors,
+      const std::vector<core::VectorId>& ids,
+      const std::vector<core::Metadata>& metadata,
+      const std::unordered_map<uint64_t, core::SparseVector>& sparse,
+      const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Seal the segment (transition from GROWING to SEALED)
   // This builds the index and makes the segment immutable
@@ -178,6 +203,9 @@ class Segment {
   // Get maximum segment size (512 MB default)
   static constexpr size_t kMaxSegmentSize = 512 * 1024 * 1024;  // 512 MB
 
+  // TTL sweep interval for background sweep loops
+  static constexpr int kTTLSweepIntervalSeconds = 30;
+
   friend class SegmentManager;
 
  private:
@@ -207,14 +235,29 @@ class Segment {
   // Text index for BM25 hybrid search (built during seal from metadata text fields)
   std::unique_ptr<index::ITextIndex> text_index_;
 
+  // Sparse index and storage for sparse vector hybrid search
+  std::unique_ptr<index::SparseIndex> sparse_index_;
+  std::unordered_map<uint64_t, core::SparseVector> sparse_vectors_;
+
+  // TTL: maps VectorId → Unix epoch expiry time (seconds)
+  std::unordered_map<uint64_t, int64_t> expiry_map_;
+
   // Scalar indexes on metadata fields (built incrementally + during seal)
   ScalarIndexSet scalar_indexes_;
 
   // Helper methods
   [[nodiscard]] bool IsFull() const;
+  [[nodiscard]] bool IsExpired(uint64_t vector_id_uint, int64_t now) const;
   [[nodiscard]] core::Status ValidateVectors(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) const;
+
+  // Delete vectors without acquiring the lock. Caller must hold unique_lock.
+  [[nodiscard]] core::StatusOr<DeleteVectorsResult> DeleteVectorsUnlocked(
+      const std::vector<core::VectorId>& ids);
+
+  // Get current epoch seconds
+  [[nodiscard]] static int64_t NowEpochSeconds();
 
   // Compute distance between two vectors using the segment's metric
   [[nodiscard]] float ComputeDistance(const core::Vector& a,

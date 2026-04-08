@@ -16,6 +16,12 @@ message Vector {
   uint32 dimension = 2;
 }
 
+// Sparse vector for learned sparse retrieval (SPLADE, etc.)
+message SparseVector {
+  repeated uint32 indices = 1;  // Non-zero dimension indices (sorted ascending)
+  repeated float values = 2;    // Corresponding non-zero values
+}
+
 // Metadata value (supports multiple types)
 message MetadataValue {
   oneof value {
@@ -35,6 +41,8 @@ message VectorWithId {
   uint64 id = 1;
   Vector vector = 2;
   Metadata metadata = 3;  // Optional metadata
+  SparseVector sparse_vector = 4;  // Optional sparse vector for hybrid retrieval
+  uint32 ttl_seconds = 5;  // Optional TTL in seconds (0 = no expiration)
 }
 
 message SearchResultEntry {
@@ -250,6 +258,8 @@ message HybridSearchRequest {
   float vector_weight = 7;     // 0.0-1.0 (default: 0.5 if both set)
   float text_weight = 8;       // 0.0-1.0 (default: 0.5 if both set)
   string text_field = 9;       // Metadata field for BM25 (default: "text")
+  SparseVector sparse_query = 10;  // Optional sparse query vector
+  float sparse_weight = 11;        // Weight for sparse results in RRF (0 = disabled)
 }
 
 message HybridSearchResponse {

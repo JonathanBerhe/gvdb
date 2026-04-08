@@ -121,6 +121,12 @@ ui/gateway/gvdb-ui
 ui/web/node_modules/
 ui/web/dist/
 ui/gateway/gvdb-ui*
+<<<<<<< feat/cli
 
 # CLI binary
 cli/gvdb
+=======
+test/e2e/repair_test_bin
+test/e2e/sparse_search_test
+test/e2e/TTL_test
+>>>>>>> main

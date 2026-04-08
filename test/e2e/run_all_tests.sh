@@ -220,6 +220,8 @@ main() {
     build_test "Metadata" "metadata.go" || exit 1
     build_test "Load" "load.go" || exit 1
     build_test "Fuzzy" "fuzzy.go" || exit 1
+    build_test "Sparse_Search" "sparse_search.go" || exit 1
+    build_test "TTL" "ttl.go" || exit 1
     log_success "All tests built"
     echo ""
 
@@ -241,6 +243,8 @@ main() {
         "Metadata Filtering Test:Metadata_test"
         "Load Test:Load_test"
         "Fuzzy Test:Fuzzy_test"
+        "Sparse Search Test:Sparse_Search_test"
+        "TTL Test:TTL_test"
     )
 
     for TEST in "${TESTS[@]}"; do
