@@ -154,6 +154,29 @@ std::unique_ptr<grpc::Server> ServerBootstrap::StartGrpcServer(
   return builder.BuildAndStart();
 }
 
+std::unique_ptr<grpc::Server> ServerBootstrap::StartGrpcServer(
+    const std::string& bind_address,
+    const std::vector<grpc::Service*>& services,
+    std::shared_ptr<grpc::ServerCredentials> credentials,
+    std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors) {
+
+  grpc::ServerBuilder builder;
+  builder.AddListeningPort(bind_address, credentials);
+
+  for (auto* service : services) {
+    builder.RegisterService(service);
+  }
+
+  builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
+  builder.SetMaxSendMessageSize(256 * 1024 * 1024);
+
+  if (!interceptors.empty()) {
+    builder.experimental().SetInterceptorCreators(std::move(interceptors));
+  }
+
+  return builder.BuildAndStart();
+}
+
 std::shared_ptr<grpc::ChannelCredentials> ServerBootstrap::MakeChannelCredentials(
     const TlsConfig& tls_config) {
 

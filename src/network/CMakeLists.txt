@@ -14,6 +14,7 @@ target_link_libraries(gvdb_network
   PUBLIC
     gvdb_core
     gvdb_utils
+    gvdb_auth
     proto_lib
   PRIVATE
     gvdb_storage
