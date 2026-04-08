@@ -17,12 +17,8 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 - **Metadata Filtering**: SQL-like filters (`age > 18 AND city = 'NYC'`, `LIKE`, `IN`)
 - **Persistence**: Vectors flushed to disk, index rebuilt on startup recovery
 - **gRPC API**: Protobuf-based client/server with TLS and API key authentication
-<<<<<<< feat/cli
-- **Python SDK**: `pip install gvdb` — full API with hybrid search, streaming inserts, metadata
 - **CLI & TUI**: Interactive terminal UI (Bubble Tea) + scriptable CLI (Cobra) — single binary (`gvdb`)
-=======
 - **Python SDK**: `pip install gvdb` — full API with hybrid search, streaming inserts, metadata, TTL
->>>>>>> main
 - **Web UI**: Collection browser, search playground, metrics dashboard — single binary (`gvdb-ui`)
 - **Raft Consensus**: Metadata operations replicated via NuRaft
 
