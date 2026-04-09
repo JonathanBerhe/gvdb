@@ -86,13 +86,21 @@ jobs:
         if: steps.filter.outputs.cpp == 'true'
         run: make test
 
+      - name: Upload server binary
+        if: steps.filter.outputs.cpp == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gvdb-server
+          path: build/bin/gvdb-single-node
+          retention-days: 1
+
       - name: Skip notice
         if: steps.filter.outputs.cpp == 'false'
         run: echo "No C++ changes detected — skipping build and test"
 
   test-python-sdk:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     needs: build-and-test
 
     steps:
@@ -108,32 +116,27 @@ jobs:
               - 'clients/python/**'
               - 'proto/vectordb.proto'
 
-      - name: Install system dependencies
-        if: steps.filter.outputs.python == 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ccache libasio-dev libomp-dev \
-            libopenblas-dev liblapack-dev zlib1g-dev
-
       - name: Install uv
         if: steps.filter.outputs.python == 'true'
         uses: astral-sh/setup-uv@v4
 
-      - name: Cache FetchContent sources
+      - name: Download server binary
         if: steps.filter.outputs.python == 'true'
-        uses: actions/cache@v4
+        uses: actions/download-artifact@v4
         with:
-          path: |
-            build/_deps/*-src
-            build/_deps/*-subbuild
-          key: fetchcontent-${{ hashFiles('CMakeLists.txt') }}
-          restore-keys: |
-            fetchcontent-
+          name: gvdb-server
+          path: build/bin
 
-      - name: Build server
+      - name: Make server executable
         if: steps.filter.outputs.python == 'true'
-        run: make build BUILD_TYPE=Release
+        run: chmod +x build/bin/gvdb-single-node
+
+      - name: Install runtime deps
+        if: steps.filter.outputs.python == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libomp5 libgomp1 libopenblas0 liblapack3
 
       - name: Install Python SDK deps
         if: steps.filter.outputs.python == 'true'
