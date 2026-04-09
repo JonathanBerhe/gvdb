@@ -3,9 +3,9 @@
 import grpc
 import warnings
 
-import vectordb_pb2 as vectordb__pb2
+from gvdb.pb import vectordb_pb2 as vectordb__pb2
 
-GRPC_GENERATED_VERSION = '1.76.0'
+GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 

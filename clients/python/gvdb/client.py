@@ -139,7 +139,7 @@ class GVDBClient:
     def list_collections(self) -> list[CollectionInfo]:
         """List all collections."""
         resp = self._stub.ListCollections(
-            pb.ListCollectionsRequest(), timeout=self._timeout
+            pb.ListCollectionsRequest(), timeout=self._timeout, metadata=self._metadata
         )
         return [
             CollectionInfo(
@@ -404,17 +404,12 @@ class GVDBClient:
         merge: bool = True,
     ) -> None:
         """Update metadata for a vector."""
-        mode = (
-            pb.UpdateMetadataRequest.MERGE
-            if merge
-            else pb.UpdateMetadataRequest.REPLACE
-        )
         self._stub.UpdateMetadata(
             pb.UpdateMetadataRequest(
                 collection_name=collection,
-                vector_id=vector_id,
+                id=vector_id,
                 metadata=_to_proto_metadata(metadata),
-                mode=mode,
+                merge=merge,
             ),
             timeout=self._timeout,
             metadata=self._metadata,
