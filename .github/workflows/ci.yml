@@ -7,7 +7,6 @@ on:
       - '.github/workflows/**'
       - 'grafana/**'
       - 'deploy/**'
-      - 'clients/**'
       - 'ui/**'
       - '*.md'
       - '.release-please-manifest.json'
@@ -90,3 +89,64 @@ jobs:
       - name: Skip notice
         if: steps.filter.outputs.cpp == 'false'
         run: echo "No C++ changes detected — skipping build and test"
+
+  test-python-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for Python SDK changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'clients/python/**'
+              - 'proto/vectordb.proto'
+
+      - name: Install system dependencies
+        if: steps.filter.outputs.python == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ccache libasio-dev libomp-dev \
+            libopenblas-dev liblapack-dev zlib1g-dev
+
+      - name: Install uv
+        if: steps.filter.outputs.python == 'true'
+        uses: astral-sh/setup-uv@v4
+
+      - name: Cache FetchContent sources
+        if: steps.filter.outputs.python == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/_deps/*-src
+            build/_deps/*-subbuild
+          key: fetchcontent-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            fetchcontent-
+
+      - name: Build server
+        if: steps.filter.outputs.python == 'true'
+        run: make build BUILD_TYPE=Release
+
+      - name: Install Python SDK deps
+        if: steps.filter.outputs.python == 'true'
+        run: cd clients/python && uv sync
+
+      - name: Lint Python SDK
+        if: steps.filter.outputs.python == 'true'
+        run: make lint-sdk
+
+      - name: Run Python SDK tests
+        if: steps.filter.outputs.python == 'true'
+        run: make test-sdk
+
+      - name: Skip notice
+        if: steps.filter.outputs.python == 'false'
+        run: echo "No Python SDK changes — skipping"
