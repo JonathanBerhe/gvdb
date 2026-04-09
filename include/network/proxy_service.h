@@ -73,6 +73,14 @@ class ProxyService final : public proto::VectorDBService::Service {
                              const proto::UpdateMetadataRequest* request,
                              proto::UpdateMetadataResponse* response) override;
 
+  grpc::Status Upsert(grpc::ServerContext* context,
+                     const proto::UpsertRequest* request,
+                     proto::UpsertResponse* response) override;
+
+  grpc::Status ListVectors(grpc::ServerContext* context,
+                           const proto::ListVectorsRequest* request,
+                           proto::ListVectorsResponse* response) override;
+
   // Hybrid search → Data Nodes (shard-aware)
   grpc::Status HybridSearch(grpc::ServerContext* context,
                             const proto::HybridSearchRequest* request,
@@ -82,6 +90,10 @@ class ProxyService final : public proto::VectorDBService::Service {
   grpc::Status Search(grpc::ServerContext* context,
                      const proto::SearchRequest* request,
                      proto::SearchResponse* response) override;
+
+  grpc::Status RangeSearch(grpc::ServerContext* context,
+                          const proto::RangeSearchRequest* request,
+                          proto::RangeSearchResponse* response) override;
 
   // Stats aggregation
   grpc::Status GetStats(grpc::ServerContext* context,
