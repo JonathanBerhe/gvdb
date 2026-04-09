@@ -2,7 +2,8 @@
        docker-build kind-create kind-load deploy apply \
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
        undeploy clean-kind port-forward status \
-       build-ui run-ui
+       build-ui run-ui \
+       lint-sdk test-sdk test-sdk-kind generate-python-stubs
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -19,6 +20,7 @@ K8S_DIR          = deploy/k8s
 CMAKE_JOBS      ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 CMAKE_EXTRA     ?=
 E2E_DIR          = test/e2e
+PYTHON_SDK_DIR   = clients/python
 GVDB_SERVER_ADDR ?= localhost:50051
 
 # ---------------------------------------------------------------------------
@@ -39,6 +41,18 @@ test-e2e:
 
 test-e2e-kind:
 	@cd $(E2E_DIR) && GVDB_SERVER_ADDR=localhost:50050 NO_SERVER=true ./run_all_tests.sh
+
+lint-sdk:
+	@cd $(PYTHON_SDK_DIR) && uv run ruff check . && uv run ruff format --check .
+
+test-sdk: lint-sdk
+	@cd $(PYTHON_SDK_DIR) && uv run python3 -m pytest tests/ -v
+
+test-sdk-kind:
+	@cd $(PYTHON_SDK_DIR) && GVDB_SERVER_ADDR=localhost:50050 uv run python3 -m pytest tests/test_sdk.py -v
+
+generate-python-stubs:
+	@cd $(PYTHON_SDK_DIR) && bash generate_proto.sh
 
 clean:
 	@rm -rf $(BUILD_DIR)
