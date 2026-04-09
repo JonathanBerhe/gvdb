@@ -412,6 +412,44 @@ grpc::Status ProxyService::UpdateMetadata(
   return client->UpdateMetadata(&client_ctx, internal_req, response);
 }
 
+grpc::Status ProxyService::Upsert(
+    grpc::ServerContext* context,
+    const proto::UpsertRequest* request,
+    proto::UpsertResponse* response) {
+
+  auto* client = GetDataNodeClientForCollection(request->collection_name());
+  if (!client) {
+    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
+    client = GetDataNodeClient(shard);
+  }
+  if (!client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
+  }
+
+  proto::UpsertRequest internal_req = *request;
+  grpc::ClientContext client_ctx;
+  return client->Upsert(&client_ctx, internal_req, response);
+}
+
+grpc::Status ProxyService::ListVectors(
+    grpc::ServerContext* context,
+    const proto::ListVectorsRequest* request,
+    proto::ListVectorsResponse* response) {
+
+  auto* client = GetDataNodeClientForCollection(request->collection_name());
+  if (!client) {
+    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
+    client = GetDataNodeClient(shard);
+  }
+  if (!client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
+  }
+
+  proto::ListVectorsRequest internal_req = *request;
+  grpc::ClientContext client_ctx;
+  return client->ListVectors(&client_ctx, internal_req, response);
+}
+
 grpc::Status ProxyService::HybridSearch(
     grpc::ServerContext* context,
     const proto::HybridSearchRequest* request,
@@ -450,6 +488,26 @@ grpc::Status ProxyService::Search(
   proto::SearchRequest internal_req = *request;
   grpc::ClientContext client_ctx;
   return client->Search(&client_ctx, internal_req, response);
+}
+
+grpc::Status ProxyService::RangeSearch(
+    grpc::ServerContext* context,
+    const proto::RangeSearchRequest* request,
+    proto::RangeSearchResponse* response) {
+
+  proto::VectorDBService::Stub* client = GetQueryNodeClient();
+  if (!client) {
+    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
+    client = GetDataNodeClient(shard);
+  }
+  if (!client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
+        "No query node or data node available");
+  }
+
+  proto::RangeSearchRequest internal_req = *request;
+  grpc::ClientContext client_ctx;
+  return client->RangeSearch(&client_ctx, internal_req, response);
 }
 
 grpc::Status ProxyService::GetStats(
