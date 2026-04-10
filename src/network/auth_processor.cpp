@@ -2,22 +2,48 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "network/auth_processor.h"
+#include "auth/auth_context.h"
 #include "utils/logger.h"
+
+#include <string>
 
 namespace gvdb {
 namespace network {
 
+namespace {
+bool EndsWith(const std::string& str, const std::string& suffix) {
+  if (suffix.size() > str.size()) return false;
+  return str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+bool IsPublicMethod(const std::string& method) {
+  // Suffix-match to prevent bypass via crafted service names
+  // (e.g. "/EvilService/HealthCheck" would match substring but not suffix).
+  return EndsWith(method, "/HealthCheck") || EndsWith(method, "/GetStats");
+}
+}  // namespace
+
 ApiKeyAuthInterceptor::ApiKeyAuthInterceptor(
     grpc::experimental::ServerRpcInfo* info,
-    const std::unordered_set<std::string>* valid_keys)
-    : info_(info), valid_keys_(valid_keys) {}
+    const auth::RbacStore* rbac_store)
+    : info_(info), rbac_store_(rbac_store) {}
 
 void ApiKeyAuthInterceptor::Intercept(
     grpc::experimental::InterceptorBatchMethods* methods) {
 
+  // Clear stale thread-local auth state from previous RPC on this thread
+  auth::AuthContext::Clear();
+
   if (!rejected_ && methods->QueryInterceptionHookPoint(
           grpc::experimental::InterceptionHookPoints::
               POST_RECV_INITIAL_METADATA)) {
+
+    // Skip auth for public endpoints
+    std::string method(info_->method());
+    if (IsPublicMethod(method)) {
+      methods->Proceed();
+      return;
+    }
 
     auto* context = info_->server_context();
     const auto& metadata = context->client_metadata();
@@ -41,10 +67,14 @@ void ApiKeyAuthInterceptor::Intercept(
             "Invalid authorization format. Expected: Bearer <api-key>");
       } else {
         std::string key = auth_value.substr(prefix.length());
-        if (valid_keys_->find(key) == valid_keys_->end()) {
+        auto* role = rbac_store_->Lookup(key);
+        if (!role) {
           should_reject = true;
           reject_status = grpc::Status(grpc::StatusCode::UNAUTHENTICATED,
               "Invalid API key");
+        } else {
+          // Authentication passed — store key in thread-local for service to read
+          auth::AuthContext::SetCurrentKey(key);
         }
       }
     }
@@ -59,16 +89,16 @@ void ApiKeyAuthInterceptor::Intercept(
 }
 
 ApiKeyAuthInterceptorFactory::ApiKeyAuthInterceptorFactory(
-    const utils::AuthConfig& config)
-    : valid_keys_(config.api_keys.begin(), config.api_keys.end()) {
+    std::shared_ptr<auth::RbacStore> rbac_store)
+    : rbac_store_(std::move(rbac_store)) {
   utils::Logger::Instance().Info("Auth interceptor factory initialized with {} API key(s)",
-                                  valid_keys_.size());
+                                  rbac_store_->Size());
 }
 
 grpc::experimental::Interceptor*
 ApiKeyAuthInterceptorFactory::CreateServerInterceptor(
     grpc::experimental::ServerRpcInfo* info) {
-  return new ApiKeyAuthInterceptor(info, &valid_keys_);
+  return new ApiKeyAuthInterceptor(info, rbac_store_.get());
 }
 
 }  // namespace network

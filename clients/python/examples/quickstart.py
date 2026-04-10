@@ -24,13 +24,17 @@ def main():
     except Exception:
         pass
 
-    client.create_collection(collection_name, dimension=128, metric="l2", index_type="hnsw")
+    client.create_collection(
+        collection_name, dimension=128, metric="l2", index_type="hnsw"
+    )
     print(f"Created collection: {collection_name}")
 
     # Insert 100 vectors with metadata
     ids = list(range(1, 101))
     vectors = [[random.gauss(0, 1) for _ in range(128)] for _ in range(100)]
-    metadata = [{"category": f"cat_{i % 5}", "score": random.random()} for i in range(100)]
+    metadata = [
+        {"category": f"cat_{i % 5}", "score": random.random()} for i in range(100)
+    ]
 
     inserted = client.insert(collection_name, ids, vectors, metadata=metadata)
     print(f"Inserted {inserted} vectors")
@@ -38,7 +42,7 @@ def main():
     # Search
     query = [random.gauss(0, 1) for _ in range(128)]
     results = client.search(collection_name, query, top_k=5, return_metadata=True)
-    print(f"\nTop 5 results:")
+    print("\nTop 5 results:")
     for r in results:
         print(f"  ID={r.id}, distance={r.distance:.4f}, metadata={r.metadata}")
 
@@ -50,7 +54,7 @@ def main():
         filter_expression="category = 'cat_0'",
         return_metadata=True,
     )
-    print(f"\nFiltered results (category='cat_0'):")
+    print("\nFiltered results (category='cat_0'):")
     for r in results:
         print(f"  ID={r.id}, distance={r.distance:.4f}, metadata={r.metadata}")
 

@@ -15,6 +15,8 @@
 #include "compute/query_executor.h"
 #include "network/vectordb_service.h"
 #include "network/collection_resolver.h"
+#include "network/auth_processor.h"
+#include "auth/rbac.h"
 #include "index/index_factory.h"
 #include "utils/server_bootstrap.h"
 #include "utils/config.h"
@@ -164,15 +166,30 @@ int main(int argc, char** argv) {
     auto coordinator = std::make_unique<cluster::Coordinator>(
         shard_manager, node_registry);
 
-    // 4. gRPC service
+    // 4. RBAC (if auth enabled in config)
+    std::shared_ptr<auth::RbacStore> rbac_store;
+    std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors;
+    if (config.server.auth.enabled) {
+      auto rbac_result = auth::RbacStore::Create(config.server.auth);
+      if (!rbac_result.ok()) {
+        std::cerr << "Invalid auth config: " << rbac_result.status().message() << std::endl;
+        return 1;
+      }
+      rbac_store = std::move(*rbac_result);
+      interceptors.push_back(
+          std::make_unique<network::ApiKeyAuthInterceptorFactory>(rbac_store));
+    }
+
+    // 5. gRPC service
     auto resolver = network::MakeLocalResolver(segment_manager);
     auto service = std::make_unique<network::VectorDBService>(
-        segment_manager, query_executor, std::move(resolver));
+        segment_manager, query_executor, std::move(resolver), rbac_store);
 
-    // 5. Start server
+    // 6. Start server
     std::string server_address = absl::StrCat("0.0.0.0:", port);
+    auto credentials = utils::ServerBootstrap::MakeServerCredentials(config.server.tls);
     auto server = utils::ServerBootstrap::StartGrpcServer(
-        server_address, {service.get()});
+        server_address, {service.get()}, credentials, std::move(interceptors));
     if (!server) {
       std::cerr << "Failed to start gRPC server on " << server_address << std::endl;
       return 1;

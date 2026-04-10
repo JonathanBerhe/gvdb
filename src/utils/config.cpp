@@ -60,6 +60,21 @@ ServerConfig Config::parse_server_config(const YAML::Node& node) {
         config.auth.api_keys.push_back(key.as<std::string>());
       }
     }
+    if (auth_node["roles"] && auth_node["roles"].IsSequence()) {
+      for (const auto& role_node : auth_node["roles"]) {
+        ApiKeyConfig akc;
+        akc.key = get_or_default(role_node, "key", std::string{});
+        akc.role = get_or_default(role_node, "role", std::string{"admin"});
+        if (role_node["collections"] && role_node["collections"].IsSequence()) {
+          for (const auto& c : role_node["collections"]) {
+            akc.collections.push_back(c.as<std::string>());
+          }
+        }
+        if (!akc.key.empty()) {
+          config.auth.roles.push_back(std::move(akc));
+        }
+      }
+    }
   }
 
   return config;

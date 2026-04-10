@@ -4,6 +4,7 @@
 #include "network/vectordb_service.h"
 #include "network/proto_conversions.h"
 #include "network/collection_resolver.h"
+#include "auth/auth_context.h"
 #include "utils/logger.h"
 #include "utils/metrics.h"
 #include "utils/timer.h"
@@ -27,14 +28,45 @@ namespace network {
 VectorDBService::VectorDBService(
     std::shared_ptr<storage::SegmentManager> segment_manager,
     std::shared_ptr<compute::QueryExecutor> query_executor,
-    std::unique_ptr<ICollectionResolver> resolver)
+    std::unique_ptr<ICollectionResolver> resolver,
+    std::shared_ptr<auth::RbacStore> rbac_store)
     : segment_manager_(std::move(segment_manager)),
       query_executor_(std::move(query_executor)),
-      resolver_(std::move(resolver)) {
-  utils::Logger::Instance().Info("VectorDBService initialized");
+      resolver_(std::move(resolver)),
+      rbac_store_(std::move(rbac_store)) {
+  utils::Logger::Instance().Info("VectorDBService initialized (RBAC {})",
+                                  rbac_store_ ? "enabled" : "disabled");
 }
 
 VectorDBService::~VectorDBService() = default;
+
+grpc::Status VectorDBService::CheckPermission(
+    auth::Permission perm, const std::string& collection_name) const {
+  if (!rbac_store_) return grpc::Status::OK;
+
+  const auto& key = auth::AuthContext::GetCurrentKey();
+  if (key.empty()) {
+    return grpc::Status(grpc::StatusCode::UNAUTHENTICATED,
+        "No API key in auth context");
+  }
+
+  auto* role = rbac_store_->Lookup(key);
+  if (!role) {
+    return grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "Unknown API key");
+  }
+
+  if (!auth::HasPermission(role->role, perm)) {
+    return grpc::Status(grpc::StatusCode::PERMISSION_DENIED,
+        "Role does not have permission for this operation");
+  }
+
+  if (!collection_name.empty() && !auth::HasCollectionAccess(*role, collection_name)) {
+    return grpc::Status(grpc::StatusCode::PERMISSION_DENIED,
+        "Access denied for collection: " + collection_name);
+  }
+
+  return grpc::Status::OK;
+}
 
 // ============================================================================
 // Helpers
@@ -223,6 +255,8 @@ grpc::Status VectorDBService::CreateCollection(
     grpc::ServerContext* context,
     const proto::CreateCollectionRequest* request,
     proto::CreateCollectionResponse* response) {
+  auto perm = CheckPermission(auth::Permission::CREATE_COLLECTION, request->collection_name());
+  if (!perm.ok()) return perm;
 
   utils::Logger::Instance().Info("CreateCollection: {}", request->collection_name());
 
@@ -268,6 +302,8 @@ grpc::Status VectorDBService::DropCollection(
     grpc::ServerContext* context,
     const proto::DropCollectionRequest* request,
     proto::DropCollectionResponse* response) {
+  auto perm = CheckPermission(auth::Permission::DROP_COLLECTION, request->collection_name());
+  if (!perm.ok()) return perm;
 
   utils::Logger::Instance().Info("DropCollection: {}", request->collection_name());
 
@@ -293,6 +329,8 @@ grpc::Status VectorDBService::ListCollections(
     grpc::ServerContext* context,
     const proto::ListCollectionsRequest* request,
     proto::ListCollectionsResponse* response) {
+  auto perm = CheckPermission(auth::Permission::LIST_COLLECTIONS, "");
+  if (!perm.ok()) return perm;
 
   auto collections = resolver_->ListCollections();
 
@@ -316,6 +354,8 @@ grpc::Status VectorDBService::Insert(
     grpc::ServerContext* context,
     const proto::InsertRequest* request,
     proto::InsertResponse* response) {
+  auto perm = CheckPermission(auth::Permission::INSERT, request->collection_name());
+  if (!perm.ok()) return perm;
 
   utils::Logger::Instance().Info("Insert: {} vectors into {}",
                                  request->vectors().size(),
@@ -504,10 +544,16 @@ grpc::Status VectorDBService::StreamInsert(
   uint64_t total_inserted = 0;
   proto::InsertRequest chunk;
   std::string collection_name;
+  bool perm_checked = false;
 
   while (reader->Read(&chunk)) {
     if (chunk.vectors().empty()) continue;
     if (collection_name.empty()) collection_name = chunk.collection_name();
+    if (!perm_checked) {
+      auto perm = CheckPermission(auth::Permission::STREAM_INSERT, collection_name);
+      if (!perm.ok()) return perm;
+      perm_checked = true;
+    }
 
     auto segment_ids_result = resolver_->GetSegmentIds(chunk.collection_name());
     if (!segment_ids_result.ok()) {
@@ -610,6 +656,8 @@ grpc::Status VectorDBService::Upsert(
     grpc::ServerContext* context,
     const proto::UpsertRequest* request,
     proto::UpsertResponse* response) {
+  auto perm = CheckPermission(auth::Permission::UPSERT, request->collection_name());
+  if (!perm.ok()) return perm;
   if (request->collection_name().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Collection name is required");
   }
@@ -700,6 +748,8 @@ grpc::Status VectorDBService::RangeSearch(
     grpc::ServerContext* context,
     const proto::RangeSearchRequest* request,
     proto::RangeSearchResponse* response) {
+  auto perm = CheckPermission(auth::Permission::RANGE_SEARCH, request->collection_name());
+  if (!perm.ok()) return perm;
   utils::Timer timer;
 
   if (request->collection_name().empty()) {
@@ -781,6 +831,8 @@ grpc::Status VectorDBService::Search(
     grpc::ServerContext* context,
     const proto::SearchRequest* request,
     proto::SearchResponse* response) {
+  auto perm = CheckPermission(auth::Permission::SEARCH, request->collection_name());
+  if (!perm.ok()) return perm;
 
   utils::Timer search_timer;
 
@@ -888,6 +940,8 @@ grpc::Status VectorDBService::HybridSearch(
     grpc::ServerContext* context,
     const proto::HybridSearchRequest* request,
     proto::HybridSearchResponse* response) {
+  auto perm = CheckPermission(auth::Permission::HYBRID_SEARCH, request->collection_name());
+  if (!perm.ok()) return perm;
 
   utils::Timer search_timer;
   utils::Logger::Instance().Info("HybridSearch: collection={}, text_query='{}'",
@@ -1021,6 +1075,8 @@ grpc::Status VectorDBService::Get(
     grpc::ServerContext* context,
     const proto::GetRequest* request,
     proto::GetResponse* response) {
+  auto perm = CheckPermission(auth::Permission::GET, request->collection_name());
+  if (!perm.ok()) return perm;
 
   utils::Logger::Instance().Info("Get: {} IDs from {}",
                                  request->ids().size(),
@@ -1100,6 +1156,8 @@ grpc::Status VectorDBService::ListVectors(
     grpc::ServerContext* context,
     const proto::ListVectorsRequest* request,
     proto::ListVectorsResponse* response) {
+  auto perm = CheckPermission(auth::Permission::LIST_VECTORS, request->collection_name());
+  if (!perm.ok()) return perm;
 
   if (!resolver_->SupportsDataOps()) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
@@ -1149,6 +1207,8 @@ grpc::Status VectorDBService::Delete(
     grpc::ServerContext* context,
     const proto::DeleteRequest* request,
     proto::DeleteResponse* response) {
+  auto perm = CheckPermission(auth::Permission::DELETE, request->collection_name());
+  if (!perm.ok()) return perm;
 
   utils::Logger::Instance().Info("Delete: {} IDs from {}",
                                  request->ids().size(),
@@ -1234,6 +1294,8 @@ grpc::Status VectorDBService::UpdateMetadata(
     grpc::ServerContext* context,
     const proto::UpdateMetadataRequest* request,
     proto::UpdateMetadataResponse* response) {
+  auto perm = CheckPermission(auth::Permission::UPDATE_METADATA, request->collection_name());
+  if (!perm.ok()) return perm;
 
   utils::Logger::Instance().Info("UpdateMetadata: ID {} in {}",
                                  request->id(), request->collection_name());
