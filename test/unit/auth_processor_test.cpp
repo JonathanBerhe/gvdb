@@ -32,10 +32,10 @@ class AuthIntegrationTest {
     std::filesystem::create_directories("/tmp/gvdb-auth-test");
 
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_manager_ = std::make_shared<storage::SegmentManager>(
+    segment_store_ = std::make_shared<storage::SegmentManager>(
         "/tmp/gvdb-auth-test", index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
-        segment_manager_.get());
+        segment_store_.get());
 
     utils::AuthConfig auth_config;
     auth_config.enabled = true;
@@ -51,9 +51,9 @@ class AuthIntegrationTest {
     REQUIRE(rbac_result.ok());
     rbac_store_ = std::move(*rbac_result);
 
-    auto resolver = network::MakeLocalResolver(segment_manager_);
+    auto resolver = network::MakeLocalResolver(segment_store_);
     service_ = std::make_unique<network::VectorDBService>(
-        segment_manager_, query_executor_, std::move(resolver), rbac_store_);
+        segment_store_, query_executor_, std::move(resolver), rbac_store_);
 
     std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> creators;
     creators.push_back(
@@ -134,7 +134,7 @@ class AuthIntegrationTest {
   }
 
   std::unique_ptr<index::IndexFactory> index_factory_;
-  std::shared_ptr<storage::SegmentManager> segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::shared_ptr<auth::RbacStore> rbac_store_;
   std::unique_ptr<network::VectorDBService> service_;

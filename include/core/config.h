@@ -89,6 +89,11 @@ struct StorageConfig {
     std::string secret_key;
     std::string bucket;
     bool use_ssl = true;
+    std::string region;           // e.g., "us-east-1"
+    std::string prefix;           // S3 key prefix, e.g., "gvdb"
+    std::string local_cache_dir;  // defaults to {base_path}/cache if empty
+    size_t local_cache_size = 256 * 1024 * 1024;  // 256 MB
+    int upload_threads = 2;
   } object_store_params;
 
   // Segment configuration

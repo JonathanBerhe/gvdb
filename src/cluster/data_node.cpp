@@ -9,9 +9,9 @@ namespace gvdb {
 namespace cluster {
 
 DataNode::DataNode(std::unique_ptr<index::IndexFactory> index_factory,
-                   std::shared_ptr<storage::SegmentManager> segment_manager)
+                   std::shared_ptr<storage::ISegmentStore> segment_store)
     : index_factory_(std::move(index_factory)),
-      segment_manager_(std::move(segment_manager)) {
+      segment_store_(std::move(segment_store)) {
   utils::Logger::Instance().Info("DataNode initialized");
 }
 
@@ -30,7 +30,7 @@ absl::Status DataNode::ScheduleBuildTask(const BuildTask& task) {
 }
 
 absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType index_type) {
-  auto* segment = segment_manager_->GetSegment(segment_id);
+  auto* segment = segment_store_->GetSegment(segment_id);
   if (!segment) {
     return absl::NotFoundError(
         absl::StrCat("Segment not found: ", core::ToUInt32(segment_id)));
@@ -64,7 +64,7 @@ absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType in
       static_cast<int>(resolved_type), core::ToUInt32(segment_id),
       segment->GetVectorCount(), segment->GetDimension());
 
-  auto status = segment_manager_->SealSegment(segment_id, config);
+  auto status = segment_store_->SealSegment(segment_id, config);
   if (!status.ok()) {
     utils::Logger::Instance().Error(
         "Failed to build index for segment {}: {}",
@@ -122,7 +122,7 @@ void DataNode::RunBuildLoop(const std::atomic<bool>& shutdown) {
 }
 
 void DataNode::RunTTLSweepLoop(const std::atomic<bool>& shutdown) {
-  segment_manager_->RunTTLSweepLoop(shutdown);
+  segment_store_->RunTTLSweepLoop(shutdown);
 }
 
 size_t DataNode::GetPendingTaskCount() const {
@@ -147,7 +147,7 @@ absl::Status DataNode::CompactSegments(const std::vector<core::SegmentId>& segme
   core::IndexType index_type = core::IndexType::FLAT;
 
   for (size_t i = 0; i < segments.size(); ++i) {
-    auto* seg = segment_manager_->GetSegment(segments[i]);
+    auto* seg = segment_store_->GetSegment(segments[i]);
     if (!seg) {
       return absl::NotFoundError(
           absl::StrCat("Segment not found: ", core::ToUInt32(segments[i])));
@@ -177,18 +177,18 @@ absl::Status DataNode::CompactSegments(const std::vector<core::SegmentId>& segme
       static_cast<int>(metric));
 
   // Create new GROWING segment
-  auto new_seg_result = segment_manager_->CreateSegment(
+  auto new_seg_result = segment_store_->CreateSegment(
       collection_id, dimension, metric);
   if (!new_seg_result.ok()) {
     return new_seg_result.status();
   }
   auto new_seg_id = *new_seg_result;
-  auto* new_segment = segment_manager_->GetSegment(new_seg_id);
+  auto* new_segment = segment_store_->GetSegment(new_seg_id);
 
   // Copy vectors and metadata from all source segments
   size_t total_vectors = 0;
   for (auto seg_id : segments) {
-    auto* src = segment_manager_->GetSegment(seg_id);
+    auto* src = segment_store_->GetSegment(seg_id);
     if (!src) continue;
 
     auto all_ids = src->GetAllVectorIds();
@@ -212,7 +212,7 @@ absl::Status DataNode::CompactSegments(const std::vector<core::SegmentId>& segme
           get_result.found_vectors, get_result.found_ids);
     }
     if (!add_status.ok()) {
-      auto drop = segment_manager_->DropSegment(new_seg_id, true);
+      auto drop = segment_store_->DropSegment(new_seg_id, true);
       (void)drop;
       return add_status;
     }
@@ -225,15 +225,15 @@ absl::Status DataNode::CompactSegments(const std::vector<core::SegmentId>& segme
   config.dimension = dimension;
   config.metric_type = metric;
 
-  auto seal_status = segment_manager_->SealSegment(new_seg_id, config);
+  auto seal_status = segment_store_->SealSegment(new_seg_id, config);
   if (!seal_status.ok()) {
-    segment_manager_->DropSegment(new_seg_id, true);
+    segment_store_->DropSegment(new_seg_id, true);
     return seal_status;
   }
 
   // Drop source segments
   for (auto seg_id : segments) {
-    auto drop_result = segment_manager_->DropSegment(seg_id, true);
+    auto drop_result = segment_store_->DropSegment(seg_id, true);
     if (!drop_result.ok()) {
       utils::Logger::Instance().Error(
           "Failed to drop source segment {} during compaction: {}",

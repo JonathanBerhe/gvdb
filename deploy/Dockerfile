@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     git \
     libomp-dev \
     libssl-dev \
+    libcurl4-openssl-dev \
     libopenblas-dev \
     liblapack-dev \
     zlib1g-dev \
@@ -23,6 +24,7 @@ COPY . .
 RUN cmake -S . -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=OFF \
+    -DGVDB_WITH_S3=ON \
     && cmake --build build -j4 \
     && strip build/bin/gvdb-*
 
@@ -37,6 +39,9 @@ RUN apt-get update && apt-get install -y \
     libopenblas0 \
     liblapack3 \
     zlib1g \
+    libcurl4 \
+    libssl3 \
+    ca-certificates \
     netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 

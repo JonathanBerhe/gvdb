@@ -5,7 +5,7 @@
 
 #include "vectordb.grpc.pb.h"
 #include "internal.grpc.pb.h"
-#include "storage/segment_manager.h"
+#include "storage/segment_store.h"
 #include "compute/query_executor.h"
 #include "network/collection_resolver.h"
 #include "auth/rbac.h"
@@ -22,7 +22,7 @@ namespace network {
 class VectorDBService final : public proto::VectorDBService::Service {
  public:
   VectorDBService(
-      std::shared_ptr<storage::SegmentManager> segment_manager,
+      std::shared_ptr<storage::ISegmentStore> segment_store,
       std::shared_ptr<compute::QueryExecutor> query_executor,
       std::unique_ptr<ICollectionResolver> resolver,
       std::shared_ptr<auth::RbacStore> rbac_store = nullptr);
@@ -122,7 +122,7 @@ class VectorDBService final : public proto::VectorDBService::Service {
       proto::SearchResponse* response,
       const core::Vector& query);
 
-  std::shared_ptr<storage::SegmentManager> segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::unique_ptr<ICollectionResolver> resolver_;
   std::shared_ptr<auth::RbacStore> rbac_store_;

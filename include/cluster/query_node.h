@@ -5,7 +5,7 @@
 
 #include "core/types.h"
 #include "core/vector.h"
-#include "storage/segment_manager.h"
+#include "storage/segment_store.h"
 #include "compute/query_executor.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -19,7 +19,7 @@ namespace cluster {
 // Query node serves read requests with cached segments
 class QueryNode {
  public:
-  QueryNode(std::shared_ptr<storage::SegmentManager> segment_manager,
+  QueryNode(std::shared_ptr<storage::ISegmentStore> segment_store,
             std::shared_ptr<compute::QueryExecutor> query_executor,
             size_t memory_limit_bytes);
   ~QueryNode() = default;
@@ -44,7 +44,7 @@ class QueryNode {
   }
 
  private:
-  std::shared_ptr<storage::SegmentManager> segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   size_t memory_limit_bytes_;
   size_t memory_used_bytes_;

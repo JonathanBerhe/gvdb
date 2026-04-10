@@ -16,6 +16,7 @@
 #include "core/types.h"
 #include "core/vector.h"
 #include "storage/segment.h"
+#include "storage/segment_store.h"
 
 // Hash specialization for SegmentId and CollectionId (needed for unordered_map)
 // Must come BEFORE use in SegmentManager class
@@ -43,7 +44,7 @@ namespace storage {
 // ============================================================================
 // Coordinates segment creation, sealing, flushing, and garbage collection
 // Thread-safety: All operations are thread-safe using shared_mutex
-class SegmentManager {
+class SegmentManager : public ISegmentStore {
  public:
   // Constructor
   explicit SegmentManager(const std::string& base_path,
@@ -56,114 +57,90 @@ class SegmentManager {
   SegmentManager(SegmentManager&&) = delete;
   SegmentManager& operator=(SegmentManager&&) = delete;
 
-  ~SegmentManager() = default;
+  ~SegmentManager() override = default;
 
   // ========== Segment Lifecycle ==========
 
-  // Create a new growing segment (auto-assigns segment_id)
   [[nodiscard]] core::StatusOr<core::SegmentId> CreateSegment(
       core::CollectionId collection_id,
       core::Dimension dimension,
-      core::MetricType metric);
+      core::MetricType metric) override;
 
-  // Create segment with specific ID (for distributed mode - called via RPC)
   [[nodiscard]] core::Status CreateSegmentWithId(
       core::SegmentId segment_id,
       core::CollectionId collection_id,
       core::Dimension dimension,
       core::MetricType metric,
-      core::IndexType index_type);
+      core::IndexType index_type) override;
 
-  // Get a segment by ID (returns nullptr if not found)
-  [[nodiscard]] Segment* GetSegment(core::SegmentId id);
-  [[nodiscard]] const Segment* GetSegment(core::SegmentId id) const;
+  [[nodiscard]] Segment* GetSegment(core::SegmentId id) override;
+  [[nodiscard]] const Segment* GetSegment(core::SegmentId id) const override;
 
-  // Seal a segment (build index, make immutable)
-  [[nodiscard]] core::Status SealSegment(core::SegmentId id,
-                                          const core::IndexConfig& index_config);
+  [[nodiscard]] core::Status SealSegment(
+      core::SegmentId id,
+      const core::IndexConfig& index_config) override;
 
-  // Flush a segment to persistent storage
-  [[nodiscard]] core::Status FlushSegment(core::SegmentId id);
+  [[nodiscard]] core::Status FlushSegment(core::SegmentId id) override;
 
-  // Drop a segment (remove from memory and optionally delete from disk)
-  [[nodiscard]] core::Status DropSegment(core::SegmentId id, bool delete_files = false);
+  [[nodiscard]] core::Status DropSegment(
+      core::SegmentId id, bool delete_files = false) override;
 
-  // Load segment from disk
-  [[nodiscard]] core::Status LoadSegment(core::SegmentId id);
+  [[nodiscard]] core::Status LoadSegment(core::SegmentId id) override;
 
-  // Add replicated segment (from network transfer)
-  [[nodiscard]] core::Status AddReplicatedSegment(std::unique_ptr<Segment> segment);
+  [[nodiscard]] core::Status AddReplicatedSegment(
+      std::unique_ptr<Segment> segment) override;
 
   // ========== Data Operations ==========
 
-  // Write vectors to a segment
   [[nodiscard]] core::Status WriteVectors(
       core::SegmentId segment_id,
       const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids);
+      const std::vector<core::VectorId>& ids) override;
 
-  // Read vectors from a segment
   [[nodiscard]] core::StatusOr<std::vector<core::Vector>> ReadVectors(
       core::SegmentId segment_id,
-      const std::vector<core::VectorId>& ids) const;
+      const std::vector<core::VectorId>& ids) const override;
 
-  // Search in a specific segment
   [[nodiscard]] core::StatusOr<core::SearchResult> SearchSegment(
       core::SegmentId segment_id,
       const core::Vector& query,
-      int k) const;
+      int k) const override;
 
-  // Search across all segments in a collection
   [[nodiscard]] core::StatusOr<core::SearchResult> SearchCollection(
       core::CollectionId collection_id,
       const core::Vector& query,
-      int k) const;
+      int k) const override;
 
   // ========== Active Segment Rotation ==========
 
-  // Callback invoked when a segment is rotated out (full).
-  // Parameters: (old_segment_id, index_type_to_build)
-  using SealCallback = std::function<void(core::SegmentId, core::IndexType)>;
+  void SetSealCallback(SealCallback callback) override;
 
-  // Register a callback for segment rotation events.
-  // Typically wired to DataNode::ScheduleBuildTask.
-  void SetSealCallback(SealCallback callback);
+  [[nodiscard]] Segment* GetWritableSegment(
+      core::CollectionId collection_id,
+      size_t required_bytes = 0) override;
 
-  // Get a writable GROWING segment for a collection.
-  // If the active segment is full (or can't fit required_bytes), rotates:
-  // creates a new segment, invokes the seal callback for the old one,
-  // and returns the new one.
-  [[nodiscard]] Segment* GetWritableSegment(core::CollectionId collection_id,
-                                            size_t required_bytes = 0);
-
-  // Get all queryable segments for a collection (GROWING + SEALED).
   [[nodiscard]] std::vector<Segment*> GetQueryableSegments(
-      core::CollectionId collection_id) const;
+      core::CollectionId collection_id) const override;
 
-  // Get all segment IDs across all collections
-  [[nodiscard]] std::vector<core::SegmentId> GetAllSegmentIds() const;
+  [[nodiscard]] std::vector<core::SegmentId> GetAllSegmentIds() const override;
 
-  // Run TTL sweep loop — blocks until shutdown. Sweeps expired vectors from
-  // GROWING segments at Segment::kTTLSweepIntervalSeconds interval.
-  void RunTTLSweepLoop(const std::atomic<bool>& shutdown);
+  void RunTTLSweepLoop(const std::atomic<bool>& shutdown) override;
 
   // ========== Management ==========
 
-  // Load all previously-flushed segments from disk (startup recovery)
-  absl::Status LoadAllSegments();
+  [[nodiscard]] absl::Status LoadAllSegments() override;
 
-  // Get all segment IDs for a collection
   [[nodiscard]] std::vector<core::SegmentId> GetCollectionSegments(
-      core::CollectionId collection_id) const;
+      core::CollectionId collection_id) const override;
 
-  // Get segment count
-  [[nodiscard]] size_t GetSegmentCount() const;
+  [[nodiscard]] size_t GetSegmentCount() const override;
 
-  // Get total memory usage
-  [[nodiscard]] size_t GetTotalMemoryUsage() const;
+  [[nodiscard]] size_t GetTotalMemoryUsage() const override;
 
-  // Clear all segments (for testing)
-  void Clear();
+  void Clear() override;
+
+  // Get the base path for segment storage on local disk
+  [[nodiscard]] const std::string& GetBasePath() const { return base_path_; }
 
  private:
   // Storage path

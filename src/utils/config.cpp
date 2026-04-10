@@ -93,6 +93,21 @@ StorageConfig Config::parse_storage_config(const YAML::Node& node) {
   config.enable_compression = get_or_default(node, "enable_compression", config.enable_compression);
   config.compaction_threads = get_or_default(node, "compaction_threads", config.compaction_threads);
 
+  // Object store (S3/MinIO) configuration
+  if (node["object_store"]) {
+    auto os = node["object_store"];
+    config.object_store_type = get_or_default(os, "type", std::string(""));
+    config.object_store_endpoint = get_or_default(os, "endpoint", std::string(""));
+    config.object_store_access_key = get_or_default(os, "access_key", std::string(""));
+    config.object_store_secret_key = get_or_default(os, "secret_key", std::string(""));
+    config.object_store_bucket = get_or_default(os, "bucket", std::string(""));
+    config.object_store_region = get_or_default(os, "region", std::string("us-east-1"));
+    config.object_store_prefix = get_or_default(os, "prefix", std::string("gvdb"));
+    config.object_store_use_ssl = get_or_default(os, "use_ssl", true);
+    config.object_store_cache_size_mb = get_or_default(os, "local_cache_size_mb", 256);
+    config.object_store_upload_threads = get_or_default(os, "upload_threads", 2);
+  }
+
   return config;
 }
 

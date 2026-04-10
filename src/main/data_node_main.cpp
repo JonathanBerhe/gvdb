@@ -11,6 +11,11 @@
 #include "cluster/shard_manager.h"
 #include "cluster/heartbeat_sender.h"
 #include "storage/segment_manager.h"
+#include "storage/tiered_segment_manager.h"
+#include "storage/segment_cache.h"
+#ifdef GVDB_HAS_S3
+#include "storage/s3_object_store.h"
+#endif
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "network/vectordb_service.h"
@@ -120,13 +125,39 @@ int main(int argc, char** argv) {
     auto index_factory = std::make_unique<index::IndexFactory>();
     auto segment_manager = std::make_shared<storage::SegmentManager>(
         args.data_dir + "/segments", index_factory.get());
-    segment_manager->LoadAllSegments();
-    auto data_node = std::make_shared<cluster::DataNode>(std::move(index_factory), segment_manager);
+
+    // Optionally wrap in tiered storage (S3/MinIO)
+    std::shared_ptr<storage::ISegmentStore> segment_store;
+#ifdef GVDB_HAS_S3
+    if (!args.s3_endpoint.empty()) {
+      storage::S3Config s3_config;
+      s3_config.endpoint = args.s3_endpoint;
+      // Data node S3 config would come from CLI flags or config file
+      // For now, use environment variables as fallback
+      auto s3_result = storage::S3ObjectStore::Create(s3_config);
+      if (s3_result.ok()) {
+        auto cache = std::make_unique<storage::SegmentCache>(
+            args.data_dir + "/cache", 256 * 1024 * 1024);
+        segment_store = std::make_shared<storage::TieredSegmentManager>(
+            std::move(segment_manager), std::move(*s3_result),
+            std::move(cache), "gvdb");
+      } else {
+        segment_store = segment_manager;
+      }
+    } else {
+      segment_store = segment_manager;
+    }
+#else
+    segment_store = segment_manager;
+#endif
+
+    segment_store->LoadAllSegments();
+    auto data_node = std::make_shared<cluster::DataNode>(std::move(index_factory), segment_store);
 
     // Wire auto-seal: when a segment fills up, queue it for background index building
-    segment_manager->SetSealCallback(
+    segment_store->SetSealCallback(
         [data_node](core::SegmentId sid, core::IndexType idx_type) {
-          data_node->ScheduleBuildTask({sid, idx_type, 100});
+          (void)data_node->ScheduleBuildTask({sid, idx_type, 100});
         });
 
     // Background thread to process build queue (seals segments + builds indexes)
@@ -140,24 +171,24 @@ int main(int argc, char** argv) {
     });
 
     auto query_executor = std::make_shared<compute::QueryExecutor>(
-        segment_manager.get());
+        segment_store.get());
     query_executor->SetCache(std::make_shared<utils::QueryCache>(10000));
 
     // 2. ShardManager + InternalService
     auto shard_manager = std::make_shared<cluster::ShardManager>(
         16, cluster::ShardingStrategy::HASH);
     auto internal_service = std::make_unique<network::InternalService>(
-        shard_manager, segment_manager, query_executor);
+        shard_manager, segment_store, query_executor);
 
     // 3. VectorDBService
     std::unique_ptr<network::ICollectionResolver> resolver;
     if (!args.coordinator_addresses.empty()) {
       resolver = network::MakeCachedCoordinatorResolver(args.coordinator_addresses[0]);
     } else {
-      resolver = network::MakeLocalResolver(segment_manager);
+      resolver = network::MakeLocalResolver(segment_store);
     }
     auto service = std::make_unique<network::VectorDBService>(
-        segment_manager, query_executor, std::move(resolver));
+        segment_store, query_executor, std::move(resolver));
 
     // 4. Start server
     auto server = utils::ServerBootstrap::StartGrpcServer(

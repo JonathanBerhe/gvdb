@@ -13,7 +13,7 @@
 #include <vector>
 
 namespace gvdb {
-namespace storage { class SegmentManager; }
+namespace storage { class ISegmentStore; }
 namespace cluster { class Coordinator; }
 namespace network {
 
@@ -98,7 +98,7 @@ class ICollectionResolver {
 
 // Factory functions for creating resolvers
 std::unique_ptr<ICollectionResolver> MakeLocalResolver(
-    std::shared_ptr<storage::SegmentManager> segment_manager);
+    std::shared_ptr<storage::ISegmentStore> segment_store);
 
 std::unique_ptr<ICollectionResolver> MakeCoordinatorResolver(
     std::shared_ptr<cluster::Coordinator> coordinator);

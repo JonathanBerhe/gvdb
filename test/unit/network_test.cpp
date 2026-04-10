@@ -155,23 +155,23 @@ class VectorDBServiceTest {
     index_factory_ = std::make_unique<index::IndexFactory>();
 
     // Create segment manager
-    segment_manager_ = std::make_shared<storage::SegmentManager>(
+    segment_store_ = std::make_shared<storage::SegmentManager>(
         test_dir_, index_factory_.get());
 
     // Create query executor
     query_executor_ = std::make_shared<compute::QueryExecutor>(
-        segment_manager_.get());
+        segment_store_.get());
 
     // Create service with local resolver
-    auto resolver = network::MakeLocalResolver(segment_manager_);
+    auto resolver = network::MakeLocalResolver(segment_store_);
     service_ = std::make_unique<network::VectorDBService>(
-        segment_manager_, query_executor_, std::move(resolver));
+        segment_store_, query_executor_, std::move(resolver));
   }
 
   ~VectorDBServiceTest() {
     service_.reset();
     query_executor_.reset();
-    segment_manager_.reset();
+    segment_store_.reset();
     index_factory_.reset();
 
     // Clean up test directory
@@ -180,7 +180,7 @@ class VectorDBServiceTest {
 
   std::string test_dir_;
   std::unique_ptr<index::IndexFactory> index_factory_;
-  std::shared_ptr<storage::SegmentManager> segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::unique_ptr<network::VectorDBService> service_;
 };

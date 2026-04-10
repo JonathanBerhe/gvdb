@@ -26,9 +26,9 @@ class DataNodeTest {
 
     auto factory = std::make_unique<index::IndexFactory>();
     factory_ptr_ = factory.get();
-    segment_manager_ = std::make_shared<storage::SegmentManager>(
+    segment_store_ = std::make_shared<storage::SegmentManager>(
         test_dir_, factory_ptr_);
-    data_node_ = std::make_unique<DataNode>(std::move(factory), segment_manager_);
+    data_node_ = std::make_unique<DataNode>(std::move(factory), segment_store_);
 
     collection_id_ = core::MakeCollectionId(1);
     dimension_ = 32;
@@ -41,7 +41,7 @@ class DataNodeTest {
 
   // Create a GROWING segment with vectors
   core::SegmentId CreateSegmentWithVectors(size_t count) {
-    auto seg_result = segment_manager_->CreateSegment(collection_id_, dimension_, metric_);
+    auto seg_result = segment_store_->CreateSegment(collection_id_, dimension_, metric_);
     auto seg_id = *seg_result;
 
     std::vector<core::Vector> vectors;
@@ -51,14 +51,14 @@ class DataNodeTest {
       ids.push_back(core::MakeVectorId(next_id_++));
     }
 
-    auto* segment = segment_manager_->GetSegment(seg_id);
+    auto* segment = segment_store_->GetSegment(seg_id);
     segment->AddVectors(vectors, ids);
     return seg_id;
   }
 
   // Create a GROWING segment with vectors and metadata
   core::SegmentId CreateSegmentWithMetadata(size_t count) {
-    auto seg_result = segment_manager_->CreateSegment(collection_id_, dimension_, metric_);
+    auto seg_result = segment_store_->CreateSegment(collection_id_, dimension_, metric_);
     auto seg_id = *seg_result;
 
     std::vector<core::Vector> vectors;
@@ -74,7 +74,7 @@ class DataNodeTest {
       next_id_++;
     }
 
-    auto* segment = segment_manager_->GetSegment(seg_id);
+    auto* segment = segment_store_->GetSegment(seg_id);
     segment->AddVectorsWithMetadata(vectors, ids, metadata);
     return seg_id;
   }
@@ -85,13 +85,13 @@ class DataNodeTest {
     config.index_type = core::IndexType::FLAT;
     config.dimension = dimension_;
     config.metric_type = metric_;
-    auto status = segment_manager_->SealSegment(seg_id, config);
+    auto status = segment_store_->SealSegment(seg_id, config);
     REQUIRE(status.ok());
   }
 
   std::string test_dir_;
   index::IndexFactory* factory_ptr_;
-  std::shared_ptr<storage::SegmentManager> segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::unique_ptr<DataNode> data_node_;
   core::CollectionId collection_id_;
   core::Dimension dimension_;
@@ -144,7 +144,7 @@ TEST_CASE_FIXTURE(DataNodeTest, "BuildTask priority ordering") {
 
 TEST_CASE_FIXTURE(DataNodeTest, "BuildIndex seals growing segment") {
   auto seg_id = CreateSegmentWithVectors(50);
-  auto* segment = segment_manager_->GetSegment(seg_id);
+  auto* segment = segment_store_->GetSegment(seg_id);
   CHECK_EQ(segment->GetState(), core::SegmentState::GROWING);
 
   auto status = data_node_->BuildIndex(seg_id, core::IndexType::FLAT);
@@ -161,7 +161,7 @@ TEST_CASE_FIXTURE(DataNodeTest, "BuildIndex with HNSW") {
   auto status = data_node_->BuildIndex(seg_id, core::IndexType::HNSW);
   REQUIRE(status.ok());
 
-  auto* segment = segment_manager_->GetSegment(seg_id);
+  auto* segment = segment_store_->GetSegment(seg_id);
   CHECK_EQ(segment->GetState(), core::SegmentState::SEALED);
 
   // Verify search works on sealed segment
@@ -172,7 +172,7 @@ TEST_CASE_FIXTURE(DataNodeTest, "BuildIndex with HNSW") {
 }
 
 TEST_CASE_FIXTURE(DataNodeTest, "BuildIndex rejects empty segment") {
-  auto seg_result = segment_manager_->CreateSegment(collection_id_, dimension_, metric_);
+  auto seg_result = segment_store_->CreateSegment(collection_id_, dimension_, metric_);
   auto seg_id = *seg_result;
 
   auto status = data_node_->BuildIndex(seg_id, core::IndexType::FLAT);
@@ -212,8 +212,8 @@ TEST_CASE_FIXTURE(DataNodeTest, "ProcessBuildQueue processes all tasks") {
   CHECK_FALSE(data_node_->HasPendingTasks());
 
   // Both segments should be SEALED
-  CHECK_EQ(segment_manager_->GetSegment(seg1)->GetState(), core::SegmentState::SEALED);
-  CHECK_EQ(segment_manager_->GetSegment(seg2)->GetState(), core::SegmentState::SEALED);
+  CHECK_EQ(segment_store_->GetSegment(seg1)->GetState(), core::SegmentState::SEALED);
+  CHECK_EQ(segment_store_->GetSegment(seg2)->GetState(), core::SegmentState::SEALED);
 }
 
 TEST_CASE_FIXTURE(DataNodeTest, "ProcessBuildQueue empty queue returns 0") {
@@ -247,14 +247,14 @@ TEST_CASE_FIXTURE(DataNodeTest, "CompactSegments merges two segments") {
   REQUIRE(status.ok());
 
   // Source segments should be dropped
-  CHECK(segment_manager_->GetSegment(seg1) == nullptr);
-  CHECK(segment_manager_->GetSegment(seg2) == nullptr);
+  CHECK(segment_store_->GetSegment(seg1) == nullptr);
+  CHECK(segment_store_->GetSegment(seg2) == nullptr);
 
   // New segment should exist with 50 vectors
-  auto seg_ids = segment_manager_->GetCollectionSegments(collection_id_);
+  auto seg_ids = segment_store_->GetCollectionSegments(collection_id_);
   REQUIRE_EQ(seg_ids.size(), 1);
 
-  auto* new_seg = segment_manager_->GetSegment(seg_ids[0]);
+  auto* new_seg = segment_store_->GetSegment(seg_ids[0]);
   REQUIRE(new_seg != nullptr);
   CHECK_EQ(new_seg->GetVectorCount(), 50);
   CHECK_EQ(new_seg->GetState(), core::SegmentState::SEALED);
@@ -269,10 +269,10 @@ TEST_CASE_FIXTURE(DataNodeTest, "CompactSegments preserves metadata") {
   auto status = data_node_->CompactSegments({seg1, seg2});
   REQUIRE(status.ok());
 
-  auto seg_ids = segment_manager_->GetCollectionSegments(collection_id_);
+  auto seg_ids = segment_store_->GetCollectionSegments(collection_id_);
   REQUIRE_EQ(seg_ids.size(), 1);
 
-  auto* new_seg = segment_manager_->GetSegment(seg_ids[0]);
+  auto* new_seg = segment_store_->GetSegment(seg_ids[0]);
   CHECK_EQ(new_seg->GetVectorCount(), 20);
 
   // Check metadata is preserved for first vector

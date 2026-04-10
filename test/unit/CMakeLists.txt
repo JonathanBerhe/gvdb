@@ -98,6 +98,30 @@ set_tests_properties(StorageTests PROPERTIES
   TIMEOUT 120
 )
 
+# Object store tests
+add_executable(object_store_tests object_store_test.cpp)
+target_link_libraries(object_store_tests PRIVATE gvdb_storage gvdb_core doctest::doctest_with_main)
+add_test(NAME ObjectStoreTests COMMAND object_store_tests)
+set_tests_properties(ObjectStoreTests PROPERTIES TIMEOUT 30)
+
+# Segment cache tests
+add_executable(segment_cache_tests segment_cache_test.cpp)
+target_link_libraries(segment_cache_tests PRIVATE gvdb_storage gvdb_core doctest::doctest_with_main)
+add_test(NAME SegmentCacheTests COMMAND segment_cache_tests)
+set_tests_properties(SegmentCacheTests PROPERTIES TIMEOUT 30)
+
+# Tiered segment manager tests
+add_executable(tiered_segment_manager_tests tiered_segment_manager_test.cpp)
+target_link_libraries(tiered_segment_manager_tests PRIVATE gvdb_storage gvdb_index gvdb_core gvdb_utils doctest::doctest_with_main)
+add_test(NAME TieredSegmentManagerTests COMMAND tiered_segment_manager_tests)
+set_tests_properties(TieredSegmentManagerTests PROPERTIES TIMEOUT 60)
+
+# Segment manifest tests
+add_executable(segment_manifest_tests segment_manifest_test.cpp)
+target_link_libraries(segment_manifest_tests PRIVATE gvdb_storage gvdb_core doctest::doctest_with_main)
+add_test(NAME SegmentManifestTests COMMAND segment_manifest_tests)
+set_tests_properties(SegmentManifestTests PROPERTIES TIMEOUT 30)
+
 # Utils module tests
 add_executable(utils_tests
   utils_test.cpp
