@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.8.0](https://github.com/JonathanBerhe/gvdb/compare/v0.7.0...v0.8.0) (2026-04-10)
+
+
+### Features
+
+* **auth:** add RBAC with 4 roles and per-collection scoping ([3b0097e](https://github.com/JonathanBerhe/gvdb/commit/3b0097e6a8c959f306d88640f350405436a9b969))
+* **auth:** add RBAC with 4 roles and per-collection scoping ([7c998bf](https://github.com/JonathanBerhe/gvdb/commit/7c998bf511dcc2e78e34bb3ba3ec59a418cfead5))
+* **sdk:** add Python SDK test suite, lint, CI, and fix search filter bug ([c6c2f9f](https://github.com/JonathanBerhe/gvdb/commit/c6c2f9f0ace7344a4b9620c1a78a609c8f3bc4a6))
+
+
+### Bug Fixes
+
+* **auth:** close thread-local leak, fail-open bypass, and substring auth bypass ([a04fccc](https://github.com/JonathanBerhe/gvdb/commit/a04fccc774bd19cceba995d3e2f8e2513a9d95ef))
+* **auth:** validate RBAC config — reject unknown roles, empty keys, missing collections ([884d18f](https://github.com/JonathanBerhe/gvdb/commit/884d18fe5c101e21d8637f2024f5693c474425a4))
+* **network:** add missing Upsert, RangeSearch, ListVectors to proxy ([e58c4e9](https://github.com/JonathanBerhe/gvdb/commit/e58c4e93bd8fd44d941f053ca4e92174822f48a7))
+* **sdk:** fix list_collections missing auth header and update_metadata field mismatch ([c4c5c06](https://github.com/JonathanBerhe/gvdb/commit/c4c5c06606dcea27cb738bd973cece641a3b15a3))
+
 ## [0.7.0](https://github.com/JonathanBerhe/gvdb/compare/v0.6.0...v0.7.0) (2026-04-08)
 
 
