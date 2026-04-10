@@ -39,16 +39,16 @@ class DistributedDataNodeTest {
     shard_manager_ = std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
     node_registry_ = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
 
-    coord_segment_manager_ = std::make_shared<storage::SegmentManager>(
+    coord_segment_store_ = std::make_shared<storage::SegmentManager>(
         "/tmp/gvdb-distributed-dn-test/coordinator", index_factory_.get());
     coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        coord_segment_manager_.get());
+        coord_segment_store_.get());
 
     // --- Data node setup (separate storage) ---
-    dn_segment_manager_ = std::make_shared<storage::SegmentManager>(
+    dn_segment_store_ = std::make_shared<storage::SegmentManager>(
         "/tmp/gvdb-distributed-dn-test/data_node", index_factory_.get());
     dn_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        dn_segment_manager_.get());
+        dn_segment_store_.get());
 
     // Start coordinator gRPC server (InternalService + VectorDBService)
     StartCoordinator();
@@ -64,13 +64,13 @@ class DistributedDataNodeTest {
 
     // Create coordinator's InternalService (serves GetCollectionMetadata)
     coord_internal_service_ = std::make_unique<network::InternalService>(
-        shard_manager_, coord_segment_manager_, coord_query_executor_,
+        shard_manager_, coord_segment_store_, coord_query_executor_,
         node_registry_, nullptr, coordinator_);
 
     // Create coordinator's VectorDBService
     auto coord_resolver = network::MakeCoordinatorResolver(coordinator_);
     coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
-        coord_segment_manager_, coord_query_executor_, std::move(coord_resolver));
+        coord_segment_store_, coord_query_executor_, std::move(coord_resolver));
 
     // Start data node gRPC server (InternalService + VectorDBService)
     StartDataNode();
@@ -87,11 +87,11 @@ class DistributedDataNodeTest {
     coordinator_ = std::make_shared<cluster::Coordinator>(
         shard_manager_, node_registry_, client_factory);
     coord_internal_service_ = std::make_unique<network::InternalService>(
-        shard_manager_, coord_segment_manager_, coord_query_executor_,
+        shard_manager_, coord_segment_store_, coord_query_executor_,
         node_registry_, nullptr, coordinator_);
     auto coord_resolver2 = network::MakeCoordinatorResolver(coordinator_);
     coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
-        coord_segment_manager_, coord_query_executor_, std::move(coord_resolver2));
+        coord_segment_store_, coord_query_executor_, std::move(coord_resolver2));
 
     // Restart coordinator server
     grpc::ServerBuilder coord_builder;
@@ -107,7 +107,7 @@ class DistributedDataNodeTest {
     // Create data node VectorDBService pointing at coordinator
     auto dn_resolver = network::MakeCachedCoordinatorResolver(coord_server_address_);
     dn_vectordb_service_ = std::make_unique<network::VectorDBService>(
-        dn_segment_manager_, dn_query_executor_, std::move(dn_resolver));
+        dn_segment_store_, dn_query_executor_, std::move(dn_resolver));
   }
 
   ~DistributedDataNodeTest() {
@@ -129,9 +129,9 @@ class DistributedDataNodeTest {
     node_registry_.reset();
     shard_manager_.reset();
     dn_query_executor_.reset();
-    dn_segment_manager_.reset();
+    dn_segment_store_.reset();
     coord_query_executor_.reset();
-    coord_segment_manager_.reset();
+    coord_segment_store_.reset();
 
     std::filesystem::remove_all("/tmp/gvdb-distributed-dn-test");
   }
@@ -143,7 +143,7 @@ class DistributedDataNodeTest {
     builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
     // Register a dummy service temporarily -- we'll restart with real services
     coord_internal_service_ = std::make_unique<network::InternalService>(
-        shard_manager_, coord_segment_manager_, coord_query_executor_);
+        shard_manager_, coord_segment_store_, coord_query_executor_);
     builder.RegisterService(coord_internal_service_.get());
     builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
     builder.SetMaxSendMessageSize(256 * 1024 * 1024);
@@ -159,7 +159,7 @@ class DistributedDataNodeTest {
     auto dn_shard_manager = std::make_shared<cluster::ShardManager>(
         8, cluster::ShardingStrategy::HASH);
     dn_internal_service_ = std::make_unique<network::InternalService>(
-        dn_shard_manager, dn_segment_manager_, dn_query_executor_);
+        dn_shard_manager, dn_segment_store_, dn_query_executor_);
     builder.RegisterService(dn_internal_service_.get());
     builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
     builder.SetMaxSendMessageSize(256 * 1024 * 1024);
@@ -186,7 +186,7 @@ class DistributedDataNodeTest {
   std::shared_ptr<cluster::ShardManager> shard_manager_;
   std::shared_ptr<cluster::NodeRegistry> node_registry_;
   std::shared_ptr<cluster::Coordinator> coordinator_;
-  std::shared_ptr<storage::SegmentManager> coord_segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> coord_segment_store_;
   std::shared_ptr<compute::QueryExecutor> coord_query_executor_;
   std::unique_ptr<network::InternalService> coord_internal_service_;
   std::unique_ptr<network::VectorDBService> coord_vectordb_service_;
@@ -194,7 +194,7 @@ class DistributedDataNodeTest {
   std::string coord_server_address_;
 
   // Data node components
-  std::shared_ptr<storage::SegmentManager> dn_segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> dn_segment_store_;
   std::shared_ptr<compute::QueryExecutor> dn_query_executor_;
   std::unique_ptr<network::InternalService> dn_internal_service_;
   std::unique_ptr<network::VectorDBService> dn_vectordb_service_;
@@ -222,7 +222,7 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "CoordinatorCreatesSegmentOnDataNode"
 
   // Verify segment was created on data node (shard 0)
   auto segment_id = cluster::ShardSegmentId(core::CollectionId(collection_id), 0);
-  auto* segment = dn_segment_manager_->GetSegment(segment_id);
+  auto* segment = dn_segment_store_->GetSegment(segment_id);
   INFO("Segment not found on data node after CreateCollection");
   REQUIRE_NE(segment, nullptr);
   CHECK_EQ(segment->GetDimension(), 128);

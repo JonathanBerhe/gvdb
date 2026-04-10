@@ -16,11 +16,11 @@
 namespace gvdb {
 namespace compute {
 
-QueryExecutor::QueryExecutor(storage::SegmentManager* segment_manager,
+QueryExecutor::QueryExecutor(storage::ISegmentStore* segment_store,
                              utils::ThreadPool* thread_pool)
-    : segment_manager_(segment_manager), thread_pool_(thread_pool) {
-  if (segment_manager_ == nullptr) {
-    throw std::invalid_argument("SegmentManager cannot be null");
+    : segment_store_(segment_store), thread_pool_(thread_pool) {
+  if (segment_store_ == nullptr) {
+    throw std::invalid_argument("ISegmentStore cannot be null");
   }
 
   // Create thread pool if not provided
@@ -44,9 +44,9 @@ core::StatusOr<core::SearchResult> QueryExecutor::Search(
   }
 
   // Validate dimension against collection
-  auto seg_ids = segment_manager_->GetCollectionSegments(collection_id);
+  auto seg_ids = segment_store_->GetCollectionSegments(collection_id);
   if (!seg_ids.empty()) {
-    auto* first_seg = segment_manager_->GetSegment(seg_ids[0]);
+    auto* first_seg = segment_store_->GetSegment(seg_ids[0]);
     if (first_seg && query.dimension() != first_seg->GetDimension()) {
       return core::InvalidArgumentError(
           absl::StrFormat("Query vector dimension mismatch: expected %d, got %d",
@@ -70,13 +70,13 @@ core::StatusOr<core::SearchResult> QueryExecutor::Search(
   // Search via SegmentManager
   core::StatusOr<core::SearchResult> result;
   if (filter.empty()) {
-    result = segment_manager_->SearchCollection(collection_id, query, top_k);
+    result = segment_store_->SearchCollection(collection_id, query, top_k);
   } else {
     // Filter-aware search: iterate segments and merge
-    auto seg_ids = segment_manager_->GetCollectionSegments(collection_id);
+    auto seg_ids = segment_store_->GetCollectionSegments(collection_id);
     std::vector<core::SearchResult> partial_results;
     for (const auto& seg_id : seg_ids) {
-      auto* segment = segment_manager_->GetSegment(seg_id);
+      auto* segment = segment_store_->GetSegment(seg_id);
       if (!segment) continue;
       auto seg_result = segment->SearchWithFilter(query, top_k, filter);
       if (seg_result.ok()) {
@@ -129,7 +129,7 @@ core::StatusOr<std::vector<core::SearchResult>> QueryExecutor::SearchBatch(
 
   for (const auto& query : queries) {
     futures.push_back(thread_pool_->enqueue([this, collection_id, &query, top_k]() {
-      return segment_manager_->SearchCollection(collection_id, query, top_k);
+      return segment_store_->SearchCollection(collection_id, query, top_k);
     }));
   }
 

@@ -12,6 +12,11 @@
 #include "cluster/coordinator.h"
 #include "cluster/shard_manager.h"
 #include "storage/segment_manager.h"
+#include "storage/tiered_segment_manager.h"
+#include "storage/segment_cache.h"
+#ifdef GVDB_HAS_S3
+#include "storage/s3_object_store.h"
+#endif
 #include "compute/query_executor.h"
 #include "network/vectordb_service.h"
 #include "network/collection_resolver.h"
@@ -127,16 +132,52 @@ int main(int argc, char** argv) {
     auto index_factory = std::make_unique<index::IndexFactory>();
     auto segment_manager = std::make_shared<storage::SegmentManager>(
         data_dir + "/segments", index_factory.get());
-    segment_manager->LoadAllSegments();
+
+    // Optionally wrap in tiered storage (S3/MinIO)
+    std::shared_ptr<storage::ISegmentStore> segment_store;
+#ifdef GVDB_HAS_S3
+    if (!config.storage.object_store_endpoint.empty()) {
+      storage::S3Config s3_config;
+      s3_config.endpoint = config.storage.object_store_endpoint;
+      s3_config.access_key = config.storage.object_store_access_key;
+      s3_config.secret_key = config.storage.object_store_secret_key;
+      s3_config.bucket = config.storage.object_store_bucket;
+      s3_config.region = config.storage.object_store_region;
+      s3_config.use_ssl = config.storage.object_store_use_ssl;
+      s3_config.path_style = (config.storage.object_store_type == "minio");
+
+      auto s3_result = storage::S3ObjectStore::Create(s3_config);
+      if (!s3_result.ok()) {
+        std::cerr << "Failed to create S3 client: " << s3_result.status().message() << std::endl;
+        return 1;
+      }
+
+      auto cache_dir = data_dir + "/cache";
+      auto cache_size = static_cast<size_t>(config.storage.object_store_cache_size_mb) * 1024 * 1024;
+      auto cache = std::make_unique<storage::SegmentCache>(cache_dir, cache_size);
+      auto prefix = config.storage.object_store_prefix.empty()
+          ? "gvdb" : config.storage.object_store_prefix;
+
+      segment_store = std::make_shared<storage::TieredSegmentManager>(
+          std::move(segment_manager), std::move(*s3_result),
+          std::move(cache), prefix, config.storage.object_store_upload_threads);
+    } else {
+      segment_store = segment_manager;
+    }
+#else
+    segment_store = segment_manager;
+#endif
+
+    segment_store->LoadAllSegments();
     auto query_executor = std::make_shared<compute::QueryExecutor>(
-        segment_manager.get());
+        segment_store.get());
     query_executor->SetCache(std::make_shared<utils::QueryCache>(10000));
 
     // Wire auto-seal: when a segment fills up, seal it inline
     auto* index_factory_ptr = index_factory.get();
-    segment_manager->SetSealCallback(
-        [segment_manager, index_factory_ptr](core::SegmentId sid, core::IndexType idx_type) {
-          auto* seg = segment_manager->GetSegment(sid);
+    segment_store->SetSealCallback(
+        [segment_store, index_factory_ptr](core::SegmentId sid, core::IndexType idx_type) {
+          auto* seg = segment_store->GetSegment(sid);
           if (!seg) return;
           auto resolved_type = core::ResolveAutoIndexType(
               idx_type, seg->GetVectorCount());
@@ -147,15 +188,15 @@ int main(int argc, char** argv) {
           utils::Logger::Instance().Info("Auto-sealing segment {} ({} vectors, index={})",
               core::ToUInt32(sid), seg->GetVectorCount(),
               static_cast<int>(resolved_type));
-          auto status = segment_manager->SealSegment(sid, config);
+          auto status = segment_store->SealSegment(sid, config);
           if (!status.ok()) {
             utils::Logger::Instance().Error("Auto-seal failed: {}", status.message());
           }
         });
 
     // Background TTL sweep thread
-    std::thread ttl_sweep_thread([segment_manager]() {
-      segment_manager->RunTTLSweepLoop(utils::ServerBootstrap::ShutdownFlag());
+    std::thread ttl_sweep_thread([segment_store]() {
+      segment_store->RunTTLSweepLoop(utils::ServerBootstrap::ShutdownFlag());
     });
 
     // 3. Cluster coordinator
@@ -181,9 +222,9 @@ int main(int argc, char** argv) {
     }
 
     // 5. gRPC service
-    auto resolver = network::MakeLocalResolver(segment_manager);
+    auto resolver = network::MakeLocalResolver(segment_store);
     auto service = std::make_unique<network::VectorDBService>(
-        segment_manager, query_executor, std::move(resolver), rbac_store);
+        segment_store, query_executor, std::move(resolver), rbac_store);
 
     // 6. Start server
     std::string server_address = absl::StrCat("0.0.0.0:", port);

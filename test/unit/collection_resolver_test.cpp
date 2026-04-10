@@ -24,21 +24,21 @@ struct LocalResolverTest {
     std::filesystem::create_directories(test_dir_);
 
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_manager_ = std::make_shared<storage::SegmentManager>(
+    segment_store_ = std::make_shared<storage::SegmentManager>(
         test_dir_, index_factory_.get());
-    resolver_ = network::MakeLocalResolver(segment_manager_);
+    resolver_ = network::MakeLocalResolver(segment_store_);
   }
 
   ~LocalResolverTest() {
     resolver_.reset();
-    segment_manager_.reset();
+    segment_store_.reset();
     index_factory_.reset();
     std::filesystem::remove_all(test_dir_);
   }
 
   std::string test_dir_;
   std::unique_ptr<index::IndexFactory> index_factory_;
-  std::shared_ptr<storage::SegmentManager> segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::unique_ptr<network::ICollectionResolver> resolver_;
 };
 

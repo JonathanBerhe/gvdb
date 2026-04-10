@@ -15,6 +15,21 @@ storage:
   enable_compression: true
   compaction_threads: 4
 
+  # Object storage (S3/MinIO) — uncomment to enable tiered storage.
+  # Sealed segments are uploaded to object storage asynchronously after local flush.
+  # Remote segments are lazily downloaded on first access.
+  # object_store:
+  #   type: "s3"                                        # "s3" or "minio"
+  #   endpoint: "https://s3.us-east-1.amazonaws.com"    # for MinIO: "http://localhost:9000"
+  #   access_key: ""
+  #   secret_key: ""
+  #   bucket: "gvdb-segments"
+  #   region: "us-east-1"
+  #   prefix: "gvdb"                                    # S3 key prefix
+  #   use_ssl: true                                     # false for local MinIO
+  #   local_cache_size_mb: 256                           # LRU cache for downloaded segments
+  #   upload_threads: 2                                  # async upload concurrency
+
 index:
   default_index_type: "HNSW"
   hnsw_m: 16

@@ -5,7 +5,7 @@
 
 #include "core/types.h"
 #include "index/index_factory.h"
-#include "storage/segment_manager.h"
+#include "storage/segment_store.h"
 #include "absl/status/status.h"
 #include <atomic>
 #include <condition_variable>
@@ -31,7 +31,7 @@ struct BuildTask {
 class DataNode {
  public:
   DataNode(std::unique_ptr<index::IndexFactory> index_factory,
-           std::shared_ptr<storage::SegmentManager> segment_manager);
+           std::shared_ptr<storage::ISegmentStore> segment_store);
   ~DataNode() = default;
 
   // Index building
@@ -56,7 +56,7 @@ class DataNode {
 
  private:
   std::unique_ptr<index::IndexFactory> index_factory_;
-  std::shared_ptr<storage::SegmentManager> segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
 
   mutable std::mutex queue_mutex_;
   std::condition_variable build_cv_;
