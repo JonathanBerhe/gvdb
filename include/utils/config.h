@@ -28,9 +28,16 @@ struct TlsConfig {
   bool mutual_tls = false;     // Require client certificates
 };
 
+struct ApiKeyConfig {
+  std::string key;
+  std::string role;                        // "admin", "readwrite", "readonly", "collection_admin"
+  std::vector<std::string> collections;    // empty or ["*"] = all collections
+};
+
 struct AuthConfig {
   bool enabled = false;
-  std::vector<std::string> api_keys;  // Valid API keys (checked via Bearer token)
+  std::vector<std::string> api_keys;       // Legacy: flat keys treated as admin
+  std::vector<ApiKeyConfig> roles;         // Role-based keys
 };
 
 struct ServerConfig {

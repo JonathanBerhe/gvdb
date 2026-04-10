@@ -409,6 +409,7 @@ add_executable(auth_processor_tests
 target_link_libraries(auth_processor_tests
   PRIVATE
     gvdb_network
+    gvdb_auth
     gvdb_compute
     gvdb_storage
     gvdb_index
@@ -423,6 +424,25 @@ target_link_libraries(auth_processor_tests
 add_test(NAME AuthProcessorTests COMMAND auth_processor_tests)
 
 set_tests_properties(AuthProcessorTests PROPERTIES
+  TIMEOUT 60
+)
+
+# RBAC unit tests
+add_executable(rbac_tests
+  rbac_test.cpp
+)
+
+target_link_libraries(rbac_tests
+  PRIVATE
+    gvdb_auth
+    gvdb_utils
+    gvdb_core
+    doctest::doctest_with_main
+)
+
+add_test(NAME RbacTests COMMAND rbac_tests)
+
+set_tests_properties(RbacTests PROPERTIES
   TIMEOUT 60
 )
 

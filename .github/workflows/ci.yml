@@ -7,7 +7,6 @@ on:
       - '.github/workflows/**'
       - 'grafana/**'
       - 'deploy/**'
-      - 'clients/**'
       - 'ui/**'
       - '*.md'
       - '.release-please-manifest.json'
@@ -87,6 +86,70 @@ jobs:
         if: steps.filter.outputs.cpp == 'true'
         run: make test
 
+      - name: Upload server binary
+        if: steps.filter.outputs.cpp == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gvdb-server
+          path: build/bin/gvdb-single-node
+          retention-days: 1
+
       - name: Skip notice
         if: steps.filter.outputs.cpp == 'false'
         run: echo "No C++ changes detected — skipping build and test"
+
+  test-python-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for Python SDK changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'clients/python/**'
+              - 'proto/vectordb.proto'
+
+      - name: Install uv
+        if: steps.filter.outputs.python == 'true'
+        uses: astral-sh/setup-uv@v4
+
+      - name: Download server binary
+        if: steps.filter.outputs.python == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: gvdb-server
+          path: build/bin
+
+      - name: Make server executable
+        if: steps.filter.outputs.python == 'true'
+        run: chmod +x build/bin/gvdb-single-node
+
+      - name: Install runtime deps
+        if: steps.filter.outputs.python == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libomp5 libgomp1 libopenblas0 liblapack3
+
+      - name: Install Python SDK deps
+        if: steps.filter.outputs.python == 'true'
+        run: cd clients/python && uv sync
+
+      - name: Lint Python SDK
+        if: steps.filter.outputs.python == 'true'
+        run: make lint-sdk
+
+      - name: Run Python SDK tests
+        if: steps.filter.outputs.python == 'true'
+        run: make test-sdk
+
+      - name: Skip notice
+        if: steps.filter.outputs.python == 'false'
+        run: echo "No Python SDK changes — skipping"

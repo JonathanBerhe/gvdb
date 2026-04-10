@@ -16,6 +16,7 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 - **Fault Tolerance**: Automatic failure detection, replica promotion, auto-replication
 - **Metadata Filtering**: SQL-like filters (`age > 18 AND city = 'NYC'`, `LIKE`, `IN`)
 - **Persistence**: Vectors flushed to disk, index rebuilt on startup recovery
+- **RBAC**: Role-based access control (admin, readwrite, readonly, collection_admin) with per-collection scoping and YAML config
 - **gRPC API**: Protobuf-based client/server with TLS and API key authentication
 - **Python SDK**: `pip install gvdb` — full API with hybrid search, streaming inserts, metadata, TTL
 - **Web UI**: Collection browser, search playground, metrics dashboard — single binary (`gvdb-ui`)

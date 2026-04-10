@@ -14,6 +14,7 @@ from gvdb.pb import vectordb_pb2_grpc as pb_grpc
 @dataclass
 class SearchResult:
     """A single search result."""
+
     id: int
     distance: float
     metadata: Optional[dict] = None
@@ -22,6 +23,7 @@ class SearchResult:
 @dataclass
 class CollectionInfo:
     """Collection metadata."""
+
     name: str
     id: int
     dimension: int
@@ -75,12 +77,16 @@ class GVDBClient:
 
     def health_check(self) -> str:
         """Check server health. Returns status message."""
-        resp = self._stub.HealthCheck(pb.HealthCheckRequest(), timeout=self._timeout, metadata=self._metadata)
+        resp = self._stub.HealthCheck(
+            pb.HealthCheckRequest(), timeout=self._timeout, metadata=self._metadata
+        )
         return resp.message
 
     def get_stats(self) -> dict:
         """Get server statistics."""
-        resp = self._stub.GetStats(pb.GetStatsRequest(), timeout=self._timeout, metadata=self._metadata)
+        resp = self._stub.GetStats(
+            pb.GetStatsRequest(), timeout=self._timeout, metadata=self._metadata
+        )
         return {
             "total_collections": resp.total_collections,
             "total_vectors": resp.total_vectors,
@@ -139,7 +145,7 @@ class GVDBClient:
     def list_collections(self) -> list[CollectionInfo]:
         """List all collections."""
         resp = self._stub.ListCollections(
-            pb.ListCollectionsRequest(), timeout=self._timeout
+            pb.ListCollectionsRequest(), timeout=self._timeout, metadata=self._metadata
         )
         return [
             CollectionInfo(
@@ -179,10 +185,12 @@ class GVDBClient:
             if sparse_vectors and i < len(sparse_vectors) and sparse_vectors[i]:
                 sv = sparse_vectors[i]
                 sorted_indices = sorted(sv.keys())
-                v.sparse_vector.CopyFrom(pb.SparseVector(
-                    indices=sorted_indices,
-                    values=[sv[k] for k in sorted_indices],
-                ))
+                v.sparse_vector.CopyFrom(
+                    pb.SparseVector(
+                        indices=sorted_indices,
+                        values=[sv[k] for k in sorted_indices],
+                    )
+                )
             if ttl_seconds and i < len(ttl_seconds) and ttl_seconds[i] > 0:
                 v.ttl_seconds = ttl_seconds[i]
             proto_vectors.append(v)
@@ -217,7 +225,9 @@ class GVDBClient:
                     if metadata and i < len(metadata) and metadata[i]:
                         v.metadata.CopyFrom(_to_proto_metadata(metadata[i]))
                     proto_vectors.append(v)
-                yield pb.InsertRequest(collection_name=collection, vectors=proto_vectors)
+                yield pb.InsertRequest(
+                    collection_name=collection, vectors=proto_vectors
+                )
 
         resp = self._stub.StreamInsert(
             _chunks(),
@@ -242,7 +252,7 @@ class GVDBClient:
             top_k=top_k,
         )
         if filter_expression:
-            req.filter_expression = filter_expression
+            req.filter = filter_expression
         if return_metadata:
             req.return_metadata = True
 
@@ -251,7 +261,9 @@ class GVDBClient:
             SearchResult(
                 id=r.id,
                 distance=r.distance,
-                metadata=_from_proto_metadata(r.metadata) if r.metadata.fields else None,
+                metadata=_from_proto_metadata(r.metadata)
+                if r.metadata.fields
+                else None,
             )
             for r in resp.results
         ]
@@ -287,10 +299,12 @@ class GVDBClient:
             )
         if sparse_query:
             sorted_indices = sorted(sparse_query.keys())
-            req.sparse_query.CopyFrom(pb.SparseVector(
-                indices=sorted_indices,
-                values=[sparse_query[k] for k in sorted_indices],
-            ))
+            req.sparse_query.CopyFrom(
+                pb.SparseVector(
+                    indices=sorted_indices,
+                    values=[sparse_query[k] for k in sorted_indices],
+                )
+            )
         if filter_expression:
             req.filter = filter_expression
         if return_metadata:
@@ -305,7 +319,9 @@ class GVDBClient:
             SearchResult(
                 id=r.id,
                 distance=r.distance,
-                metadata=_from_proto_metadata(r.metadata) if r.metadata.fields else None,
+                metadata=_from_proto_metadata(r.metadata)
+                if r.metadata.fields
+                else None,
             )
             for r in resp.results
         ]
@@ -361,12 +377,16 @@ class GVDBClient:
         if return_metadata:
             req.return_metadata = True
 
-        resp = self._stub.RangeSearch(req, timeout=self._timeout, metadata=self._metadata)
+        resp = self._stub.RangeSearch(
+            req, timeout=self._timeout, metadata=self._metadata
+        )
         return [
             SearchResult(
                 id=r.id,
                 distance=r.distance,
-                metadata=_from_proto_metadata(r.metadata) if r.metadata.fields else None,
+                metadata=_from_proto_metadata(r.metadata)
+                if r.metadata.fields
+                else None,
             )
             for r in resp.results
         ]
@@ -404,17 +424,12 @@ class GVDBClient:
         merge: bool = True,
     ) -> None:
         """Update metadata for a vector."""
-        mode = (
-            pb.UpdateMetadataRequest.MERGE
-            if merge
-            else pb.UpdateMetadataRequest.REPLACE
-        )
         self._stub.UpdateMetadata(
             pb.UpdateMetadataRequest(
                 collection_name=collection,
-                vector_id=vector_id,
+                id=vector_id,
                 metadata=_to_proto_metadata(metadata),
-                mode=mode,
+                merge=merge,
             ),
             timeout=self._timeout,
             metadata=self._metadata,

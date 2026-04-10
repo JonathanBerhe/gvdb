@@ -7,13 +7,17 @@
 #include <vector>
 
 #include "network/proxy_service.h"
+#include "network/auth_processor.h"
+#include "auth/rbac.h"
 #include "utils/server_bootstrap.h"
+#include "utils/config.h"
 #include "utils/env_flags.h"
 
 struct ProxyArgs {
   int node_id = 1;
   std::string bind_address = "0.0.0.0:50050";
   std::string data_dir = "/tmp/gvdb/proxy";
+  std::string config_file;
   std::vector<std::string> coordinator_addresses;
   std::vector<std::string> query_node_addresses;
   std::vector<std::string> data_node_addresses;
@@ -25,6 +29,7 @@ void PrintUsage(const char* program_name) {
             << "  --node-id ID                Proxy node ID (default: 1)\n"
             << "  --bind-address ADDR         gRPC bind address (default: 0.0.0.0:50050)\n"
             << "  --data-dir PATH             Data directory (default: /tmp/gvdb/proxy)\n"
+            << "  --config FILE               YAML config file (optional, for auth)\n"
             << "  --coordinators ADDRS        Coordinator addresses (comma-separated)\n"
             << "  --query-nodes ADDRS         Query node addresses (comma-separated)\n"
             << "  --data-nodes ADDRS          Data node addresses (comma-separated)\n"
@@ -56,6 +61,8 @@ bool ParseArgs(int argc, char** argv, ProxyArgs& args) {
       args.bind_address = argv[++i];
     } else if (arg == "--data-dir" && i + 1 < argc) {
       args.data_dir = argv[++i];
+    } else if (arg == "--config" && i + 1 < argc) {
+      args.config_file = argv[++i];
     } else if (arg == "--coordinators" && i + 1 < argc) {
       args.coordinator_addresses = ParseAddresses(argv[++i]);
     } else if (arg == "--query-nodes" && i + 1 < argc) {
@@ -98,13 +105,35 @@ int main(int argc, char** argv) {
   utils::ServerBootstrap::StartMetricsServer(metrics_port);
 
   try {
+    // Load config for auth (optional)
+    utils::GVDBConfig config = utils::Config::get_default();
+    if (!args.config_file.empty()) {
+      auto cfg_result = utils::Config::load_from_file(args.config_file);
+      if (cfg_result.ok()) config = std::move(*cfg_result);
+    }
+
+    // RBAC
+    std::shared_ptr<auth::RbacStore> rbac_store;
+    std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors;
+    if (config.server.auth.enabled) {
+      auto rbac_result = auth::RbacStore::Create(config.server.auth);
+      if (!rbac_result.ok()) {
+        std::cerr << "Invalid auth config: " << rbac_result.status().message() << std::endl;
+        return 1;
+      }
+      rbac_store = std::move(*rbac_result);
+      interceptors.push_back(
+          std::make_unique<network::ApiKeyAuthInterceptorFactory>(rbac_store));
+    }
+
     auto proxy_service = std::make_unique<network::ProxyService>(
         args.coordinator_addresses,
         args.query_node_addresses,
         args.data_node_addresses);
 
+    auto credentials = utils::ServerBootstrap::MakeServerCredentials(config.server.tls);
     auto grpc_server = utils::ServerBootstrap::StartGrpcServer(
-        args.bind_address, {proxy_service.get()});
+        args.bind_address, {proxy_service.get()}, credentials, std::move(interceptors));
     if (!grpc_server) {
       std::cerr << "Failed to start gRPC server on " << args.bind_address << std::endl;
       return 1;
