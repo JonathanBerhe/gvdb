@@ -123,11 +123,25 @@ grpc::Status InternalService::RebalanceShards(
 
   try {
     uint32_t collection_id = request->collection_id();
-
     utils::Logger::Instance().Info("RebalanceShards: collection={}", collection_id);
 
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-                        "RebalanceShards not yet implemented");
+    if (!coordinator_) {
+      return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+                          "RebalanceShards requires coordinator");
+    }
+
+    auto cid = core::CollectionId(collection_id);
+    auto result = coordinator_->ExecuteRebalancePlan(cid);
+    if (!result.ok()) {
+      response->set_shards_moved(0);
+      response->set_message(std::string(result.status().message()));
+      return grpc::Status::OK;
+    }
+
+    response->set_shards_moved(*result);
+    response->set_message(
+        absl::StrFormat("Rebalanced %d shards", *result));
+    return grpc::Status::OK;
 
   } catch (const std::exception& e) {
     total_errors_++;
@@ -727,8 +741,26 @@ grpc::Status InternalService::TransferData(
     utils::Logger::Instance().Info("TransferData: collection={}, shard={}, {} -> {}",
                                     collection_id, shard_id, source_node_id, target_node_id);
 
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-                        "TransferData not yet implemented");
+    if (!coordinator_) {
+      return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+                          "TransferData requires coordinator");
+    }
+
+    auto cid = core::CollectionId(collection_id);
+    core::SegmentId seg_id = cluster::ShardSegmentId(cid, shard_id);
+    auto source = core::MakeNodeId(source_node_id);
+    auto target = core::MakeNodeId(target_node_id);
+
+    auto status = coordinator_->ReplicateSegmentData(seg_id, source, target);
+    if (!status.ok()) {
+      response->set_success(false);
+      response->set_message(std::string(status.message()));
+      return grpc::Status::OK;
+    }
+
+    response->set_success(true);
+    response->set_message("Transfer complete");
+    return grpc::Status::OK;
 
   } catch (const std::exception& e) {
     total_errors_++;

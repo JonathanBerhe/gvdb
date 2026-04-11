@@ -180,6 +180,14 @@ class Coordinator {
   // Handle failed node: reassign shards, promote replicas
   void HandleFailedNode(core::NodeId failed_node_id);
 
+  // Dynamic shard rebalancing
+  // Returns the number of shards successfully moved. collection_id(0) = all.
+  absl::StatusOr<uint32_t> ExecuteRebalancePlan(
+      core::CollectionId collection_id = core::CollectionId(0));
+
+  // Reset shards stuck in MIGRATING state (called on startup / after crash)
+  void RecoverMigratingShards();
+
  private:
   // Shard manager
   std::shared_ptr<ShardManager> shard_manager_;
@@ -212,6 +220,15 @@ class Coordinator {
   uint32_t health_check_cycle_count_{0};
   mutable std::mutex repair_mutex_;
   std::set<core::ShardId> shards_being_repaired_;
+
+  // Rebalancing internals
+  absl::Status ExecuteSingleMove(
+      const ShardManager::RebalanceMove& move,
+      core::CollectionId collection_id,
+      uint32_t shard_index);
+  static constexpr size_t kMaxMovesPerCycle = 4;
+  mutable std::mutex migration_mutex_;
+  std::set<uint32_t> shards_migrating_;
 
   // Helper methods
   core::NodeId AllocateNodeId();
