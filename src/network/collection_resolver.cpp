@@ -4,7 +4,7 @@
 #include "network/collection_resolver.h"
 #include "network/collection_metadata_cache.h"
 #include "network/proto_conversions.h"
-#include "storage/segment_manager.h"
+#include "storage/segment_store.h"
 #include "cluster/coordinator.h"
 #include "utils/logger.h"
 #include "utils/metrics.h"
@@ -35,8 +35,8 @@ struct LocalEntry {
 class LocalCollectionResolver : public ICollectionResolver {
  public:
   LocalCollectionResolver(
-      std::shared_ptr<storage::SegmentManager> segment_manager)
-      : segment_manager_(std::move(segment_manager)),
+      std::shared_ptr<storage::ISegmentStore> segment_store)
+      : segment_store_(std::move(segment_store)),
         next_id_(1) {}
 
   absl::StatusOr<core::CollectionId> GetCollectionId(
@@ -74,12 +74,12 @@ class LocalCollectionResolver : public ICollectionResolver {
     // Create one segment per shard
     for (uint32_t i = 0; i < num_shards; ++i) {
       core::SegmentId seg_id = cluster::ShardSegmentId(id, i);
-      auto status = segment_manager_->CreateSegmentWithId(
+      auto status = segment_store_->CreateSegmentWithId(
           seg_id, id, dimension, metric_type, index_type);
       if (!status.ok()) {
         // Rollback already-created segments
         for (const auto& created : entry.segment_ids) {
-          (void)segment_manager_->DropSegment(created, false);
+          (void)segment_store_->DropSegment(created, false);
         }
         return status;
       }
@@ -99,7 +99,7 @@ class LocalCollectionResolver : public ICollectionResolver {
     }
 
     for (const auto& seg_id : it->second.segment_ids) {
-      (void)segment_manager_->DropSegment(seg_id, true);
+      (void)segment_store_->DropSegment(seg_id, true);
     }
 
     entries_.erase(it);
@@ -120,7 +120,7 @@ class LocalCollectionResolver : public ICollectionResolver {
       info.index_type = entry.index_type;
       uint64_t total_vectors = 0;
       for (const auto& seg_id : entry.segment_ids) {
-        auto* segment = segment_manager_->GetSegment(seg_id);
+        auto* segment = segment_store_->GetSegment(seg_id);
         if (segment) total_vectors += segment->GetVectorCount();
       }
       info.vector_count = total_vectors;
@@ -163,7 +163,7 @@ class LocalCollectionResolver : public ICollectionResolver {
   bool SupportsDataOps() const override { return true; }
 
  private:
-  std::shared_ptr<storage::SegmentManager> segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
   mutable std::shared_mutex mutex_;
   std::unordered_map<std::string, LocalEntry> entries_;
   uint32_t next_id_;
@@ -382,8 +382,8 @@ class CachedCoordinatorResolver : public ICollectionResolver {
 // ============================================================================
 
 std::unique_ptr<ICollectionResolver> MakeLocalResolver(
-    std::shared_ptr<storage::SegmentManager> segment_manager) {
-  return std::make_unique<LocalCollectionResolver>(std::move(segment_manager));
+    std::shared_ptr<storage::ISegmentStore> segment_store) {
+  return std::make_unique<LocalCollectionResolver>(std::move(segment_store));
 }
 
 std::unique_ptr<ICollectionResolver> MakeCoordinatorResolver(

@@ -16,13 +16,13 @@ namespace network {
 
 InternalService::InternalService(
     std::shared_ptr<cluster::ShardManager> shard_manager,
-    std::shared_ptr<storage::SegmentManager> segment_manager,
+    std::shared_ptr<storage::ISegmentStore> segment_store,
     std::shared_ptr<compute::QueryExecutor> query_executor,
     std::shared_ptr<cluster::NodeRegistry> node_registry,
     std::shared_ptr<consensus::TimestampOracle> timestamp_oracle,
     std::shared_ptr<cluster::Coordinator> coordinator)
     : shard_manager_(shard_manager),
-      segment_manager_(segment_manager),
+      segment_store_(segment_store),
       query_executor_(query_executor),
       node_registry_(node_registry),
       timestamp_oracle_(timestamp_oracle),
@@ -180,7 +180,7 @@ grpc::Status InternalService::ReplicateSegment(
     }
 
     // Add to segment manager
-    auto add_status = segment_manager_->AddReplicatedSegment(std::move(segment_result.value()));
+    auto add_status = segment_store_->AddReplicatedSegment(std::move(segment_result.value()));
     if (!add_status.ok()) {
       response->set_success(false);
       response->set_message(absl::StrFormat("Failed to add segment: %s", std::string(add_status.message()).c_str()));
@@ -221,7 +221,7 @@ grpc::Status InternalService::GetSegment(
 
     // Try to get segment from SegmentManager
     core::SegmentId seg_id = static_cast<core::SegmentId>(segment_id);
-    auto segment = segment_manager_->GetSegment(seg_id);
+    auto segment = segment_store_->GetSegment(seg_id);
     if (!segment) {
       utils::Logger::Instance().Debug("GetSegment: segment={} not found", segment_id);
       return grpc::Status(grpc::StatusCode::NOT_FOUND,
@@ -278,19 +278,19 @@ grpc::Status InternalService::ListSegments(
     std::vector<core::SegmentId> segment_ids;
 
     if (collection_id > 0) {
-      segment_ids = segment_manager_->GetCollectionSegments(
+      segment_ids = segment_store_->GetCollectionSegments(
           core::MakeCollectionId(collection_id));
     } else {
       // Get all segments by iterating all collections
       // SegmentManager doesn't expose a GetAllSegments, so use GetSegment
       // to check known IDs. For now, return segments for all known collections.
       // This is a best-effort approach.
-      segment_ids = segment_manager_->GetCollectionSegments(
+      segment_ids = segment_store_->GetCollectionSegments(
           core::MakeCollectionId(0));  // Will return empty if no collection 0
     }
 
     for (const auto& seg_id : segment_ids) {
-      auto* segment = segment_manager_->GetSegment(seg_id);
+      auto* segment = segment_store_->GetSegment(seg_id);
       if (!segment) continue;
 
       auto* info = response->add_segments();
@@ -330,7 +330,7 @@ grpc::Status InternalService::DeleteSegment(
 
     // Check if segment exists
     core::SegmentId seg_id = static_cast<core::SegmentId>(segment_id);
-    auto segment = segment_manager_->GetSegment(seg_id);
+    auto segment = segment_store_->GetSegment(seg_id);
     if (!segment) {
       response->set_success(false);
       response->set_message(absl::StrFormat("Segment %lu not found", segment_id));
@@ -343,7 +343,7 @@ grpc::Status InternalService::DeleteSegment(
                                     segment_id, static_cast<int>(state));
 
     // Delete segment from memory and disk
-    auto drop_status = segment_manager_->DropSegment(seg_id, true /* delete_files */);
+    auto drop_status = segment_store_->DropSegment(seg_id, true /* delete_files */);
     if (!drop_status.ok()) {
       response->set_success(false);
       response->set_message(absl::StrFormat("Failed to delete segment %lu: %s",
@@ -424,7 +424,7 @@ grpc::Status InternalService::CreateSegment(
     core::CollectionId coll_id = core::MakeCollectionId(collection_id);
     core::Dimension dim = static_cast<core::Dimension>(dimension);
 
-    auto create_status = segment_manager_->CreateSegmentWithId(
+    auto create_status = segment_store_->CreateSegmentWithId(
         seg_id, coll_id, dim, *metric_result, *index_result);
 
     if (!create_status.ok()) {
@@ -645,7 +645,7 @@ grpc::Status InternalService::ExecuteShardQuery(
     uint32_t shard_id = request->shard_id();
     core::SegmentId segment_id = cluster::ShardSegmentId(
         core::MakeCollectionId(collection_id), shard_id);
-    auto* segment = segment_manager_->GetSegment(segment_id);
+    auto* segment = segment_store_->GetSegment(segment_id);
     if (!segment) {
       return grpc::Status(grpc::StatusCode::NOT_FOUND,
           absl::StrCat("Segment not found for collection ", collection_id));

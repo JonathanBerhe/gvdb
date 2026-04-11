@@ -3,9 +3,11 @@
 add_library(gvdb_storage
   segment.cpp
   segment_manager.cpp
-  local_storage.cpp
-  storage_factory.cpp
   scalar_index.cpp
+  object_store.cpp
+  segment_cache.cpp
+  segment_manifest.cpp
+  tiered_segment_manager.cpp
 )
 
 target_include_directories(gvdb_storage
@@ -24,6 +26,14 @@ target_link_libraries(gvdb_storage
     absl::statusor
     absl::strings
 )
+
+# S3/MinIO object storage support (optional)
+if(GVDB_WITH_S3)
+  target_sources(gvdb_storage PRIVATE s3_object_store.cpp)
+  target_link_libraries(gvdb_storage PUBLIC aws-cpp-sdk-s3 aws-cpp-sdk-core)
+  target_compile_definitions(gvdb_storage PUBLIC GVDB_HAS_S3=1)
+  message(STATUS "S3/MinIO storage support enabled")
+endif()
 
 # Enable C++17 features
 target_compile_features(gvdb_storage PUBLIC cxx_std_17)

@@ -37,7 +37,7 @@ class InternalServiceRpcTest {
     coordinator_ = std::make_shared<Coordinator>(shard_manager_, node_registry_);
     timestamp_oracle_ = std::make_shared<consensus::TimestampOracle>();
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_manager_ = std::make_shared<storage::SegmentManager>(
+    segment_store_ = std::make_shared<storage::SegmentManager>(
         tmp_dir_.string(), index_factory_.get());
 
     // Register a fake data node
@@ -50,13 +50,13 @@ class InternalServiceRpcTest {
 
     // Create the service under test with all dependencies
     service_ = std::make_unique<InternalService>(
-        shard_manager_, segment_manager_, nullptr /* query_executor */,
+        shard_manager_, segment_store_, nullptr /* query_executor */,
         node_registry_, timestamp_oracle_, coordinator_);
   }
 
   ~InternalServiceRpcTest() {
     service_.reset();
-    segment_manager_.reset();
+    segment_store_.reset();
     index_factory_.reset();
     std::filesystem::remove_all(tmp_dir_);
   }
@@ -68,7 +68,7 @@ class InternalServiceRpcTest {
   std::shared_ptr<Coordinator> coordinator_;
   std::shared_ptr<consensus::TimestampOracle> timestamp_oracle_;
   std::unique_ptr<index::IndexFactory> index_factory_;
-  std::shared_ptr<storage::SegmentManager> segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::unique_ptr<InternalService> service_;
 };
 
@@ -486,7 +486,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_Success") {
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_NoCoordinator") {
   // Create service without coordinator
   auto service_no_coord = std::make_unique<InternalService>(
-      shard_manager_, segment_manager_, nullptr,
+      shard_manager_, segment_store_, nullptr,
       node_registry_, timestamp_oracle_, nullptr /* no coordinator */);
 
   grpc::ServerContext ctx;
@@ -656,7 +656,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_Degraded") {
 
   // Create a service with the short-timeout registry
   auto degraded_service = std::make_unique<InternalService>(
-      shard_manager_, segment_manager_, nullptr,
+      shard_manager_, segment_store_, nullptr,
       short_registry, timestamp_oracle_, coordinator_);
 
   grpc::ServerContext ctx;
@@ -673,7 +673,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_Degraded") {
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_NoRegistry") {
   // Create service without node registry (single-node mode)
   auto service_no_registry = std::make_unique<InternalService>(
-      shard_manager_, segment_manager_, nullptr,
+      shard_manager_, segment_store_, nullptr,
       nullptr /* no registry */, timestamp_oracle_, coordinator_);
 
   grpc::ServerContext ctx;
@@ -732,7 +732,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetTimestamp_WithCount") {
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetTimestamp_WithoutOracle") {
   // Create service without timestamp oracle (fallback to system time)
   auto service_no_tso = std::make_unique<InternalService>(
-      shard_manager_, segment_manager_, nullptr,
+      shard_manager_, segment_store_, nullptr,
       node_registry_, nullptr /* no oracle */, coordinator_);
 
   grpc::ServerContext ctx;

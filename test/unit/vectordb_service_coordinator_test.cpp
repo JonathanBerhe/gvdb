@@ -27,10 +27,10 @@ struct VectorDBServiceCoordinatorTest {
 
     // Create index factory and segment manager
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_manager_ = std::make_shared<storage::SegmentManager>(
+    segment_store_ = std::make_shared<storage::SegmentManager>(
         test_dir_, index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
-        segment_manager_.get());
+        segment_store_.get());
 
     // Create cluster components
     shard_manager_ = std::make_shared<cluster::ShardManager>(
@@ -59,7 +59,7 @@ struct VectorDBServiceCoordinatorTest {
     // Create VectorDBService in COORDINATOR mode
     auto resolver = network::MakeCoordinatorResolver(coordinator_);
     service_ = std::make_unique<network::VectorDBService>(
-        segment_manager_, query_executor_, std::move(resolver));
+        segment_store_, query_executor_, std::move(resolver));
   }
 
   ~VectorDBServiceCoordinatorTest() {
@@ -68,7 +68,7 @@ struct VectorDBServiceCoordinatorTest {
     node_registry_.reset();
     shard_manager_.reset();
     query_executor_.reset();
-    segment_manager_.reset();
+    segment_store_.reset();
     index_factory_.reset();
 
     std::filesystem::remove_all(test_dir_);
@@ -77,7 +77,7 @@ struct VectorDBServiceCoordinatorTest {
   std::string test_dir_;
   std::string raft_dir_;
   std::unique_ptr<index::IndexFactory> index_factory_;
-  std::shared_ptr<storage::SegmentManager> segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::shared_ptr<cluster::ShardManager> shard_manager_;
   std::shared_ptr<cluster::NodeRegistry> node_registry_;

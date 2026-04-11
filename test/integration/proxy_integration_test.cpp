@@ -35,22 +35,22 @@ class ProxyIntegrationTest {
     shard_manager_ = std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
     node_registry_ = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
 
-    coord_segment_manager_ = std::make_shared<storage::SegmentManager>(
+    coord_segment_store_ = std::make_shared<storage::SegmentManager>(
         "/tmp/gvdb-proxy-integration-test/coordinator", index_factory_.get());
     coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        coord_segment_manager_.get());
+        coord_segment_store_.get());
 
     // Coordinator without client_factory initially (will recreate after data node is up)
     coordinator_ = std::make_shared<cluster::Coordinator>(
         shard_manager_, node_registry_, nullptr);
 
     coord_internal_service_ = std::make_unique<network::InternalService>(
-        shard_manager_, coord_segment_manager_, coord_query_executor_,
+        shard_manager_, coord_segment_store_, coord_query_executor_,
         node_registry_, nullptr, coordinator_);
 
     auto coord_resolver = network::MakeCoordinatorResolver(coordinator_);
     coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
-        coord_segment_manager_, coord_query_executor_, std::move(coord_resolver));
+        coord_segment_store_, coord_query_executor_, std::move(coord_resolver));
 
     {
       grpc::ServerBuilder builder;
@@ -66,19 +66,19 @@ class ProxyIntegrationTest {
     }
 
     // --- Step 2: Start data node (InternalService for CreateSegment + VectorDBService for Insert/Search) ---
-    dn_segment_manager_ = std::make_shared<storage::SegmentManager>(
+    dn_segment_store_ = std::make_shared<storage::SegmentManager>(
         "/tmp/gvdb-proxy-integration-test/data_node", index_factory_.get());
     dn_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        dn_segment_manager_.get());
+        dn_segment_store_.get());
 
     auto dn_shard_manager = std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
     dn_internal_service_ = std::make_unique<network::InternalService>(
-        dn_shard_manager, dn_segment_manager_, dn_query_executor_);
+        dn_shard_manager, dn_segment_store_, dn_query_executor_);
 
     // Data node's VectorDBService uses CachedCoordinatorResolver -> can resolve collection names
     auto dn_resolver = network::MakeCachedCoordinatorResolver(coord_address_);
     dn_vectordb_service_ = std::make_unique<network::VectorDBService>(
-        dn_segment_manager_, dn_query_executor_, std::move(dn_resolver));
+        dn_segment_store_, dn_query_executor_, std::move(dn_resolver));
 
     {
       grpc::ServerBuilder builder;
@@ -108,12 +108,12 @@ class ProxyIntegrationTest {
 
     // Update internal service's coordinator reference
     coord_internal_service_ = std::make_unique<network::InternalService>(
-        shard_manager_, coord_segment_manager_, coord_query_executor_,
+        shard_manager_, coord_segment_store_, coord_query_executor_,
         node_registry_, nullptr, coordinator_);
 
     auto coord_resolver2 = network::MakeCoordinatorResolver(coordinator_);
     coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
-        coord_segment_manager_, coord_query_executor_, std::move(coord_resolver2));
+        coord_segment_store_, coord_query_executor_, std::move(coord_resolver2));
 
     // Restart coordinator server with new services
     coord_server_->Shutdown();
@@ -175,14 +175,14 @@ class ProxyIntegrationTest {
   std::shared_ptr<cluster::NodeRegistry> node_registry_;
   std::shared_ptr<cluster::Coordinator> coordinator_;
 
-  std::shared_ptr<storage::SegmentManager> coord_segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> coord_segment_store_;
   std::shared_ptr<compute::QueryExecutor> coord_query_executor_;
   std::unique_ptr<network::InternalService> coord_internal_service_;
   std::unique_ptr<network::VectorDBService> coord_vectordb_service_;
   std::unique_ptr<grpc::Server> coord_server_;
   std::string coord_address_;
 
-  std::shared_ptr<storage::SegmentManager> dn_segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> dn_segment_store_;
   std::shared_ptr<compute::QueryExecutor> dn_query_executor_;
   std::unique_ptr<network::InternalService> dn_internal_service_;
   std::unique_ptr<network::VectorDBService> dn_vectordb_service_;

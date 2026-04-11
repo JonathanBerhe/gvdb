@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <chrono>
 #include <future>
+#include <set>
 #include <grpcpp/grpcpp.h>
 
 namespace gvdb {
@@ -26,11 +27,11 @@ namespace network {
 // ============================================================================
 
 VectorDBService::VectorDBService(
-    std::shared_ptr<storage::SegmentManager> segment_manager,
+    std::shared_ptr<storage::ISegmentStore> segment_store,
     std::shared_ptr<compute::QueryExecutor> query_executor,
     std::unique_ptr<ICollectionResolver> resolver,
     std::shared_ptr<auth::RbacStore> rbac_store)
-    : segment_manager_(std::move(segment_manager)),
+    : segment_store_(std::move(segment_store)),
       query_executor_(std::move(query_executor)),
       resolver_(std::move(resolver)),
       rbac_store_(std::move(rbac_store)) {
@@ -73,7 +74,7 @@ grpc::Status VectorDBService::CheckPermission(
 // ============================================================================
 
 storage::Segment* VectorDBService::GetOrReplicateSegment(core::SegmentId segment_id) {
-  auto* segment = segment_manager_->GetSegment(segment_id);
+  auto* segment = segment_store_->GetSegment(segment_id);
   if (segment) return segment;
 
   // Segment not found locally — try pulling from coordinator if available
@@ -110,7 +111,7 @@ storage::Segment* VectorDBService::GetOrReplicateSegment(core::SegmentId segment
     return nullptr;
   }
 
-  auto add_status = segment_manager_->AddReplicatedSegment(std::move(segment_result.value()));
+  auto add_status = segment_store_->AddReplicatedSegment(std::move(segment_result.value()));
   if (!add_status.ok()) {
     utils::Logger::Instance().Error("Failed to add replicated segment {}: {}",
                                      response.segment_info().segment_id(),
@@ -122,7 +123,7 @@ storage::Segment* VectorDBService::GetOrReplicateSegment(core::SegmentId segment
                                  response.segment_info().segment_id(),
                                  response.segment_info().vector_count());
 
-  return segment_manager_->GetSegment(segment_id);
+  return segment_store_->GetSegment(segment_id);
 }
 
 grpc::Status VectorDBService::SearchDistributed(
@@ -397,7 +398,7 @@ grpc::Status VectorDBService::Insert(
   size_t num_shards = segment_ids.size();
 
   // Get dimension from first segment
-  auto* first_segment = segment_manager_->GetSegment(segment_ids[0]);
+  auto* first_segment = segment_store_->GetSegment(segment_ids[0]);
   if (!first_segment) {
     return toGrpcStatus(absl::NotFoundError("Segment not found"));
   }
@@ -473,9 +474,9 @@ grpc::Status VectorDBService::Insert(
     for (const auto& v : batch.vectors) batch_bytes += v.byte_size();
 
     // Get a writable segment that can fit this batch
-    auto* segment = segment_manager_->GetWritableSegment(collection_id, batch_bytes);
+    auto* segment = segment_store_->GetWritableSegment(collection_id, batch_bytes);
     if (!segment) {
-      segment = segment_manager_->GetSegment(segment_ids[i]);
+      segment = segment_store_->GetSegment(segment_ids[i]);
     }
     if (!segment) continue;
 
@@ -490,7 +491,7 @@ grpc::Status VectorDBService::Insert(
 
     // Safety net: if segment is full despite hint, rotate and retry once
     if (absl::IsResourceExhausted(status)) {
-      segment = segment_manager_->GetWritableSegment(collection_id, batch_bytes);
+      segment = segment_store_->GetWritableSegment(collection_id, batch_bytes);
       if (segment) {
         if (batch.has_sparse) {
           status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map, batch.expiry_entries);
@@ -562,7 +563,7 @@ grpc::Status VectorDBService::StreamInsert(
     const auto& segment_ids = *segment_ids_result;
     size_t num_shards = segment_ids.size();
 
-    auto* first_segment = segment_manager_->GetSegment(segment_ids[0]);
+    auto* first_segment = segment_store_->GetSegment(segment_ids[0]);
     if (!first_segment) {
       return toGrpcStatus(absl::NotFoundError("Segment not found"));
     }
@@ -612,7 +613,7 @@ grpc::Status VectorDBService::StreamInsert(
       auto& batch = shard_batches[i];
       if (batch.ids.empty()) continue;
 
-      auto* segment = segment_manager_->GetSegment(segment_ids[i]);
+      auto* segment = segment_store_->GetSegment(segment_ids[i]);
       if (!segment) continue;
 
       absl::Status status;
@@ -679,7 +680,7 @@ grpc::Status VectorDBService::Upsert(
   // Find a GROWING segment
   storage::Segment* growing_segment = nullptr;
   for (auto seg_id : segment_ids) {
-    auto* seg = segment_manager_->GetSegment(seg_id);
+    auto* seg = segment_store_->GetSegment(seg_id);
     if (seg && seg->CanAcceptWrites()) {
       growing_segment = seg;
       break;
@@ -763,9 +764,25 @@ grpc::Status VectorDBService::RangeSearch(
   }
 
   auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
-  if (!segment_ids_result.ok()) {
-    return toGrpcStatus(segment_ids_result.status());
+
+  // Check if we have local segments; if not, fan out to data nodes
+  bool any_local = false;
+  if (segment_ids_result.ok()) {
+    for (const auto& seg_id : *segment_ids_result) {
+      if (segment_store_->GetSegment(seg_id)) { any_local = true; break; }
+    }
   }
+
+  if (!any_local) {
+    auto targets = resolver_->GetShardTargets(request->collection_name());
+    if (targets.ok() && !targets->empty()) {
+      return RangeSearchDistributed(request, response);
+    }
+    if (!segment_ids_result.ok()) {
+      return toGrpcStatus(segment_ids_result.status());
+    }
+  }
+
   const auto& segment_ids = *segment_ids_result;
 
   auto query_result = fromProto(request->query_vector());
@@ -809,7 +826,7 @@ grpc::Status VectorDBService::RangeSearch(
 
     if (request->return_metadata()) {
       for (auto seg_id : segment_ids) {
-        auto* segment = segment_manager_->GetSegment(seg_id);
+        auto* segment = segment_store_->GetSegment(seg_id);
         if (segment) {
           auto meta = segment->GetMetadata(entry.id);
           if (meta.ok()) {
@@ -819,6 +836,93 @@ grpc::Status VectorDBService::RangeSearch(
         }
       }
     }
+  }
+
+  response->set_query_time_ms(static_cast<float>(timer.elapsed_millis()));
+  total_queries_++;
+
+  return grpc::Status::OK;
+}
+
+grpc::Status VectorDBService::RangeSearchDistributed(
+    const proto::RangeSearchRequest* request,
+    proto::RangeSearchResponse* response) {
+
+  utils::Timer timer;
+
+  auto targets_result = resolver_->GetShardTargets(request->collection_name());
+  if (!targets_result.ok()) {
+    return toGrpcStatus(targets_result.status());
+  }
+
+  const auto& targets = *targets_result;
+  if (targets.empty()) {
+    return grpc::Status(grpc::StatusCode::NOT_FOUND,
+        "No shards found for collection: " + request->collection_name());
+  }
+
+  // Deduplicate node addresses (multiple shards may be on the same node)
+  std::set<std::string> node_addrs;
+  for (const auto& t : targets) {
+    if (!t.node_address.empty()) node_addrs.insert(t.node_address);
+  }
+
+  // Fan out RangeSearch to each data node in parallel
+  struct NodeResult {
+    proto::RangeSearchResponse resp;
+    bool ok = false;
+  };
+
+  std::vector<std::future<NodeResult>> futures;
+  futures.reserve(node_addrs.size());
+
+  for (const auto& addr : node_addrs) {
+    futures.push_back(std::async(std::launch::async,
+        [&addr, &request]() -> NodeResult {
+          NodeResult result;
+          auto channel = grpc::CreateChannel(
+              addr, grpc::InsecureChannelCredentials());
+          auto stub = proto::VectorDBService::NewStub(channel);
+
+          grpc::ClientContext ctx;
+          ctx.set_deadline(std::chrono::system_clock::now() +
+                           std::chrono::seconds(10));
+
+          auto status = stub->RangeSearch(&ctx, *request, &result.resp);
+          result.ok = status.ok();
+          if (!status.ok()) {
+            utils::Logger::Instance().Warn(
+                "Distributed RangeSearch failed on {}: {}",
+                addr, status.error_message());
+          }
+          return result;
+        }));
+  }
+
+  // Collect and merge results
+  int max_results = request->max_results() > 0 ? request->max_results() : 1000;
+  std::vector<proto::SearchResultEntry> all_entries;
+
+  for (auto& future : futures) {
+    auto result = future.get();
+    if (result.ok) {
+      for (const auto& entry : result.resp.results()) {
+        all_entries.push_back(entry);
+      }
+    }
+  }
+
+  // Sort by distance and limit
+  std::sort(all_entries.begin(), all_entries.end(),
+            [](const auto& a, const auto& b) {
+              return a.distance() < b.distance();
+            });
+  if (static_cast<int>(all_entries.size()) > max_results) {
+    all_entries.resize(max_results);
+  }
+
+  for (auto& entry : all_entries) {
+    *response->add_results() = std::move(entry);
   }
 
   response->set_query_time_ms(static_cast<float>(timer.elapsed_millis()));
@@ -877,7 +981,7 @@ grpc::Status VectorDBService::Search(
   // Check if any segment exists locally
   bool any_local = false;
   for (const auto& seg_id : segment_ids) {
-    if (segment_manager_->GetSegment(seg_id)) { any_local = true; break; }
+    if (segment_store_->GetSegment(seg_id)) { any_local = true; break; }
   }
 
   if (!any_local) {
@@ -914,7 +1018,7 @@ grpc::Status VectorDBService::Search(
 
     if (request->return_metadata()) {
       for (const auto& seg_id : segment_ids) {
-        auto* segment = segment_manager_->GetSegment(seg_id);
+        auto* segment = segment_store_->GetSegment(seg_id);
         if (segment) {
           auto meta_result = segment->GetMetadata(entry.id);
           if (meta_result.ok()) {
@@ -997,7 +1101,7 @@ grpc::Status VectorDBService::HybridSearch(
 
   // Build text index on-the-fly for segments that don't have one
   for (const auto& seg_id : *segment_ids_result) {
-    auto* segment = segment_manager_->GetSegment(seg_id);
+    auto* segment = segment_store_->GetSegment(seg_id);
     if (!segment) continue;
 
     // Build text index from metadata if not already built
@@ -1014,7 +1118,7 @@ grpc::Status VectorDBService::HybridSearch(
   // Search each segment
   std::vector<core::SearchResultEntry> all_entries;
   for (const auto& seg_id : *segment_ids_result) {
-    auto* segment = segment_manager_->GetSegment(seg_id);
+    auto* segment = segment_store_->GetSegment(seg_id);
     if (!segment) continue;
 
     core::StatusOr<core::SearchResult> result;
@@ -1055,7 +1159,7 @@ grpc::Status VectorDBService::HybridSearch(
 
     if (request->return_metadata()) {
       for (const auto& seg_id : *segment_ids_result) {
-        auto* segment = segment_manager_->GetSegment(seg_id);
+        auto* segment = segment_store_->GetSegment(seg_id);
         if (segment) {
           auto meta_result = segment->GetMetadata(all_entries[i].id);
           if (meta_result.ok()) {
@@ -1169,7 +1273,7 @@ grpc::Status VectorDBService::ListVectors(
     return toGrpcStatus(segment_id_result.status());
   }
 
-  auto* segment = segment_manager_->GetSegment(*segment_id_result);
+  auto* segment = segment_store_->GetSegment(*segment_id_result);
   if (!segment) {
     return toGrpcStatus(absl::NotFoundError("Segment not found"));
   }
@@ -1334,7 +1438,7 @@ grpc::Status VectorDBService::UpdateMetadata(
     return toGrpcStatus(segment_id_result.status());
   }
 
-  auto* segment = segment_manager_->GetSegment(*segment_id_result);
+  auto* segment = segment_store_->GetSegment(*segment_id_result);
   if (!segment) {
     utils::MetricsRegistry::Instance().RecordUpdateMetadata(
         request->collection_name(), false);

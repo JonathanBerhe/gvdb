@@ -9,10 +9,10 @@
 namespace gvdb {
 namespace cluster {
 
-QueryNode::QueryNode(std::shared_ptr<storage::SegmentManager> segment_manager,
+QueryNode::QueryNode(std::shared_ptr<storage::ISegmentStore> segment_store,
                      std::shared_ptr<compute::QueryExecutor> query_executor,
                      size_t memory_limit_bytes)
-    : segment_manager_(std::move(segment_manager)),
+    : segment_store_(std::move(segment_store)),
       query_executor_(std::move(query_executor)),
       memory_limit_bytes_(memory_limit_bytes),
       memory_used_bytes_(0) {
@@ -22,7 +22,7 @@ QueryNode::QueryNode(std::shared_ptr<storage::SegmentManager> segment_manager,
 
 absl::Status QueryNode::LoadSegment(core::SegmentId segment_id) {
   // Get segment from storage manager
-  auto* segment = segment_manager_->GetSegment(segment_id);
+  auto* segment = segment_store_->GetSegment(segment_id);
   if (!segment) {
     return absl::NotFoundError(
         absl::StrCat("Segment not found: ", core::ToUInt32(segment_id)));
