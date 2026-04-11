@@ -44,6 +44,9 @@ jobs:
         if: steps.filter.outputs.cpp == 'true'
         run: |
           sudo apt-get update
+          # Remove pre-installed libssl-dev — its OpenSSL 3.x headers
+          # conflict with the AWS SDK's bundled aws-lc/s2n-tls build.
+          sudo apt-get remove -y libssl-dev 2>/dev/null || true
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             cmake \
