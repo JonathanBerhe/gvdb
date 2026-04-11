@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0](https://github.com/JonathanBerhe/gvdb/compare/v0.8.0...v0.9.0) (2026-04-11)
+
+
+### Features
+
+* **storage:** add S3/MinIO tiered storage with ISegmentStore interface ([181b7ac](https://github.com/JonathanBerhe/gvdb/commit/181b7ac696e4b10db12a25d92f937d6e8c64679d))
+* **storage:** add S3/MinIO tiered storage with ISegmentStore interface ([80891b0](https://github.com/JonathanBerhe/gvdb/commit/80891b081865ff4d609aa99bedd84f69ecca2f24))
+
+
+### Bug Fixes
+
+* **storage,network:** fix S3 tiered storage bugs and add RangeSearch distributed fan-out ([0328024](https://github.com/JonathanBerhe/gvdb/commit/03280240a086c64b9b2a63a0f624821cb05aa2ae))
+
 ## [0.8.0](https://github.com/JonathanBerhe/gvdb/compare/v0.7.0...v0.8.0) (2026-04-10)
 
 
