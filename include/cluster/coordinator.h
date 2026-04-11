@@ -228,7 +228,7 @@ class Coordinator {
       uint32_t shard_index);
   static constexpr size_t kMaxMovesPerCycle = 4;
   mutable std::mutex migration_mutex_;
-  std::set<uint32_t> shards_migrating_;
+  std::set<core::ShardId> shards_migrating_;
 
   // Helper methods
   core::NodeId AllocateNodeId();

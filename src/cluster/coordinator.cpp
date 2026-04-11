@@ -125,6 +125,18 @@ proto::internal::NodeInfo ToProtoNodeInfo(const NodeInfo& info) {
   return proto_info;
 }
 
+// RAII scope guard: invokes the stored callable on destruction.
+template <typename Fn>
+class ScopeGuard {
+ public:
+  explicit ScopeGuard(Fn fn) : fn_(std::move(fn)) {}
+  ~ScopeGuard() { fn_(); }
+  ScopeGuard(const ScopeGuard&) = delete;
+  ScopeGuard& operator=(const ScopeGuard&) = delete;
+ private:
+  Fn fn_;
+};
+
 }  // anonymous namespace
 
 Coordinator::Coordinator(
@@ -1089,26 +1101,23 @@ absl::Status Coordinator::ExecuteSingleMove(
   // 1. Check and track migration
   {
     std::lock_guard lock(migration_mutex_);
-    if (shards_migrating_.count(shard_key) > 0) {
+    if (shards_migrating_.count(move.shard_id) > 0) {
       return absl::AlreadyExistsError(
           absl::StrCat("Shard ", shard_key, " already migrating"));
     }
-    shards_migrating_.insert(shard_key);
+    shards_migrating_.insert(move.shard_id);
   }
 
-  // Cleanup guard: remove from migrating set on exit
-  auto cleanup = [this, shard_key]() {
+  // RAII: remove from migrating set on any exit path (including exceptions)
+  ScopeGuard migration_guard([this, shard_id = move.shard_id]() {
     std::lock_guard lock(migration_mutex_);
-    shards_migrating_.erase(shard_key);
-  };
+    shards_migrating_.erase(shard_id);
+  });
 
   // 2. Set shard to MIGRATING
   auto state_status = shard_manager_->SetShardState(
       move.shard_id, ShardState::MIGRATING);
-  if (!state_status.ok()) {
-    cleanup();
-    return state_status;
-  }
+  if (!state_status.ok()) return state_status;
 
   // 3. Compute segment ID
   core::SegmentId seg_id = ShardSegmentId(collection_id, shard_index);
@@ -1126,7 +1135,6 @@ absl::Status Coordinator::ExecuteSingleMove(
         "Rebalance: replication failed for shard {}: {}",
         shard_key, rep_status.message());
     shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE);
-    cleanup();
     return rep_status;
   }
 
@@ -1155,20 +1163,24 @@ absl::Status Coordinator::ExecuteSingleMove(
     }
   }
 
-  // 7. Remove source from shard mapping
-  shard_manager_->RemoveReplica(move.shard_id, move.source_node);
+  // 7. Remove source from shard mapping (only for replica moves —
+  //    for primary moves, SetPrimaryNode already replaced the old primary)
+  if (!move.is_primary) {
+    shard_manager_->RemoveReplica(move.shard_id, move.source_node);
+  }
 
   // 8. Set shard back to ACTIVE
   shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE);
 
-  // 9. Done
-  cleanup();
   utils::Logger::Instance().Info(
       "Rebalance: shard {} migration complete", shard_key);
   return absl::OkStatus();
 }
 
 void Coordinator::RecoverMigratingShards() {
+  // TODO: A crash between replication and remap leaves orphaned segment data
+  // on the target node. Add a background GC that reconciles actual segments
+  // against shard mappings to reclaim leaked storage.
   auto all_shards = shard_manager_->GetAllShards();
   for (const auto& shard : all_shards) {
     if (shard.state == ShardState::MIGRATING) {

@@ -915,7 +915,13 @@ TEST_CASE_FIXTURE(ShardManagerTest, "CalculateRebalancePlan_SkipsMigratingShards
     REQUIRE(shard_manager_->UpdateShardMetrics(sid, 10000, 1000, 500).ok());
   }
 
-  // Set all shards to MIGRATING
+  // Give node 2 a small shard so total_load > 0 independent of MIGRATING
+  // state (isolates the MIGRATING skip from the early-return-on-zero-load path)
+  auto sid_n2 = core::MakeShardId(10);
+  REQUIRE(shard_manager_->SetPrimaryNode(sid_n2, n2).ok());
+  REQUIRE(shard_manager_->UpdateShardMetrics(sid_n2, 1000, 100, 50).ok());
+
+  // Set node 1's shards to MIGRATING
   for (int i = 0; i < 4; ++i) {
     REQUIRE(shard_manager_->SetShardState(core::MakeShardId(i),
                                            ShardState::MIGRATING).ok());
@@ -928,13 +934,19 @@ TEST_CASE_FIXTURE(ShardManagerTest, "CalculateRebalancePlan_SkipsMigratingShards
 TEST_CASE_FIXTURE(ShardManagerTest, "SetShardState_Transitions") {
   auto sid = core::MakeShardId(0);
 
-  CHECK_EQ(shard_manager_->GetShardState(sid), ShardState::ACTIVE);
+  auto initial = shard_manager_->GetShardState(sid);
+  REQUIRE(initial.ok());
+  CHECK_EQ(*initial, ShardState::ACTIVE);
 
   REQUIRE(shard_manager_->SetShardState(sid, ShardState::MIGRATING).ok());
-  CHECK_EQ(shard_manager_->GetShardState(sid), ShardState::MIGRATING);
+  auto migrating = shard_manager_->GetShardState(sid);
+  REQUIRE(migrating.ok());
+  CHECK_EQ(*migrating, ShardState::MIGRATING);
 
   REQUIRE(shard_manager_->SetShardState(sid, ShardState::ACTIVE).ok());
-  CHECK_EQ(shard_manager_->GetShardState(sid), ShardState::ACTIVE);
+  auto active = shard_manager_->GetShardState(sid);
+  REQUIRE(active.ok());
+  CHECK_EQ(*active, ShardState::ACTIVE);
 }
 
 TEST_CASE_FIXTURE(ShardManagerTest, "SetShardState_NotFound") {
@@ -942,6 +954,13 @@ TEST_CASE_FIXTURE(ShardManagerTest, "SetShardState_NotFound") {
   auto status = shard_manager_->SetShardState(bad_sid, ShardState::MIGRATING);
   CHECK_FALSE(status.ok());
   CHECK(absl::IsNotFound(status));
+}
+
+TEST_CASE_FIXTURE(ShardManagerTest, "GetShardState_NotFound") {
+  auto bad_sid = core::MakeShardId(9999);
+  auto result = shard_manager_->GetShardState(bad_sid);
+  CHECK_FALSE(result.ok());
+  CHECK(absl::IsNotFound(result.status()));
 }
 
 TEST_CASE_FIXTURE(ShardManagerTest, "ExecuteRebalanceMove_SetsStateToMigrating") {
@@ -956,5 +975,7 @@ TEST_CASE_FIXTURE(ShardManagerTest, "ExecuteRebalanceMove_SetsStateToMigrating")
   ShardManager::RebalanceMove move{sid, n1, n2, true};
   auto status = shard_manager_->ExecuteRebalanceMove(move);
   CHECK(status.ok());
-  CHECK_EQ(shard_manager_->GetShardState(sid), ShardState::MIGRATING);
+  auto state = shard_manager_->GetShardState(sid);
+  REQUIRE(state.ok());
+  CHECK_EQ(*state, ShardState::MIGRATING);
 }
