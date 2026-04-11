@@ -22,16 +22,12 @@ namespace storage {
 
 namespace {
 
-// RAII guard for AWS SDK initialization
+// RAII guard for AWS SDK initialization.
+// ShutdownAPI must receive the same options instance as InitAPI.
 struct AwsSdkGuard {
-  AwsSdkGuard() {
-    Aws::SDKOptions options;
-    Aws::InitAPI(options);
-  }
-  ~AwsSdkGuard() {
-    Aws::SDKOptions options;
-    Aws::ShutdownAPI(options);
-  }
+  Aws::SDKOptions options;
+  AwsSdkGuard() { Aws::InitAPI(options); }
+  ~AwsSdkGuard() { Aws::ShutdownAPI(options); }
 };
 
 // Singleton — initialized once, shutdown on program exit
@@ -53,7 +49,7 @@ core::StatusOr<std::unique_ptr<S3ObjectStore>> S3ObjectStore::Create(
   // Ensure AWS SDK is initialized
   (void)GetSdkGuard();
 
-  Aws::Client::ClientConfiguration aws_config;
+  Aws::S3::S3ClientConfiguration aws_config;
   if (!config.region.empty()) {
     aws_config.region = config.region;
   }
@@ -62,13 +58,12 @@ core::StatusOr<std::unique_ptr<S3ObjectStore>> S3ObjectStore::Create(
   }
   aws_config.scheme = config.use_ssl ? Aws::Http::Scheme::HTTPS
                                      : Aws::Http::Scheme::HTTP;
+  aws_config.useVirtualAddressing = !config.path_style;
 
   Aws::Auth::AWSCredentials credentials(config.access_key, config.secret_key);
 
   auto client = std::make_shared<Aws::S3::S3Client>(
-      credentials, nullptr, aws_config,
-      Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-      /*useVirtualAddressing=*/!config.path_style);
+      credentials, nullptr, aws_config);
 
   return std::unique_ptr<S3ObjectStore>(
       new S3ObjectStore(std::move(client), config.bucket));

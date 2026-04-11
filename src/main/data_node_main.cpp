@@ -23,12 +23,14 @@
 #include "network/collection_resolver.h"
 #include "utils/server_bootstrap.h"
 #include "utils/env_flags.h"
+#include "utils/config.h"
 
 struct DataNodeArgs {
   int node_id = 101;
   std::string bind_address = "0.0.0.0:50060";
   std::string advertise_address;
   std::string data_dir = "/tmp/gvdb/data_node";
+  std::string config_file;
   std::vector<std::string> coordinator_addresses;
   std::vector<int> assigned_shards;
   size_t memory_limit_gb = 8;
@@ -43,6 +45,7 @@ void PrintUsage(const char* program_name) {
             << "  --data-dir PATH             Data directory (default: /tmp/gvdb/data_node)\n"
             << "  --coordinator ADDR          Coordinator addresses (comma-separated)\n"
             << "  --shards SHARD_IDS          Comma-separated shard IDs\n"
+            << "  --config FILE               YAML config file (for S3/MinIO settings)\n"
             << "  --memory-limit-gb SIZE      Memory limit in GB (default: 8)\n"
             << "  --help                      Show this help message\n";
 }
@@ -86,6 +89,8 @@ bool ParseArgs(int argc, char** argv, DataNodeArgs& args) {
       args.coordinator_addresses.push_back(coords_str.substr(start));
     } else if (arg == "--shards" && i + 1 < argc) {
       args.assigned_shards = ParseShardIds(argv[++i]);
+    } else if (arg == "--config" && i + 1 < argc) {
+      args.config_file = argv[++i];
     } else if (arg == "--memory-limit-gb" && i + 1 < argc) {
       args.memory_limit_gb = std::stoull(argv[++i]);
     } else {
@@ -122,33 +127,56 @@ int main(int argc, char** argv) {
 
   try {
     // 1. Storage + compute
+    // Load YAML config for S3 settings if provided
+    utils::GVDBConfig config = utils::Config::get_default();
+    if (!args.config_file.empty()) {
+      auto yaml_result = utils::Config::load_from_file(args.config_file);
+      if (yaml_result.ok()) {
+        config = std::move(*yaml_result);
+      }
+    }
+
     auto index_factory = std::make_unique<index::IndexFactory>();
-    auto segment_manager = std::make_shared<storage::SegmentManager>(
+    auto local_manager = std::make_unique<storage::SegmentManager>(
         args.data_dir + "/segments", index_factory.get());
 
     // Optionally wrap in tiered storage (S3/MinIO)
     std::shared_ptr<storage::ISegmentStore> segment_store;
 #ifdef GVDB_HAS_S3
-    if (!args.s3_endpoint.empty()) {
+    if (!config.storage.object_store_endpoint.empty()) {
       storage::S3Config s3_config;
-      s3_config.endpoint = args.s3_endpoint;
-      // Data node S3 config would come from CLI flags or config file
-      // For now, use environment variables as fallback
+      s3_config.endpoint = config.storage.object_store_endpoint;
+      s3_config.access_key = config.storage.object_store_access_key;
+      s3_config.secret_key = config.storage.object_store_secret_key;
+      s3_config.bucket = config.storage.object_store_bucket;
+      s3_config.region = config.storage.object_store_region;
+      s3_config.use_ssl = config.storage.object_store_use_ssl;
+      s3_config.path_style = (config.storage.object_store_type == "minio");
+
       auto s3_result = storage::S3ObjectStore::Create(s3_config);
       if (s3_result.ok()) {
+        auto cache_dir = args.data_dir + "/cache";
+        auto cache_size = static_cast<size_t>(
+            config.storage.object_store_cache_size_mb) * 1024 * 1024;
         auto cache = std::make_unique<storage::SegmentCache>(
-            args.data_dir + "/cache", 256 * 1024 * 1024);
+            cache_dir, cache_size);
+        auto prefix = config.storage.object_store_prefix.empty()
+            ? "gvdb" : config.storage.object_store_prefix;
         segment_store = std::make_shared<storage::TieredSegmentManager>(
-            std::move(segment_manager), std::move(*s3_result),
-            std::move(cache), "gvdb");
+            std::move(local_manager), std::move(*s3_result),
+            std::move(cache), prefix,
+            config.storage.object_store_upload_threads);
       } else {
-        segment_store = segment_manager;
+        segment_store = std::shared_ptr<storage::SegmentManager>(
+            std::move(local_manager));
       }
     } else {
-      segment_store = segment_manager;
+      segment_store = std::shared_ptr<storage::SegmentManager>(
+          std::move(local_manager));
     }
 #else
-    segment_store = segment_manager;
+    segment_store = std::shared_ptr<storage::SegmentManager>(
+        std::move(local_manager));
 #endif
 
     segment_store->LoadAllSegments();

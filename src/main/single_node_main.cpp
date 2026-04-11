@@ -130,7 +130,7 @@ int main(int argc, char** argv) {
 
     // 2. Storage + compute
     auto index_factory = std::make_unique<index::IndexFactory>();
-    auto segment_manager = std::make_shared<storage::SegmentManager>(
+    auto local_manager = std::make_unique<storage::SegmentManager>(
         data_dir + "/segments", index_factory.get());
 
     // Optionally wrap in tiered storage (S3/MinIO)
@@ -159,13 +159,15 @@ int main(int argc, char** argv) {
           ? "gvdb" : config.storage.object_store_prefix;
 
       segment_store = std::make_shared<storage::TieredSegmentManager>(
-          std::move(segment_manager), std::move(*s3_result),
+          std::move(local_manager), std::move(*s3_result),
           std::move(cache), prefix, config.storage.object_store_upload_threads);
     } else {
-      segment_store = segment_manager;
+      segment_store = std::shared_ptr<storage::SegmentManager>(
+          std::move(local_manager));
     }
 #else
-    segment_store = segment_manager;
+    segment_store = std::shared_ptr<storage::SegmentManager>(
+        std::move(local_manager));
 #endif
 
     segment_store->LoadAllSegments();

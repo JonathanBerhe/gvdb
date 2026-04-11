@@ -4,6 +4,7 @@
 #include "storage/object_store.h"
 
 #include <fstream>
+#include <mutex>
 #include <shared_mutex>
 #include <sstream>
 

@@ -120,8 +120,13 @@ class TieredSegmentManager : public ISegmentStore {
   // Whether a segment is currently being uploaded
   [[nodiscard]] bool IsUploading(core::SegmentId id) const;
 
+  // Segment IDs whose S3 upload failed (for monitoring / retry)
+  [[nodiscard]] std::vector<core::SegmentId> GetFailedUploads() const;
+
  private:
-  std::unique_ptr<SegmentManager> local_;
+  // Mutable: const methods may trigger lazy segment loading from S3,
+  // which mutates the local SegmentManager's in-memory segment map.
+  mutable std::unique_ptr<SegmentManager> local_;
   std::unique_ptr<IObjectStore> object_store_;
   std::unique_ptr<SegmentCache> cache_;
   std::string prefix_;
@@ -129,9 +134,10 @@ class TieredSegmentManager : public ISegmentStore {
   // Async upload pool
   std::unique_ptr<utils::ThreadPool> upload_pool_;
 
-  // Track in-flight uploads
+  // Track in-flight and failed uploads
   mutable std::mutex upload_mutex_;
   std::unordered_set<uint32_t> uploading_;
+  std::unordered_set<uint32_t> failed_uploads_;
 
   // Remote segment metadata (discovered from manifest, not yet loaded)
   struct RemoteSegmentInfo {

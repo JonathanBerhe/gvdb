@@ -305,6 +305,10 @@ if(GVDB_WITH_S3)
   set(AUTORUN_UNIT_TESTS OFF CACHE BOOL "" FORCE)
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
   set(MINIMIZE_SIZE ON CACHE BOOL "" FORCE)
+  # Use the CRT's bundled aws-lc for crypto instead of system OpenSSL.
+  # System OpenSSL 3.x on Ubuntu 24.04 has EVP_PKEY API changes that
+  # break the CRT's s2n-tls build. aws-lc is OpenSSL 1.1.1-compatible.
+  set(USE_OPENSSL OFF CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(awssdk)
 endif()
 
