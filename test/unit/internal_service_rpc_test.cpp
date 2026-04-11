@@ -175,16 +175,16 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetShardAssignments_Empty") {
   CHECK(response.assignments_size() > 0);
 }
 
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "RebalanceShards_Unimplemented") {
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "RebalanceShards_NoDistributedMode") {
   grpc::ServerContext ctx;
   proto::internal::RebalanceShardsRequest request;
   request.set_collection_id(1);
   proto::internal::RebalanceShardsResponse response;
 
+  // Coordinator has no client_factory, so rebalance returns OK with 0 moves
   auto status = service_->RebalanceShards(&ctx, &request, &response);
-
-  CHECK_FALSE(status.ok());
-  CHECK_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
+  CHECK(status.ok());
+  CHECK_EQ(response.shards_moved(), 0);
 }
 
 // ============================================================================
@@ -753,7 +753,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetTimestamp_WithoutOracle") {
 // 7. Data Transfer Tests
 // ============================================================================
 
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "TransferData_Unimplemented") {
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "TransferData_NoDistributedMode") {
   grpc::ServerContext ctx;
   proto::internal::TransferDataRequest request;
   request.set_collection_id(1);
@@ -762,10 +762,10 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "TransferData_Unimplemented") {
   request.set_target_node_id(2);
   proto::internal::TransferDataResponse response;
 
+  // Coordinator has no client_factory, so transfer fails gracefully
   auto status = service_->TransferData(&ctx, &request, &response);
-
-  CHECK_FALSE(status.ok());
-  CHECK_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
+  CHECK(status.ok());
+  CHECK_FALSE(response.success());
 }
 
 // ============================================================================
