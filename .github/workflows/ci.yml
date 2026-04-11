@@ -44,6 +44,9 @@ jobs:
         if: steps.filter.outputs.cpp == 'true'
         run: |
           sudo apt-get update
+          # Remove pre-installed libssl-dev — its OpenSSL 3.x headers
+          # conflict with the AWS SDK's bundled aws-lc/s2n-tls build.
+          sudo apt-get remove -y libssl-dev 2>/dev/null || true
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             cmake \
@@ -52,7 +55,8 @@ jobs:
             libomp-dev \
             libopenblas-dev \
             liblapack-dev \
-            zlib1g-dev
+            zlib1g-dev \
+            libcurl4-gnutls-dev
 
       - name: Set up ccache
         if: steps.filter.outputs.cpp == 'true'
@@ -79,7 +83,7 @@ jobs:
         run: >
           make build
           BUILD_TYPE=Release
-          CMAKE_EXTRA="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          CMAKE_EXTRA="-DGVDB_WITH_S3=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}"
 
       - name: Test

@@ -133,3 +133,24 @@ set_tests_properties(ProxyIntegrationTests PROPERTIES
   TIMEOUT 300
   LABELS "integration"
 )
+
+# S3/MinIO integration tests (uses InMemoryObjectStore mock)
+add_executable(s3_integration_tests
+  s3_integration_test.cpp
+)
+
+target_link_libraries(s3_integration_tests
+  PRIVATE
+    gvdb_storage
+    gvdb_index
+    gvdb_core
+    gvdb_utils
+    doctest::doctest_with_main
+)
+
+add_test(NAME S3IntegrationTests COMMAND s3_integration_tests)
+
+set_tests_properties(S3IntegrationTests PROPERTIES
+  TIMEOUT 60
+  LABELS "integration"
+)

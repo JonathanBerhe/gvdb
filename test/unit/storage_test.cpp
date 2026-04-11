@@ -7,10 +7,8 @@
 #include "core/types.h"
 #include "core/vector.h"
 #include "index/index_factory.h"
-#include "storage/local_storage.h"
 #include "storage/segment.h"
 #include "storage/segment_manager.h"
-#include "storage/storage_factory.h"
 
 using namespace gvdb;
 
@@ -660,140 +658,8 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentManagerDropSegment") {
   CHECK_EQ(manager.GetSegment(segment_id.value()), nullptr);
 }
 
-// ============================================================================
-// LocalStorage Tests
-// ============================================================================
-
-TEST_CASE_FIXTURE(StorageTest, "LocalStorageCreate") {
-  core::StorageConfig config;
-  config.type = core::StorageConfig::Type::LOCAL_DISK;
-  config.base_path = test_dir_;
-
-  storage::LocalStorage storage(config, index_factory_.get());
-
-  CHECK_EQ(storage.GetStorageSize(), 0);
-}
-
-TEST_CASE_FIXTURE(StorageTest, "LocalStorageMetadata") {
-  core::StorageConfig config;
-  config.type = core::StorageConfig::Type::LOCAL_DISK;
-  config.base_path = test_dir_;
-
-  storage::LocalStorage storage(config, index_factory_.get());
-
-  // Put metadata
-  REQUIRE(storage.PutMetadata("key1", "value1").ok());
-  REQUIRE(storage.PutMetadata("key2", "value2").ok());
-
-  // Get metadata
-  auto result1 = storage.GetMetadata("key1");
-  REQUIRE(result1.ok());
-  CHECK_EQ(result1.value(), "value1");
-
-  auto result2 = storage.GetMetadata("key2");
-  REQUIRE(result2.ok());
-  CHECK_EQ(result2.value(), "value2");
-
-  // Delete metadata
-  REQUIRE(storage.DeleteMetadata("key1").ok());
-
-  auto result3 = storage.GetMetadata("key1");
-  CHECK_FALSE(result3.ok());
-  CHECK(absl::IsNotFound(result3.status()));
-}
-
-TEST_CASE_FIXTURE(StorageTest, "LocalStorageSegmentOperations") {
-  core::StorageConfig config;
-  config.type = core::StorageConfig::Type::LOCAL_DISK;
-  config.base_path = test_dir_;
-
-  storage::LocalStorage storage(config, index_factory_.get());
-
-  // Register collection first by creating a segment
-  // (This implicitly registers the collection)
-  core::IndexConfig index_config;
-  index_config.dimension = dimension_;
-  index_config.metric_type = metric_;
-
-  // We need to register the collection first through metadata
-  // For now, we'll use a workaround by directly creating through
-  // segment manager This is a limitation of the current API
-
-  // Create segment (this should fail without collection registration)
-  auto segment_result = storage.CreateSegment(collection_id_);
-  CHECK_FALSE(segment_result.ok());
-  CHECK(absl::IsNotFound(segment_result.status()));
-}
-
-// ============================================================================
-// StorageFactory Tests
-// ============================================================================
-
-TEST_CASE_FIXTURE(StorageTest, "StorageFactoryLocalDisk") {
-  storage::StorageFactory factory(index_factory_.get());
-
-  core::StorageConfig config;
-  config.type = core::StorageConfig::Type::LOCAL_DISK;
-  config.base_path = test_dir_;
-
-  auto storage_result = factory.CreateStorage(config);
-  INFO("CreateStorage failed: " << storage_result.status().message());
-  REQUIRE(storage_result.ok());
-
-  CHECK_NE(storage_result.value(), nullptr);
-}
-
-TEST_CASE_FIXTURE(StorageTest, "StorageFactoryMemory") {
-  storage::StorageFactory factory(index_factory_.get());
-
-  core::StorageConfig config;
-  config.type = core::StorageConfig::Type::MEMORY;
-  config.base_path = "/tmp/gvdb_memory_test";
-
-  auto storage_result = factory.CreateStorage(config);
-  REQUIRE(storage_result.ok());
-
-  CHECK_NE(storage_result.value(), nullptr);
-}
-
-TEST_CASE_FIXTURE(StorageTest, "StorageFactoryS3Unimplemented") {
-  storage::StorageFactory factory(index_factory_.get());
-
-  core::StorageConfig config;
-  config.type = core::StorageConfig::Type::S3;
-  config.base_path = "s3://bucket/path";
-
-  auto storage_result = factory.CreateStorage(config);
-  CHECK_FALSE(storage_result.ok());
-  CHECK(absl::IsUnimplemented(storage_result.status()));
-}
-
-TEST_CASE_FIXTURE(StorageTest, "StorageFactoryInvalidConfig") {
-  storage::StorageFactory factory(index_factory_.get());
-
-  core::StorageConfig config;
-  config.base_path = "";  // Invalid: empty path
-
-  auto storage_result = factory.CreateStorage(config);
-  CHECK_FALSE(storage_result.ok());
-  CHECK(absl::IsInvalidArgument(storage_result.status()));
-}
-
-// ============================================================================
-// Compaction Tests
-// ============================================================================
-
-TEST_CASE_FIXTURE(StorageTest, "CompactNoSegments") {
-  core::StorageConfig config;
-  config.type = core::StorageConfig::Type::LOCAL_DISK;
-  config.base_path = test_dir_;
-
-  storage::LocalStorage storage(config, index_factory_.get());
-
-  // Compacting with no segments should succeed as no-op
-  auto compact_status = storage.Compact();
-  CHECK(compact_status.ok());
-}
+// LocalStorage and StorageFactory tests removed — replaced by ISegmentStore.
+// See: tiered_segment_manager_test.cpp, s3_integration_test.cpp
 
 // =============================================================================
 // Get Vectors Tests

@@ -224,6 +224,9 @@ main() {
     build_test "TTL" "ttl.go" || exit 1
     build_test "Auto_Index" "auto_index.go" || exit 1
     build_test "RBAC" "rbac.go" || exit 1
+    if [ -n "$GVDB_S3_ENDPOINT" ]; then
+        build_test "S3_Storage" "s3_storage.go" || exit 1
+    fi
     log_success "All tests built"
     echo ""
 
@@ -250,6 +253,11 @@ main() {
         "Auto-Index Test:Auto_Index_test"
         "RBAC Test:RBAC_test"
     )
+
+    # Add S3 test if endpoint is configured
+    if [ -n "$GVDB_S3_ENDPOINT" ]; then
+        TESTS+=("S3 Storage Test:S3_Storage_test")
+    fi
 
     for TEST in "${TESTS[@]}"; do
         TEST_NAME="${TEST%:*}"

@@ -59,6 +59,18 @@ struct StorageConfig {
   size_t wal_buffer_size_mb = 64;
   bool enable_compression = true;
   int compaction_threads = 4;
+
+  // Object store (S3/MinIO) configuration — empty endpoint means disabled
+  std::string object_store_type;          // "s3" or "minio"
+  std::string object_store_endpoint;      // e.g., "http://localhost:9000"
+  std::string object_store_access_key;
+  std::string object_store_secret_key;
+  std::string object_store_bucket;
+  std::string object_store_region;
+  std::string object_store_prefix;
+  bool object_store_use_ssl = true;
+  int object_store_cache_size_mb = 256;
+  int object_store_upload_threads = 2;
 };
 
 /**

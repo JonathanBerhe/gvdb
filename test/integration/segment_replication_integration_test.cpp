@@ -43,17 +43,17 @@ class SegmentReplicationIntegrationTest {
     node_registry_->UpdateNode(proto_node);
 
     // Create coordinator's segment manager and query executor
-    coord_segment_manager_ = std::make_shared<storage::SegmentManager>(
+    coord_segment_store_ = std::make_shared<storage::SegmentManager>(
         "/tmp/gvdb-segment-replication-test/coordinator",
         index_factory_.get());
 
     coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        coord_segment_manager_.get());
+        coord_segment_store_.get());
 
     // Create InternalService (serves GetSegment RPC)
     internal_service_ = std::make_unique<network::InternalService>(
         shard_manager_,
-        coord_segment_manager_,
+        coord_segment_store_,
         coord_query_executor_,
         nullptr,  // node_registry not needed
         nullptr,  // timestamp_oracle not needed
@@ -72,25 +72,25 @@ class SegmentReplicationIntegrationTest {
     server_address_ = absl::StrFormat("localhost:%d", server_port_);
 
     // Create data node's segment manager (separate storage, won't have segments initially)
-    data_segment_manager_ = std::make_shared<storage::SegmentManager>(
+    data_segment_store_ = std::make_shared<storage::SegmentManager>(
         "/tmp/gvdb-segment-replication-test/data_node",
         index_factory_.get());
 
     data_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        data_segment_manager_.get());
+        data_segment_store_.get());
 
     // Create data node's VectorDBService in distributed mode
     auto resolver = network::MakeCachedCoordinatorResolver(server_address_);
     data_vectordb_service_ = std::make_unique<network::VectorDBService>(
-        data_segment_manager_,
+        data_segment_store_,
         data_query_executor_,
         std::move(resolver));
   }
 
   ~SegmentReplicationIntegrationTest() {
     server_->Shutdown();
-    coord_segment_manager_->Clear();
-    data_segment_manager_->Clear();
+    coord_segment_store_->Clear();
+    data_segment_store_->Clear();
   }
 
   std::unique_ptr<index::IndexFactory> index_factory_;
@@ -99,12 +99,12 @@ class SegmentReplicationIntegrationTest {
   std::shared_ptr<cluster::Coordinator> coordinator_;
 
   // Coordinator components
-  std::shared_ptr<storage::SegmentManager> coord_segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> coord_segment_store_;
   std::shared_ptr<compute::QueryExecutor> coord_query_executor_;
   std::unique_ptr<network::InternalService> internal_service_;
 
   // Data node components
-  std::shared_ptr<storage::SegmentManager> data_segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> data_segment_store_;
   std::shared_ptr<compute::QueryExecutor> data_query_executor_;
   std::unique_ptr<network::VectorDBService> data_vectordb_service_;
 
@@ -122,7 +122,7 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "DataNodePullsSegmentOnSear
 
   // 2. Create segment on coordinator using ShardSegmentId scheme
   core::SegmentId segment_id = cluster::ShardSegmentId(*collection_id, 0);
-  auto create_seg_status = coord_segment_manager_->CreateSegmentWithId(
+  auto create_seg_status = coord_segment_store_->CreateSegmentWithId(
       segment_id, *collection_id, 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(create_seg_status.ok());
 
@@ -138,14 +138,14 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "DataNodePullsSegmentOnSear
     ids.push_back(core::MakeVectorId(i + 1));
   }
 
-  auto insert_status = coord_segment_manager_->WriteVectors(segment_id, vectors, ids);
+  auto insert_status = coord_segment_store_->WriteVectors(segment_id, vectors, ids);
   REQUIRE(insert_status.ok());
 
   // 3. Also create segment on data node (simulate coordinator push)
-  auto dn_create = data_segment_manager_->CreateSegmentWithId(
+  auto dn_create = data_segment_store_->CreateSegmentWithId(
       segment_id, *collection_id, 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(dn_create.ok());
-  auto* dn_seg = data_segment_manager_->GetSegment(segment_id);
+  auto* dn_seg = data_segment_store_->GetSegment(segment_id);
   REQUIRE_NE(dn_seg, nullptr);
   auto dn_insert = dn_seg->AddVectors(vectors, ids);
   REQUIRE(dn_insert.ok());
@@ -153,7 +153,7 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "DataNodePullsSegmentOnSear
   cfg.index_type = core::IndexType::FLAT;
   cfg.dimension = 128;
   cfg.metric_type = core::MetricType::L2;
-  (void)data_segment_manager_->SealSegment(segment_id, cfg);
+  (void)data_segment_store_->SealSegment(segment_id, cfg);
 
   // 4. Build gRPC Search request
   proto::SearchRequest request;
@@ -193,8 +193,8 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCache
   core::SegmentId segment_id = cluster::ShardSegmentId(*collection_id, 0);
 
   // Create segment on coordinator
-  if (!coord_segment_manager_->GetSegment(segment_id)) {
-    auto cs = coord_segment_manager_->CreateSegmentWithId(
+  if (!coord_segment_store_->GetSegment(segment_id)) {
+    auto cs = coord_segment_store_->CreateSegmentWithId(
         segment_id, *collection_id, 64, core::MetricType::L2, core::IndexType::FLAT);
     REQUIRE(cs.ok());
   }
@@ -207,20 +207,20 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCache
     vectors.push_back(core::Vector(std::move(data)));
     ids.push_back(core::MakeVectorId(i + 1));
   }
-  coord_segment_manager_->WriteVectors(segment_id, vectors, ids);
+  coord_segment_store_->WriteVectors(segment_id, vectors, ids);
 
   // Create segment on data node too (simulate push replication)
-  if (!data_segment_manager_->GetSegment(segment_id)) {
-    auto ds = data_segment_manager_->CreateSegmentWithId(
+  if (!data_segment_store_->GetSegment(segment_id)) {
+    auto ds = data_segment_store_->CreateSegmentWithId(
         segment_id, *collection_id, 64, core::MetricType::L2, core::IndexType::FLAT);
     REQUIRE(ds.ok());
-    auto* dn_seg = data_segment_manager_->GetSegment(segment_id);
+    auto* dn_seg = data_segment_store_->GetSegment(segment_id);
     dn_seg->AddVectors(vectors, ids);
     core::IndexConfig cfg;
     cfg.index_type = core::IndexType::FLAT;
     cfg.dimension = 64;
     cfg.metric_type = core::MetricType::L2;
-    (void)data_segment_manager_->SealSegment(segment_id, cfg);
+    (void)data_segment_store_->SealSegment(segment_id, cfg);
   }
 
   // First search
@@ -239,7 +239,7 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCache
   REQUIRE(status1.ok());
 
   // Verify segment is now cached
-  auto* cached_segment = data_segment_manager_->GetSegment(segment_id);
+  auto* cached_segment = data_segment_store_->GetSegment(segment_id);
   REQUIRE_NE(cached_segment, nullptr);
 
   // Second search (should reuse cached segment)
@@ -295,15 +295,15 @@ class ReadRepairIntegrationTest {
     index_factory_ = std::make_unique<index::IndexFactory>();
 
     // Two separate segment managers simulate two data nodes
-    primary_segment_manager_ = std::make_shared<storage::SegmentManager>(
+    primary_segment_store_ = std::make_shared<storage::SegmentManager>(
         "/tmp/gvdb-read-repair-test/primary", index_factory_.get());
-    replica_segment_manager_ = std::make_shared<storage::SegmentManager>(
+    replica_segment_store_ = std::make_shared<storage::SegmentManager>(
         "/tmp/gvdb-read-repair-test/replica", index_factory_.get());
 
     auto primary_qe = std::make_shared<compute::QueryExecutor>(
-        primary_segment_manager_.get());
+        primary_segment_store_.get());
     auto replica_qe = std::make_shared<compute::QueryExecutor>(
-        replica_segment_manager_.get());
+        replica_segment_store_.get());
 
     // Shard manager and node registry
     shard_manager_ = std::make_shared<cluster::ShardManager>(
@@ -333,10 +333,10 @@ class ReadRepairIntegrationTest {
     // Start gRPC servers for each "data node" — each runs InternalService
     // with its own segment manager
     primary_internal_ = std::make_unique<network::InternalService>(
-        shard_manager_, primary_segment_manager_, primary_qe,
+        shard_manager_, primary_segment_store_, primary_qe,
         nullptr, nullptr, coordinator_);
     replica_internal_ = std::make_unique<network::InternalService>(
-        shard_manager_, replica_segment_manager_, replica_qe,
+        shard_manager_, replica_segment_store_, replica_qe,
         nullptr, nullptr, coordinator_);
 
     grpc::ServerBuilder builder1;
@@ -382,8 +382,8 @@ class ReadRepairIntegrationTest {
   ~ReadRepairIntegrationTest() {
     primary_server_->Shutdown();
     replica_server_->Shutdown();
-    primary_segment_manager_->Clear();
-    replica_segment_manager_->Clear();
+    primary_segment_store_->Clear();
+    replica_segment_store_->Clear();
   }
 
   std::unique_ptr<index::IndexFactory> index_factory_;
@@ -391,8 +391,8 @@ class ReadRepairIntegrationTest {
   std::shared_ptr<cluster::NodeRegistry> node_registry_;
   std::shared_ptr<cluster::Coordinator> coordinator_;
 
-  std::shared_ptr<storage::SegmentManager> primary_segment_manager_;
-  std::shared_ptr<storage::SegmentManager> replica_segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> primary_segment_store_;
+  std::shared_ptr<storage::ISegmentStore> replica_segment_store_;
 
   std::unique_ptr<network::InternalService> primary_internal_;
   std::unique_ptr<network::InternalService> replica_internal_;
@@ -424,10 +424,10 @@ TEST_CASE_FIXTURE(ReadRepairIntegrationTest, "ReadRepairFixesDivergentReplica") 
   auto replica_node = replicas[0];
 
   // Map node IDs to segment managers based on which gRPC server they run
-  // Node 1 → primary_segment_manager_ (first server)
-  // Node 2 → replica_segment_manager_ (second server)
-  auto* node1_sm = primary_segment_manager_.get();
-  auto* node2_sm = replica_segment_manager_.get();
+  // Node 1 → primary_segment_store_ (first server)
+  // Node 2 → replica_segment_store_ (second server)
+  auto* node1_sm = primary_segment_store_.get();
+  auto* node2_sm = replica_segment_store_.get();
   auto* primary_sm = (core::ToUInt32(primary_node) == 1) ? node1_sm : node2_sm;
   auto* replica_sm = (core::ToUInt32(replica_node) == 1) ? node1_sm : node2_sm;
 

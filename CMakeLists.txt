@@ -24,6 +24,9 @@ include(FetchContent)
 # Option to use system dependencies if available
 option(USE_SYSTEM_DEPENDENCIES "Use system-installed dependencies instead of fetching" OFF)
 
+# Option to enable S3/MinIO object storage support (requires AWS SDK)
+option(GVDB_WITH_S3 "Enable S3/MinIO object storage support" OFF)
+
 # ============================================================================
 # Abseil C++ Library
 # ============================================================================
@@ -285,6 +288,29 @@ set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
 set(utf8_range_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(grpc)
+
+# ============================================================================
+# AWS SDK for C++ (S3 Object Storage) - Optional
+# ============================================================================
+if(GVDB_WITH_S3)
+  message(STATUS "Fetching AWS SDK for C++ (S3 only)...")
+  FetchContent_Declare(
+    awssdk
+    GIT_REPOSITORY https://github.com/aws/aws-sdk-cpp.git
+    GIT_TAG        1.11.789
+    GIT_SHALLOW    TRUE
+  )
+  set(BUILD_ONLY "s3" CACHE STRING "" FORCE)
+  set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+  set(AUTORUN_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+  set(MINIMIZE_SIZE ON CACHE BOOL "" FORCE)
+  # Use the CRT's bundled aws-lc for crypto instead of system OpenSSL.
+  # System OpenSSL 3.x on Ubuntu 24.04 has EVP_PKEY API changes that
+  # break the CRT's s2n-tls build. aws-lc is OpenSSL 1.1.1-compatible.
+  set(USE_OPENSSL OFF CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(awssdk)
+endif()
 
 # Re-enable installation for our own targets
 set(CMAKE_SKIP_INSTALL_RULES OFF)

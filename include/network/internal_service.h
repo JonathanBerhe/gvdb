@@ -7,7 +7,7 @@
 #include "cluster/coordinator.h"
 #include "cluster/data_node.h"
 #include "cluster/shard_manager.h"
-#include "storage/segment_manager.h"
+#include "storage/segment_store.h"
 #include "compute/query_executor.h"
 #include <memory>
 #include <atomic>
@@ -29,7 +29,7 @@ class InternalService final : public proto::internal::InternalService::Service {
  public:
   InternalService(
       std::shared_ptr<cluster::ShardManager> shard_manager,
-      std::shared_ptr<storage::SegmentManager> segment_manager,
+      std::shared_ptr<storage::ISegmentStore> segment_store,
       std::shared_ptr<compute::QueryExecutor> query_executor,
       std::shared_ptr<cluster::NodeRegistry> node_registry = nullptr,
       std::shared_ptr<consensus::TimestampOracle> timestamp_oracle = nullptr,
@@ -147,7 +147,7 @@ class InternalService final : public proto::internal::InternalService::Service {
 
  private:
   std::shared_ptr<cluster::ShardManager> shard_manager_;
-  std::shared_ptr<storage::SegmentManager> segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::shared_ptr<cluster::NodeRegistry> node_registry_;
   std::shared_ptr<consensus::TimestampOracle> timestamp_oracle_;

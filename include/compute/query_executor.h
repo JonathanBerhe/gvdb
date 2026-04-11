@@ -10,7 +10,7 @@
 #include "core/status.h"
 #include "core/types.h"
 #include "core/vector.h"
-#include "storage/segment_manager.h"
+#include "storage/segment_store.h"
 #include "utils/thread_pool.h"
 #include "utils/query_cache.h"
 
@@ -24,7 +24,7 @@ class QueryExecutor {
  public:
   // Create query executor with segment manager and optional thread pool
   // If thread_pool is nullptr, creates a default pool with hardware concurrency
-  explicit QueryExecutor(storage::SegmentManager* segment_manager,
+  explicit QueryExecutor(storage::ISegmentStore* segment_store,
                         utils::ThreadPool* thread_pool = nullptr);
 
   ~QueryExecutor();
@@ -59,7 +59,7 @@ class QueryExecutor {
       const std::vector<core::SearchResult>& partial_results,
       int top_k);
 
-  storage::SegmentManager* segment_manager_;
+  storage::ISegmentStore* segment_store_;
   std::unique_ptr<utils::ThreadPool> owned_thread_pool_;
   utils::ThreadPool* thread_pool_;  // Points to owned or external pool
   std::shared_ptr<utils::QueryCache> cache_;

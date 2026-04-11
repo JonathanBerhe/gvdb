@@ -32,26 +32,26 @@ class QueryNodeTest {
 
     index_factory_ = std::make_unique<index::IndexFactory>();
 
-    segment_manager_ = std::make_shared<storage::SegmentManager>(
+    segment_store_ = std::make_shared<storage::SegmentManager>(
         "/tmp/gvdb_query_node_test", index_factory_.get());
 
     query_executor_ = std::make_shared<compute::QueryExecutor>(
-        segment_manager_.get());
+        segment_store_.get());
 
     query_node_ = std::make_unique<QueryNode>(
-        segment_manager_, query_executor_, memory_limit_);
+        segment_store_, query_executor_, memory_limit_);
   }
 
   ~QueryNodeTest() {
     query_node_.reset();
     query_executor_.reset();
-    segment_manager_.reset();
+    segment_store_.reset();
     index_factory_.reset();
   }
 
   // Helper: create a segment with vectors and return its ID
   core::SegmentId CreatePopulatedSegment(size_t num_vectors) {
-    auto segment_result = segment_manager_->CreateSegment(
+    auto segment_result = segment_store_->CreateSegment(
         collection_id_, dimension_, metric_);
     REQUIRE(segment_result.ok());
     auto segment_id = segment_result.value();
@@ -60,7 +60,7 @@ class QueryNodeTest {
     auto ids = CreateTestVectorIds(num_vectors, next_vector_id_offset_);
     next_vector_id_offset_ += num_vectors;
 
-    auto status = segment_manager_->WriteVectors(segment_id, vectors, ids);
+    auto status = segment_store_->WriteVectors(segment_id, vectors, ids);
     REQUIRE(status.ok());
 
     return segment_id;
@@ -97,7 +97,7 @@ class QueryNodeTest {
   size_t next_vector_id_offset_ = 0;
 
   std::unique_ptr<index::IndexFactory> index_factory_;
-  std::shared_ptr<storage::SegmentManager> segment_manager_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::unique_ptr<QueryNode> query_node_;
 };
@@ -196,7 +196,7 @@ TEST_CASE_FIXTURE(QueryNodeTest, "Memory tracking increases on load") {
   CHECK_EQ(query_node_->GetMemoryUsage(), 0);
 
   auto segment_id = CreatePopulatedSegment(10);
-  auto* segment = segment_manager_->GetSegment(segment_id);
+  auto* segment = segment_store_->GetSegment(segment_id);
   REQUIRE(segment != nullptr);
   size_t expected_usage = segment->GetMemoryUsage();
 
@@ -224,7 +224,7 @@ TEST_CASE_FIXTURE(QueryNodeTest, "Memory tracking decreases on unload") {
 TEST_CASE_FIXTURE(QueryNodeTest, "Eviction when memory limit reached") {
   // Use a very small memory limit to trigger eviction
   auto small_limit_node = std::make_unique<QueryNode>(
-      segment_manager_, query_executor_, 1);  // 1 byte limit
+      segment_store_, query_executor_, 1);  // 1 byte limit
 
   auto seg1 = CreatePopulatedSegment(10);
   auto seg2 = CreatePopulatedSegment(10);
@@ -240,13 +240,13 @@ TEST_CASE_FIXTURE(QueryNodeTest, "Eviction when memory limit reached") {
   CHECK(absl::IsResourceExhausted(status1));
 
   // Now use a limit that can fit one segment but not two
-  auto* seg_ptr = segment_manager_->GetSegment(seg1);
+  auto* seg_ptr = segment_store_->GetSegment(seg1);
   REQUIRE(seg_ptr != nullptr);
   size_t one_seg_size = seg_ptr->GetMemoryUsage();
 
   // Limit can hold exactly one segment (plus a small margin to avoid rounding)
   auto medium_limit_node = std::make_unique<QueryNode>(
-      segment_manager_, query_executor_, one_seg_size + 1);
+      segment_store_, query_executor_, one_seg_size + 1);
 
   auto load1 = medium_limit_node->LoadSegment(seg1);
   REQUIRE(load1.ok());

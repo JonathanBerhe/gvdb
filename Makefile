@@ -42,6 +42,16 @@ test-e2e:
 test-e2e-kind:
 	@cd $(E2E_DIR) && GVDB_SERVER_ADDR=localhost:50050 NO_SERVER=true ./run_all_tests.sh
 
+test-s3:
+	@echo "Starting MinIO..."
+	@docker compose -f test/integration/docker-compose.minio.yml up -d --wait
+	@echo "Running C++ S3 integration tests..."
+	@cd $(BUILD_DIR) && ctest -R S3 --output-on-failure || true
+	@echo "Running Go S3 e2e test..."
+	@cd $(E2E_DIR) && GVDB_S3_ENDPOINT=http://localhost:9000 GVDB_SERVER_ADDR=$(GVDB_SERVER_ADDR) ./run_all_tests.sh || true
+	@echo "Stopping MinIO..."
+	@docker compose -f test/integration/docker-compose.minio.yml down
+
 lint-sdk:
 	@cd $(PYTHON_SDK_DIR) && uv run ruff check . && uv run ruff format --check .
 
