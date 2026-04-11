@@ -86,7 +86,7 @@ class ShardManager {
 
   // Shard state management
   absl::Status SetShardState(core::ShardId shard_id, ShardState state);
-  ShardState GetShardState(core::ShardId shard_id) const;
+  absl::StatusOr<ShardState> GetShardState(core::ShardId shard_id) const;
 
   // Rebalancing
   struct RebalanceMove {

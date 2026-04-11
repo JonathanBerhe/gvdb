@@ -292,23 +292,49 @@ absl::Status ShardManager::SetShardState(core::ShardId shard_id, ShardState stat
   return absl::OkStatus();
 }
 
-ShardState ShardManager::GetShardState(core::ShardId shard_id) const {
+absl::StatusOr<ShardState> ShardManager::GetShardState(core::ShardId shard_id) const {
   std::shared_lock lock(shard_mutex_);
   auto it = shards_.find(shard_id);
-  if (it == shards_.end()) return ShardState::ACTIVE;
+  if (it == shards_.end()) {
+    return absl::NotFoundError(
+        absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
+  }
   return it->second.state;
 }
 
 std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() {
   std::vector<RebalanceMove> moves;
 
+  // Grab node list first (takes node_mutex_, releases)
   auto nodes = GetAllNodes();
   if (nodes.size() < 2) return moves;
 
-  // Compute node loads
+  // Hold shard_mutex_ for the entire plan computation so loads, shard state,
+  // and shard-to-node mappings are all read from a single consistent snapshot.
+  std::shared_lock lock(shard_mutex_);
+
+  // Compute node loads inline (avoids re-acquiring shard_mutex_ per node)
+  constexpr size_t kOverloadNum = 12;
+  constexpr size_t kOverloadDen = 10;
+  constexpr size_t kUnderloadNum = 8;
+  constexpr size_t kUnderloadDen = 10;
+
   std::map<core::NodeId, size_t> node_loads;
   for (const auto& node : nodes) {
-    node_loads[node] = GetNodeLoad(node);
+    size_t load = 0;
+    for (const auto& [sid, info] : shards_) {
+      if (info.primary_node == node) {
+        load += info.data_size_bytes;
+      } else {
+        for (const auto& replica : info.replica_nodes) {
+          if (replica == node) {
+            load += info.data_size_bytes / 2;
+            break;
+          }
+        }
+      }
+    }
+    node_loads[node] = load;
   }
 
   size_t total_load = 0;
@@ -325,9 +351,9 @@ std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() 
   std::vector<core::NodeId> underloaded;
 
   for (const auto& [node, load] : node_loads) {
-    if (load > avg_load * 12 / 10) {
+    if (load > avg_load * kOverloadNum / kOverloadDen) {
       overloaded.push_back(node);
-    } else if (load < avg_load * 8 / 10) {
+    } else if (load < avg_load * kUnderloadNum / kUnderloadDen) {
       underloaded.push_back(node);
     }
   }
@@ -344,36 +370,48 @@ std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() 
   auto sim_loads = node_loads;
 
   for (const auto& source : overloaded) {
-    if (sim_loads[source] <= avg_load * 12 / 10) continue;
+    if (sim_loads[source] <= avg_load * kOverloadNum / kOverloadDen) continue;
 
-    // Get shards on this node, sorted by size DESC (biggest first)
-    auto shards = GetShardsForNode(source);
-    std::sort(shards.begin(), shards.end(),
-              [](const auto& a, const auto& b) {
-                return a.data_size_bytes > b.data_size_bytes;
+    // Collect shards on this node, sorted by size DESC (biggest first)
+    std::vector<const ShardInfo*> source_shards;
+    for (const auto& [sid, info] : shards_) {
+      if (info.primary_node == source) {
+        source_shards.push_back(&info);
+      } else {
+        for (const auto& replica : info.replica_nodes) {
+          if (replica == source) {
+            source_shards.push_back(&info);
+            break;
+          }
+        }
+      }
+    }
+    std::sort(source_shards.begin(), source_shards.end(),
+              [](const auto* a, const auto* b) {
+                return a->data_size_bytes > b->data_size_bytes;
               });
 
-    for (const auto& shard : shards) {
-      if (shard.state != ShardState::ACTIVE) continue;
-      if (sim_loads[source] <= avg_load * 12 / 10) break;
+    for (const auto* shard : source_shards) {
+      if (shard->state != ShardState::ACTIVE) continue;
+      if (sim_loads[source] <= avg_load * kOverloadNum / kOverloadDen) break;
 
-      bool is_primary = (shard.primary_node == source);
-      size_t weight = is_primary ? shard.data_size_bytes
-                                 : shard.data_size_bytes / 2;
+      bool is_primary = (shard->primary_node == source);
+      size_t weight = is_primary ? shard->data_size_bytes
+                                 : shard->data_size_bytes / 2;
       if (weight == 0) continue;
 
       // Don't make source underloaded
-      if (sim_loads[source] < weight + avg_load * 8 / 10) continue;
+      if (sim_loads[source] < weight + avg_load * kUnderloadNum / kUnderloadDen) continue;
 
       // Find best target: least loaded that doesn't already host this shard
       core::NodeId best_target = core::kInvalidNodeId;
       for (const auto& target : underloaded) {
-        if (sim_loads[target] >= avg_load * 8 / 10) continue;
+        if (sim_loads[target] >= avg_load * kUnderloadNum / kUnderloadDen) continue;
 
         // Check target doesn't already have this shard
-        bool already_hosts = (shard.primary_node == target);
+        bool already_hosts = (shard->primary_node == target);
         if (!already_hosts) {
-          for (const auto& r : shard.replica_nodes) {
+          for (const auto& r : shard->replica_nodes) {
             if (r == target) { already_hosts = true; break; }
           }
         }
@@ -386,7 +424,7 @@ std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() 
       if (best_target == core::kInvalidNodeId) continue;
 
       moves.push_back(RebalanceMove{
-          shard.shard_id, source, best_target, is_primary});
+          shard->shard_id, source, best_target, is_primary});
 
       sim_loads[source] -= weight;
       sim_loads[best_target] += weight;
