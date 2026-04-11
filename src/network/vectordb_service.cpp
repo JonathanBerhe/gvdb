@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <chrono>
 #include <future>
+#include <set>
 #include <grpcpp/grpcpp.h>
 
 namespace gvdb {
@@ -763,9 +764,25 @@ grpc::Status VectorDBService::RangeSearch(
   }
 
   auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
-  if (!segment_ids_result.ok()) {
-    return toGrpcStatus(segment_ids_result.status());
+
+  // Check if we have local segments; if not, fan out to data nodes
+  bool any_local = false;
+  if (segment_ids_result.ok()) {
+    for (const auto& seg_id : *segment_ids_result) {
+      if (segment_store_->GetSegment(seg_id)) { any_local = true; break; }
+    }
   }
+
+  if (!any_local) {
+    auto targets = resolver_->GetShardTargets(request->collection_name());
+    if (targets.ok() && !targets->empty()) {
+      return RangeSearchDistributed(request, response);
+    }
+    if (!segment_ids_result.ok()) {
+      return toGrpcStatus(segment_ids_result.status());
+    }
+  }
+
   const auto& segment_ids = *segment_ids_result;
 
   auto query_result = fromProto(request->query_vector());
@@ -819,6 +836,93 @@ grpc::Status VectorDBService::RangeSearch(
         }
       }
     }
+  }
+
+  response->set_query_time_ms(static_cast<float>(timer.elapsed_millis()));
+  total_queries_++;
+
+  return grpc::Status::OK;
+}
+
+grpc::Status VectorDBService::RangeSearchDistributed(
+    const proto::RangeSearchRequest* request,
+    proto::RangeSearchResponse* response) {
+
+  utils::Timer timer;
+
+  auto targets_result = resolver_->GetShardTargets(request->collection_name());
+  if (!targets_result.ok()) {
+    return toGrpcStatus(targets_result.status());
+  }
+
+  const auto& targets = *targets_result;
+  if (targets.empty()) {
+    return grpc::Status(grpc::StatusCode::NOT_FOUND,
+        "No shards found for collection: " + request->collection_name());
+  }
+
+  // Deduplicate node addresses (multiple shards may be on the same node)
+  std::set<std::string> node_addrs;
+  for (const auto& t : targets) {
+    if (!t.node_address.empty()) node_addrs.insert(t.node_address);
+  }
+
+  // Fan out RangeSearch to each data node in parallel
+  struct NodeResult {
+    proto::RangeSearchResponse resp;
+    bool ok = false;
+  };
+
+  std::vector<std::future<NodeResult>> futures;
+  futures.reserve(node_addrs.size());
+
+  for (const auto& addr : node_addrs) {
+    futures.push_back(std::async(std::launch::async,
+        [&addr, &request]() -> NodeResult {
+          NodeResult result;
+          auto channel = grpc::CreateChannel(
+              addr, grpc::InsecureChannelCredentials());
+          auto stub = proto::VectorDBService::NewStub(channel);
+
+          grpc::ClientContext ctx;
+          ctx.set_deadline(std::chrono::system_clock::now() +
+                           std::chrono::seconds(10));
+
+          auto status = stub->RangeSearch(&ctx, *request, &result.resp);
+          result.ok = status.ok();
+          if (!status.ok()) {
+            utils::Logger::Instance().Warn(
+                "Distributed RangeSearch failed on {}: {}",
+                addr, status.error_message());
+          }
+          return result;
+        }));
+  }
+
+  // Collect and merge results
+  int max_results = request->max_results() > 0 ? request->max_results() : 1000;
+  std::vector<proto::SearchResultEntry> all_entries;
+
+  for (auto& future : futures) {
+    auto result = future.get();
+    if (result.ok) {
+      for (const auto& entry : result.resp.results()) {
+        all_entries.push_back(entry);
+      }
+    }
+  }
+
+  // Sort by distance and limit
+  std::sort(all_entries.begin(), all_entries.end(),
+            [](const auto& a, const auto& b) {
+              return a.distance() < b.distance();
+            });
+  if (static_cast<int>(all_entries.size()) > max_results) {
+    all_entries.resize(max_results);
+  }
+
+  for (auto& entry : all_entries) {
+    *response->add_results() = std::move(entry);
   }
 
   response->set_query_time_ms(static_cast<float>(timer.elapsed_millis()));

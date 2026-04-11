@@ -122,6 +122,11 @@ class VectorDBService final : public proto::VectorDBService::Service {
       proto::SearchResponse* response,
       const core::Vector& query);
 
+  // Fan out range search to remote data nodes
+  grpc::Status RangeSearchDistributed(
+      const proto::RangeSearchRequest* request,
+      proto::RangeSearchResponse* response);
+
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::unique_ptr<ICollectionResolver> resolver_;

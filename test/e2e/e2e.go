@@ -154,6 +154,41 @@ func (t *E2ETest) search() error {
 	return nil
 }
 
+func (t *E2ETest) rangeSearch() error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	query := GenerateRandomVector(dimension)
+	req := &pb.RangeSearchRequest{
+		CollectionName: collectionName,
+		QueryVector:    query,
+		Radius:         1e9, // Large radius to ensure results
+		MaxResults:     10,
+	}
+
+	resp, err := t.client.RangeSearch(ctx, req)
+	if err != nil {
+		return fmt.Errorf("range search failed: %v", err)
+	}
+
+	fmt.Printf("✅ Range search completed in %.2fms\n", resp.QueryTimeMs)
+	fmt.Printf("   Found %d results within radius\n", len(resp.Results))
+
+	if len(resp.Results) == 0 {
+		return fmt.Errorf("range search returned no results")
+	}
+
+	// Verify distances are within radius
+	for _, result := range resp.Results {
+		if result.Distance > req.Radius {
+			return fmt.Errorf("result ID=%d distance=%.4f exceeds radius=%.4f",
+				result.Id, result.Distance, req.Radius)
+		}
+	}
+
+	return nil
+}
+
 func (t *E2ETest) getStats() error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -428,6 +463,7 @@ func RunE2ETest() bool {
 		{"Creating collection", test.createCollection},
 		{"Inserting vectors", test.insertVectors},
 		{"Searching for similar vectors", test.search},
+		{"Range searching within radius", test.rangeSearch},
 		{"Getting database stats", test.getStats},
 		{"Listing collections", test.listCollections},
 		{"Testing Get by ID", test.testGet},

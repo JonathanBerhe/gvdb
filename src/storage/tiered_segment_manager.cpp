@@ -3,12 +3,21 @@
 
 #include "storage/tiered_segment_manager.h"
 
+#include <array>
 #include <filesystem>
+#include <mutex>
 
+#include "absl/container/flat_hash_set.h"
 #include "absl/strings/str_cat.h"
+#include "utils/logger.h"
 
 namespace gvdb {
 namespace storage {
+
+// Files produced by Segment::Flush() — used for S3 upload/download/delete.
+static constexpr std::array<const char*, 3> kSegmentFiles = {
+    "metadata.txt", "vectors.bin", "index.faiss"
+};
 
 TieredSegmentManager::TieredSegmentManager(
     std::unique_ptr<SegmentManager> local,
@@ -93,8 +102,13 @@ core::Status TieredSegmentManager::FlushSegment(core::SegmentId id) {
     {
       std::lock_guard lock(upload_mutex_);
       uploading_.erase(core::ToUInt32(seg_id));
+      if (!upload_status.ok()) {
+        failed_uploads_.insert(core::ToUInt32(seg_id));
+        utils::Logger::Instance().Error(
+            "S3 upload failed for segment {}: {}",
+            core::ToUInt32(seg_id), upload_status.message());
+      }
     }
-    (void)upload_status;
   });
 
   return core::OkStatus();
@@ -104,25 +118,32 @@ core::Status TieredSegmentManager::DropSegment(
     core::SegmentId id, bool delete_files) {
   auto status = local_->DropSegment(id, delete_files);
 
-  // Also remove from S3 and manifest
+  // Copy remote info under lock, then do S3 I/O without holding the lock
+  // to avoid blocking concurrent readers during potentially slow network calls.
   auto seg_key = core::ToUInt32(id);
+  RemoteSegmentInfo info;
+  bool is_remote = false;
   {
     std::shared_lock lock(remote_mutex_);
-    if (remote_segments_.count(seg_key) > 0) {
-      // Get collection_id for S3 key construction
-      auto info = remote_segments_.at(seg_key);
-      auto col_id = core::ToUInt32(info.collection_id);
-
-      // Delete files from S3 (best-effort, don't block on failure)
-      (void)object_store_->DeleteObject(MakeS3Key(col_id, seg_key, "metadata.txt"));
-      (void)object_store_->DeleteObject(MakeS3Key(col_id, seg_key, "vectors.bin"));
-      (void)object_store_->DeleteObject(MakeS3Key(col_id, seg_key, "index.faiss"));
-
-      // Update manifest (best-effort)
-      ManifestEntry dummy;
-      dummy.segment_id = seg_key;
-      (void)UpdateManifest(dummy, /*remove=*/true);
+    auto it = remote_segments_.find(seg_key);
+    if (it != remote_segments_.end()) {
+      info = it->second;
+      is_remote = true;
     }
+  }
+
+  if (is_remote) {
+    auto col_id = core::ToUInt32(info.collection_id);
+
+    // Delete files from S3 (best-effort, don't block on failure)
+    for (const auto& filename : kSegmentFiles) {
+      (void)object_store_->DeleteObject(MakeS3Key(col_id, seg_key, filename));
+    }
+
+    // Update manifest (best-effort)
+    ManifestEntry dummy;
+    dummy.segment_id = seg_key;
+    (void)UpdateManifest(dummy, /*remove=*/true);
   }
 
   // Remove from remote tracking
@@ -182,17 +203,22 @@ core::StatusOr<core::SearchResult> TieredSegmentManager::SearchSegment(
 core::StatusOr<core::SearchResult> TieredSegmentManager::SearchCollection(
     core::CollectionId collection_id,
     const core::Vector& query, int k) const {
-  // Ensure all remote segments for this collection are loaded
+  // Collect remote segment IDs under lock, then load outside the lock
+  // to avoid recursive shared_mutex acquisition (UB per C++ standard).
+  std::vector<core::SegmentId> to_load;
   {
     std::shared_lock lock(remote_mutex_);
     for (const auto& [seg_key, info] : remote_segments_) {
       if (info.collection_id == collection_id) {
         auto seg_id = static_cast<core::SegmentId>(seg_key);
         if (local_->GetSegment(seg_id) == nullptr) {
-          (void)EnsureSegmentLoaded(seg_id);
+          to_load.push_back(seg_id);
         }
       }
     }
+  }
+  for (auto seg_id : to_load) {
+    (void)EnsureSegmentLoaded(seg_id);
   }
 
   return local_->SearchCollection(collection_id, query, k);
@@ -213,21 +239,38 @@ Segment* TieredSegmentManager::GetWritableSegment(
 
 std::vector<Segment*> TieredSegmentManager::GetQueryableSegments(
     core::CollectionId collection_id) const {
+  // Ensure remote segments for this collection are loaded before querying.
+  std::vector<core::SegmentId> to_load;
+  {
+    std::shared_lock lock(remote_mutex_);
+    for (const auto& [seg_key, info] : remote_segments_) {
+      if (info.collection_id == collection_id) {
+        auto seg_id = static_cast<core::SegmentId>(seg_key);
+        if (local_->GetSegment(seg_id) == nullptr) {
+          to_load.push_back(seg_id);
+        }
+      }
+    }
+  }
+  for (auto seg_id : to_load) {
+    (void)EnsureSegmentLoaded(seg_id);
+  }
   return local_->GetQueryableSegments(collection_id);
 }
 
 std::vector<core::SegmentId> TieredSegmentManager::GetAllSegmentIds() const {
   auto local_ids = local_->GetAllSegmentIds();
 
-  // Add remote segment IDs not yet loaded locally
+  // Add remote segment IDs not yet loaded locally (O(1) lookup via set)
+  absl::flat_hash_set<uint32_t> local_set;
+  local_set.reserve(local_ids.size());
+  for (auto id : local_ids) local_set.insert(core::ToUInt32(id));
+
   std::shared_lock lock(remote_mutex_);
   for (const auto& [seg_key, _] : remote_segments_) {
-    auto id = static_cast<core::SegmentId>(seg_key);
-    bool found = false;
-    for (const auto& lid : local_ids) {
-      if (lid == id) { found = true; break; }
+    if (!local_set.contains(seg_key)) {
+      local_ids.push_back(static_cast<core::SegmentId>(seg_key));
     }
-    if (!found) local_ids.push_back(id);
   }
   return local_ids;
 }
@@ -259,16 +302,15 @@ std::vector<core::SegmentId> TieredSegmentManager::GetCollectionSegments(
     core::CollectionId collection_id) const {
   auto local_segs = local_->GetCollectionSegments(collection_id);
 
-  // Add remote segments for this collection
+  // Add remote segments for this collection (O(1) lookup via set)
+  absl::flat_hash_set<uint32_t> local_set;
+  local_set.reserve(local_segs.size());
+  for (auto id : local_segs) local_set.insert(core::ToUInt32(id));
+
   std::shared_lock lock(remote_mutex_);
   for (const auto& [seg_key, info] : remote_segments_) {
-    if (info.collection_id == collection_id) {
-      auto id = static_cast<core::SegmentId>(seg_key);
-      bool found = false;
-      for (const auto& lid : local_segs) {
-        if (lid == id) { found = true; break; }
-      }
-      if (!found) local_segs.push_back(id);
+    if (info.collection_id == collection_id && !local_set.contains(seg_key)) {
+      local_segs.push_back(static_cast<core::SegmentId>(seg_key));
     }
   }
   return local_segs;
@@ -311,6 +353,16 @@ bool TieredSegmentManager::IsUploading(core::SegmentId id) const {
   return uploading_.count(core::ToUInt32(id)) > 0;
 }
 
+std::vector<core::SegmentId> TieredSegmentManager::GetFailedUploads() const {
+  std::lock_guard lock(upload_mutex_);
+  std::vector<core::SegmentId> result;
+  result.reserve(failed_uploads_.size());
+  for (auto key : failed_uploads_) {
+    result.push_back(static_cast<core::SegmentId>(key));
+  }
+  return result;
+}
+
 // ============================================================================
 // Internal S3 methods
 // ============================================================================
@@ -328,7 +380,7 @@ core::Status TieredSegmentManager::UploadSegmentToS3(core::SegmentId id) {
       local_->GetBasePath(), "/segment_", seg_key);
 
   // Upload each file
-  for (const auto& filename : {"metadata.txt", "vectors.bin", "index.faiss"}) {
+  for (const auto& filename : kSegmentFiles) {
     auto local_file = absl::StrCat(seg_path, "/", filename);
     if (!std::filesystem::exists(local_file)) continue;
 
@@ -395,7 +447,7 @@ core::Status TieredSegmentManager::DownloadSegmentFromS3(
   std::filesystem::create_directories(local_seg_path);
 
   // Download each file
-  for (const auto& filename : {"metadata.txt", "vectors.bin", "index.faiss"}) {
+  for (const auto& filename : kSegmentFiles) {
     auto s3_key = MakeS3Key(col_id, seg_key, filename);
     auto exists = object_store_->ObjectExists(s3_key);
     if (!exists.ok() || !*exists) continue;
@@ -501,7 +553,7 @@ core::Status TieredSegmentManager::EnsureSegmentLoaded(
   // Check if already in local cache
   if (cache_ && cache_->HasSegment(id)) {
     cache_->Touch(id);
-    return const_cast<SegmentManager*>(local_.get())->LoadSegment(id);
+    return local_->LoadSegment(id);
   }
 
   // Download from S3
@@ -509,7 +561,7 @@ core::Status TieredSegmentManager::EnsureSegmentLoaded(
   if (!status.ok()) return status;
 
   // Load into memory
-  return const_cast<SegmentManager*>(local_.get())->LoadSegment(id);
+  return local_->LoadSegment(id);
 }
 
 std::string TieredSegmentManager::MakeS3Key(

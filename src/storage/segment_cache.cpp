@@ -4,6 +4,7 @@
 #include "storage/segment_cache.h"
 
 #include <filesystem>
+#include <mutex>
 
 #include "absl/strings/str_cat.h"
 
