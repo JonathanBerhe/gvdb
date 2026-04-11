@@ -53,8 +53,7 @@ jobs:
             libopenblas-dev \
             liblapack-dev \
             zlib1g-dev \
-            libssl-dev \
-            libcurl4-openssl-dev
+            libcurl4-gnutls-dev
 
       - name: Set up ccache
         if: steps.filter.outputs.cpp == 'true'
