@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "network/proxy_service.h"
+#include "network/audit_context.h"
 #include "utils/logger.h"
 
 namespace gvdb {
@@ -161,6 +162,7 @@ grpc::Status ProxyService::CreateCollection(
     grpc::ServerContext* context,
     const proto::CreateCollectionRequest* request,
     proto::CreateCollectionResponse* response) {
+  AuditContext::SetCollection(request->collection_name());
 
   auto* client = GetCoordinatorClient();
   if (!client) {
@@ -182,6 +184,7 @@ grpc::Status ProxyService::DropCollection(
     grpc::ServerContext* context,
     const proto::DropCollectionRequest* request,
     proto::DropCollectionResponse* response) {
+  AuditContext::SetCollection(request->collection_name());
 
   auto* client = GetCoordinatorClient();
   if (!client) {
@@ -212,6 +215,8 @@ grpc::Status ProxyService::Insert(
     grpc::ServerContext* context,
     const proto::InsertRequest* request,
     proto::InsertResponse* response) {
+  AuditContext::SetCollection(request->collection_name());
+  AuditContext::SetItemCount(request->vectors().size());
 
   // Get shard->node mapping from coordinator
   auto* internal_client = GetCoordinatorInternalClient();
@@ -359,6 +364,8 @@ grpc::Status ProxyService::Get(
     grpc::ServerContext* context,
     const proto::GetRequest* request,
     proto::GetResponse* response) {
+  AuditContext::SetCollection(request->collection_name());
+  AuditContext::SetItemCount(request->ids().size());
 
   auto* client = GetDataNodeClientForCollection(request->collection_name());
   if (!client) {
@@ -378,6 +385,8 @@ grpc::Status ProxyService::Delete(
     grpc::ServerContext* context,
     const proto::DeleteRequest* request,
     proto::DeleteResponse* response) {
+  AuditContext::SetCollection(request->collection_name());
+  AuditContext::SetItemCount(request->ids().size());
 
   auto* client = GetDataNodeClientForCollection(request->collection_name());
   if (!client) {
@@ -397,6 +406,7 @@ grpc::Status ProxyService::UpdateMetadata(
     grpc::ServerContext* context,
     const proto::UpdateMetadataRequest* request,
     proto::UpdateMetadataResponse* response) {
+  AuditContext::SetCollection(request->collection_name());
 
   auto* client = GetDataNodeClientForCollection(request->collection_name());
   if (!client) {
@@ -416,6 +426,8 @@ grpc::Status ProxyService::Upsert(
     grpc::ServerContext* context,
     const proto::UpsertRequest* request,
     proto::UpsertResponse* response) {
+  AuditContext::SetCollection(request->collection_name());
+  AuditContext::SetItemCount(request->vectors().size());
 
   auto* client = GetDataNodeClientForCollection(request->collection_name());
   if (!client) {
@@ -454,6 +466,7 @@ grpc::Status ProxyService::HybridSearch(
     grpc::ServerContext* context,
     const proto::HybridSearchRequest* request,
     proto::HybridSearchResponse* response) {
+  AuditContext::SetCollection(request->collection_name());
 
   auto* client = GetDataNodeClientForCollection(request->collection_name());
   if (!client) {

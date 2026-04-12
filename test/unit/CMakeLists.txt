@@ -451,6 +451,32 @@ set_tests_properties(AuthProcessorTests PROPERTIES
   TIMEOUT 60
 )
 
+# Audit interceptor tests
+add_executable(audit_interceptor_tests
+  audit_interceptor_test.cpp
+)
+
+target_link_libraries(audit_interceptor_tests
+  PRIVATE
+    gvdb_network
+    gvdb_auth
+    gvdb_compute
+    gvdb_storage
+    gvdb_index
+    gvdb_utils
+    gvdb_core
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    doctest::doctest_with_main
+)
+
+add_test(NAME AuditInterceptorTests COMMAND audit_interceptor_tests)
+
+set_tests_properties(AuditInterceptorTests PROPERTIES
+  TIMEOUT 60
+)
+
 # RBAC unit tests
 add_executable(rbac_tests
   rbac_test.cpp
