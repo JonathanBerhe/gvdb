@@ -24,6 +24,8 @@
 #include "utils/server_bootstrap.h"
 #include "utils/env_flags.h"
 #include "utils/config.h"
+#include "utils/audit_logger.h"
+#include "network/audit_interceptor.h"
 
 struct DataNodeArgs {
   int node_id = 101;
@@ -218,10 +220,19 @@ int main(int argc, char** argv) {
     auto service = std::make_unique<network::VectorDBService>(
         segment_store, query_executor, std::move(resolver));
 
-    // 4. Start server
+    // 4. Audit logging + Start server
+    std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors;
+    if (config.logging.audit.enabled) {
+      utils::AuditLogger::Initialize(config.logging.audit);
+      interceptors.push_back(
+          std::make_unique<network::AuditInterceptorFactory>());
+    }
+
     auto server = utils::ServerBootstrap::StartGrpcServer(
         args.bind_address,
-        {internal_service.get(), service.get()});
+        {internal_service.get(), service.get()},
+        grpc::InsecureServerCredentials(),
+        std::move(interceptors));
     if (!server) {
       std::cerr << "Failed to start gRPC server on " << args.bind_address << std::endl;
       return 1;

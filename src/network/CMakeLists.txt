@@ -8,6 +8,8 @@ add_library(gvdb_network
   collection_metadata_cache.cpp
   collection_resolver.cpp
   auth_processor.cpp
+  audit_interceptor.cpp
+  audit_context.cpp
 )
 
 target_link_libraries(gvdb_network
