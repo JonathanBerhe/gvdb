@@ -415,6 +415,40 @@ class GVDBClient:
         )
         return resp.deleted_count
 
+    # -- Bulk Import ----------------------------------------------------------
+
+    def import_parquet(self, path, collection, **kwargs):
+        """Import vectors from a Parquet file. Requires ``pip install gvdb[parquet]``."""
+        from gvdb.importers import import_parquet
+
+        return import_parquet(self, path, collection, **kwargs)
+
+    def import_numpy(self, vectors, collection, **kwargs):
+        """Import vectors from a NumPy array. Requires ``pip install gvdb[numpy]``."""
+        from gvdb.importers import import_numpy
+
+        return import_numpy(self, vectors, collection, **kwargs)
+
+    def import_dataframe(self, df, collection, **kwargs):
+        """Import vectors from a Pandas or Polars DataFrame."""
+        from gvdb.importers import import_dataframe
+
+        return import_dataframe(self, df, collection, **kwargs)
+
+    def import_csv(self, path, collection, **kwargs):
+        """Import vectors from a CSV file. Requires ``pip install gvdb[pandas]``."""
+        from gvdb.importers import import_csv
+
+        return import_csv(self, path, collection, **kwargs)
+
+    def import_h5ad(self, path, collection, **kwargs):
+        """Import vectors from an AnnData h5ad file. Requires ``pip install gvdb[h5ad]``."""
+        from gvdb.importers import import_h5ad
+
+        return import_h5ad(self, path, collection, **kwargs)
+
+    # -- Metadata -------------------------------------------------------------
+
     def update_metadata(
         self,
         collection: str,
