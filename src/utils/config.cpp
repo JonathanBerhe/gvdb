@@ -142,6 +142,14 @@ LoggingConfig Config::parse_logging_config(const YAML::Node& node) {
   config.max_file_size_mb = get_or_default(node, "max_file_size_mb", config.max_file_size_mb);
   config.max_files = get_or_default(node, "max_files", config.max_files);
 
+  if (node["audit"]) {
+    auto audit_node = node["audit"];
+    config.audit.enabled = get_or_default(audit_node, "enabled", config.audit.enabled);
+    config.audit.file_path = get_or_default(audit_node, "file_path", config.audit.file_path);
+    config.audit.max_file_size_mb = get_or_default(audit_node, "max_file_size_mb", config.audit.max_file_size_mb);
+    config.audit.max_files = get_or_default(audit_node, "max_files", config.audit.max_files);
+  }
+
   return config;
 }
 
