@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0](https://github.com/JonathanBerhe/gvdb/compare/v0.10.0...v0.11.0) (2026-04-12)
+
+
+### Features
+
+* **sdk:** bulk data import — Parquet, NumPy, DataFrame, CSV, h5ad ([7b75382](https://github.com/JonathanBerhe/gvdb/commit/7b75382e6528000c09a57e2ba2c393df9aa22714))
+* **sdk:** bulk data import — Parquet, NumPy, DataFrame, CSV, h5ad ([de93d0d](https://github.com/JonathanBerhe/gvdb/commit/de93d0dcd2a6b3db7a5f1104def16661078b9991))
+
+
+### Bug Fixes
+
+* **sdk:** retry safety, RESOURCE_EXHAUSTED handling, NaN checks in bulk importers ([a1993c5](https://github.com/JonathanBerhe/gvdb/commit/a1993c5193dee089360e30c60e691a6b42da3f7c))
+
 ## [0.10.0](https://github.com/JonathanBerhe/gvdb/compare/v0.9.0...v0.10.0) (2026-04-12)
 
 
