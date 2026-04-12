@@ -88,6 +88,13 @@ struct IndexConfig {
 /**
  * @brief Logging configuration options
  */
+struct AuditLogConfig {
+  bool enabled = false;
+  std::string file_path = "/tmp/gvdb/logs/audit.jsonl";
+  size_t max_file_size_mb = 100;
+  size_t max_files = 10;
+};
+
 struct LoggingConfig {
   std::string level = "info";
   bool console_enabled = true;
@@ -95,6 +102,7 @@ struct LoggingConfig {
   std::string file_path = "/tmp/gvdb/logs/gvdb.log";
   size_t max_file_size_mb = 100;
   size_t max_files = 10;
+  AuditLogConfig audit;
 };
 
 /**

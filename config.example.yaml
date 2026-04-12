@@ -45,6 +45,11 @@ logging:
   file_path: "/tmp/gvdb/logs/gvdb.log"
   max_file_size_mb: 100
   max_files: 10
+  audit:
+    enabled: false
+    file_path: "/tmp/gvdb/logs/audit.jsonl"
+    max_file_size_mb: 100
+    max_files: 10
 
 consensus:
   node_id: 1

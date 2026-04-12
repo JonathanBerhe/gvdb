@@ -21,6 +21,8 @@
 #include "network/vectordb_service.h"
 #include "network/collection_resolver.h"
 #include "network/auth_processor.h"
+#include "network/audit_interceptor.h"
+#include "utils/audit_logger.h"
 #include "auth/rbac.h"
 #include "index/index_factory.h"
 #include "utils/server_bootstrap.h"
@@ -223,7 +225,14 @@ int main(int argc, char** argv) {
           std::make_unique<network::ApiKeyAuthInterceptorFactory>(rbac_store));
     }
 
-    // 5. gRPC service
+    // 5. Audit logging (if enabled in config)
+    if (config.logging.audit.enabled) {
+      utils::AuditLogger::Initialize(config.logging.audit);
+      interceptors.push_back(
+          std::make_unique<network::AuditInterceptorFactory>());
+    }
+
+    // 6. gRPC service
     auto resolver = network::MakeLocalResolver(segment_store);
     auto service = std::make_unique<network::VectorDBService>(
         segment_store, query_executor, std::move(resolver), rbac_store);

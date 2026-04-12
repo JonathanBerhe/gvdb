@@ -8,6 +8,8 @@
 
 #include "network/proxy_service.h"
 #include "network/auth_processor.h"
+#include "network/audit_interceptor.h"
+#include "utils/audit_logger.h"
 #include "auth/rbac.h"
 #include "utils/server_bootstrap.h"
 #include "utils/config.h"
@@ -124,6 +126,13 @@ int main(int argc, char** argv) {
       rbac_store = std::move(*rbac_result);
       interceptors.push_back(
           std::make_unique<network::ApiKeyAuthInterceptorFactory>(rbac_store));
+    }
+
+    // Audit logging
+    if (config.logging.audit.enabled) {
+      utils::AuditLogger::Initialize(config.logging.audit);
+      interceptors.push_back(
+          std::make_unique<network::AuditInterceptorFactory>());
     }
 
     auto proxy_service = std::make_unique<network::ProxyService>(

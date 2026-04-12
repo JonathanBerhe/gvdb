@@ -5,6 +5,7 @@
 #include "network/proto_conversions.h"
 #include "network/collection_resolver.h"
 #include "auth/auth_context.h"
+#include "network/audit_context.h"
 #include "utils/logger.h"
 #include "utils/metrics.h"
 #include "utils/timer.h"
@@ -258,6 +259,7 @@ grpc::Status VectorDBService::CreateCollection(
     proto::CreateCollectionResponse* response) {
   auto perm = CheckPermission(auth::Permission::CREATE_COLLECTION, request->collection_name());
   if (!perm.ok()) return perm;
+  AuditContext::SetCollection(request->collection_name());
 
   utils::Logger::Instance().Info("CreateCollection: {}", request->collection_name());
 
@@ -305,6 +307,7 @@ grpc::Status VectorDBService::DropCollection(
     proto::DropCollectionResponse* response) {
   auto perm = CheckPermission(auth::Permission::DROP_COLLECTION, request->collection_name());
   if (!perm.ok()) return perm;
+  AuditContext::SetCollection(request->collection_name());
 
   utils::Logger::Instance().Info("DropCollection: {}", request->collection_name());
 
@@ -357,6 +360,8 @@ grpc::Status VectorDBService::Insert(
     proto::InsertResponse* response) {
   auto perm = CheckPermission(auth::Permission::INSERT, request->collection_name());
   if (!perm.ok()) return perm;
+  AuditContext::SetCollection(request->collection_name());
+  AuditContext::SetItemCount(request->vectors().size());
 
   utils::Logger::Instance().Info("Insert: {} vectors into {}",
                                  request->vectors().size(),
@@ -553,6 +558,7 @@ grpc::Status VectorDBService::StreamInsert(
     if (!perm_checked) {
       auto perm = CheckPermission(auth::Permission::STREAM_INSERT, collection_name);
       if (!perm.ok()) return perm;
+      AuditContext::SetCollection(collection_name);
       perm_checked = true;
     }
 
@@ -659,6 +665,8 @@ grpc::Status VectorDBService::Upsert(
     proto::UpsertResponse* response) {
   auto perm = CheckPermission(auth::Permission::UPSERT, request->collection_name());
   if (!perm.ok()) return perm;
+  AuditContext::SetCollection(request->collection_name());
+  AuditContext::SetItemCount(request->vectors().size());
   if (request->collection_name().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Collection name is required");
   }
@@ -751,6 +759,7 @@ grpc::Status VectorDBService::RangeSearch(
     proto::RangeSearchResponse* response) {
   auto perm = CheckPermission(auth::Permission::RANGE_SEARCH, request->collection_name());
   if (!perm.ok()) return perm;
+  AuditContext::SetCollection(request->collection_name());
   utils::Timer timer;
 
   if (request->collection_name().empty()) {
@@ -937,6 +946,7 @@ grpc::Status VectorDBService::Search(
     proto::SearchResponse* response) {
   auto perm = CheckPermission(auth::Permission::SEARCH, request->collection_name());
   if (!perm.ok()) return perm;
+  AuditContext::SetCollection(request->collection_name());
 
   utils::Timer search_timer;
 
@@ -1046,6 +1056,7 @@ grpc::Status VectorDBService::HybridSearch(
     proto::HybridSearchResponse* response) {
   auto perm = CheckPermission(auth::Permission::HYBRID_SEARCH, request->collection_name());
   if (!perm.ok()) return perm;
+  AuditContext::SetCollection(request->collection_name());
 
   utils::Timer search_timer;
   utils::Logger::Instance().Info("HybridSearch: collection={}, text_query='{}'",
@@ -1181,6 +1192,8 @@ grpc::Status VectorDBService::Get(
     proto::GetResponse* response) {
   auto perm = CheckPermission(auth::Permission::GET, request->collection_name());
   if (!perm.ok()) return perm;
+  AuditContext::SetCollection(request->collection_name());
+  AuditContext::SetItemCount(request->ids().size());
 
   utils::Logger::Instance().Info("Get: {} IDs from {}",
                                  request->ids().size(),
@@ -1313,6 +1326,8 @@ grpc::Status VectorDBService::Delete(
     proto::DeleteResponse* response) {
   auto perm = CheckPermission(auth::Permission::DELETE, request->collection_name());
   if (!perm.ok()) return perm;
+  AuditContext::SetCollection(request->collection_name());
+  AuditContext::SetItemCount(request->ids().size());
 
   utils::Logger::Instance().Info("Delete: {} IDs from {}",
                                  request->ids().size(),
@@ -1400,6 +1415,7 @@ grpc::Status VectorDBService::UpdateMetadata(
     proto::UpdateMetadataResponse* response) {
   auto perm = CheckPermission(auth::Permission::UPDATE_METADATA, request->collection_name());
   if (!perm.ok()) return perm;
+  AuditContext::SetCollection(request->collection_name());
 
   utils::Logger::Instance().Info("UpdateMetadata: ID {} in {}",
                                  request->id(), request->collection_name());
