@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.0](https://github.com/JonathanBerhe/gvdb/compare/v0.11.0...v0.12.0) (2026-04-12)
+
+
+### Features
+
+* **network:** structured audit logging ([4db999f](https://github.com/JonathanBerhe/gvdb/commit/4db999f2f64562912edf32ad26767822da48e3a6))
+* **network:** structured audit logging — JSON interceptor, per-RPC trail, opt-in config ([3ba6917](https://github.com/JonathanBerhe/gvdb/commit/3ba6917a882dd231f460ab4f3febe439a5f6c11b))
+
 ## [0.11.0](https://github.com/JonathanBerhe/gvdb/compare/v0.10.0...v0.11.0) (2026-04-12)
 
 
