@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.0](https://github.com/JonathanBerhe/gvdb/compare/v0.9.0...v0.10.0) (2026-04-12)
+
+
+### Features
+
+* **cluster:** implement dynamic shard rebalancing execution ([73dd296](https://github.com/JonathanBerhe/gvdb/commit/73dd296abc976dbca3763aa2ce21252b128d50c9))
+* **cluster:** implement dynamic shard rebalancing execution ([a3d1832](https://github.com/JonathanBerhe/gvdb/commit/a3d18323c3a9a73d0a23694769bdb8c5c5ed1062))
+
+
+### Bug Fixes
+
+* **cluster:** RAII scope guard, primary-move RemoveReplica, snapshot-consistent rebalance plan ([cd37a76](https://github.com/JonathanBerhe/gvdb/commit/cd37a7671b00977373272fe3bb4f2251498e2811))
+
 ## [0.9.0](https://github.com/JonathanBerhe/gvdb/compare/v0.8.0...v0.9.0) (2026-04-11)
 
 
