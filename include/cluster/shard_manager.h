@@ -84,6 +84,10 @@ class ShardManager {
   absl::Status UnregisterNode(core::NodeId node_id, bool graceful);
   std::vector<core::NodeId> GetAllNodes() const;
 
+  // Shard state management
+  absl::Status SetShardState(core::ShardId shard_id, ShardState state);
+  absl::StatusOr<ShardState> GetShardState(core::ShardId shard_id) const;
+
   // Rebalancing
   struct RebalanceMove {
     core::ShardId shard_id;
