@@ -832,3 +832,150 @@ TEST_CASE_FIXTURE(ReadRepairTest, "ReadRepair_HandlesListSegmentsFailure") {
   coordinator_->RunConsistencyCheck();
   CHECK_EQ(coordinator_->GetRepairQueueSize(), 0);
 }
+
+// ============================================================================
+// Shard Rebalancing Tests
+// ============================================================================
+
+TEST_CASE_FIXTURE(ShardManagerTest, "CalculateRebalancePlan_Balanced_NoMoves") {
+  core::NodeId n1 = core::MakeNodeId(1);
+  core::NodeId n2 = core::MakeNodeId(2);
+  core::NodeId n3 = core::MakeNodeId(3);
+  REQUIRE(shard_manager_->RegisterNode(n1).ok());
+  REQUIRE(shard_manager_->RegisterNode(n2).ok());
+  REQUIRE(shard_manager_->RegisterNode(n3).ok());
+
+  // Assign 6 shards evenly: 2 per node, equal size
+  for (int i = 0; i < 6; ++i) {
+    auto sid = core::MakeShardId(i);
+    core::NodeId primary = (i < 2) ? n1 : (i < 4) ? n2 : n3;
+    REQUIRE(shard_manager_->SetPrimaryNode(sid, primary).ok());
+    REQUIRE(shard_manager_->UpdateShardMetrics(sid, 1000, 100, 50).ok());
+  }
+
+  auto moves = shard_manager_->CalculateRebalancePlan();
+  CHECK(moves.empty());
+}
+
+TEST_CASE_FIXTURE(ShardManagerTest, "CalculateRebalancePlan_Imbalanced_GeneratesMoves") {
+  core::NodeId n1 = core::MakeNodeId(1);
+  core::NodeId n2 = core::MakeNodeId(2);
+  core::NodeId n3 = core::MakeNodeId(3);
+  REQUIRE(shard_manager_->RegisterNode(n1).ok());
+  REQUIRE(shard_manager_->RegisterNode(n2).ok());
+  REQUIRE(shard_manager_->RegisterNode(n3).ok());
+
+  // Overload node 1: 4 shards with large data, nodes 2 and 3 have 1 small shard each
+  for (int i = 0; i < 4; ++i) {
+    auto sid = core::MakeShardId(i);
+    REQUIRE(shard_manager_->SetPrimaryNode(sid, n1).ok());
+    REQUIRE(shard_manager_->UpdateShardMetrics(sid, 10000, 1000, 500).ok());
+  }
+  auto sid4 = core::MakeShardId(4);
+  REQUIRE(shard_manager_->SetPrimaryNode(sid4, n2).ok());
+  REQUIRE(shard_manager_->UpdateShardMetrics(sid4, 1000, 100, 50).ok());
+
+  auto sid5 = core::MakeShardId(5);
+  REQUIRE(shard_manager_->SetPrimaryNode(sid5, n3).ok());
+  REQUIRE(shard_manager_->UpdateShardMetrics(sid5, 1000, 100, 50).ok());
+
+  auto moves = shard_manager_->CalculateRebalancePlan();
+  CHECK(moves.size() > 0);
+
+  // All moves should be from node 1 (the overloaded node)
+  for (const auto& move : moves) {
+    CHECK_EQ(move.source_node, n1);
+    bool valid_target = (move.target_node == n2 || move.target_node == n3);
+    CHECK(valid_target);
+  }
+}
+
+TEST_CASE_FIXTURE(ShardManagerTest, "CalculateRebalancePlan_SingleNode_NoMoves") {
+  core::NodeId n1 = core::MakeNodeId(1);
+  REQUIRE(shard_manager_->RegisterNode(n1).ok());
+
+  auto sid = core::MakeShardId(0);
+  REQUIRE(shard_manager_->SetPrimaryNode(sid, n1).ok());
+  REQUIRE(shard_manager_->UpdateShardMetrics(sid, 10000, 1000, 500).ok());
+
+  auto moves = shard_manager_->CalculateRebalancePlan();
+  CHECK(moves.empty());
+}
+
+TEST_CASE_FIXTURE(ShardManagerTest, "CalculateRebalancePlan_SkipsMigratingShards") {
+  core::NodeId n1 = core::MakeNodeId(1);
+  core::NodeId n2 = core::MakeNodeId(2);
+  REQUIRE(shard_manager_->RegisterNode(n1).ok());
+  REQUIRE(shard_manager_->RegisterNode(n2).ok());
+
+  // All shards on node 1 — heavily imbalanced
+  for (int i = 0; i < 4; ++i) {
+    auto sid = core::MakeShardId(i);
+    REQUIRE(shard_manager_->SetPrimaryNode(sid, n1).ok());
+    REQUIRE(shard_manager_->UpdateShardMetrics(sid, 10000, 1000, 500).ok());
+  }
+
+  // Give node 2 a small shard so total_load > 0 independent of MIGRATING
+  // state (isolates the MIGRATING skip from the early-return-on-zero-load path)
+  auto sid_n2 = core::MakeShardId(10);
+  REQUIRE(shard_manager_->SetPrimaryNode(sid_n2, n2).ok());
+  REQUIRE(shard_manager_->UpdateShardMetrics(sid_n2, 1000, 100, 50).ok());
+
+  // Set node 1's shards to MIGRATING
+  for (int i = 0; i < 4; ++i) {
+    REQUIRE(shard_manager_->SetShardState(core::MakeShardId(i),
+                                           ShardState::MIGRATING).ok());
+  }
+
+  auto moves = shard_manager_->CalculateRebalancePlan();
+  CHECK(moves.empty());
+}
+
+TEST_CASE_FIXTURE(ShardManagerTest, "SetShardState_Transitions") {
+  auto sid = core::MakeShardId(0);
+
+  auto initial = shard_manager_->GetShardState(sid);
+  REQUIRE(initial.ok());
+  CHECK_EQ(*initial, ShardState::ACTIVE);
+
+  REQUIRE(shard_manager_->SetShardState(sid, ShardState::MIGRATING).ok());
+  auto migrating = shard_manager_->GetShardState(sid);
+  REQUIRE(migrating.ok());
+  CHECK_EQ(*migrating, ShardState::MIGRATING);
+
+  REQUIRE(shard_manager_->SetShardState(sid, ShardState::ACTIVE).ok());
+  auto active = shard_manager_->GetShardState(sid);
+  REQUIRE(active.ok());
+  CHECK_EQ(*active, ShardState::ACTIVE);
+}
+
+TEST_CASE_FIXTURE(ShardManagerTest, "SetShardState_NotFound") {
+  auto bad_sid = core::MakeShardId(9999);
+  auto status = shard_manager_->SetShardState(bad_sid, ShardState::MIGRATING);
+  CHECK_FALSE(status.ok());
+  CHECK(absl::IsNotFound(status));
+}
+
+TEST_CASE_FIXTURE(ShardManagerTest, "GetShardState_NotFound") {
+  auto bad_sid = core::MakeShardId(9999);
+  auto result = shard_manager_->GetShardState(bad_sid);
+  CHECK_FALSE(result.ok());
+  CHECK(absl::IsNotFound(result.status()));
+}
+
+TEST_CASE_FIXTURE(ShardManagerTest, "ExecuteRebalanceMove_SetsStateToMigrating") {
+  core::NodeId n1 = core::MakeNodeId(1);
+  core::NodeId n2 = core::MakeNodeId(2);
+  REQUIRE(shard_manager_->RegisterNode(n1).ok());
+  REQUIRE(shard_manager_->RegisterNode(n2).ok());
+
+  auto sid = core::MakeShardId(0);
+  REQUIRE(shard_manager_->SetPrimaryNode(sid, n1).ok());
+
+  ShardManager::RebalanceMove move{sid, n1, n2, true};
+  auto status = shard_manager_->ExecuteRebalanceMove(move);
+  CHECK(status.ok());
+  auto state = shard_manager_->GetShardState(sid);
+  REQUIRE(state.ok());
+  CHECK_EQ(*state, ShardState::MIGRATING);
+}

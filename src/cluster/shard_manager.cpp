@@ -281,62 +281,171 @@ std::vector<core::NodeId> ShardManager::GetAllNodes() const {
   return std::vector<core::NodeId>(assigned_nodes_.begin(), assigned_nodes_.end());
 }
 
+absl::Status ShardManager::SetShardState(core::ShardId shard_id, ShardState state) {
+  std::unique_lock lock(shard_mutex_);
+  auto it = shards_.find(shard_id);
+  if (it == shards_.end()) {
+    return absl::NotFoundError(
+        absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
+  }
+  it->second.state = state;
+  return absl::OkStatus();
+}
+
+absl::StatusOr<ShardState> ShardManager::GetShardState(core::ShardId shard_id) const {
+  std::shared_lock lock(shard_mutex_);
+  auto it = shards_.find(shard_id);
+  if (it == shards_.end()) {
+    return absl::NotFoundError(
+        absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
+  }
+  return it->second.state;
+}
+
 std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() {
   std::vector<RebalanceMove> moves;
 
-  // Get all nodes and their current loads
+  // Grab node list first (takes node_mutex_, releases)
   auto nodes = GetAllNodes();
-  if (nodes.size() < 2) {
-    // Nothing to rebalance with less than 2 nodes
-    return moves;
-  }
+  if (nodes.size() < 2) return moves;
 
-  // Calculate average load
+  // Hold shard_mutex_ for the entire plan computation so loads, shard state,
+  // and shard-to-node mappings are all read from a single consistent snapshot.
+  std::shared_lock lock(shard_mutex_);
+
+  // Compute node loads inline (avoids re-acquiring shard_mutex_ per node)
+  constexpr size_t kOverloadNum = 12;
+  constexpr size_t kOverloadDen = 10;
+  constexpr size_t kUnderloadNum = 8;
+  constexpr size_t kUnderloadDen = 10;
+
   std::map<core::NodeId, size_t> node_loads;
   for (const auto& node : nodes) {
-    node_loads[node] = GetNodeLoad(node);
+    size_t load = 0;
+    for (const auto& [sid, info] : shards_) {
+      if (info.primary_node == node) {
+        load += info.data_size_bytes;
+      } else {
+        for (const auto& replica : info.replica_nodes) {
+          if (replica == node) {
+            load += info.data_size_bytes / 2;
+            break;
+          }
+        }
+      }
+    }
+    node_loads[node] = load;
   }
 
   size_t total_load = 0;
   for (const auto& [node, load] : node_loads) {
     total_load += load;
   }
+  if (total_load == 0) return moves;
 
   size_t avg_load = total_load / nodes.size();
+  if (avg_load == 0) return moves;
 
-  // Find overloaded and underloaded nodes
+  // Identify overloaded (>120% avg) and underloaded (<80% avg) nodes
   std::vector<core::NodeId> overloaded;
   std::vector<core::NodeId> underloaded;
 
   for (const auto& [node, load] : node_loads) {
-    if (load > avg_load * 1.2) {  // 20% threshold
+    if (load > avg_load * kOverloadNum / kOverloadDen) {
       overloaded.push_back(node);
-    } else if (load < avg_load * 0.8) {
+    } else if (load < avg_load * kUnderloadNum / kUnderloadDen) {
       underloaded.push_back(node);
     }
   }
 
-  // Create moves from overloaded to underloaded nodes
-  // TODO: Implement actual rebalancing logic based on shard weights
+  if (overloaded.empty() || underloaded.empty()) return moves;
+
+  // Sort: most overloaded first, least loaded target first
+  std::sort(overloaded.begin(), overloaded.end(),
+            [&](auto a, auto b) { return node_loads[a] > node_loads[b]; });
+  std::sort(underloaded.begin(), underloaded.end(),
+            [&](auto a, auto b) { return node_loads[a] < node_loads[b]; });
+
+  // Simulated loads for planning (don't mutate real state)
+  auto sim_loads = node_loads;
+
+  for (const auto& source : overloaded) {
+    if (sim_loads[source] <= avg_load * kOverloadNum / kOverloadDen) continue;
+
+    // Collect shards on this node, sorted by size DESC (biggest first)
+    std::vector<const ShardInfo*> source_shards;
+    for (const auto& [sid, info] : shards_) {
+      if (info.primary_node == source) {
+        source_shards.push_back(&info);
+      } else {
+        for (const auto& replica : info.replica_nodes) {
+          if (replica == source) {
+            source_shards.push_back(&info);
+            break;
+          }
+        }
+      }
+    }
+    std::sort(source_shards.begin(), source_shards.end(),
+              [](const auto* a, const auto* b) {
+                return a->data_size_bytes > b->data_size_bytes;
+              });
+
+    for (const auto* shard : source_shards) {
+      if (shard->state != ShardState::ACTIVE) continue;
+      if (sim_loads[source] <= avg_load * kOverloadNum / kOverloadDen) break;
+
+      bool is_primary = (shard->primary_node == source);
+      size_t weight = is_primary ? shard->data_size_bytes
+                                 : shard->data_size_bytes / 2;
+      if (weight == 0) continue;
+
+      // Don't make source underloaded
+      if (sim_loads[source] < weight + avg_load * kUnderloadNum / kUnderloadDen) continue;
+
+      // Find best target: least loaded that doesn't already host this shard
+      core::NodeId best_target = core::kInvalidNodeId;
+      for (const auto& target : underloaded) {
+        if (sim_loads[target] >= avg_load * kUnderloadNum / kUnderloadDen) continue;
+
+        // Check target doesn't already have this shard
+        bool already_hosts = (shard->primary_node == target);
+        if (!already_hosts) {
+          for (const auto& r : shard->replica_nodes) {
+            if (r == target) { already_hosts = true; break; }
+          }
+        }
+        if (already_hosts) continue;
+
+        best_target = target;
+        break;
+      }
+
+      if (best_target == core::kInvalidNodeId) continue;
+
+      moves.push_back(RebalanceMove{
+          shard->shard_id, source, best_target, is_primary});
+
+      sim_loads[source] -= weight;
+      sim_loads[best_target] += weight;
+    }
+  }
 
   return moves;
 }
 
 absl::Status ShardManager::ExecuteRebalanceMove(const RebalanceMove& move) {
-  // TODO: Implement actual shard migration
-  // This would involve:
-  // 1. Set shard state to MIGRATING
-  // 2. Replicate data to target node
-  // 3. Update shard mapping
-  // 4. Remove from source node
-  // 5. Set shard state back to ACTIVE
+  // Set shard to MIGRATING. Actual data transfer is done by
+  // Coordinator::ExecuteSingleMove() which owns the gRPC clients.
+  auto status = SetShardState(move.shard_id, ShardState::MIGRATING);
+  if (!status.ok()) return status;
 
-  utils::Logger::Instance().Info("Executing rebalance move: shard {} from node {} to node {}",
-                                 core::ToUInt16(move.shard_id),
-                                 core::ToUInt32(move.source_node),
-                                 core::ToUInt32(move.target_node));
+  utils::Logger::Instance().Info(
+      "Rebalance move: shard {} from node {} to node {} (primary={})",
+      core::ToUInt16(move.shard_id), core::ToUInt32(move.source_node),
+      core::ToUInt32(move.target_node), move.is_primary);
 
-  return absl::UnimplementedError("Rebalance execution not implemented");
+  return absl::OkStatus();
 }
 
 float ShardManager::CalculateImbalance() const {
