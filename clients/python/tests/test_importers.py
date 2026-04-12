@@ -139,17 +139,94 @@ class TestBatchImport:
         assert result.dimension == 8
         client.create_collection.assert_called_once()
 
+    def test_upsert_retries_on_transient_failure(self):
+        import grpc
+
+        client = _mock_client()
+        error = grpc.RpcError()
+        error.code = lambda: grpc.StatusCode.UNAVAILABLE
+        error.details = lambda: "connection reset"
+        client.upsert.side_effect = [
+            error,
+            {"upserted_count": 2, "inserted_count": 2, "updated_count": 0},
+        ]
+
+        chunks = iter([([1, 2], [[0.1] * 4] * 2, None)])
+        result = _batch_import(
+            client, chunks, "test", mode="upsert", max_retries=2, show_progress=False
+        )
+        assert result.total_count == 2
+        assert result.failed_count == 0
+        assert client.upsert.call_count == 2
+
+    def test_stream_insert_does_not_retry(self):
+        import grpc
+
+        client = _mock_client()
+        error = grpc.RpcError()
+        error.code = lambda: grpc.StatusCode.UNAVAILABLE
+        error.details = lambda: "connection reset"
+        client.stream_insert.side_effect = error
+
+        chunks = iter([([1, 2], [[0.1] * 4] * 2, None)])
+        result = _batch_import(
+            client,
+            chunks,
+            "test",
+            mode="stream_insert",
+            max_retries=3,
+            show_progress=False,
+        )
+        assert result.failed_count == 2
+        # stream_insert is not idempotent — must not retry
+        assert client.stream_insert.call_count == 1
+
+    def test_resource_exhausted_fails_immediately(self):
+        import grpc
+
+        client = _mock_client()
+        error = grpc.RpcError()
+        error.code = lambda: grpc.StatusCode.RESOURCE_EXHAUSTED
+        error.details = lambda: "message too large"
+        client.upsert.side_effect = error
+
+        chunks = iter([([1, 2], [[0.1] * 4] * 2, None)])
+        result = _batch_import(
+            client, chunks, "test", mode="upsert", max_retries=3, show_progress=False
+        )
+        assert result.failed_count == 2
+        # Must not retry RESOURCE_EXHAUSTED — same payload hits same limit
+        assert client.upsert.call_count == 1
+
+    def test_permanent_failure_after_retries(self):
+        import grpc
+
+        client = _mock_client()
+        error = grpc.RpcError()
+        error.code = lambda: grpc.StatusCode.INTERNAL
+        error.details = lambda: "server error"
+        client.upsert.side_effect = error
+
+        chunks = iter([([1, 2, 3], [[0.1] * 4] * 3, None)])
+        result = _batch_import(
+            client, chunks, "test", mode="upsert", max_retries=2, show_progress=False
+        )
+        assert result.failed_count == 3
+        # 1 initial + 2 retries = 3 attempts
+        assert client.upsert.call_count == 3
+
 
 # ---------------------------------------------------------------------------
 # import_numpy
 # ---------------------------------------------------------------------------
 
 
-np = pytest.importorskip("numpy")
-
-
 class TestImportNumpy:
+    np = pytest.importorskip("numpy")
+
     def test_basic_array(self):
+        import numpy as np
+
         from gvdb.importers import import_numpy
 
         client = _mock_client()
@@ -167,6 +244,8 @@ class TestImportNumpy:
         assert result.dimension == 4
 
     def test_auto_generated_ids(self):
+        import numpy as np
+
         from gvdb.importers import import_numpy
 
         client = _mock_client()
@@ -184,6 +263,8 @@ class TestImportNumpy:
         assert call_args[0][1] == [0, 1, 2, 3, 4]
 
     def test_with_metadata(self):
+        import numpy as np
+
         from gvdb.importers import import_numpy
 
         client = _mock_client()
@@ -207,6 +288,8 @@ class TestImportNumpy:
             import_numpy(client, "data.parquet", "test", show_progress=False)
 
     def test_wrong_ndim_raises(self):
+        import numpy as np
+
         from gvdb.importers import import_numpy
 
         client = _mock_client()
@@ -214,6 +297,8 @@ class TestImportNumpy:
             import_numpy(client, np.array([1, 2, 3]), "test", show_progress=False)
 
     def test_batching(self):
+        import numpy as np
+
         from gvdb.importers import import_numpy
 
         client = _mock_client()
@@ -236,11 +321,10 @@ class TestImportNumpy:
 # ---------------------------------------------------------------------------
 
 
-pa = pytest.importorskip("pyarrow")
-pq = pytest.importorskip("pyarrow.parquet")
-
-
 class TestImportParquet:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+
     def _write_parquet(self, tmp_path, n=20, dim=4):
         import pyarrow as pa
         import pyarrow.parquet as pq
@@ -315,10 +399,9 @@ class TestImportParquet:
 # ---------------------------------------------------------------------------
 
 
-pd = pytest.importorskip("pandas")
-
-
 class TestImportCSV:
+    pd = pytest.importorskip("pandas")
+
     def test_json_encoded_vectors(self, tmp_path):
         from gvdb.importers import import_csv
 
@@ -372,6 +455,26 @@ class TestImportCSV:
         client = _mock_client()
         with pytest.raises(ValueError, match="Vector column.*not found"):
             import_csv(client, path, "test", show_progress=False)
+
+    def test_non_integer_prefixed_columns_ignored(self, tmp_path):
+        """Columns like vector_name should not crash the dimension-prefix detection."""
+        from gvdb.importers import import_csv
+
+        header = "id,vector_0,vector_1,vector_name,label"
+        rows = [f"{i},{i * 0.1},{i * 0.2},foo,cat_{i}" for i in range(3)]
+        path = tmp_path / "test.csv"
+        path.write_text(header + "\n" + "\n".join(rows))
+
+        client = _mock_client()
+        client.upsert.return_value = {
+            "upserted_count": 3,
+            "inserted_count": 3,
+            "updated_count": 0,
+        }
+
+        result = import_csv(client, path, "test", show_progress=False)
+        assert result.total_count == 3
+        assert result.dimension == 2  # vector_0, vector_1 only
 
 
 # ---------------------------------------------------------------------------

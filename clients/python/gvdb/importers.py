@@ -48,6 +48,27 @@ class ImportResult:
 # ---------------------------------------------------------------------------
 
 
+def _is_missing(val) -> bool:
+    """Return True for None, float NaN, and pandas NaT/NA."""
+    if val is None:
+        return True
+    try:
+        import math
+
+        if isinstance(val, float) and math.isnan(val):
+            return True
+    except (TypeError, ValueError):
+        pass
+    try:
+        import pandas as pd
+
+        if pd.isna(val):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _require(module_name: str, extra: str):
     """Import a module or raise ImportError with install instructions."""
     import importlib
@@ -137,26 +158,18 @@ def _batch_import(
                     client, collection, dimension, metric, index_type
                 )
 
-            if mode == "upsert":
-                count = _send_batch_with_retry(
-                    client,
-                    collection,
-                    ids,
-                    vectors,
-                    metadata,
-                    mode=mode,
-                    max_retries=max_retries,
-                )
-            else:
-                count = _send_batch_with_retry(
-                    client,
-                    collection,
-                    ids,
-                    vectors,
-                    metadata,
-                    mode=mode,
-                    max_retries=max_retries,
-                )
+            # stream_insert is not idempotent — retrying a partial write
+            # causes duplicates, so disable retry for that mode.
+            retries = max_retries if mode == "upsert" else 0
+            count = _send_batch_with_retry(
+                client,
+                collection,
+                ids,
+                vectors,
+                metadata,
+                mode=mode,
+                max_retries=retries,
+            )
 
             if count < 0:
                 failed_count += len(ids)
@@ -202,10 +215,13 @@ def _send_batch_with_retry(
                 return client.stream_insert(collection, ids, vectors, metadata=metadata)
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.RESOURCE_EXHAUSTED:
-                logger.warning(
+                # Retrying with the same payload will hit the same limit.
+                logger.error(
                     "Batch too large (RESOURCE_EXHAUSTED). "
-                    "Consider reducing batch_size."
+                    "Reduce batch_size and retry. Details: %s",
+                    e.details(),
                 )
+                return -1
             if attempt < max_retries:
                 delay = 0.5 * (2**attempt)
                 logger.warning(
@@ -323,7 +339,6 @@ def import_parquet(
         id_column: Column containing vector IDs (int).
     """
     pq = _require("pyarrow.parquet", "parquet")
-    _require("pyarrow", "parquet")  # ensure pyarrow is available
 
     path = Path(path)
     if not path.is_file():
@@ -478,7 +493,7 @@ def import_dataframe(
                             val = chunk[col].iloc[i]
                         else:
                             val = chunk[col][i]
-                        if val is not None and val == val:  # skip NaN
+                        if not _is_missing(val):
                             row[col] = val
                     batch_meta.append(row if row else None)
 
@@ -544,7 +559,11 @@ def import_csv(
     else:
         # Look for dimension-prefixed columns
         prefixed = sorted(
-            [c for c in columns if c.startswith(f"{vector_column}_")],
+            [
+                c
+                for c in columns
+                if c.startswith(f"{vector_column}_") and c.rsplit("_", 1)[1].isdigit()
+            ],
             key=lambda c: int(c.rsplit("_", 1)[1]),
         )
         if not prefixed:
@@ -576,7 +595,7 @@ def import_csv(
             if meta_cols:
                 batch_meta = []
                 for _, row in chunk[meta_cols].iterrows():
-                    d = {k: v for k, v in row.items() if v == v and v is not None}
+                    d = {k: v for k, v in row.items() if not _is_missing(v)}
                     batch_meta.append(d if d else None)
 
             yield batch_ids, batch_vecs, batch_meta
@@ -641,9 +660,12 @@ def import_h5ad(
     n = embeddings.shape[0]
 
     # Handle sparse matrices
-    import scipy.sparse
+    try:
+        import scipy.sparse
 
-    is_sparse = scipy.sparse.issparse(embeddings)
+        is_sparse = scipy.sparse.issparse(embeddings)
+    except ImportError:
+        is_sparse = False
 
     # IDs
     if id_column is not None:
@@ -695,7 +717,7 @@ def import_h5ad(
                     d = {}
                     for col in meta_cols:
                         val = row[col]
-                        if val is not None and val == val:  # skip NaN
+                        if not _is_missing(val):
                             d[col] = val
                     batch_meta.append(d if d else None)
 
