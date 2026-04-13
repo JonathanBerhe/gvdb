@@ -50,6 +50,12 @@ make build
 # Build with S3/MinIO support (requires libssl-dev, libcurl4-openssl-dev)
 make build CMAKE_EXTRA="-DGVDB_WITH_S3=ON"
 
+# Build with Apple Metal GPU acceleration (macOS only)
+make build CMAKE_EXTRA="-DGVDB_WITH_METAL=ON"
+
+# Run Metal GPU benchmark (macOS only, builds automatically)
+make bench-metal
+
 # Build Release
 make build-release
 
@@ -188,9 +194,10 @@ Layer 3 (Orchestration):
 - **Implements**: `core::IVectorIndex` interface
 - **Index Types**: FLAT, HNSW, IVF, IVF_PQ, IVF_SQ
 - **Key Classes**:
-  - `IndexFactory` - Creates appropriate index based on configuration
+  - `IndexFactory` - Creates appropriate index based on configuration. Transparently returns `MetalFlatIndex` when Metal GPU is available and index type is FLAT.
   - `IndexManager` - Manages index lifecycle and memory
 - **SIMD Optimization**: Runtime CPU capability detection (SSE, AVX2, AVX512)
+- **Metal GPU** (`-DGVDB_WITH_METAL=ON`, macOS only): `MetalFlatIndex` in `src/index/metal/` — custom MSL distance kernels dispatched via metal-cpp. ObjC++ (`.mm`) strictly isolated to `src/index/metal/`. 16-24x speedup over CPU on Apple Silicon.
 
 ### Storage Module
 - **Purpose**: Data persistence and segment management

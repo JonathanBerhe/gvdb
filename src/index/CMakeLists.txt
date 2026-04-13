@@ -15,6 +15,27 @@ add_library(gvdb_index
   sparse_index.cpp
 )
 
+# Metal GPU acceleration (macOS only)
+if(APPLE AND GVDB_WITH_METAL)
+  target_sources(gvdb_index PRIVATE
+    metal/metal_compute.mm
+    metal/metal_flat_index.mm
+  )
+  target_include_directories(gvdb_index PRIVATE
+    ${metal-cpp_SOURCE_DIR}
+  )
+  target_link_libraries(gvdb_index PRIVATE
+    "-framework Metal"
+    "-framework Foundation"
+  )
+  # Copy kernel source to build dir at build time
+  add_custom_command(TARGET gvdb_index POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      ${CMAKE_CURRENT_SOURCE_DIR}/metal/kernels/distance.metal
+      ${CMAKE_BINARY_DIR}/kernels/distance.metal
+  )
+endif()
+
 # Set target properties
 set_target_properties(gvdb_index PROPERTIES
   CXX_STANDARD 20
