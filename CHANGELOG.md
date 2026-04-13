@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/JonathanBerhe/gvdb/compare/v0.12.0...v0.13.0) (2026-04-13)
+
+
+### Features
+
+* **index:** Apple Metal GPU acceleration — 16-24x speedup on Apple Silicon ([94f1271](https://github.com/JonathanBerhe/gvdb/commit/94f1271a8777d11710bc9c9bab8ce687b4c286d6))
+* **index:** Apple Metal GPU acceleration — 16-24x speedup on Apple Silicon ([1e01a44](https://github.com/JonathanBerhe/gvdb/commit/1e01a441016acc13b036a8418d8295e417e9de05))
+
 ## [0.12.0](https://github.com/JonathanBerhe/gvdb/compare/v0.11.0...v0.12.0) (2026-04-12)
 
 
