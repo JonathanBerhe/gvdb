@@ -2,8 +2,8 @@ apiVersion: v2
 name: gvdb
 description: Distributed vector database for similarity search
 type: application
-version: 0.12.0 # x-release-please-version
-appVersion: "0.12.0" # x-release-please-version
+version: 0.13.0 # x-release-please-version
+appVersion: "0.13.0" # x-release-please-version
 home: https://github.com/JonathanBerhe/gvdb
 sources:
   - https://github.com/JonathanBerhe/gvdb
