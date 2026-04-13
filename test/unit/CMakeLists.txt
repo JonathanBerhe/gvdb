@@ -477,6 +477,36 @@ set_tests_properties(AuditInterceptorTests PROPERTIES
   TIMEOUT 60
 )
 
+# Metal GPU distance tests (macOS only, skip on Linux)
+if(APPLE AND GVDB_WITH_METAL)
+  add_executable(metal_distance_tests
+    metal_distance_test.cpp
+  )
+
+  target_include_directories(metal_distance_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/index
+    ${CMAKE_SOURCE_DIR}/src/index/metal
+    ${metal-cpp_SOURCE_DIR}
+  )
+
+  target_link_libraries(metal_distance_tests
+    PRIVATE
+      gvdb_index
+      gvdb_core
+      faiss
+      "-framework Metal"
+      "-framework Foundation"
+      doctest::doctest_with_main
+  )
+
+  add_test(NAME MetalDistanceTests COMMAND metal_distance_tests)
+
+  set_tests_properties(MetalDistanceTests PROPERTIES
+    TIMEOUT 120
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+  )
+endif()
+
 # RBAC unit tests
 add_executable(rbac_tests
   rbac_test.cpp
