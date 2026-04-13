@@ -8,6 +8,10 @@
 #include "faiss_ivf.h"
 #include "turboquant/turboquant_index.h"
 #include "turboquant/ivf_turboquant_index.h"
+#ifdef GVDB_HAS_METAL
+#include "metal/metal_compute.h"
+#include "metal/metal_flat_index.h"
+#endif
 
 namespace gvdb {
 namespace index {
@@ -66,6 +70,11 @@ IndexFactory::CreateFlatIndex(core::Dimension dimension,
     return core::InvalidArgumentError("Dimension must be positive");
   }
 
+#ifdef GVDB_HAS_METAL
+  if (metal::MetalCompute::IsAvailable()) {
+    return std::make_unique<metal::MetalFlatIndex>(dimension, metric);
+  }
+#endif
   return std::make_unique<FaissFlatIndex>(dimension, metric);
 }
 
