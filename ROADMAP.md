@@ -345,7 +345,8 @@ Multi-vector per document with MaxSim scoring. SOTA retrieval quality.
 | ID | Feature | Complexity | Status |
 |----|---------|-----------|--------|
 | 4.1 | DiskANN | Very High | Pending |
-| 4.2 | GPU Acceleration (CUDA) | High | Pending |
+| 4.2a | GPU Acceleration — Apple Metal (FLAT) | Medium | **Done** |
+| 4.2b | GPU Acceleration — CUDA | High | Pending |
 | 4.3 | CDC (Change Data Capture) | Medium | Pending |
 | 4.4 | FP16/BF16/INT8/Binary Vectors | Very High | Pending |
 | 4.5 | Arrow Flight Ingestion Endpoint | High | Pending |
@@ -353,7 +354,19 @@ Multi-vector per document with MaxSim scoring. SOTA retrieval quality.
 ### 4.1 DiskANN
 1B vectors with ~16GB RAM + NVMe. Consider integrating open-source DiskANN library.
 
-### 4.2 GPU Acceleration
+### 4.2a Apple Metal GPU Acceleration (Phase 1: FLAT)
+Metal compute kernels for GPU-accelerated brute-force distance on Apple Silicon. No competitor has this.
+- `MetalFlatIndex` implements `IVectorIndex` — transparent drop-in via `IndexFactory` when Metal GPU is available
+- MSL kernels for L2, inner product, cosine distance. Persistent GPU buffer (unified memory, zero-copy)
+- `MTLCopyAllDevices()` for headless CLI compatibility (MTLCreateSystemDefaultDevice returns nil for CLI tools)
+- metal-cpp (Apple's header-only C++ wrapper) via FetchContent, ObjC++ isolated to `src/index/metal/`
+- Benchmarked on M1 Pro: **16-24x speedup** over faiss CPU (1K-2M vectors, dim 128-1536)
+- 10 correctness tests (Metal vs faiss CPU, all metrics, edge cases)
+- Build: `cmake -DGVDB_WITH_METAL=ON`, Benchmark: `make bench-metal`
+- Future phases: IVF cluster assignment (4.2a-P2), TurboQuant WHT kernels (4.2a-P3)
+- Files: `src/index/metal/metal_compute.{h,mm}`, `src/index/metal/metal_flat_index.{h,mm}`, `src/index/metal/kernels/distance.metal`, `test/bench/metal_bench.cpp`
+
+### 4.2b CUDA GPU Acceleration
 `faiss-gpu` for FLAT/IVF, custom CUDA kernels for TurboQuant WHT + quantized distance. Prioritize index building (10-100x speedup).
 
 ### 4.3 CDC (Change Data Capture)

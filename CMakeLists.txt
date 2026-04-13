@@ -27,6 +27,11 @@ option(USE_SYSTEM_DEPENDENCIES "Use system-installed dependencies instead of fet
 # Option to enable S3/MinIO object storage support (requires AWS SDK)
 option(GVDB_WITH_S3 "Enable S3/MinIO object storage support" OFF)
 
+# Option to enable Apple Metal GPU acceleration (macOS only)
+if(APPLE)
+  option(GVDB_WITH_METAL "Enable Apple Metal GPU acceleration" OFF)
+endif()
+
 # ============================================================================
 # Abseil C++ Library
 # ============================================================================
@@ -312,6 +317,22 @@ if(GVDB_WITH_S3)
   FetchContent_MakeAvailable(awssdk)
 endif()
 
+# ============================================================================
+# Apple metal-cpp (Metal GPU Acceleration) - Optional, macOS only
+# ============================================================================
+if(APPLE AND GVDB_WITH_METAL)
+  message(STATUS "Fetching metal-cpp...")
+  FetchContent_Declare(
+    metal-cpp
+    GIT_REPOSITORY https://github.com/bkaradzic/metal-cpp.git
+    GIT_TAG        metal-cpp_26
+    GIT_SHALLOW    TRUE
+  )
+  FetchContent_MakeAvailable(metal-cpp)
+  add_compile_definitions(GVDB_HAS_METAL=1)
+  enable_language(OBJCXX)
+endif()
+
 # Re-enable installation for our own targets
 set(CMAKE_SKIP_INSTALL_RULES OFF)
 
@@ -412,4 +433,5 @@ add_subdirectory(src/main)
 if(BUILD_TESTING)
   add_subdirectory(test/unit)
   add_subdirectory(test/integration)
+  add_subdirectory(test/bench)
 endif()

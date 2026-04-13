@@ -3,7 +3,8 @@
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
        undeploy clean-kind port-forward status \
        build-ui run-ui \
-       lint-sdk test-sdk test-sdk-kind generate-python-stubs
+       lint-sdk test-sdk test-sdk-kind generate-python-stubs \
+       bench-metal
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -32,6 +33,10 @@ build:
 
 build-release:
 	@$(MAKE) build BUILD_TYPE=Release
+
+bench-metal:
+	@$(MAKE) build CMAKE_EXTRA="-DGVDB_WITH_METAL=ON"
+	@cd $(BUILD_DIR) && ./bin/gvdb-metal-bench
 
 test: build
 	@ctest --test-dir $(BUILD_DIR) --output-on-failure
