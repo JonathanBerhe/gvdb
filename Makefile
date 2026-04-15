@@ -38,7 +38,7 @@ bench-metal:
 	@$(MAKE) build CMAKE_EXTRA="-DGVDB_WITH_METAL=ON"
 	@cd $(BUILD_DIR) && ./bin/gvdb-metal-bench
 
-test: build
+test:
 	@ctest --test-dir $(BUILD_DIR) --output-on-failure
 
 test-e2e:
