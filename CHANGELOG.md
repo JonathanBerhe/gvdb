@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.14.0](https://github.com/JonathanBerhe/gvdb/compare/v0.13.0...v0.14.0) (2026-04-15)
+
+
+### Features
+
+* **storage:** server-side bulk import from S3 ([8c63e45](https://github.com/JonathanBerhe/gvdb/commit/8c63e45d5f4a46aa043ddb6b624d022d85f04ec9))
+* **storage:** server-side bulk import from S3 (NumPy .npy) ([8260eaa](https://github.com/JonathanBerhe/gvdb/commit/8260eaa504c5fe4882572f5d6f782cfc70009131))
+
+
+### Bug Fixes
+
+* **ci:** remove build dependency from test target ([734c851](https://github.com/JonathanBerhe/gvdb/commit/734c851e75c4e969c3cfe8a9a747d115916a1940))
+* **sdk:** format long line in client.py for ruff compliance ([80c9b2d](https://github.com/JonathanBerhe/gvdb/commit/80c9b2dd608485b7f513398773f2326e3bc249fe))
+* **storage:** bulk import concurrency bugs, RBAC bypass, Metal GPU init ([4ea48e8](https://github.com/JonathanBerhe/gvdb/commit/4ea48e880fc2e749e7f35654254d01b284741fb9))
+
 ## [0.13.0](https://github.com/JonathanBerhe/gvdb/compare/v0.12.0...v0.13.0) (2026-04-13)
 
 
