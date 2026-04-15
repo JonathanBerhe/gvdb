@@ -14,6 +14,7 @@
 #include "storage/segment_manager.h"
 #include "storage/tiered_segment_manager.h"
 #include "storage/segment_cache.h"
+#include "storage/bulk_importer.h"
 #ifdef GVDB_HAS_S3
 #include "storage/s3_object_store.h"
 #endif
@@ -137,6 +138,7 @@ int main(int argc, char** argv) {
 
     // Optionally wrap in tiered storage (S3/MinIO)
     std::shared_ptr<storage::ISegmentStore> segment_store;
+    storage::IObjectStore* object_store_ptr = nullptr;  // for BulkImporter
 #ifdef GVDB_HAS_S3
     if (!config.storage.object_store_endpoint.empty()) {
       storage::S3Config s3_config;
@@ -160,6 +162,7 @@ int main(int argc, char** argv) {
       auto prefix = config.storage.object_store_prefix.empty()
           ? "gvdb" : config.storage.object_store_prefix;
 
+      object_store_ptr = s3_result->get();
       segment_store = std::make_shared<storage::TieredSegmentManager>(
           std::move(local_manager), std::move(*s3_result),
           std::move(cache), prefix, config.storage.object_store_upload_threads);
@@ -232,10 +235,18 @@ int main(int argc, char** argv) {
           std::make_unique<network::AuditInterceptorFactory>());
     }
 
-    // 6. gRPC service
+    // 6. Bulk importer (optional — requires object store)
+    std::shared_ptr<storage::BulkImporter> bulk_importer;
+    if (object_store_ptr) {
+      bulk_importer = std::make_shared<storage::BulkImporter>(
+          segment_store, object_store_ptr, data_dir + "/tmp", 2);
+    }
+
+    // 7. gRPC service
     auto resolver = network::MakeLocalResolver(segment_store);
     auto service = std::make_unique<network::VectorDBService>(
-        segment_store, query_executor, std::move(resolver), rbac_store);
+        segment_store, query_executor, std::move(resolver), rbac_store,
+        bulk_importer);
 
     // 6. Start server
     std::string server_address = absl::StrCat("0.0.0.0:", port);
