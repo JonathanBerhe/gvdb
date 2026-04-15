@@ -30,6 +30,16 @@ class CollectionInfo:
     vector_count: int
 
 
+class ImportState:
+    """Server-side bulk import job states."""
+
+    PENDING = 0
+    RUNNING = 1
+    COMPLETED = 2
+    FAILED = 3
+    CANCELLED = 4
+
+
 class GVDBClient:
     """Client for GVDB distributed vector database.
 
@@ -446,6 +456,119 @@ class GVDBClient:
         from gvdb.importers import import_h5ad
 
         return import_h5ad(self, path, collection, **kwargs)
+
+    # -- Server-Side Bulk Import ----------------------------------------------
+
+    def bulk_import(
+        self,
+        collection: str,
+        source_uri: str,
+        *,
+        format: str = "parquet",
+        vector_column: str = "vector",
+        id_column: str = "id",
+    ) -> str:
+        """Start a server-side bulk import from S3/MinIO.
+
+        The server downloads the file from ``source_uri`` and creates
+        segments directly, bypassing gRPC overhead for 3-5x throughput
+        improvement over streaming insert.
+
+        Args:
+            collection: Target collection name (must exist).
+            source_uri: S3 URI, e.g. ``s3://bucket/path/file.parquet``.
+            format: ``"parquet"`` or ``"numpy"``.
+            vector_column: Parquet column name for vectors (default ``"vector"``).
+            id_column: Parquet column name for IDs (default ``"id"``).
+
+        Returns:
+            Import job ID (string). Poll with :meth:`get_import_status`.
+        """
+        fmt = pb.PARQUET if format == "parquet" else pb.NUMPY
+        resp = self._stub.BulkImport(
+            pb.BulkImportRequest(
+                collection_name=collection,
+                source_uri=source_uri,
+                format=fmt,
+                vector_column=vector_column,
+                id_column=id_column,
+            ),
+            timeout=self._timeout,
+            metadata=self._metadata,
+        )
+        return resp.import_id
+
+    def get_import_status(self, import_id: str) -> dict:
+        """Poll the status of a server-side bulk import job.
+
+        Returns:
+            Dict with keys: ``import_id``, ``state`` (int, 0=PENDING
+            1=RUNNING 2=COMPLETED 3=FAILED 4=CANCELLED),
+            ``total_vectors``, ``imported_vectors``, ``progress_percent``,
+            ``error_message``, ``elapsed_seconds``, ``segments_created``.
+        """
+        resp = self._stub.GetImportStatus(
+            pb.GetImportStatusRequest(import_id=import_id),
+            timeout=self._timeout,
+            metadata=self._metadata,
+        )
+        return {
+            "import_id": resp.import_id,
+            "state": resp.state,
+            "total_vectors": resp.total_vectors,
+            "imported_vectors": resp.imported_vectors,
+            "progress_percent": resp.progress_percent,
+            "error_message": resp.error_message,
+            "elapsed_seconds": resp.elapsed_seconds,
+            "segments_created": resp.segments_created,
+        }
+
+    def cancel_import(self, import_id: str) -> bool:
+        """Cancel a running or pending import job.
+
+        Returns:
+            ``True`` if cancellation was accepted.
+        """
+        resp = self._stub.CancelImport(
+            pb.CancelImportRequest(import_id=import_id),
+            timeout=self._timeout,
+            metadata=self._metadata,
+        )
+        return resp.success
+
+    def wait_for_import(
+        self,
+        import_id: str,
+        *,
+        poll_interval: float = 2.0,
+        timeout: float = 3600.0,
+    ) -> dict:
+        """Block until a bulk import job reaches a terminal state.
+
+        Args:
+            import_id: Job ID from :meth:`bulk_import`.
+            poll_interval: Seconds between status polls.
+            timeout: Maximum seconds to wait before raising.
+
+        Returns:
+            Final status dict (same format as :meth:`get_import_status`).
+
+        Raises:
+            TimeoutError: If the job does not complete within *timeout*.
+        """
+        import time
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = self.get_import_status(import_id)
+            if status["state"] in (
+                ImportState.COMPLETED,
+                ImportState.FAILED,
+                ImportState.CANCELLED,
+            ):
+                return status
+            time.sleep(poll_interval)
+        raise TimeoutError(f"Import {import_id} did not complete within {timeout}s")
 
     # -- Metadata -------------------------------------------------------------
 
