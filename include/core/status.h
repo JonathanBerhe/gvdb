@@ -80,13 +80,19 @@ inline Status CancelledError(absl::string_view message) {
     }                                                               \
   } while (0)
 
-// Macro for extracting value from StatusOr or returning error
+// Macro helpers for unique variable names
+#define GVDB_CONCAT_IMPL_(a, b) a##b
+#define GVDB_CONCAT_(a, b) GVDB_CONCAT_IMPL_(a, b)
+
+// Macro for extracting value from StatusOr or returning error.
+// Uses __LINE__ to generate unique variable names so the macro
+// can be used multiple times in the same scope.
 #define ASSIGN_OR_RETURN(lhs, expr)                                 \
-  auto _statusor = (expr);                                          \
-  if (!_statusor.ok()) {                                            \
-    return _statusor.status();                                      \
-  }                                                                 \
-  lhs = std::move(_statusor.value())
+  auto GVDB_CONCAT_(_statusor_, __LINE__) = (expr);                 \
+  if (!GVDB_CONCAT_(_statusor_, __LINE__).ok()) {                   \
+    return GVDB_CONCAT_(_statusor_, __LINE__).status();              \
+  }                                                                  \
+  lhs = std::move(GVDB_CONCAT_(_statusor_, __LINE__).value())
 
 }  // namespace core
 }  // namespace gvdb

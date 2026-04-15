@@ -30,6 +30,16 @@ class CollectionInfo:
     vector_count: int
 
 
+class ImportState:
+    """Server-side bulk import job states."""
+
+    PENDING = 0
+    RUNNING = 1
+    COMPLETED = 2
+    FAILED = 3
+    CANCELLED = 4
+
+
 class GVDBClient:
     """Client for GVDB distributed vector database.
 
@@ -551,7 +561,7 @@ class GVDBClient:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             status = self.get_import_status(import_id)
-            if status["state"] in (2, 3, 4):  # COMPLETED, FAILED, CANCELLED
+            if status["state"] in (ImportState.COMPLETED, ImportState.FAILED, ImportState.CANCELLED):
                 return status
             time.sleep(poll_interval)
         raise TimeoutError(f"Import {import_id} did not complete within {timeout}s")
