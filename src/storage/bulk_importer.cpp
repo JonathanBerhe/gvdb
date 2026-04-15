@@ -75,8 +75,10 @@ core::StatusOr<std::string> BulkImporter::StartImport(
     }
   }
 
-  // Check concurrency limit
-  if (active_imports_.load() >= max_concurrent_) {
+  // Reserve a concurrency slot atomically (fixes TOCTOU race)
+  int prev = active_imports_.fetch_add(1);
+  if (prev >= max_concurrent_) {
+    active_imports_.fetch_sub(1);
     return core::ResourceExhaustedError(
         absl::StrCat("Maximum concurrent imports reached (",
                       max_concurrent_, "). Try again later."));
@@ -135,6 +137,7 @@ core::StatusOr<ImportJobStatus> BulkImporter::GetStatus(
 
   return ImportJobStatus{
       .import_id = job->id,
+      .collection_name = job->collection_name,
       .state = job->state.load(),
       .total_vectors = total,
       .imported_vectors = imported,
@@ -180,7 +183,7 @@ void BulkImporter::ExecuteImport(
     const std::string& /*vector_column*/,
     const std::string& /*id_column*/) {
 
-  active_imports_.fetch_add(1);
+  // active_imports_ already incremented in StartImport
   job->state.store(ImportState::RUNNING);
 
   std::string temp_path;
@@ -195,7 +198,7 @@ void BulkImporter::ExecuteImport(
     return;
   }
 
-  auto download_result = DownloadToTemp(*s3_key);
+  auto download_result = DownloadToTemp(*s3_key, job->id);
   if (!download_result.ok()) {
     job->SetError(std::string(download_result.status().message()));
     job->state.store(ImportState::FAILED);
@@ -371,12 +374,9 @@ core::StatusOr<std::string> BulkImporter::ParseS3Uri(const std::string& uri) {
 }
 
 core::StatusOr<std::string> BulkImporter::DownloadToTemp(
-    const std::string& s3_key) {
-  // Generate temp file path
-  auto temp_path = temp_dir_ + "/import_" +
-                   std::to_string(std::chrono::steady_clock::now()
-                                      .time_since_epoch()
-                                      .count());
+    const std::string& s3_key, const std::string& job_id) {
+  // Use job_id for unique temp file path (job IDs are already unique)
+  auto temp_path = temp_dir_ + "/import_" + job_id;
 
   auto status = object_store_->GetObjectToFile(s3_key, temp_path);
   if (!status.ok()) {
@@ -392,7 +392,8 @@ std::string BulkImporter::GenerateImportId() {
   auto now = std::chrono::system_clock::now().time_since_epoch();
   auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
 
-  static std::mt19937 rng(std::random_device{}());
+  // thread_local avoids data race on concurrent StartImport calls
+  static thread_local std::mt19937 rng(std::random_device{}());
   std::uniform_int_distribution<uint32_t> dist(0, 0xFFFF);
 
   return absl::StrCat("imp_", ms, "_", dist(rng));

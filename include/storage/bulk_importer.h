@@ -55,7 +55,7 @@ struct ImportJob {
   std::atomic<uint64_t> imported_vectors{0};
   std::atomic<uint32_t> segments_created{0};
 
-  std::mutex error_mutex;
+  mutable std::mutex error_mutex;
   std::string error_message;
 
   std::atomic<bool> cancelled{false};
@@ -72,7 +72,7 @@ struct ImportJob {
   }
 
   std::string GetError() const {
-    std::lock_guard lock(const_cast<std::mutex&>(error_mutex));
+    std::lock_guard lock(error_mutex);
     return error_message;
   }
 
@@ -91,6 +91,7 @@ struct ImportJob {
 // ============================================================================
 struct ImportJobStatus {
   std::string import_id;
+  std::string collection_name;
   ImportState state;
   uint64_t total_vectors;
   uint64_t imported_vectors;
@@ -169,7 +170,8 @@ class BulkImporter {
   static core::StatusOr<std::string> ParseS3Uri(const std::string& uri);
 
   // Download file from object store to local temp path
-  core::StatusOr<std::string> DownloadToTemp(const std::string& s3_key);
+  core::StatusOr<std::string> DownloadToTemp(const std::string& s3_key,
+                                              const std::string& job_id);
 
   // Generate a unique import ID
   static std::string GenerateImportId();

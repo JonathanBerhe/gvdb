@@ -1627,6 +1627,11 @@ grpc::Status VectorDBService::GetImportStatus(
     return toGrpcStatus(result.status());
   }
 
+  // RBAC: check read access on the import's collection
+  auto perm = CheckPermission(auth::Permission::SEARCH,
+                               result->collection_name);
+  if (!perm.ok()) return perm;
+
   auto& status = *result;
   response->set_import_id(status.import_id);
   response->set_state(static_cast<proto::ImportState>(status.state));
@@ -1652,6 +1657,15 @@ grpc::Status VectorDBService::CancelImport(
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
         "Bulk import is not configured on this server");
   }
+
+  // RBAC: look up import's collection, require INSERT (write) permission
+  auto job_status = bulk_importer_->GetStatus(request->import_id());
+  if (!job_status.ok()) {
+    return toGrpcStatus(job_status.status());
+  }
+  auto perm = CheckPermission(auth::Permission::INSERT,
+                               job_status->collection_name);
+  if (!perm.ok()) return perm;
 
   auto status = bulk_importer_->CancelImport(request->import_id());
   if (!status.ok()) {
