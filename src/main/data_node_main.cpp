@@ -13,6 +13,7 @@
 #include "storage/segment_manager.h"
 #include "storage/tiered_segment_manager.h"
 #include "storage/segment_cache.h"
+#include "storage/bulk_importer.h"
 #ifdef GVDB_HAS_S3
 #include "storage/s3_object_store.h"
 #endif
@@ -144,6 +145,7 @@ int main(int argc, char** argv) {
 
     // Optionally wrap in tiered storage (S3/MinIO)
     std::shared_ptr<storage::ISegmentStore> segment_store;
+    storage::IObjectStore* object_store_ptr = nullptr;  // for BulkImporter
 #ifdef GVDB_HAS_S3
     if (!config.storage.object_store_endpoint.empty()) {
       storage::S3Config s3_config;
@@ -164,6 +166,7 @@ int main(int argc, char** argv) {
             cache_dir, cache_size);
         auto prefix = config.storage.object_store_prefix.empty()
             ? "gvdb" : config.storage.object_store_prefix;
+        object_store_ptr = s3_result->get();
         segment_store = std::make_shared<storage::TieredSegmentManager>(
             std::move(local_manager), std::move(*s3_result),
             std::move(cache), prefix,
@@ -210,7 +213,14 @@ int main(int argc, char** argv) {
     auto internal_service = std::make_unique<network::InternalService>(
         shard_manager, segment_store, query_executor);
 
-    // 3. VectorDBService
+    // 3. Bulk importer (optional — requires object store)
+    std::shared_ptr<storage::BulkImporter> bulk_importer;
+    if (object_store_ptr) {
+      bulk_importer = std::make_shared<storage::BulkImporter>(
+          segment_store, object_store_ptr, args.data_dir + "/tmp", 2);
+    }
+
+    // 4. VectorDBService
     std::unique_ptr<network::ICollectionResolver> resolver;
     if (!args.coordinator_addresses.empty()) {
       resolver = network::MakeCachedCoordinatorResolver(args.coordinator_addresses[0]);
@@ -218,7 +228,8 @@ int main(int argc, char** argv) {
       resolver = network::MakeLocalResolver(segment_store);
     }
     auto service = std::make_unique<network::VectorDBService>(
-        segment_store, query_executor, std::move(resolver));
+        segment_store, query_executor, std::move(resolver), nullptr,
+        bulk_importer);
 
     // 4. Audit logging + Start server
     std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors;

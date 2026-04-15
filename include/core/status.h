@@ -67,6 +67,10 @@ inline Status AbortedError(absl::string_view message) {
   return absl::AbortedError(message);
 }
 
+inline Status CancelledError(absl::string_view message) {
+  return absl::CancelledError(message);
+}
+
 // Macro for checking status and propagating errors
 #define RETURN_IF_ERROR(expr)                                       \
   do {                                                              \

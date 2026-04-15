@@ -103,6 +103,21 @@ class VectorDBServiceStub(object):
                 request_serializer=vectordb__pb2.HybridSearchRequest.SerializeToString,
                 response_deserializer=vectordb__pb2.HybridSearchResponse.FromString,
                 _registered_method=True)
+        self.BulkImport = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/BulkImport',
+                request_serializer=vectordb__pb2.BulkImportRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.BulkImportResponse.FromString,
+                _registered_method=True)
+        self.GetImportStatus = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/GetImportStatus',
+                request_serializer=vectordb__pb2.GetImportStatusRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.GetImportStatusResponse.FromString,
+                _registered_method=True)
+        self.CancelImport = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/CancelImport',
+                request_serializer=vectordb__pb2.CancelImportRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.CancelImportResponse.FromString,
+                _registered_method=True)
         self.HealthCheck = channel.unary_unary(
                 '/gvdb.proto.VectorDBService/HealthCheck',
                 request_serializer=vectordb__pb2.HealthCheckRequest.SerializeToString,
@@ -203,6 +218,25 @@ class VectorDBServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def BulkImport(self, request, context):
+        """Server-side bulk import
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetImportStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CancelImport(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def HealthCheck(self, request, context):
         """Health and stats
         """
@@ -283,6 +317,21 @@ def add_VectorDBServiceServicer_to_server(servicer, server):
                     servicer.HybridSearch,
                     request_deserializer=vectordb__pb2.HybridSearchRequest.FromString,
                     response_serializer=vectordb__pb2.HybridSearchResponse.SerializeToString,
+            ),
+            'BulkImport': grpc.unary_unary_rpc_method_handler(
+                    servicer.BulkImport,
+                    request_deserializer=vectordb__pb2.BulkImportRequest.FromString,
+                    response_serializer=vectordb__pb2.BulkImportResponse.SerializeToString,
+            ),
+            'GetImportStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetImportStatus,
+                    request_deserializer=vectordb__pb2.GetImportStatusRequest.FromString,
+                    response_serializer=vectordb__pb2.GetImportStatusResponse.SerializeToString,
+            ),
+            'CancelImport': grpc.unary_unary_rpc_method_handler(
+                    servicer.CancelImport,
+                    request_deserializer=vectordb__pb2.CancelImportRequest.FromString,
+                    response_serializer=vectordb__pb2.CancelImportResponse.SerializeToString,
             ),
             'HealthCheck': grpc.unary_unary_rpc_method_handler(
                     servicer.HealthCheck,
@@ -650,6 +699,87 @@ class VectorDBService(object):
             '/gvdb.proto.VectorDBService/HybridSearch',
             vectordb__pb2.HybridSearchRequest.SerializeToString,
             vectordb__pb2.HybridSearchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def BulkImport(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/BulkImport',
+            vectordb__pb2.BulkImportRequest.SerializeToString,
+            vectordb__pb2.BulkImportResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetImportStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/GetImportStatus',
+            vectordb__pb2.GetImportStatusRequest.SerializeToString,
+            vectordb__pb2.GetImportStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CancelImport(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/CancelImport',
+            vectordb__pb2.CancelImportRequest.SerializeToString,
+            vectordb__pb2.CancelImportResponse.FromString,
             options,
             channel_credentials,
             insecure,
