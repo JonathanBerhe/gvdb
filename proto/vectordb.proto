@@ -269,6 +269,60 @@ message HybridSearchResponse {
 }
 
 // ============================================================================
+// Server-Side Bulk Import
+// ============================================================================
+
+enum ImportFormat {
+  PARQUET = 0;
+  NUMPY = 1;
+}
+
+enum ImportState {
+  IMPORT_PENDING = 0;
+  IMPORT_RUNNING = 1;
+  IMPORT_COMPLETED = 2;
+  IMPORT_FAILED = 3;
+  IMPORT_CANCELLED = 4;
+}
+
+message BulkImportRequest {
+  string collection_name = 1;
+  string source_uri = 2;       // s3://bucket/path/file.parquet or s3://bucket/path/vectors.npy
+  ImportFormat format = 3;
+  string vector_column = 4;    // Parquet only. Default: "vector"
+  string id_column = 5;        // Parquet only. Default: "id"
+}
+
+message BulkImportResponse {
+  string import_id = 1;
+  string message = 2;
+}
+
+message GetImportStatusRequest {
+  string import_id = 1;
+}
+
+message GetImportStatusResponse {
+  string import_id = 1;
+  ImportState state = 2;
+  uint64 total_vectors = 3;
+  uint64 imported_vectors = 4;
+  float progress_percent = 5;
+  string error_message = 6;
+  float elapsed_seconds = 7;
+  uint32 segments_created = 8;
+}
+
+message CancelImportRequest {
+  string import_id = 1;
+}
+
+message CancelImportResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// ============================================================================
 // VectorDB Service
 // ============================================================================
 
@@ -291,6 +345,11 @@ service VectorDBService {
 
   // Hybrid search (BM25 + vector)
   rpc HybridSearch(HybridSearchRequest) returns (HybridSearchResponse);
+
+  // Server-side bulk import
+  rpc BulkImport(BulkImportRequest) returns (BulkImportResponse);
+  rpc GetImportStatus(GetImportStatusRequest) returns (GetImportStatusResponse);
+  rpc CancelImport(CancelImportRequest) returns (CancelImportResponse);
 
   // Health and stats
   rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);

@@ -8,6 +8,8 @@ add_library(gvdb_storage
   segment_cache.cpp
   segment_manifest.cpp
   tiered_segment_manager.cpp
+  npy_reader.cpp
+  bulk_importer.cpp
 )
 
 target_include_directories(gvdb_storage
@@ -34,6 +36,10 @@ if(GVDB_WITH_S3)
   target_compile_definitions(gvdb_storage PUBLIC GVDB_HAS_S3=1)
   message(STATUS "S3/MinIO storage support enabled")
 endif()
+
+# Apache Arrow Parquet support (future — blocked on Arrow FetchContent/Docker issues)
+# target_sources(gvdb_storage PRIVATE parquet_reader.cpp)
+# target_link_libraries(gvdb_storage PUBLIC parquet_static)
 
 # Enable C++17 features
 target_compile_features(gvdb_storage PUBLIC cxx_std_17)

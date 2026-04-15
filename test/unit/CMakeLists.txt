@@ -593,6 +593,26 @@ set_tests_properties(NodeRegistryTests PROPERTIES
   TIMEOUT 60
 )
 
+# Bulk import tests
+add_executable(bulk_import_tests
+  bulk_import_test.cpp
+)
+
+target_link_libraries(bulk_import_tests
+  PRIVATE
+    gvdb_storage
+    gvdb_index
+    gvdb_utils
+    gvdb_core
+    doctest::doctest_with_main
+)
+
+add_test(NAME BulkImportTests COMMAND bulk_import_tests)
+
+set_tests_properties(BulkImportTests PROPERTIES
+  TIMEOUT 120
+)
+
 # QueryNode tests
 add_executable(query_node_tests
   query_node_test.cpp

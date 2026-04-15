@@ -47,15 +47,12 @@ MetalCompute::~MetalCompute() {
 }
 
 bool MetalCompute::IsAvailable() {
-  @autoreleasepool {
-    // MTLCreateSystemDefaultDevice() returns nil for headless CLI tools
-    // (requires WindowServer). MTLCopyAllDevices() always works.
-    NS::Array* devices = MTL::CopyAllDevices();
-    if (!devices) return false;
-    bool available = devices->count() > 0;
-    devices->release();
-    return available;
-  }
+  // Trigger full initialization (device + kernel compilation) and return
+  // whether it succeeded. This ensures CreateFlatIndex only returns a
+  // MetalFlatIndex when the GPU is genuinely usable (device exists AND
+  // kernels compile). Without this, a missing .metal file causes silent
+  // fallback to zero-distances, producing wrong search results.
+  return Instance().initialized_;
 }
 
 MetalCompute& MetalCompute::Instance() {

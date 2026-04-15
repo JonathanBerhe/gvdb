@@ -6,6 +6,7 @@
 #include "vectordb.grpc.pb.h"
 #include "internal.grpc.pb.h"
 #include "storage/segment_store.h"
+#include "storage/bulk_importer.h"
 #include "compute/query_executor.h"
 #include "network/collection_resolver.h"
 #include "auth/rbac.h"
@@ -25,7 +26,8 @@ class VectorDBService final : public proto::VectorDBService::Service {
       std::shared_ptr<storage::ISegmentStore> segment_store,
       std::shared_ptr<compute::QueryExecutor> query_executor,
       std::unique_ptr<ICollectionResolver> resolver,
-      std::shared_ptr<auth::RbacStore> rbac_store = nullptr);
+      std::shared_ptr<auth::RbacStore> rbac_store = nullptr,
+      std::shared_ptr<storage::BulkImporter> bulk_importer = nullptr);
 
   ~VectorDBService();
 
@@ -97,6 +99,22 @@ class VectorDBService final : public proto::VectorDBService::Service {
       const proto::HybridSearchRequest* request,
       proto::HybridSearchResponse* response) override;
 
+  // Server-side bulk import
+  grpc::Status BulkImport(
+      grpc::ServerContext* context,
+      const proto::BulkImportRequest* request,
+      proto::BulkImportResponse* response) override;
+
+  grpc::Status GetImportStatus(
+      grpc::ServerContext* context,
+      const proto::GetImportStatusRequest* request,
+      proto::GetImportStatusResponse* response) override;
+
+  grpc::Status CancelImport(
+      grpc::ServerContext* context,
+      const proto::CancelImportRequest* request,
+      proto::CancelImportResponse* response) override;
+
   // Health and stats
   grpc::Status HealthCheck(
       grpc::ServerContext* context,
@@ -131,6 +149,7 @@ class VectorDBService final : public proto::VectorDBService::Service {
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::unique_ptr<ICollectionResolver> resolver_;
   std::shared_ptr<auth::RbacStore> rbac_store_;
+  std::shared_ptr<storage::BulkImporter> bulk_importer_;
 
   // Statistics
   std::atomic<uint64_t> total_queries_{0};
