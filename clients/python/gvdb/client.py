@@ -561,7 +561,11 @@ class GVDBClient:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             status = self.get_import_status(import_id)
-            if status["state"] in (ImportState.COMPLETED, ImportState.FAILED, ImportState.CANCELLED):
+            if status["state"] in (
+                ImportState.COMPLETED,
+                ImportState.FAILED,
+                ImportState.CANCELLED,
+            ):
                 return status
             time.sleep(poll_interval)
         raise TimeoutError(f"Import {import_id} did not complete within {timeout}s")
