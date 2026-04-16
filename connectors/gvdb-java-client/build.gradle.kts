@@ -18,13 +18,14 @@ dependencies {
     testImplementation(libs.slf4j.simple)
 }
 
-// Copy proto from project root into build dir for codegen
+// Copy proto from project root into src/main/proto for codegen.
+// The proto source directory is gitignored — this task recreates it from the single source of truth.
 val copyProto = tasks.register<Copy>("copyProto") {
     from("${rootProject.projectDir}/../proto/vectordb.proto")
-    into(layout.buildDirectory.dir("extracted-protos/main/gvdb/proto"))
+    into(layout.projectDirectory.dir("src/main/proto/gvdb/proto"))
 }
 
-tasks.named("extractProto") {
+tasks.withType<com.google.protobuf.gradle.ProtobufExtract>().configureEach {
     dependsOn(copyProto)
 }
 
@@ -51,11 +52,7 @@ protobuf {
 
 sourceSets {
     main {
-        proto {
-            srcDir(layout.buildDirectory.dir("extracted-protos/main"))
-        }
         resources {
-            // Exclude proto files from the JAR — they're only needed for codegen
             exclude("**/*.proto")
         }
     }
