@@ -186,15 +186,11 @@ int main(int argc, char** argv) {
         [segment_store, index_factory_ptr](core::SegmentId sid, core::IndexType idx_type) {
           auto* seg = segment_store->GetSegment(sid);
           if (!seg) return;
-          auto resolved_type = core::ResolveAutoIndexType(
-              idx_type, seg->GetVectorCount());
-          core::IndexConfig config;
-          config.index_type = resolved_type;
-          config.dimension = seg->GetDimension();
-          config.metric_type = seg->GetMetric();
+          auto config = core::ResolveAutoIndexConfig(
+              idx_type, seg->GetVectorCount(), seg->GetDimension(), seg->GetMetric());
           utils::Logger::Instance().Info("Auto-sealing segment {} ({} vectors, index={})",
               core::ToUInt32(sid), seg->GetVectorCount(),
-              static_cast<int>(resolved_type));
+              static_cast<int>(config.index_type));
           auto status = segment_store->SealSegment(sid, config);
           if (!status.ok()) {
             utils::Logger::Instance().Error("Auto-seal failed: {}", status.message());
