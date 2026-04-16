@@ -3,6 +3,7 @@
 #include <thread>
 #include <vector>
 
+#include "core/config.h"
 #include "core/vector.h"
 #include "index/index_factory.h"
 #include "index/index_manager.h"
@@ -564,10 +565,19 @@ TEST_CASE("ResolveAutoIndexType - selects FLAT for small counts") {
 TEST_CASE("ResolveAutoIndexType - selects HNSW for medium counts") {
   CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 10'000),
            core::IndexType::HNSW);
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 100'000),
+           core::IndexType::HNSW);
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 499'999),
+           core::IndexType::HNSW);
+}
+
+TEST_CASE("ResolveAutoIndexType - selects IVF_SQ for 500K-1M") {
   CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 500'000),
-           core::IndexType::HNSW);
+           core::IndexType::IVF_SQ);
+  CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 750'000),
+           core::IndexType::IVF_SQ);
   CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::AUTO, 999'999),
-           core::IndexType::HNSW);
+           core::IndexType::IVF_SQ);
 }
 
 TEST_CASE("ResolveAutoIndexType - selects IVF_TURBOQUANT for large counts") {
@@ -584,6 +594,111 @@ TEST_CASE("ResolveAutoIndexType - passes through explicit types unchanged") {
            core::IndexType::HNSW);
   CHECK_EQ(core::ResolveAutoIndexType(core::IndexType::IVF_TURBOQUANT, 100),
            core::IndexType::IVF_TURBOQUANT);
+}
+
+// ============================================================================
+// ResolveAutoIndexConfig Tests — Adaptive Parameters
+// ============================================================================
+
+TEST_CASE("ResolveAutoIndexConfig - FLAT tier uses default params") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 5'000, 128, core::MetricType::L2);
+  CHECK_EQ(config.index_type, core::IndexType::FLAT);
+  CHECK_EQ(config.dimension, 128);
+  CHECK_EQ(config.metric_type, core::MetricType::L2);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - small HNSW tier") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 50'000, 128, core::MetricType::COSINE);
+  CHECK_EQ(config.index_type, core::IndexType::HNSW);
+  CHECK_EQ(config.hnsw_params.M, core::kSmallHnswM);
+  CHECK_EQ(config.hnsw_params.ef_construction, core::kSmallHnswEfConstruction);
+  CHECK_EQ(config.hnsw_params.ef_search, core::kSmallHnswEfSearch);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - large HNSW tier") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 200'000, 128, core::MetricType::L2);
+  CHECK_EQ(config.index_type, core::IndexType::HNSW);
+  CHECK_EQ(config.hnsw_params.M, core::kLargeHnswM);
+  CHECK_EQ(config.hnsw_params.ef_construction, core::kLargeHnswEfConstruction);
+  CHECK_EQ(config.hnsw_params.ef_search, core::kLargeHnswEfSearch);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - high-dim increases HNSW M") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 200'000, 768, core::MetricType::COSINE);
+  CHECK_EQ(config.index_type, core::IndexType::HNSW);
+  CHECK_EQ(config.hnsw_params.M, core::kHighDimHnswM);
+  // ef params unchanged
+  CHECK_EQ(config.hnsw_params.ef_construction, core::kLargeHnswEfConstruction);
+  CHECK_EQ(config.hnsw_params.ef_search, core::kLargeHnswEfSearch);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - low-dim keeps standard HNSW M") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 200'000, 128, core::MetricType::L2);
+  CHECK_EQ(config.hnsw_params.M, core::kLargeHnswM);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - IVF_SQ tier with adaptive nlist") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 750'000, 256, core::MetricType::L2);
+  CHECK_EQ(config.index_type, core::IndexType::IVF_SQ);
+  CHECK(config.ivf_params.use_quantization);
+  // nlist ≈ sqrt(750000) ≈ 866
+  CHECK(config.ivf_params.nlist > 800);
+  CHECK(config.ivf_params.nlist < 900);
+  // nprobe ≈ sqrt(866) ≈ 29
+  CHECK(config.ivf_params.nprobe > 20);
+  CHECK(config.ivf_params.nprobe < 40);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - IVF_TURBOQUANT 4-bit tier") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 2'000'000, 128, core::MetricType::L2);
+  CHECK_EQ(config.index_type, core::IndexType::IVF_TURBOQUANT);
+  CHECK_EQ(config.ivf_turboquant_params.bit_width, 4);
+  // nlist ≈ sqrt(2M) ≈ 1414
+  CHECK(config.ivf_turboquant_params.nlist > 1'300);
+  CHECK(config.ivf_turboquant_params.nlist < 1'500);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - IVF_TURBOQUANT 2-bit for 10M+") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 50'000'000, 128, core::MetricType::L2);
+  CHECK_EQ(config.index_type, core::IndexType::IVF_TURBOQUANT);
+  CHECK_EQ(config.ivf_turboquant_params.bit_width, 2);
+  // nlist ≈ sqrt(50M) ≈ 7071
+  CHECK(config.ivf_turboquant_params.nlist > 6'900);
+  CHECK(config.ivf_turboquant_params.nlist < 7'200);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - explicit type returns default params") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::HNSW, 5'000'000, 128, core::MetricType::L2);
+  CHECK_EQ(config.index_type, core::IndexType::HNSW);
+  // Parameters are struct defaults, not adaptive
+  CHECK_EQ(config.hnsw_params.M, 16);
+  CHECK_EQ(config.hnsw_params.ef_construction, 200);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - tier boundaries exact") {
+  // Exactly at kAutoTierFlatMax → HNSW (not FLAT)
+  auto at_10k = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, core::kAutoTierFlatMax, 128, core::MetricType::L2);
+  CHECK_EQ(at_10k.index_type, core::IndexType::HNSW);
+
+  // Exactly at kAutoTierHnswMax → IVF_SQ (not HNSW)
+  auto at_500k = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, core::kAutoTierHnswMax, 128, core::MetricType::L2);
+  CHECK_EQ(at_500k.index_type, core::IndexType::IVF_SQ);
+
+  // Exactly at kAutoTierSqMax → IVF_TURBOQUANT (not IVF_SQ)
+  auto at_1m = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, core::kAutoTierSqMax, 128, core::MetricType::L2);
+  CHECK_EQ(at_1m.index_type, core::IndexType::IVF_TURBOQUANT);
 }
 
 TEST_CASE("IndexFactory - rejects AUTO index type") {

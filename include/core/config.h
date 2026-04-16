@@ -4,6 +4,8 @@
 #ifndef GVDB_CORE_CONFIG_H_
 #define GVDB_CORE_CONFIG_H_
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <string>
 
@@ -66,6 +68,88 @@ struct IndexConfig {
     return dimension > 0;
   }
 };
+
+// ============================================================================
+// Adaptive index parameter constants
+// ============================================================================
+
+// Sub-tier boundary within HNSW range
+constexpr size_t kAutoTierSmallHnswMax = 100'000;  // 10K–100K → small HNSW
+
+// HNSW parameters — small graphs (10K–100K vectors)
+constexpr int kSmallHnswM = 12;
+constexpr int kSmallHnswEfConstruction = 128;
+constexpr int kSmallHnswEfSearch = 64;
+
+// HNSW parameters — large graphs (100K–500K vectors)
+constexpr int kLargeHnswM = 16;
+constexpr int kLargeHnswEfConstruction = 200;
+constexpr int kLargeHnswEfSearch = 100;
+
+// High-dimensional vectors need more graph edges to maintain recall
+constexpr Dimension kHighDimThreshold = 512;
+constexpr int kHighDimHnswM = 20;
+
+// ============================================================================
+// ResolveAutoIndexConfig - Adaptive index parameters based on segment profile
+// ============================================================================
+// Returns a complete IndexConfig with parameters tuned for the given vector
+// count and dimension. For non-AUTO types, returns default parameters.
+// Tier boundaries from core/types.h: kAutoTierFlatMax, kAutoTierHnswMax, etc.
+
+// Compute IVF nlist (≈sqrt(n)) and nprobe (≈sqrt(nlist)) for a given vector count.
+inline void ComputeIvfParams(size_t vector_count, int& nlist, int& nprobe) {
+  nlist = static_cast<int>(std::sqrt(static_cast<double>(vector_count)));
+  nprobe = std::max(1, static_cast<int>(std::sqrt(static_cast<double>(nlist))));
+}
+
+inline IndexConfig ResolveAutoIndexConfig(IndexType type, size_t vector_count,
+                                          Dimension dimension, MetricType metric) {
+  IndexConfig config;
+  config.index_type = ResolveAutoIndexType(type, vector_count);
+  config.dimension = dimension;
+  config.metric_type = metric;
+
+  if (type != IndexType::AUTO) return config;
+
+  if (vector_count < kAutoTierFlatMax) {
+    // FLAT — brute force, no parameters to tune
+
+  } else if (vector_count < kAutoTierSmallHnswMax) {
+    // Small HNSW: lower connectivity sufficient for small graphs
+    config.hnsw_params.M = kSmallHnswM;
+    config.hnsw_params.ef_construction = kSmallHnswEfConstruction;
+    config.hnsw_params.ef_search = kSmallHnswEfSearch;
+
+  } else if (vector_count < kAutoTierHnswMax) {
+    // Large HNSW: full connectivity for recall in denser graphs
+    config.hnsw_params.M = kLargeHnswM;
+    config.hnsw_params.ef_construction = kLargeHnswEfConstruction;
+    config.hnsw_params.ef_search = kLargeHnswEfSearch;
+    if (dimension > kHighDimThreshold) {
+      config.hnsw_params.M = kHighDimHnswM;
+    }
+
+  } else if (vector_count < kAutoTierSqMax) {
+    // IVF_SQ: scalar quantization (float32→int8), 4x memory savings
+    ComputeIvfParams(vector_count, config.ivf_params.nlist, config.ivf_params.nprobe);
+    config.ivf_params.use_quantization = true;
+
+  } else if (vector_count < kAutoTierTQ4Max) {
+    // IVF_TURBOQUANT 4-bit
+    ComputeIvfParams(vector_count, config.ivf_turboquant_params.nlist,
+                     config.ivf_turboquant_params.nprobe);
+    config.ivf_turboquant_params.bit_width = 4;
+
+  } else {
+    // IVF_TURBOQUANT 2-bit (≥10M vectors)
+    ComputeIvfParams(vector_count, config.ivf_turboquant_params.nlist,
+                     config.ivf_turboquant_params.nprobe);
+    config.ivf_turboquant_params.bit_width = 2;
+  }
+
+  return config;
+}
 
 // ============================================================================
 // StorageConfig - Configuration for storage backend
