@@ -5,7 +5,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * gRPC client interceptor that retries failed calls with exponential backoff.
@@ -29,6 +33,13 @@ final class RetryInterceptor implements ClientInterceptor {
     private static final long BASE_BACKOFF_MS = 500;
     private static final double BACKOFF_MULTIPLIER = 2.0;
     private static final double JITTER_FACTOR = 0.2;
+
+    private static final ScheduledExecutorService RETRY_SCHEDULER =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                var t = new Thread(r, "gvdb-retry-scheduler");
+                t.setDaemon(true);
+                return t;
+            });
 
     private final int maxRetries;
 
@@ -59,8 +70,8 @@ final class RetryInterceptor implements ClientInterceptor {
         private Listener<RespT> responseListener;
         private Metadata requestHeaders;
         private ReqT requestMessage;
-        private int attempt = 0;
-        private ClientCall<ReqT, RespT> delegate;
+        private final AtomicInteger attempt = new AtomicInteger(0);
+        private volatile ClientCall<ReqT, RespT> delegate;
 
         RetryingCall(MethodDescriptor<ReqT, RespT> method, CallOptions callOptions, Channel channel) {
             this.method = method;
@@ -101,27 +112,27 @@ final class RetryInterceptor implements ClientInterceptor {
             delegate.start(new ForwardingClientCallListener.SimpleForwardingClientCallListener<>(responseListener) {
                 @Override
                 public void onClose(Status status, Metadata trailers) {
-                    if (status.isOk() || attempt >= maxRetries || !RETRYABLE_CODES.contains(status.getCode())) {
+                    if (status.isOk() || attempt.get() >= maxRetries || !RETRYABLE_CODES.contains(status.getCode())) {
                         super.onClose(status, trailers);
                     } else {
-                        attempt++;
-                        long backoff = computeBackoff(attempt);
+                        int current = attempt.incrementAndGet();
+                        long backoff = computeBackoff(current);
                         LOG.warn("gRPC call {} failed with {}, retrying ({}/{}) in {}ms",
-                                method.getFullMethodName(), status.getCode(), attempt, maxRetries, backoff);
-                        try {
-                            Thread.sleep(backoff);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            super.onClose(Status.CANCELLED.withCause(e), trailers);
-                            return;
-                        }
-                        // Retry
-                        startAttempt();
-                        if (requestMessage != null) {
-                            delegate.sendMessage(requestMessage);
-                        }
-                        delegate.halfClose();
-                        delegate.request(1);
+                                method.getFullMethodName(), status.getCode(), current, maxRetries, backoff);
+                        RETRY_SCHEDULER.schedule(() -> {
+                            try {
+                                startAttempt();
+                                if (requestMessage != null) {
+                                    delegate.sendMessage(requestMessage);
+                                }
+                                delegate.halfClose();
+                                delegate.request(1);
+                            } catch (Exception e) {
+                                responseListener.onClose(
+                                        Status.INTERNAL.withDescription("Retry failed").withCause(e),
+                                        new Metadata());
+                            }
+                        }, backoff, TimeUnit.MILLISECONDS);
                     }
                 }
             }, requestHeaders);

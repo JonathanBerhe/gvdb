@@ -65,9 +65,12 @@ final class GvdbSinkWriter<T> implements SinkWriter<T> {
 
     @Override
     public void close() throws Exception {
-        flushBuffer();
-        client.close();
-        LOG.info("GvdbSinkWriter closed after writing {} vectors to '{}'", totalWritten, collection);
+        try {
+            flushBuffer();
+        } finally {
+            client.close();
+            LOG.info("GvdbSinkWriter closed after writing {} vectors to '{}'", totalWritten, collection);
+        }
     }
 
     private void flushBuffer() {

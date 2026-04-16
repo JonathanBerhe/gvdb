@@ -36,6 +36,7 @@ public class GvdbDataWriter implements DataWriter<InternalRow> {
 
     private final List<GvdbVector> buffer;
     private long totalWritten = 0;
+    private boolean closed = false;
 
     GvdbDataWriter(String target, String apiKey, String collection,
                    int batchSize, int maxRetries, int timeoutSeconds,
@@ -74,20 +75,27 @@ public class GvdbDataWriter implements DataWriter<InternalRow> {
     @Override
     public WriterCommitMessage commit() throws IOException {
         flush();
-        client.close();
+        closeClient();
         LOG.info("Partition {} committed {} vectors to '{}'", partitionId, totalWritten, collection);
         return new GvdbWriterCommitMessage(partitionId, taskId, totalWritten);
     }
 
     @Override
     public void abort() throws IOException {
-        client.close();
+        closeClient();
         LOG.warn("Partition {} aborted after writing {} vectors to '{}'", partitionId, totalWritten, collection);
     }
 
     @Override
     public void close() throws IOException {
-        client.close();
+        closeClient();
+    }
+
+    private void closeClient() {
+        if (!closed) {
+            client.close();
+            closed = true;
+        }
     }
 
     private void flush() {
