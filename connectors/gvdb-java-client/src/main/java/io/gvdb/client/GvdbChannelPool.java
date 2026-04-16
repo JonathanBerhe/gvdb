@@ -49,13 +49,19 @@ final class GvdbChannelPool implements Closeable {
         for (var channel : channels) {
             channel.shutdown();
         }
+        boolean interrupted = false;
         for (var channel : channels) {
             try {
-                channel.awaitTermination(5, TimeUnit.SECONDS);
+                if (!channel.awaitTermination(5, TimeUnit.SECONDS)) {
+                    channel.shutdownNow();
+                }
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                interrupted = true;
                 channel.shutdownNow();
             }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 }

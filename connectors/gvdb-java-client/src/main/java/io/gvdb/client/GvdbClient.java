@@ -100,7 +100,7 @@ public final class GvdbClient implements Closeable {
         var requestObserver = asyncStub().streamInsert(new StreamObserver<InsertResponse>() {
             @Override
             public void onNext(InsertResponse response) {
-                totalInserted.set(response.getInsertedCount());
+                totalInserted.addAndGet(response.getInsertedCount());
             }
 
             @Override

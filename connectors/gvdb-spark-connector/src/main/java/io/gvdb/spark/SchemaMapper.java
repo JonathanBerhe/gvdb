@@ -3,6 +3,8 @@ package io.gvdb.spark;
 import io.gvdb.client.model.GvdbVector;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.types.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -12,6 +14,8 @@ import java.util.Map;
  * Follows the GVDB Parquet schema convention: id + vector + remaining columns as metadata.
  */
 public final class SchemaMapper {
+
+    private static final Logger LOG = LoggerFactory.getLogger(SchemaMapper.class);
 
     private SchemaMapper() {}
 
@@ -25,7 +29,8 @@ public final class SchemaMapper {
      */
     public static GvdbVector extractVector(InternalRow row, StructType schema,
                                            int idOrdinal, int vectorOrdinal) {
-        long id = row.getLong(idOrdinal);
+        long id = schema.fields()[idOrdinal].dataType() instanceof IntegerType
+                ? row.getInt(idOrdinal) : row.getLong(idOrdinal);
         var arrayData = row.getArray(vectorOrdinal);
         float[] values = new float[arrayData.numElements()];
         for (int i = 0; i < values.length; i++) {
@@ -100,7 +105,8 @@ public final class SchemaMapper {
         if (dt instanceof DoubleType) return row.getDouble(ordinal);
         if (dt instanceof StringType) return row.getString(ordinal);
         if (dt instanceof BooleanType) return row.getBoolean(ordinal);
-        return null; // unsupported type — skip silently
+        LOG.warn("Skipping unsupported metadata type '{}' at ordinal {}", dt.simpleString(), ordinal);
+        return null;
     }
 
     private static void validateIdType(DataType dt, String column) {

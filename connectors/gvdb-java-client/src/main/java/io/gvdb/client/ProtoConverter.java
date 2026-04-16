@@ -9,6 +9,9 @@ import io.gvdb.proto.MetadataValue;
 import io.gvdb.proto.Vector;
 import io.gvdb.proto.VectorWithId;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,6 +22,8 @@ import java.util.Map;
  * Package-private — protobuf types never leak to the public API.
  */
 final class ProtoConverter {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ProtoConverter.class);
 
     private ProtoConverter() {}
 
@@ -63,8 +68,10 @@ final class ProtoConverter {
                 builder.putFields(key, MetadataValue.newBuilder().setStringValue(s).build());
             } else if (value instanceof Boolean b) {
                 builder.putFields(key, MetadataValue.newBuilder().setBoolValue(b).build());
+            } else {
+                LOG.warn("Skipping unsupported metadata type for key '{}': {}",
+                        key, value.getClass().getName());
             }
-            // Skip unsupported types silently — matches Python SDK behavior
         }
         return builder.build();
     }

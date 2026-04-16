@@ -123,8 +123,6 @@ public class GvdbScan implements Scan, Batch {
         }
     }
 
-    private static final Logger LOG_STATIC = LoggerFactory.getLogger(GvdbScan.class);
-
     static DataType inferMetadataType(Object value) {
         if (value instanceof Long) return DataTypes.LongType;
         if (value instanceof Integer) return DataTypes.LongType;
