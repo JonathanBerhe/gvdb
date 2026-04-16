@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.16.0](https://github.com/JonathanBerhe/gvdb/compare/v0.15.0...v0.16.0) (2026-04-16)
+
+
+### Features
+
+* **core:** adaptive index parameters for AUTO resolution ([2465cf2](https://github.com/JonathanBerhe/gvdb/commit/2465cf26bb6b759e40cd37a10555b3307ac8836e))
+* **core:** adaptive index parameters for AUTO resolution ([e02720f](https://github.com/JonathanBerhe/gvdb/commit/e02720f2025d0e232c23e35c70e0623c2031e1cd))
+
+
+### Bug Fixes
+
+* **index:** plumb adaptive ef_search and nprobe through factory ([911b244](https://github.com/JonathanBerhe/gvdb/commit/911b2446122a138c8fa18e64b1e168f0401bb2b0))
+
 ## [0.15.0](https://github.com/JonathanBerhe/gvdb/compare/v0.14.0...v0.15.0) (2026-04-16)
 
 
