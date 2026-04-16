@@ -11,12 +11,14 @@ namespace index {
 
 FaissHNSWIndex::FaissHNSWIndex(core::Dimension dimension,
                                core::MetricType metric, int M,
-                               int ef_construction)
+                               int ef_construction, int ef_search)
     : FaissIndexBase(CreateHNSWIndex(dimension, metric, M, ef_construction),
                      metric),
       M_(M),
       ef_construction_(ef_construction),
-      ef_search_(50) {}
+      ef_search_(ef_search) {
+  SetEfSearch(ef_search);
+}
 
 std::unique_ptr<faiss::Index> FaissHNSWIndex::CreateHNSWIndex(
     core::Dimension dimension, core::MetricType metric, int M,
@@ -35,10 +37,26 @@ std::unique_ptr<faiss::Index> FaissHNSWIndex::CreateHNSWIndex(
 void FaissHNSWIndex::SetEfSearch(int ef) {
   std::unique_lock lock(mutex_);
   ef_search_ = ef;
-  auto* hnsw_index = dynamic_cast<faiss::IndexHNSW*>(index_.get());
-  if (hnsw_index) {
+  // CreateHNSWIndex wraps the HNSW in an IndexIDMap. Unwrap before casting.
+  faiss::Index* inner = index_.get();
+  if (auto* idmap = dynamic_cast<faiss::IndexIDMap*>(inner)) {
+    inner = idmap->index;
+  }
+  if (auto* hnsw_index = dynamic_cast<faiss::IndexHNSW*>(inner)) {
     hnsw_index->hnsw.efSearch = ef;
   }
+}
+
+int FaissHNSWIndex::GetEfSearch() const {
+  std::shared_lock lock(mutex_);
+  faiss::Index* inner = index_.get();
+  if (auto* idmap = dynamic_cast<faiss::IndexIDMap*>(inner)) {
+    inner = idmap->index;
+  }
+  if (auto* hnsw_index = dynamic_cast<faiss::IndexHNSW*>(inner)) {
+    return hnsw_index->hnsw.efSearch;
+  }
+  return -1;
 }
 
 core::IndexType FaissHNSWIndex::GetIndexType() const {

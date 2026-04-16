@@ -27,22 +27,29 @@ core::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateIndex(
     case core::IndexType::HNSW:
       return CreateHNSWIndex(config.dimension, config.metric_type,
                             config.hnsw_params.M,
-                            config.hnsw_params.ef_construction);
+                            config.hnsw_params.ef_construction,
+                            config.hnsw_params.ef_search);
 
     case core::IndexType::IVF_FLAT:
       return CreateIVFIndex(config.dimension, config.metric_type,
                            config.ivf_params.nlist,
-                           IVFQuantizationType::NONE);
+                           IVFQuantizationType::NONE,
+                           config.ivf_params.pq_m, config.ivf_params.pq_nbits,
+                           config.ivf_params.nprobe);
 
     case core::IndexType::IVF_PQ:
       return CreateIVFIndex(config.dimension, config.metric_type,
                            config.ivf_params.nlist,
-                           IVFQuantizationType::PQ);
+                           IVFQuantizationType::PQ,
+                           config.ivf_params.pq_m, config.ivf_params.pq_nbits,
+                           config.ivf_params.nprobe);
 
     case core::IndexType::IVF_SQ:
       return CreateIVFIndex(config.dimension, config.metric_type,
                            config.ivf_params.nlist,
-                           IVFQuantizationType::SQ);
+                           IVFQuantizationType::SQ,
+                           config.ivf_params.pq_m, config.ivf_params.pq_nbits,
+                           config.ivf_params.nprobe);
 
     case core::IndexType::TURBOQUANT:
       return CreateTurboQuantIndex(config.dimension, config.metric_type,
@@ -80,7 +87,7 @@ IndexFactory::CreateFlatIndex(core::Dimension dimension,
 
 core::StatusOr<std::unique_ptr<core::IVectorIndex>>
 IndexFactory::CreateHNSWIndex(core::Dimension dimension, core::MetricType metric,
-                               int M, int ef_construction) {
+                               int M, int ef_construction, int ef_search) {
   if (dimension <= 0) {
     return core::InvalidArgumentError("Dimension must be positive");
   }
@@ -93,13 +100,18 @@ IndexFactory::CreateHNSWIndex(core::Dimension dimension, core::MetricType metric
     return core::InvalidArgumentError("ef_construction must be positive");
   }
 
-  return std::make_unique<FaissHNSWIndex>(dimension, metric, M, ef_construction);
+  if (ef_search <= 0) {
+    return core::InvalidArgumentError("ef_search must be positive");
+  }
+
+  return std::make_unique<FaissHNSWIndex>(dimension, metric, M, ef_construction,
+                                          ef_search);
 }
 
 core::StatusOr<std::unique_ptr<core::IVectorIndex>>
 IndexFactory::CreateIVFIndex(core::Dimension dimension, core::MetricType metric,
                               int nlist, IVFQuantizationType quantization,
-                              int pq_m, int pq_nbits) {
+                              int pq_m, int pq_nbits, int nprobe) {
   if (dimension <= 0) {
     return core::InvalidArgumentError("Dimension must be positive");
   }
@@ -108,7 +120,13 @@ IndexFactory::CreateIVFIndex(core::Dimension dimension, core::MetricType metric,
     return core::InvalidArgumentError("nlist must be positive");
   }
 
-  return std::make_unique<FaissIVFIndex>(dimension, metric, nlist, 10,
+  // Faiss tolerates nprobe > nlist by probing all clusters, so we only
+  // require nprobe > 0.
+  if (nprobe <= 0) {
+    return core::InvalidArgumentError("nprobe must be positive");
+  }
+
+  return std::make_unique<FaissIVFIndex>(dimension, metric, nlist, nprobe,
                                          quantization, pq_m, pq_nbits);
 }
 

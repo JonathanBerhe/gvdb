@@ -24,6 +24,13 @@ add_executable(index_tests
   index_test.cpp
 )
 
+# Expose src/index headers so tests can verify adaptive parameters reach
+# the concrete Faiss wrappers (FaissHNSWIndex::GetEfSearch, etc.).
+target_include_directories(index_tests
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/index
+)
+
 target_link_libraries(index_tests
   PRIVATE
     gvdb_index

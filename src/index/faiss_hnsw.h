@@ -15,13 +15,17 @@ namespace index {
 class FaissHNSWIndex : public FaissIndexBase {
  public:
   FaissHNSWIndex(core::Dimension dimension, core::MetricType metric, int M = 32,
-                 int ef_construction = 200);
+                 int ef_construction = 200, int ef_search = 50);
   ~FaissHNSWIndex() override = default;
 
   [[nodiscard]] core::IndexType GetIndexType() const override;
 
-  // Set search parameter
+  // Set search parameter (applies to the underlying HNSW index)
   void SetEfSearch(int ef);
+
+  // Read efSearch from the underlying Faiss HNSW index (returns -1 if the
+  // internal cast chain is broken, for test diagnosis).
+  [[nodiscard]] int GetEfSearch() const;
 
  private:
   static std::unique_ptr<faiss::Index> CreateHNSWIndex(

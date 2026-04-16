@@ -38,13 +38,13 @@ class IndexFactory : public core::IIndexFactory {
 
   [[nodiscard]] static core::StatusOr<std::unique_ptr<core::IVectorIndex>>
   CreateHNSWIndex(core::Dimension dimension, core::MetricType metric,
-                  int M = 32, int ef_construction = 200);
+                  int M = 32, int ef_construction = 200, int ef_search = 50);
 
   [[nodiscard]] static core::StatusOr<std::unique_ptr<core::IVectorIndex>>
   CreateIVFIndex(core::Dimension dimension, core::MetricType metric,
                  int nlist = 100,
                  IVFQuantizationType quantization = IVFQuantizationType::NONE,
-                 int pq_m = 8, int pq_nbits = 8);
+                 int pq_m = 8, int pq_nbits = 8, int nprobe = 10);
 
   [[nodiscard]] static core::StatusOr<std::unique_ptr<core::IVectorIndex>>
   CreateTurboQuantIndex(core::Dimension dimension, core::MetricType metric,
