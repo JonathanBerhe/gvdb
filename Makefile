@@ -4,7 +4,8 @@
        undeploy clean-kind port-forward status \
        build-ui run-ui \
        lint-sdk test-sdk test-sdk-kind generate-python-stubs \
-       bench-metal
+       bench-metal \
+       build-connectors test-connectors
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -22,6 +23,7 @@ CMAKE_JOBS      ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null ||
 CMAKE_EXTRA     ?=
 E2E_DIR          = test/e2e
 PYTHON_SDK_DIR   = clients/python
+CONNECTORS_DIR   = connectors
 GVDB_SERVER_ADDR ?= localhost:50051
 
 # ---------------------------------------------------------------------------
@@ -71,6 +73,15 @@ generate-python-stubs:
 
 clean:
 	@rm -rf $(BUILD_DIR)
+
+# ---------------------------------------------------------------------------
+# Java Connectors (Spark / Flink)
+# ---------------------------------------------------------------------------
+build-connectors:
+	@cd $(CONNECTORS_DIR) && ./gradlew build -x :gvdb-connector-tests:test
+
+test-connectors:
+	@cd $(CONNECTORS_DIR) && ./gradlew build
 
 # ---------------------------------------------------------------------------
 # Docker
