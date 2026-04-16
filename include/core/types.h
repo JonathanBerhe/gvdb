@@ -52,13 +52,20 @@ enum class IndexType {
   AUTO             // Automatically select based on vector count at seal time
 };
 
+// Auto-index tier boundaries (vector count thresholds)
+constexpr size_t kAutoTierFlatMax = 10'000;       // <10K → FLAT
+constexpr size_t kAutoTierHnswMax = 500'000;      // 10K–500K → HNSW
+constexpr size_t kAutoTierSqMax = 1'000'000;      // 500K–1M → IVF_SQ
+constexpr size_t kAutoTierTQ4Max = 10'000'000;    // 1M–10M → IVF_TURBOQUANT 4-bit
+                                                    // ≥10M → IVF_TURBOQUANT 2-bit
+
 // Resolve AUTO index type to a concrete type based on vector count.
-// <10K → FLAT, 10K–1M → HNSW, ≥1M → IVF_TURBOQUANT.
 // Returns the input unchanged if it is not AUTO.
 inline IndexType ResolveAutoIndexType(IndexType type, size_t vector_count) {
   if (type != IndexType::AUTO) return type;
-  if (vector_count < 10'000) return IndexType::FLAT;
-  if (vector_count < 1'000'000) return IndexType::HNSW;
+  if (vector_count < kAutoTierFlatMax) return IndexType::FLAT;
+  if (vector_count < kAutoTierHnswMax) return IndexType::HNSW;
+  if (vector_count < kAutoTierSqMax) return IndexType::IVF_SQ;
   return IndexType::IVF_TURBOQUANT;
 }
 

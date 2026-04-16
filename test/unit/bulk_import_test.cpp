@@ -9,6 +9,7 @@
 #include <fstream>
 #include <thread>
 
+#include "core/config.h"
 #include "core/types.h"
 #include "core/vector.h"
 #include "index/index_factory.h"
@@ -248,11 +249,8 @@ TEST_SUITE("BulkImporter") {
           [store, ifp](gvdb::core::SegmentId sid, gvdb::core::IndexType idx_type) {
             auto* seg = store->GetSegment(sid);
             if (!seg) return;
-            auto resolved = gvdb::core::ResolveAutoIndexType(idx_type, seg->GetVectorCount());
-            gvdb::core::IndexConfig config;
-            config.index_type = resolved;
-            config.dimension = seg->GetDimension();
-            config.metric_type = seg->GetMetric();
+            auto config = gvdb::core::ResolveAutoIndexConfig(
+                idx_type, seg->GetVectorCount(), seg->GetDimension(), seg->GetMetric());
             (void)store->SealSegment(sid, config);
           });
 
