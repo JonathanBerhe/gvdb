@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <string>
 
 #include "core/types.h"
@@ -94,13 +95,26 @@ constexpr int kHighDimHnswM = 20;
 // ResolveAutoIndexConfig - Adaptive index parameters based on segment profile
 // ============================================================================
 // Returns a complete IndexConfig with parameters tuned for the given vector
-// count and dimension. For non-AUTO types, returns default parameters.
+// count and dimension. For non-AUTO types, returns an IndexConfig with only
+// index_type/dimension/metric_type populated — callers wanting explicit tuning
+// should construct IndexConfig directly.
 // Tier boundaries from core/types.h: kAutoTierFlatMax, kAutoTierHnswMax, etc.
 
+struct IvfAdaptiveParams {
+  int nlist;
+  int nprobe;
+};
+
 // Compute IVF nlist (≈sqrt(n)) and nprobe (≈sqrt(nlist)) for a given vector count.
-inline void ComputeIvfParams(size_t vector_count, int& nlist, int& nprobe) {
-  nlist = static_cast<int>(std::sqrt(static_cast<double>(vector_count)));
-  nprobe = std::max(1, static_cast<int>(std::sqrt(static_cast<double>(nlist))));
+// nlist and nprobe are each floored at 1; sqrt is clamped to INT_MAX to guard
+// against overflow on pathologically large counts.
+inline IvfAdaptiveParams ComputeIvfParams(size_t vector_count) {
+  constexpr double kIntMax = static_cast<double>(std::numeric_limits<int>::max());
+  const double raw_nlist = std::sqrt(static_cast<double>(vector_count));
+  const int nlist = std::max(1, static_cast<int>(std::min(raw_nlist, kIntMax)));
+  const int nprobe = std::max(
+      1, static_cast<int>(std::sqrt(static_cast<double>(nlist))));
+  return {nlist, nprobe};
 }
 
 inline IndexConfig ResolveAutoIndexConfig(IndexType type, size_t vector_count,
@@ -120,6 +134,9 @@ inline IndexConfig ResolveAutoIndexConfig(IndexType type, size_t vector_count,
     config.hnsw_params.M = kSmallHnswM;
     config.hnsw_params.ef_construction = kSmallHnswEfConstruction;
     config.hnsw_params.ef_search = kSmallHnswEfSearch;
+    if (dimension > kHighDimThreshold) {
+      config.hnsw_params.M = kHighDimHnswM;
+    }
 
   } else if (vector_count < kAutoTierHnswMax) {
     // Large HNSW: full connectivity for recall in denser graphs
@@ -132,19 +149,23 @@ inline IndexConfig ResolveAutoIndexConfig(IndexType type, size_t vector_count,
 
   } else if (vector_count < kAutoTierSqMax) {
     // IVF_SQ: scalar quantization (float32→int8), 4x memory savings
-    ComputeIvfParams(vector_count, config.ivf_params.nlist, config.ivf_params.nprobe);
-    config.ivf_params.use_quantization = true;
+    const auto ivf = ComputeIvfParams(vector_count);
+    config.ivf_params.nlist = ivf.nlist;
+    config.ivf_params.nprobe = ivf.nprobe;
 
   } else if (vector_count < kAutoTierTQ4Max) {
     // IVF_TURBOQUANT 4-bit
-    ComputeIvfParams(vector_count, config.ivf_turboquant_params.nlist,
-                     config.ivf_turboquant_params.nprobe);
+    const auto ivf = ComputeIvfParams(vector_count);
+    config.ivf_turboquant_params.nlist = ivf.nlist;
+    config.ivf_turboquant_params.nprobe = ivf.nprobe;
     config.ivf_turboquant_params.bit_width = 4;
 
   } else {
-    // IVF_TURBOQUANT 2-bit (≥10M vectors)
-    ComputeIvfParams(vector_count, config.ivf_turboquant_params.nlist,
-                     config.ivf_turboquant_params.nprobe);
+    // IVF_TURBOQUANT 2-bit (≥100M vectors) — aggressive compression, lowest
+    // recall per the TurboQuant paper; reserved for the largest tier.
+    const auto ivf = ComputeIvfParams(vector_count);
+    config.ivf_turboquant_params.nlist = ivf.nlist;
+    config.ivf_turboquant_params.nprobe = ivf.nprobe;
     config.ivf_turboquant_params.bit_width = 2;
   }
 

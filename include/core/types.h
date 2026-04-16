@@ -53,11 +53,11 @@ enum class IndexType {
 };
 
 // Auto-index tier boundaries (vector count thresholds)
-constexpr size_t kAutoTierFlatMax = 10'000;       // <10K → FLAT
-constexpr size_t kAutoTierHnswMax = 500'000;      // 10K–500K → HNSW
-constexpr size_t kAutoTierSqMax = 1'000'000;      // 500K–1M → IVF_SQ
-constexpr size_t kAutoTierTQ4Max = 10'000'000;    // 1M–10M → IVF_TURBOQUANT 4-bit
-                                                    // ≥10M → IVF_TURBOQUANT 2-bit
+constexpr size_t kAutoTierFlatMax = 10'000;        // <10K → FLAT
+constexpr size_t kAutoTierHnswMax = 500'000;       // 10K–500K → HNSW
+constexpr size_t kAutoTierSqMax = 1'000'000;       // 500K–1M → IVF_SQ
+constexpr size_t kAutoTierTQ4Max = 100'000'000;    // 1M–100M → IVF_TURBOQUANT 4-bit
+                                                    // ≥100M → IVF_TURBOQUANT 2-bit
 
 // Resolve AUTO index type to a concrete type based on vector count.
 // Returns the input unchanged if it is not AUTO.

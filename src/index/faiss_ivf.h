@@ -26,6 +26,8 @@ class FaissIVFIndex : public FaissIndexBase {
   // Set number of clusters to probe during search
   void SetNProbe(int nprobe);
 
+  [[nodiscard]] int GetNProbe() const { return nprobe_; }
+
  private:
   static std::unique_ptr<faiss::Index> CreateIVFIndex(
       core::Dimension dimension, core::MetricType metric, int nlist,

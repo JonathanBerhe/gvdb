@@ -9,6 +9,11 @@
 #include "index/index_manager.h"
 #include "index/bm25_index.h"
 
+// Internal headers — test target adds src/index to its include path so we can
+// verify adaptive parameters propagate into the underlying Faiss structures.
+#include "faiss_hnsw.h"
+#include "faiss_ivf.h"
+
 namespace gvdb {
 namespace index {
 namespace {
@@ -626,14 +631,30 @@ TEST_CASE("ResolveAutoIndexConfig - large HNSW tier") {
   CHECK_EQ(config.hnsw_params.ef_search, core::kLargeHnswEfSearch);
 }
 
-TEST_CASE("ResolveAutoIndexConfig - high-dim increases HNSW M") {
+TEST_CASE("ResolveAutoIndexConfig - high-dim increases HNSW M (large tier)") {
   auto config = core::ResolveAutoIndexConfig(
       core::IndexType::AUTO, 200'000, 768, core::MetricType::COSINE);
   CHECK_EQ(config.index_type, core::IndexType::HNSW);
   CHECK_EQ(config.hnsw_params.M, core::kHighDimHnswM);
-  // ef params unchanged
   CHECK_EQ(config.hnsw_params.ef_construction, core::kLargeHnswEfConstruction);
   CHECK_EQ(config.hnsw_params.ef_search, core::kLargeHnswEfSearch);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - high-dim increases HNSW M (small tier)") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 50'000, 1536, core::MetricType::COSINE);
+  CHECK_EQ(config.index_type, core::IndexType::HNSW);
+  CHECK_EQ(config.hnsw_params.M, core::kHighDimHnswM);
+  CHECK_EQ(config.hnsw_params.ef_construction, core::kSmallHnswEfConstruction);
+  CHECK_EQ(config.hnsw_params.ef_search, core::kSmallHnswEfSearch);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - dim at threshold stays standard M") {
+  // kHighDimThreshold uses strict '>', so exactly 512 stays at standard M.
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 200'000, core::kHighDimThreshold,
+      core::MetricType::L2);
+  CHECK_EQ(config.hnsw_params.M, core::kLargeHnswM);
 }
 
 TEST_CASE("ResolveAutoIndexConfig - low-dim keeps standard HNSW M") {
@@ -642,17 +663,13 @@ TEST_CASE("ResolveAutoIndexConfig - low-dim keeps standard HNSW M") {
   CHECK_EQ(config.hnsw_params.M, core::kLargeHnswM);
 }
 
-TEST_CASE("ResolveAutoIndexConfig - IVF_SQ tier with adaptive nlist") {
+TEST_CASE("ResolveAutoIndexConfig - IVF_SQ tier with adaptive nlist/nprobe") {
   auto config = core::ResolveAutoIndexConfig(
       core::IndexType::AUTO, 750'000, 256, core::MetricType::L2);
   CHECK_EQ(config.index_type, core::IndexType::IVF_SQ);
-  CHECK(config.ivf_params.use_quantization);
-  // nlist ≈ sqrt(750000) ≈ 866
-  CHECK(config.ivf_params.nlist > 800);
-  CHECK(config.ivf_params.nlist < 900);
-  // nprobe ≈ sqrt(866) ≈ 29
-  CHECK(config.ivf_params.nprobe > 20);
-  CHECK(config.ivf_params.nprobe < 40);
+  const auto expected = core::ComputeIvfParams(750'000);
+  CHECK_EQ(config.ivf_params.nlist, expected.nlist);
+  CHECK_EQ(config.ivf_params.nprobe, expected.nprobe);
 }
 
 TEST_CASE("ResolveAutoIndexConfig - IVF_TURBOQUANT 4-bit tier") {
@@ -660,28 +677,59 @@ TEST_CASE("ResolveAutoIndexConfig - IVF_TURBOQUANT 4-bit tier") {
       core::IndexType::AUTO, 2'000'000, 128, core::MetricType::L2);
   CHECK_EQ(config.index_type, core::IndexType::IVF_TURBOQUANT);
   CHECK_EQ(config.ivf_turboquant_params.bit_width, 4);
-  // nlist ≈ sqrt(2M) ≈ 1414
-  CHECK(config.ivf_turboquant_params.nlist > 1'300);
-  CHECK(config.ivf_turboquant_params.nlist < 1'500);
+  const auto expected = core::ComputeIvfParams(2'000'000);
+  CHECK_EQ(config.ivf_turboquant_params.nlist, expected.nlist);
+  CHECK_EQ(config.ivf_turboquant_params.nprobe, expected.nprobe);
 }
 
-TEST_CASE("ResolveAutoIndexConfig - IVF_TURBOQUANT 2-bit for 10M+") {
+TEST_CASE("ResolveAutoIndexConfig - IVF_TURBOQUANT 4-bit stays at 50M") {
+  // Reassure the 2-bit pivot is at 100M, not 10M.
   auto config = core::ResolveAutoIndexConfig(
       core::IndexType::AUTO, 50'000'000, 128, core::MetricType::L2);
   CHECK_EQ(config.index_type, core::IndexType::IVF_TURBOQUANT);
-  CHECK_EQ(config.ivf_turboquant_params.bit_width, 2);
-  // nlist ≈ sqrt(50M) ≈ 7071
-  CHECK(config.ivf_turboquant_params.nlist > 6'900);
-  CHECK(config.ivf_turboquant_params.nlist < 7'200);
+  CHECK_EQ(config.ivf_turboquant_params.bit_width, 4);
 }
 
-TEST_CASE("ResolveAutoIndexConfig - explicit type returns default params") {
+TEST_CASE("ResolveAutoIndexConfig - IVF_TURBOQUANT 2-bit for 100M+") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 200'000'000, 128, core::MetricType::L2);
+  CHECK_EQ(config.index_type, core::IndexType::IVF_TURBOQUANT);
+  CHECK_EQ(config.ivf_turboquant_params.bit_width, 2);
+  const auto expected = core::ComputeIvfParams(200'000'000);
+  CHECK_EQ(config.ivf_turboquant_params.nlist, expected.nlist);
+  CHECK_EQ(config.ivf_turboquant_params.nprobe, expected.nprobe);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - explicit type keeps defaults, adaptive applies only to AUTO") {
+  // Callers passing an explicit type receive struct defaults — any pre-tuned
+  // sub-params must be set by constructing IndexConfig directly.
   auto config = core::ResolveAutoIndexConfig(
       core::IndexType::HNSW, 5'000'000, 128, core::MetricType::L2);
   CHECK_EQ(config.index_type, core::IndexType::HNSW);
-  // Parameters are struct defaults, not adaptive
   CHECK_EQ(config.hnsw_params.M, 16);
   CHECK_EQ(config.hnsw_params.ef_construction, 200);
+  CHECK_EQ(config.hnsw_params.ef_search, 100);
+}
+
+TEST_CASE("ComputeIvfParams - floor at 1 and deterministic sqrt") {
+  CHECK_EQ(core::ComputeIvfParams(0).nlist, 1);
+  CHECK_EQ(core::ComputeIvfParams(0).nprobe, 1);
+  CHECK_EQ(core::ComputeIvfParams(10'000).nlist, 100);
+  CHECK_EQ(core::ComputeIvfParams(10'000).nprobe, 10);
+}
+
+TEST_CASE("ResolveAutoIndexConfig - TurboQuant tier boundary at 100M") {
+  // Exactly at kAutoTierTQ4Max → 2-bit (not 4-bit)
+  auto at_100m = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, core::kAutoTierTQ4Max, 128, core::MetricType::L2);
+  CHECK_EQ(at_100m.index_type, core::IndexType::IVF_TURBOQUANT);
+  CHECK_EQ(at_100m.ivf_turboquant_params.bit_width, 2);
+
+  // Just below → 4-bit
+  auto below = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, core::kAutoTierTQ4Max - 1, 128,
+      core::MetricType::L2);
+  CHECK_EQ(below.ivf_turboquant_params.bit_width, 4);
 }
 
 TEST_CASE("ResolveAutoIndexConfig - tier boundaries exact") {
@@ -699,6 +747,90 @@ TEST_CASE("ResolveAutoIndexConfig - tier boundaries exact") {
   auto at_1m = core::ResolveAutoIndexConfig(
       core::IndexType::AUTO, core::kAutoTierSqMax, 128, core::MetricType::L2);
   CHECK_EQ(at_1m.index_type, core::IndexType::IVF_TURBOQUANT);
+}
+
+// ============================================================================
+// Integration: adaptive parameters must reach the underlying Faiss index
+// ============================================================================
+
+TEST_CASE("IndexFactory - adaptive ef_search reaches the Faiss HNSW graph") {
+  // Small HNSW tier: ResolveAutoIndexConfig produces ef_search=64.
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 50'000, 128, core::MetricType::L2);
+  REQUIRE_EQ(config.index_type, core::IndexType::HNSW);
+  REQUIRE_EQ(config.hnsw_params.ef_search, core::kSmallHnswEfSearch);
+
+  IndexFactory factory;
+  auto result = factory.CreateIndex(config);
+  REQUIRE(result.ok());
+
+  auto* hnsw = dynamic_cast<FaissHNSWIndex*>(result.value().get());
+  REQUIRE(hnsw != nullptr);
+  // Must read through the IndexIDMap wrapper down to faiss::IndexHNSW.
+  CHECK_EQ(hnsw->GetEfSearch(), core::kSmallHnswEfSearch);
+}
+
+TEST_CASE("IndexFactory - adaptive ef_search differs for large HNSW tier") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 200'000, 128, core::MetricType::L2);
+  REQUIRE_EQ(config.hnsw_params.ef_search, core::kLargeHnswEfSearch);
+
+  IndexFactory factory;
+  auto result = factory.CreateIndex(config);
+  REQUIRE(result.ok());
+
+  auto* hnsw = dynamic_cast<FaissHNSWIndex*>(result.value().get());
+  REQUIRE(hnsw != nullptr);
+  CHECK_EQ(hnsw->GetEfSearch(), core::kLargeHnswEfSearch);
+}
+
+TEST_CASE("IndexFactory - adaptive nprobe reaches IVF_SQ") {
+  auto config = core::ResolveAutoIndexConfig(
+      core::IndexType::AUTO, 750'000, 128, core::MetricType::L2);
+  REQUIRE_EQ(config.index_type, core::IndexType::IVF_SQ);
+  const auto expected = core::ComputeIvfParams(750'000);
+  REQUIRE_EQ(config.ivf_params.nprobe, expected.nprobe);
+
+  IndexFactory factory;
+  auto result = factory.CreateIndex(config);
+  REQUIRE(result.ok());
+
+  auto* ivf = dynamic_cast<FaissIVFIndex*>(result.value().get());
+  REQUIRE(ivf != nullptr);
+  CHECK_EQ(ivf->GetNProbe(), expected.nprobe);
+}
+
+TEST_CASE("IndexFactory - CreateHNSWIndex plumbs ef_search directly") {
+  auto result = IndexFactory::CreateHNSWIndex(
+      64, core::MetricType::L2, /*M=*/16, /*ef_construction=*/100,
+      /*ef_search=*/77);
+  REQUIRE(result.ok());
+
+  auto* hnsw = dynamic_cast<FaissHNSWIndex*>(result.value().get());
+  REQUIRE(hnsw != nullptr);
+  CHECK_EQ(hnsw->GetEfSearch(), 77);
+}
+
+TEST_CASE("IndexFactory - CreateIVFIndex plumbs nprobe directly") {
+  auto result = IndexFactory::CreateIVFIndex(
+      64, core::MetricType::L2, /*nlist=*/50, IVFQuantizationType::NONE,
+      /*pq_m=*/8, /*pq_nbits=*/8, /*nprobe=*/17);
+  REQUIRE(result.ok());
+
+  auto* ivf = dynamic_cast<FaissIVFIndex*>(result.value().get());
+  REQUIRE(ivf != nullptr);
+  CHECK_EQ(ivf->GetNProbe(), 17);
+}
+
+TEST_CASE("IndexFactory - rejects invalid ef_search") {
+  auto result = IndexFactory::CreateHNSWIndex(64, core::MetricType::L2, 16, 100, 0);
+  CHECK_FALSE(result.ok());
+}
+
+TEST_CASE("IndexFactory - rejects non-positive nprobe") {
+  auto bad_zero = IndexFactory::CreateIVFIndex(
+      64, core::MetricType::L2, 10, IVFQuantizationType::NONE, 8, 8, /*nprobe=*/0);
+  CHECK_FALSE(bad_zero.ok());
 }
 
 TEST_CASE("IndexFactory - rejects AUTO index type") {
