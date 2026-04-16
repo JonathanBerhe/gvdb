@@ -157,3 +157,40 @@ jobs:
       - name: Skip notice
         if: steps.filter.outputs.python == 'false'
         run: echo "No Python SDK changes — skipping"
+
+  test-java-connectors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for Java connector changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            java:
+              - 'connectors/**'
+              - 'proto/vectordb.proto'
+
+      - name: Set up JDK 17
+        if: steps.filter.outputs.java == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        if: steps.filter.outputs.java == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and unit test
+        if: steps.filter.outputs.java == 'true'
+        run: cd connectors && ./gradlew build -x :gvdb-connector-tests:test
+
+      - name: Skip notice
+        if: steps.filter.outputs.java == 'false'
+        run: echo "No Java connector changes — skipping"
