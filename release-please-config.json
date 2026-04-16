@@ -29,6 +29,10 @@
         {
           "type": "generic",
           "path": "clients/python/pyproject.toml"
+        },
+        {
+          "type": "generic",
+          "path": "connectors/gradle.properties"
         }
       ]
     }
