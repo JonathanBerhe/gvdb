@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.15.0](https://github.com/JonathanBerhe/gvdb/compare/v0.14.0...v0.15.0) (2026-04-16)
+
+
+### Features
+
+* **connectors:** Flink Sink V2 with checkpoint flush ([f4c7c33](https://github.com/JonathanBerhe/gvdb/commit/f4c7c3342402931b5f55071a07b9d935e9d70d60))
+* **connectors:** Java client and Gradle scaffold for Spark/Flink connectors ([20ef425](https://github.com/JonathanBerhe/gvdb/commit/20ef425e4f312ba15e3307d3cdf4b7159a26746d))
+* **connectors:** Spark and Flink connectors with Java client ([d0d173d](https://github.com/JonathanBerhe/gvdb/commit/d0d173d49a884cba7568e73a4aa48576de884722))
+* **connectors:** Spark DataSource V2 read path ([705ec0c](https://github.com/JonathanBerhe/gvdb/commit/705ec0cb80127889b313963a9a2df5816e7c1730))
+* **connectors:** Spark DataSource V2 write path ([0967130](https://github.com/JonathanBerhe/gvdb/commit/09671305d2073f5c80839cfb5121f2ef6dadfd6c))
+* **connectors:** usage examples for Java client, Spark and Flink ([3f50bde](https://github.com/JonathanBerhe/gvdb/commit/3f50bdeac1620b5a89be2e32c39a45668e6ecb66))
+
+
+### Bug Fixes
+
+* **connectors:** proto codegen task ordering for clean CI builds ([97db997](https://github.com/JonathanBerhe/gvdb/commit/97db997a75490c365827c65653fb5c240a8ece3f))
+* **connectors:** resource leaks, thread safety, and type handling bugs ([0cbf1a5](https://github.com/JonathanBerhe/gvdb/commit/0cbf1a560fe05f6c3d86f45963978434aea9369c))
+
 ## [0.14.0](https://github.com/JonathanBerhe/gvdb/compare/v0.13.0...v0.14.0) (2026-04-15)
 
 
