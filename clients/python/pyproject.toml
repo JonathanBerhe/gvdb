@@ -1,6 +1,6 @@
 [project]
 name = "gvdb"
-version = "0.14.0" # x-release-please-version
+version = "0.15.0" # x-release-please-version
 description = "Python client for GVDB distributed vector database"
 readme = "README.md"
 license = "Apache-2.0"
