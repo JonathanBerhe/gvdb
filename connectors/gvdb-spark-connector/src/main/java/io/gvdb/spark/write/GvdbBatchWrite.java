@@ -36,7 +36,7 @@ public class GvdbBatchWrite implements BatchWrite {
         int[] ordinals = SchemaMapper.resolveOrdinals(schema, options.idColumn(), options.vectorColumn());
         return new GvdbDataWriterFactory(
                 options.target(),
-                options.apiKey(),
+                options.apiKey().orElse(null),
                 options.collection(),
                 options.batchSize(),
                 options.maxRetries(),
@@ -78,11 +78,12 @@ public class GvdbBatchWrite implements BatchWrite {
             }
 
             if (!exists && options.autoCreate()) {
-                int dim = options.dimension();
+                int dim = options.dimension().orElseThrow(() -> new IllegalArgumentException(
+                        "Collection '" + options.collection() + "' does not exist and " +
+                                "'" + GvdbOptions.DIMENSION + "' was not set. Cannot auto-create."));
                 if (dim <= 0) {
                     throw new IllegalArgumentException(
-                            "Collection '" + options.collection() + "' does not exist and " +
-                                    "'" + GvdbOptions.DIMENSION + "' was not set. Cannot auto-create.");
+                            "'" + GvdbOptions.DIMENSION + "' must be > 0, got " + dim);
                 }
                 LOG.info("Auto-creating collection '{}' (dimension={}, metric={}, index={})",
                         options.collection(), dim, options.metric(), options.indexType());
