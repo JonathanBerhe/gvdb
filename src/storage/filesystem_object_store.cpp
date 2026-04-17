@@ -5,12 +5,14 @@
 
 #include <atomic>
 #include <cstddef>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
 #include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "absl/strings/str_cat.h"
@@ -57,19 +59,32 @@ core::StatusOr<std::string> ReadEntireFile(const stdfs::path& path) {
   return buffer;
 }
 
-// Generate a unique sibling path for atomic rename. Uniqueness comes from a
-// process-wide monotonic counter so no two in-flight writes can collide, even
-// when targeting the same destination.
-stdfs::path UniqueTempSibling(const stdfs::path& dest) {
+// Reserved subdirectory under the store root that holds in-flight temp
+// files during atomic writes. Kept as a separate namespace (rather than
+// naming temp files with a suffix) so user keys can freely contain any
+// substring, including historical sentinels like ".tmp.".
+//
+// Invariants:
+//   - User keys starting with this prefix are rejected by KeyToPath.
+//   - ListObjects skips any entry whose relative path begins with it.
+//   - `rename` from this subdir to a destination anywhere under root is
+//     atomic because both paths live on the same filesystem.
+constexpr const char* kReservedTempPrefix = ".gvdb-tmp/";
+
+// Generate a unique path under {root}/.gvdb-tmp/ for atomic rename. Uniqueness
+// comes from a process-wide monotonic counter so no two in-flight writes can
+// collide, even when targeting the same destination.
+stdfs::path UniqueTempPath(const stdfs::path& root) {
   static std::atomic<std::uint64_t> counter{0};
   const std::uint64_t n = counter.fetch_add(1, std::memory_order_relaxed);
-  return stdfs::path(dest.string() + ".tmp." + std::to_string(n));
+  return root / ".gvdb-tmp" / std::to_string(n);
 }
 
-// Write `data` to `dest` atomically: write to a sibling temp file, fsync
-// intentionally skipped (we rely on rename atomicity, not durability), then
-// rename into place. Creates parent directories if needed.
-core::Status AtomicWrite(const stdfs::path& dest, const std::string& data) {
+// Write `data` to `dest` atomically: write to a temp file inside the
+// reserved .gvdb-tmp/ subdir, then rename into place. Creates parent
+// directories on demand.
+core::Status AtomicWrite(const stdfs::path& root, const stdfs::path& dest,
+                         const std::string& data) {
   std::error_code ec;
   stdfs::create_directories(dest.parent_path(), ec);
   if (ec) {
@@ -77,8 +92,14 @@ core::Status AtomicWrite(const stdfs::path& dest, const std::string& data) {
         "FilesystemObjectStore: failed to create parent dir for ",
         dest.string(), ": ", ec.message()));
   }
+  stdfs::create_directories(root / ".gvdb-tmp", ec);
+  if (ec) {
+    return core::InternalError(absl::StrCat(
+        "FilesystemObjectStore: failed to create reserved temp dir: ",
+        ec.message()));
+  }
 
-  const stdfs::path tmp = UniqueTempSibling(dest);
+  const stdfs::path tmp = UniqueTempPath(root);
   {
     std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
     if (!out.is_open()) {
@@ -102,14 +123,6 @@ core::Status AtomicWrite(const stdfs::path& dest, const std::string& data) {
         "FilesystemObjectStore: rename failed: ", dest.string()));
   }
   return core::OkStatus();
-}
-
-// Temp files produced by AtomicWrite have this substring in their name. We
-// use it to hide in-flight writes from ListObjects output.
-constexpr const char* kTempMarker = ".tmp.";
-
-bool IsTempFile(const std::string& key) {
-  return key.find(kTempMarker) != std::string::npos;
 }
 
 }  // namespace
@@ -180,6 +193,15 @@ core::StatusOr<stdfs::path> FilesystemObjectStore::KeyToPath(
     return core::InvalidArgumentError(absl::StrCat(
         "FilesystemObjectStore: key must be relative: ", key));
   }
+  // Reserve the .gvdb-tmp/ subtree for in-flight atomic-write temp files.
+  // Users cannot place objects there or they would be invisible to
+  // ListObjects and race with ongoing writes.
+  if (key.compare(0, std::strlen(kReservedTempPrefix),
+                   kReservedTempPrefix) == 0) {
+    return core::InvalidArgumentError(absl::StrCat(
+        "FilesystemObjectStore: key uses reserved prefix '",
+        kReservedTempPrefix, "': ", key));
+  }
 
   const stdfs::path candidate = root_ / stdfs::path(key);
 
@@ -212,7 +234,7 @@ core::Status FilesystemObjectStore::PutObject(const std::string& key,
   if (!path.ok()) {
     return path.status();
   }
-  return AtomicWrite(*path, data);
+  return AtomicWrite(root_, *path, data);
 }
 
 core::StatusOr<std::string> FilesystemObjectStore::GetObject(
@@ -262,7 +284,9 @@ core::StatusOr<std::vector<std::string>> FilesystemObjectStore::ListObjects(
     }
     // Use generic_string so keys always use '/' regardless of host OS.
     std::string key = rel.generic_string();
-    if (IsTempFile(key)) {
+    // Skip the reserved subtree that holds in-flight atomic-write temps.
+    if (key.compare(0, std::strlen(kReservedTempPrefix),
+                     kReservedTempPrefix) == 0) {
       continue;
     }
     if (key.compare(0, prefix.size(), prefix) == 0) {
@@ -302,8 +326,14 @@ core::Status FilesystemObjectStore::PutObjectFromFile(
         "FilesystemObjectStore: failed to create parent dir for ",
         dest->string(), ": ", ec.message()));
   }
+  stdfs::create_directories(root_ / ".gvdb-tmp", ec);
+  if (ec) {
+    return core::InternalError(absl::StrCat(
+        "FilesystemObjectStore: failed to create reserved temp dir: ",
+        ec.message()));
+  }
 
-  const stdfs::path tmp = UniqueTempSibling(*dest);
+  const stdfs::path tmp = UniqueTempPath(root_);
   stdfs::copy_file(local_file_path, tmp,
                    stdfs::copy_options::overwrite_existing, ec);
   if (ec) {

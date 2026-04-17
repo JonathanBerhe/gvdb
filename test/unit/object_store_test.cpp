@@ -376,17 +376,20 @@ TEST_CASE("FilesystemObjectStore: rejects keys that escape the root via ..") {
            absl::StatusCode::kInvalidArgument);
 }
 
-TEST_CASE("FilesystemObjectStore: ListObjects hides in-flight .tmp files") {
-  // Race-free simulation: drop a sibling file manually to ensure the filter
-  // works even if an earlier crashed write left one behind.
+TEST_CASE(
+    "FilesystemObjectStore: ListObjects hides the reserved .gvdb-tmp subtree") {
+  // Simulate a crashed write that left a file behind under the reserved
+  // subtree. ListObjects must not expose it.
   FilesystemObjectStoreFixture f;
   auto& store = f.Get();
 
   REQUIRE(store.PutObject("real.bin", "data").ok());
 
-  const auto tmp = f.store->Root() / "real.bin.tmp.42";
+  const auto reserved_dir = f.store->Root() / ".gvdb-tmp";
+  std::filesystem::create_directories(reserved_dir);
+  const auto stray = reserved_dir / "42";
   {
-    std::ofstream out(tmp);
+    std::ofstream out(stray);
     out << "leftover";
   }
 
