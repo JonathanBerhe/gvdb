@@ -28,30 +28,27 @@ class GvdbDataWriterFactorySerializationTest {
                 10000,
                 3,
                 30,
-                "upsert",
+                WriteMode.UPSERT,
                 schema,
                 0, // idOrdinal
                 1  // vectorOrdinal
         );
 
-        // Serialize
         var baos = new ByteArrayOutputStream();
         try (var oos = new ObjectOutputStream(baos)) {
             oos.writeObject(factory);
         }
 
-        // Deserialize
         var bais = new ByteArrayInputStream(baos.toByteArray());
         GvdbDataWriterFactory restored;
         try (var ois = new ObjectInputStream(bais)) {
             restored = (GvdbDataWriterFactory) ois.readObject();
         }
 
-        // Verify config survived the round-trip
         assertEquals("localhost:50051", restored.target());
         assertEquals("test_collection", restored.collection());
         assertEquals(10000, restored.batchSize());
-        assertEquals("upsert", restored.writeMode());
+        assertEquals(WriteMode.UPSERT, restored.writeMode());
     }
 
     @Test
@@ -61,7 +58,7 @@ class GvdbDataWriterFactorySerializationTest {
                 .add("vector", new ArrayType(DataTypes.FloatType, false));
 
         var factory = new GvdbDataWriterFactory(
-                "host:9090", null, "col", 5000, 0, 60, "stream_insert",
+                "host:9090", null, "col", 5000, 0, 60, WriteMode.STREAM_INSERT,
                 schema, 0, 1
         );
 

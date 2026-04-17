@@ -26,7 +26,7 @@ public class GvdbDataWriter implements DataWriter<InternalRow> {
 
     private final GvdbClient client;
     private final String collection;
-    private final String writeMode;
+    private final WriteMode writeMode;
     private final StructType schema;
     private final int idOrdinal;
     private final int vectorOrdinal;
@@ -40,18 +40,20 @@ public class GvdbDataWriter implements DataWriter<InternalRow> {
 
     GvdbDataWriter(String target, String apiKey, String collection,
                    int batchSize, int maxRetries, int timeoutSeconds,
-                   String writeMode, StructType schema,
+                   WriteMode writeMode, StructType schema,
                    int idOrdinal, int vectorOrdinal,
                    int partitionId, long taskId) {
-        var configBuilder = GvdbClientConfig.builder(target)
-                .batchSize(batchSize)
-                .maxRetries(maxRetries)
-                .timeout(Duration.ofSeconds(timeoutSeconds))
-                .channelCount(1); // one channel per writer is sufficient
-        if (apiKey != null) {
-            configBuilder.apiKey(apiKey);
-        }
-        this.client = new GvdbClient(configBuilder.build());
+        this(buildClient(target, apiKey, batchSize, maxRetries, timeoutSeconds),
+                collection, batchSize, writeMode, schema,
+                idOrdinal, vectorOrdinal, partitionId, taskId);
+    }
+
+    // Test seam: inject a pre-built client (single channel per writer is sufficient).
+    GvdbDataWriter(GvdbClient client, String collection, int batchSize,
+                   WriteMode writeMode, StructType schema,
+                   int idOrdinal, int vectorOrdinal,
+                   int partitionId, long taskId) {
+        this.client = client;
         this.collection = collection;
         this.writeMode = writeMode;
         this.schema = schema;
@@ -61,6 +63,19 @@ public class GvdbDataWriter implements DataWriter<InternalRow> {
         this.partitionId = partitionId;
         this.taskId = taskId;
         this.buffer = new ArrayList<>(batchSize);
+    }
+
+    private static GvdbClient buildClient(String target, String apiKey,
+                                          int batchSize, int maxRetries, int timeoutSeconds) {
+        var configBuilder = GvdbClientConfig.builder(target)
+                .batchSize(batchSize)
+                .maxRetries(maxRetries)
+                .timeout(Duration.ofSeconds(timeoutSeconds))
+                .channelCount(1);
+        if (apiKey != null) {
+            configBuilder.apiKey(apiKey);
+        }
+        return new GvdbClient(configBuilder.build());
     }
 
     @Override
@@ -101,10 +116,9 @@ public class GvdbDataWriter implements DataWriter<InternalRow> {
     private void flush() {
         if (buffer.isEmpty()) return;
 
-        if ("stream_insert".equalsIgnoreCase(writeMode)) {
-            client.streamInsert(collection, buffer.iterator(), batchSize);
-        } else {
-            client.upsert(collection, buffer);
+        switch (writeMode) {
+            case STREAM_INSERT -> client.streamInsert(collection, buffer.iterator(), batchSize);
+            case UPSERT -> client.upsert(collection, buffer);
         }
         totalWritten += buffer.size();
         buffer.clear();
