@@ -146,10 +146,20 @@ FilesystemObjectStore::Create(const std::string& root) {
     }
   }
 
-  // Use a private ctor via make_unique-equivalent; absl requires this dance
-  // because make_unique cannot see private constructors.
+  // Use a fresh error_code: the one above may have been set and cleared by
+  // the exists / create_directories branches, and we must not silently carry
+  // a stale status into the absolute() call below.
+  std::error_code abs_ec;
+  auto abs_root = stdfs::absolute(root_path, abs_ec);
+  if (abs_ec) {
+    return core::InternalError(absl::StrCat(
+        "FilesystemObjectStore: failed to resolve root to absolute path: ",
+        root, ": ", abs_ec.message()));
+  }
+
+  // Cannot use std::make_unique here because the constructor is private.
   return std::unique_ptr<FilesystemObjectStore>(
-      new FilesystemObjectStore(stdfs::absolute(root_path, ec)));
+      new FilesystemObjectStore(std::move(abs_root)));
 }
 
 FilesystemObjectStore::FilesystemObjectStore(stdfs::path root)
