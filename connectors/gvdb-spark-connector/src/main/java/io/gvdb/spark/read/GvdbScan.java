@@ -65,7 +65,7 @@ public class GvdbScan implements Scan, Batch {
     public PartitionReaderFactory createReaderFactory() {
         return new GvdbPartitionReaderFactory(
                 options.target(),
-                options.apiKey(),
+                options.apiKey().orElse(null),
                 options.collection(),
                 options.timeoutSeconds(),
                 options.maxRetries(),

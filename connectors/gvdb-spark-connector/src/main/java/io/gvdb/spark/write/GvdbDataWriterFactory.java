@@ -24,14 +24,14 @@ public class GvdbDataWriterFactory implements DataWriterFactory, Serializable {
     private final int batchSize;
     private final int maxRetries;
     private final int timeoutSeconds;
-    private final String writeMode;
+    private final WriteMode writeMode;
     private final StructType schema;
     private final int idOrdinal;
     private final int vectorOrdinal;
 
     GvdbDataWriterFactory(String target, String apiKey, String collection,
                           int batchSize, int maxRetries, int timeoutSeconds,
-                          String writeMode, StructType schema,
+                          WriteMode writeMode, StructType schema,
                           int idOrdinal, int vectorOrdinal) {
         this.target = target;
         this.apiKey = apiKey;
@@ -57,5 +57,5 @@ public class GvdbDataWriterFactory implements DataWriterFactory, Serializable {
     String target() { return target; }
     String collection() { return collection; }
     int batchSize() { return batchSize; }
-    String writeMode() { return writeMode; }
+    WriteMode writeMode() { return writeMode; }
 }
