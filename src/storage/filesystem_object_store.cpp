@@ -17,6 +17,13 @@
 
 #include "absl/strings/str_cat.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 namespace gvdb {
 namespace storage {
 
@@ -80,6 +87,64 @@ stdfs::path UniqueTempPath(const stdfs::path& root) {
   return root / ".gvdb-tmp" / std::to_string(n);
 }
 
+// Flush the contents of `path` to the underlying device. Required between
+// writing the temp file and renaming it into place so that a host crash
+// cannot produce a zero-byte or partial object on the filesystem.
+core::Status SyncFileAtPath(const stdfs::path& path) {
+#ifdef _WIN32
+  HANDLE h = CreateFileW(path.wstring().c_str(), GENERIC_WRITE,
+                          FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                          OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE) {
+    return core::InternalError(absl::StrCat(
+        "FilesystemObjectStore: failed to open for sync: ", path.string()));
+  }
+  const BOOL ok = FlushFileBuffers(h);
+  CloseHandle(h);
+  if (!ok) {
+    return core::InternalError(absl::StrCat(
+        "FilesystemObjectStore: FlushFileBuffers failed: ", path.string()));
+  }
+#else
+  const int fd = ::open(path.c_str(), O_WRONLY);
+  if (fd < 0) {
+    return core::InternalError(absl::StrCat(
+        "FilesystemObjectStore: failed to open for sync: ", path.string()));
+  }
+  const int rc = ::fsync(fd);
+  ::close(fd);
+  if (rc != 0) {
+    return core::InternalError(absl::StrCat(
+        "FilesystemObjectStore: fsync failed: ", path.string()));
+  }
+#endif
+  return core::OkStatus();
+}
+
+// Flush a directory's metadata to the underlying device. Required after
+// `rename` so that the directory entry for the new file persists across a
+// crash. No-op on Windows (NTFS rename is journalled and visible to readers
+// as soon as the call returns).
+core::Status SyncDir(const stdfs::path& dir) {
+#ifdef _WIN32
+  (void)dir;
+  return core::OkStatus();
+#else
+  const int fd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY);
+  if (fd < 0) {
+    return core::InternalError(absl::StrCat(
+        "FilesystemObjectStore: failed to open dir for sync: ", dir.string()));
+  }
+  const int rc = ::fsync(fd);
+  ::close(fd);
+  if (rc != 0) {
+    return core::InternalError(absl::StrCat(
+        "FilesystemObjectStore: fsync(dir) failed: ", dir.string()));
+  }
+  return core::OkStatus();
+#endif
+}
+
 // Write `data` to `dest` atomically: write to a temp file inside the
 // reserved .gvdb-tmp/ subdir, then rename into place. Creates parent
 // directories on demand.
@@ -114,13 +179,27 @@ core::Status AtomicWrite(const stdfs::path& root, const stdfs::path& dest,
             "FilesystemObjectStore: write failed: ", tmp.string()));
       }
     }
-  }  // ofstream closes here, flushing the OS buffer.
+  }  // ofstream closes here, flushing the user-space buffer to the OS.
+
+  // fsync the file contents to the underlying device before the rename so
+  // the object is durable the moment rename returns.
+  if (auto s = SyncFileAtPath(tmp); !s.ok()) {
+    stdfs::remove(tmp, ec);
+    return s;
+  }
 
   stdfs::rename(tmp, dest, ec);
   if (ec) {
     stdfs::remove(tmp, ec);  // best-effort cleanup
     return core::InternalError(absl::StrCat(
         "FilesystemObjectStore: rename failed: ", dest.string()));
+  }
+
+  // fsync the parent directory so the new directory entry survives a crash.
+  // Failure here is surfaced but the object itself is already persisted; the
+  // caller may choose to treat it as advisory.
+  if (auto s = SyncDir(dest.parent_path()); !s.ok()) {
+    return s;
   }
   return core::OkStatus();
 }
@@ -343,11 +422,20 @@ core::Status FilesystemObjectStore::PutObjectFromFile(
         tmp.string()));
   }
 
+  if (auto s = SyncFileAtPath(tmp); !s.ok()) {
+    stdfs::remove(tmp, ec);
+    return s;
+  }
+
   stdfs::rename(tmp, *dest, ec);
   if (ec) {
     stdfs::remove(tmp, ec);
     return core::InternalError(absl::StrCat(
         "FilesystemObjectStore: rename failed: ", dest->string()));
+  }
+
+  if (auto s = SyncDir(dest->parent_path()); !s.ok()) {
+    return s;
   }
   return core::OkStatus();
 }
