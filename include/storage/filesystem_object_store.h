@@ -28,12 +28,19 @@ namespace storage {
 // Semantics (matches the IObjectStore contract):
 //   - PutObject overwrites atomically (temp file + rename) so concurrent
 //     readers never see a partial write.
+//   - Durability: after PutObject / PutObjectFromFile return OK, the file
+//     contents are fsync'd and the parent directory entry is persisted. A
+//     subsequent host crash will not lose the object. This matches the
+//     durability guarantee callers get from S3ObjectStore.
 //   - DeleteObject is idempotent.
 //   - ListObjects walks the tree and returns keys sorted lexicographically,
 //     using forward slashes regardless of host OS.
 //   - Keys must not be empty, must not be absolute, and must not contain
 //     ".." segments that escape the root. Such keys are rejected with
 //     InvalidArgumentError.
+//   - The prefix ".gvdb-tmp/" under the root is reserved for in-flight
+//     atomic-write temp files. User keys starting with this prefix are
+//     rejected; entries under it are never returned by ListObjects.
 //
 // Thread-safety: safe for concurrent calls. Concurrency is provided by the
 // filesystem itself: writes use unique temp paths + atomic rename, so no
