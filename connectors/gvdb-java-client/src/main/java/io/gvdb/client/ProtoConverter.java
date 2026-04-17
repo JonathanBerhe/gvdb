@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -139,9 +140,20 @@ final class ProtoConverter {
                 proto.getCollectionName(),
                 proto.getCollectionId(),
                 proto.getDimension(),
-                proto.getMetricType(),
+                fromProtoMetric(proto.getMetricType()),
                 proto.getVectorCount()
         );
+    }
+
+    static io.gvdb.client.model.MetricType fromProtoMetric(String metric) {
+        if (metric == null || metric.isBlank()) {
+            throw new IllegalArgumentException("metric_type is empty");
+        }
+        try {
+            return io.gvdb.client.model.MetricType.valueOf(metric.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Unknown metric_type: '" + metric + "'", e);
+        }
     }
 
     static ImportStatus fromProto(GetImportStatusResponse proto) {

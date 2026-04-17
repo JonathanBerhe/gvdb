@@ -3,9 +3,12 @@ package io.gvdb.spark;
 import io.gvdb.client.GvdbClientConfig;
 import io.gvdb.client.model.IndexType;
 import io.gvdb.client.model.MetricType;
+import io.gvdb.spark.write.WriteMode;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * Parses Spark DataSource options into typed configuration.
@@ -54,8 +57,8 @@ public final class GvdbOptions {
         return c;
     }
 
-    public String apiKey() {
-        return options.get(API_KEY);
+    public Optional<String> apiKey() {
+        return Optional.ofNullable(options.get(API_KEY)).filter(s -> !s.isBlank());
     }
 
     public String idColumn() {
@@ -70,8 +73,8 @@ public final class GvdbOptions {
         return Integer.parseInt(options.getOrDefault(BATCH_SIZE, "10000"));
     }
 
-    public String writeMode() {
-        return options.getOrDefault(WRITE_MODE, "upsert");
+    public WriteMode writeMode() {
+        return WriteMode.fromOption(options.get(WRITE_MODE));
     }
 
     public int maxRetries() {
@@ -92,9 +95,9 @@ public final class GvdbOptions {
         return IndexType.valueOf(t);
     }
 
-    public int dimension() {
+    public OptionalInt dimension() {
         var d = options.get(DIMENSION);
-        return d != null ? Integer.parseInt(d) : -1;
+        return d == null ? OptionalInt.empty() : OptionalInt.of(Integer.parseInt(d));
     }
 
     public boolean autoCreate() {
@@ -114,9 +117,7 @@ public final class GvdbOptions {
                 .batchSize(batchSize())
                 .maxRetries(maxRetries())
                 .timeout(Duration.ofSeconds(timeoutSeconds()));
-        if (apiKey() != null) {
-            builder.apiKey(apiKey());
-        }
+        apiKey().ifPresent(builder::apiKey);
         return builder.build();
     }
 }

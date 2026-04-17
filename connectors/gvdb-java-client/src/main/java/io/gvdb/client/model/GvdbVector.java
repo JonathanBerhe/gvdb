@@ -1,5 +1,6 @@
 package io.gvdb.client.model;
 
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
 
@@ -22,5 +23,26 @@ public record GvdbVector(long id, float[] values, Map<String, Object> metadata) 
 
     public int dimension() {
         return values.length;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof GvdbVector other)) return false;
+        return id == other.id
+                && Arrays.equals(values, other.values)
+                && Objects.equals(metadata, other.metadata);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id, Arrays.hashCode(values), metadata);
+    }
+
+    @Override
+    public String toString() {
+        return "GvdbVector[id=" + id
+                + ", values=" + Arrays.toString(values)
+                + ", metadata=" + metadata + "]";
     }
 }
