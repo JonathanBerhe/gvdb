@@ -3,6 +3,7 @@
 
 #include "storage/filesystem_object_store.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstring>
@@ -286,6 +287,12 @@ core::StatusOr<stdfs::path> FilesystemObjectStore::KeyToPath(
 
   // Lexical normalisation collapses "a/../b" to "b" without touching the
   // filesystem. After normalisation, the result must still live under root.
+  //
+  // Caveat: this check is purely textual. A pre-existing symlink inside root
+  // that points outside root would still let writes escape. That is outside
+  // our current threat model (single-tenant, operator-provisioned root);
+  // tighten with std::filesystem::weakly_canonical if multi-tenant use-cases
+  // appear.
   const stdfs::path normalised = candidate.lexically_normal();
   const std::string root_str = root_.lexically_normal().generic_string();
   const std::string norm_str = normalised.generic_string();
@@ -348,6 +355,9 @@ core::StatusOr<std::vector<std::string>> FilesystemObjectStore::ListObjects(
     return std::vector<std::string>{};
   }
 
+  // TODO(perf): when `prefix` contains a directory component, start the walk
+  // at {root}/{dir_part_of_prefix} instead of {root}. O(matching-subtree)
+  // instead of O(root-subtree); only matters for large stores.
   std::vector<std::string> result;
   for (const auto& entry : stdfs::recursive_directory_iterator(root_, ec)) {
     if (ec) {

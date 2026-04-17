@@ -304,6 +304,54 @@ TEST_CASE_TEMPLATE(
   }
 }
 
+TEST_CASE_TEMPLATE(
+    "ObjectStore contract: concurrent overwrites of a single key converge "
+    "to one of the written values",
+    Fixture, OBJECT_STORE_FIXTURES) {
+  // Stresses the atomic-rename invariant of the filesystem backend and the
+  // mutex invariant of the in-memory backend. We don't care *which* writer
+  // wins — only that the final value is a full payload that one of them
+  // actually wrote (no partial file, no empty blob, no mangled bytes).
+  Fixture f;
+  auto& store = f.Get();
+
+  constexpr int kThreads = 8;
+  constexpr int kOpsPerThread = 50;
+  const std::string kKey = "shared-key";
+
+  // Enumerate the full set of payloads up-front so the final read can be
+  // validated against a membership check.
+  std::vector<std::string> all_payloads;
+  all_payloads.reserve(kThreads * kOpsPerThread);
+  for (int t = 0; t < kThreads; ++t) {
+    for (int i = 0; i < kOpsPerThread; ++i) {
+      all_payloads.push_back("t" + std::to_string(t) + "-" +
+                             std::to_string(i));
+    }
+  }
+
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads);
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&store, &kKey, t]() {
+      for (int i = 0; i < kOpsPerThread; ++i) {
+        const std::string payload = "t" + std::to_string(t) + "-" +
+                                    std::to_string(i);
+        REQUIRE(store.PutObject(kKey, payload).ok());
+      }
+    });
+  }
+  for (auto& th : threads) th.join();
+
+  auto final_value = store.GetObject(kKey);
+  REQUIRE(final_value.ok());
+  const auto match = std::find(all_payloads.begin(), all_payloads.end(),
+                                *final_value);
+  CHECK_MESSAGE(match != all_payloads.end(),
+                "final value not one of the written payloads: '",
+                *final_value, "'");
+}
+
 // ============================================================================
 // InMemoryObjectStore-specific tests (test helpers not on the interface)
 // ============================================================================
@@ -406,6 +454,46 @@ TEST_CASE("FilesystemObjectStore: PutObject creates parent directories") {
   REQUIRE(store.PutObject("deep/nested/path/obj.bin", "hello").ok());
   CHECK(std::filesystem::exists(f.store->Root() / "deep" / "nested" /
                                  "path" / "obj.bin"));
+}
+
+TEST_CASE(
+    "FilesystemObjectStore: user keys containing '.tmp.' are first-class") {
+  // Regression guard for an earlier design that filtered ".tmp." from
+  // listings as a sentinel: user-controlled keys like archive.tmp.2024 or
+  // configs/.tmp.json were silently hidden. With the reserved-subdir design
+  // these keys are indistinguishable from any other object.
+  FilesystemObjectStoreFixture f;
+  auto& store = f.Get();
+
+  REQUIRE(store.PutObject("configs/.tmp.json", "{}").ok());
+  REQUIRE(store.PutObject("archive.tmp.2024", "payload").ok());
+
+  auto listed = store.ListObjects("");
+  REQUIRE(listed.ok());
+  CHECK(std::find(listed->begin(), listed->end(), "configs/.tmp.json") !=
+        listed->end());
+  CHECK(std::find(listed->begin(), listed->end(), "archive.tmp.2024") !=
+        listed->end());
+
+  auto got = store.GetObject("configs/.tmp.json");
+  REQUIRE(got.ok());
+  CHECK_EQ(*got, "{}");
+}
+
+TEST_CASE(
+    "FilesystemObjectStore: keys under the reserved .gvdb-tmp/ prefix "
+    "are rejected") {
+  FilesystemObjectStoreFixture f;
+  auto& store = f.Get();
+
+  CHECK_EQ(store.PutObject(".gvdb-tmp/x", "x").code(),
+           absl::StatusCode::kInvalidArgument);
+  CHECK_EQ(store.PutObject(".gvdb-tmp/deep/nested/obj", "x").code(),
+           absl::StatusCode::kInvalidArgument);
+
+  // Sanity: a key that merely *contains* '.gvdb-tmp' without being at the
+  // start of the path is fine. Only the leading prefix is reserved.
+  CHECK(store.PutObject("logs/.gvdb-tmp-alike", "x").ok());
 }
 
 }  // namespace
