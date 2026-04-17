@@ -32,6 +32,21 @@ final class GvdbSinkWriter<T> implements SinkWriter<T> {
     GvdbSinkWriter(String target, String collection, String apiKey,
                    int batchSize, int maxRetries, int timeoutSeconds,
                    RecordMapper<T> recordMapper) {
+        this(buildClient(target, apiKey, batchSize, maxRetries, timeoutSeconds),
+                collection, batchSize, recordMapper);
+    }
+
+    // Test seam: inject a pre-built client.
+    GvdbSinkWriter(GvdbClient client, String collection, int batchSize, RecordMapper<T> recordMapper) {
+        this.client = client;
+        this.collection = collection;
+        this.batchSize = batchSize;
+        this.recordMapper = recordMapper;
+        this.buffer = new ArrayList<>(batchSize);
+    }
+
+    private static GvdbClient buildClient(String target, String apiKey,
+                                          int batchSize, int maxRetries, int timeoutSeconds) {
         var configBuilder = GvdbClientConfig.builder(target)
                 .batchSize(batchSize)
                 .maxRetries(maxRetries)
@@ -40,11 +55,7 @@ final class GvdbSinkWriter<T> implements SinkWriter<T> {
         if (apiKey != null) {
             configBuilder.apiKey(apiKey);
         }
-        this.client = new GvdbClient(configBuilder.build());
-        this.collection = collection;
-        this.batchSize = batchSize;
-        this.recordMapper = recordMapper;
-        this.buffer = new ArrayList<>(batchSize);
+        return new GvdbClient(configBuilder.build());
     }
 
     @Override
