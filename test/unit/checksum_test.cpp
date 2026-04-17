@@ -15,8 +15,6 @@
 
 #include "utils/checksum.h"
 
-namespace fs = std::filesystem;
-
 namespace gvdb {
 namespace utils {
 namespace test {
@@ -215,30 +213,30 @@ TEST_CASE("XXH64Hasher is movable") {
 class TempDirFixture {
  public:
   TempDirFixture() {
-    dir_ = fs::temp_directory_path() /
+    dir_ = std::filesystem::temp_directory_path() /
            ("gvdb_checksum_test_" + std::to_string(std::random_device{}()));
-    fs::create_directories(dir_);
+    std::filesystem::create_directories(dir_);
   }
   ~TempDirFixture() {
     std::error_code ec;
-    fs::remove_all(dir_, ec);  // best-effort, don't throw in dtor
+    std::filesystem::remove_all(dir_, ec);  // best-effort, don't throw in dtor
   }
 
-  [[nodiscard]] fs::path write_file(std::string_view name,
+  [[nodiscard]] std::filesystem::path write_file(std::string_view name,
                                     std::string_view contents) const {
-    const fs::path p = dir_ / name;
+    const std::filesystem::path p = dir_ / name;
     std::ofstream out(p, std::ios::binary);
     out.write(contents.data(), static_cast<std::streamsize>(contents.size()));
     return p;
   }
 
  protected:
-  fs::path dir_;
+  std::filesystem::path dir_;
 };
 
 TEST_CASE_FIXTURE(TempDirFixture, "XXH64HashFile matches one-shot on small file") {
   const std::string payload = "small file payload";
-  const fs::path p = write_file("small.bin", payload);
+  const std::filesystem::path p = write_file("small.bin", payload);
 
   auto digest = XXH64HashFile(p.string());
   REQUIRE(digest.ok());
@@ -246,7 +244,7 @@ TEST_CASE_FIXTURE(TempDirFixture, "XXH64HashFile matches one-shot on small file"
 }
 
 TEST_CASE_FIXTURE(TempDirFixture, "XXH64HashFile handles empty file") {
-  const fs::path p = write_file("empty.bin", std::string_view{});
+  const std::filesystem::path p = write_file("empty.bin", std::string_view{});
 
   auto digest = XXH64HashFile(p.string());
   REQUIRE(digest.ok());
@@ -262,7 +260,7 @@ TEST_CASE_FIXTURE(TempDirFixture,
   for (auto& c : payload) {
     c = static_cast<char>(rng() & 0xFF);
   }
-  const fs::path p = write_file("large.bin", payload);
+  const std::filesystem::path p = write_file("large.bin", payload);
 
   auto digest = XXH64HashFile(p.string());
   REQUIRE(digest.ok());
