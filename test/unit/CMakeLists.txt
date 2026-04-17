@@ -149,6 +149,24 @@ set_tests_properties(UtilsTests PROPERTIES
   TIMEOUT 60
 )
 
+# Checksum (xxHash64) tests
+add_executable(checksum_tests
+  checksum_test.cpp
+)
+
+target_link_libraries(checksum_tests
+  PRIVATE
+    gvdb_utils
+    gvdb_core
+    doctest::doctest_with_main
+)
+
+add_test(NAME ChecksumTests COMMAND checksum_tests)
+
+set_tests_properties(ChecksumTests PROPERTIES
+  TIMEOUT 30
+)
+
 # Compute module tests
 add_executable(compute_tests
   compute_test.cpp

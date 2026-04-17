@@ -72,6 +72,36 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(doctest)
 
 # ============================================================================
+# xxHash - Fast non-cryptographic 64-bit checksum
+# ============================================================================
+# Used by backup/restore manifests to verify archive integrity. Built as a
+# static library via xxHash's cmake_unofficial subdirectory, which exposes the
+# xxHash::xxhash target.
+if(USE_SYSTEM_DEPENDENCIES)
+  find_package(xxHash QUIET)
+endif()
+
+if(NOT xxHash_FOUND)
+  message(STATUS "Fetching xxHash...")
+  FetchContent_Declare(
+    xxhash
+    GIT_REPOSITORY https://github.com/Cyan4973/xxHash.git
+    GIT_TAG        v0.8.2
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cmake_unofficial
+  )
+
+  set(XXHASH_BUILD_XXHSUM OFF CACHE BOOL "" FORCE)
+  set(XXHASH_BUILD_ENABLE_INLINE_API ON CACHE BOOL "" FORCE)
+  set(_SAVE_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+  FetchContent_MakeAvailable(xxhash)
+
+  set(BUILD_SHARED_LIBS ${_SAVE_BUILD_SHARED_LIBS} CACHE BOOL "" FORCE)
+endif()
+
+# ============================================================================
 # OpenMP - Parallel processing support
 # ============================================================================
 # For containers: Install libomp in your Dockerfile
