@@ -61,7 +61,7 @@ public final class GvdbClient implements Closeable {
                 .setMetric(ProtoConverter.toProtoMetric(metric))
                 .setIndexType(ProtoConverter.toProtoIndex(indexType))
                 .build());
-        return new CollectionInfo(name, resp.getCollectionId(), dimension, metric.name(), 0);
+        return new CollectionInfo(name, resp.getCollectionId(), dimension, metric, 0);
     }
 
     public void dropCollection(String name) {
@@ -127,15 +127,15 @@ public final class GvdbClient implements Closeable {
 
         try {
             if (!latch.await(config.timeout().toSeconds(), TimeUnit.SECONDS)) {
-                throw new RuntimeException("StreamInsert timed out after " + config.timeout().toSeconds() + "s");
+                throw new GvdbTimeoutException("StreamInsert timed out after " + config.timeout().toSeconds() + "s");
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("StreamInsert interrupted", e);
+            throw new GvdbConnectionException("StreamInsert interrupted", e);
         }
 
         if (error.get() != null) {
-            throw new RuntimeException("StreamInsert failed", error.get());
+            throw new GvdbConnectionException("StreamInsert failed", error.get());
         }
         return totalInserted.get();
     }
@@ -192,7 +192,7 @@ public final class GvdbClient implements Closeable {
     public void healthCheck() {
         var resp = stub().healthCheck(HealthCheckRequest.getDefaultInstance());
         if (resp.getStatus() != HealthCheckResponse.Status.SERVING) {
-            throw new RuntimeException("Server not healthy: " + resp.getStatus() + " " + resp.getMessage());
+            throw new GvdbHealthException("Server not healthy: " + resp.getStatus() + " " + resp.getMessage());
         }
     }
 

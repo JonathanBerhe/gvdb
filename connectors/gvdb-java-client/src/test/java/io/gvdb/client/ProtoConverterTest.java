@@ -2,6 +2,7 @@ package io.gvdb.client;
 
 import io.gvdb.client.model.GvdbVector;
 import io.gvdb.client.model.ImportStatus;
+import io.gvdb.client.model.MetricType;
 import io.gvdb.proto.*;
 import org.junit.jupiter.api.Test;
 
@@ -93,8 +94,29 @@ class ProtoConverterTest {
         assertEquals("test_col", info.name());
         assertEquals(1, info.id());
         assertEquals(128, info.dimension());
-        assertEquals("COSINE", info.metricType());
+        assertEquals(MetricType.COSINE, info.metricType());
         assertEquals(50000, info.vectorCount());
+    }
+
+    @Test
+    void collectionInfoFromProtoLowercaseMetric() {
+        var proto = io.gvdb.proto.CollectionInfo.newBuilder()
+                .setCollectionName("c")
+                .setMetricType("l2")
+                .build();
+
+        assertEquals(MetricType.L2, ProtoConverter.fromProto(proto).metricType());
+    }
+
+    @Test
+    void collectionInfoFromProtoUnknownMetricThrows() {
+        var proto = io.gvdb.proto.CollectionInfo.newBuilder()
+                .setCollectionName("c")
+                .setMetricType("HAMMING")
+                .build();
+
+        var ex = assertThrows(IllegalArgumentException.class, () -> ProtoConverter.fromProto(proto));
+        assertTrue(ex.getMessage().contains("HAMMING"));
     }
 
     @Test
