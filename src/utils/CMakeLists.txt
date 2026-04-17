@@ -10,6 +10,7 @@ add_library(gvdb_utils
   env_flags.cpp
   query_cache.cpp
   audit_logger.cpp
+  checksum.cpp
 )
 
 # Link dependencies
@@ -21,6 +22,7 @@ target_link_libraries(gvdb_utils
     prometheus-cpp::pull
   PRIVATE
     yaml-cpp
+    xxHash::xxhash
     ${_GRPC_GRPCPP}
 )
 
