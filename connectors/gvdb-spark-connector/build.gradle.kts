@@ -43,9 +43,6 @@ publishing {
         create<MavenPublication>("maven") {
             from(components["java"])
             artifactId = "gvdb-spark-connector_2.13"
-
-            // Also publish the shadow JAR
-            artifact(tasks.shadowJar)
         }
     }
     repositories {
