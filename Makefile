@@ -47,8 +47,11 @@ test:
 test-e2e:
 	@cd $(E2E_DIR) && GVDB_SERVER_ADDR=$(GVDB_SERVER_ADDR) ./run_all_tests.sh
 
+# Kind clusters are typically resource-constrained; default GVDB_E2E_SCALE to
+# 0.2 so the load test doesn't OOM the proxy. Any value set in the caller's
+# environment still wins thanks to the `${VAR:-default}` shell expansion.
 test-e2e-kind:
-	@cd $(E2E_DIR) && GVDB_SERVER_ADDR=localhost:50050 NO_SERVER=true ./run_all_tests.sh
+	@cd $(E2E_DIR) && GVDB_SERVER_ADDR=localhost:50050 NO_SERVER=true GVDB_E2E_SCALE=$${GVDB_E2E_SCALE:-0.2} ./run_all_tests.sh
 
 test-s3:
 	@echo "Starting MinIO..."

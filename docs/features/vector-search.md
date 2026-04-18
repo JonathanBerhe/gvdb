@@ -88,4 +88,3 @@ Every CPU-bound distance kernel uses runtime CPU feature detection (SSE, AVX2, A
 ## Further reading
 
 - [Hybrid search](hybrid-search.md) — combine dense vectors with BM25 text and sparse vectors
-- [Architecture — storage](../architecture/storage.md) — how segments and indexes live on disk

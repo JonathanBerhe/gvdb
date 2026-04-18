@@ -13,7 +13,7 @@ A distributed GVDB cluster has four roles:
 | **Query node** | Distributed search with fan-out and result merging. Scale for QPS. |
 | **Proxy** | Client entry point, request routing, load balancing. |
 
-Clients always talk to the proxy. See the [architecture overview](../architecture/overview.md) for the full diagram.
+Clients always talk to the proxy.
 
 ## Deploy with Helm
 
@@ -71,13 +71,10 @@ helm upgrade gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
 
 Collections are distributed across data nodes using consistent hashing (150 virtual nodes). No manual shard configuration — the coordinator assigns shards on collection creation and rebalances when nodes join or leave.
 
-See [Architecture — storage](../architecture/storage.md) for details on the sharding strategy.
-
 ## Replication and fault tolerance
 
 - Data nodes replicate segments for durability; replica count is configurable per collection.
 - The coordinator auto-detects node failures via heartbeat and promotes replicas.
-- See [Architecture — consensus](../architecture/consensus.md) for the Raft implementation.
 
 ## Persistence and tiered storage
 
