@@ -8,7 +8,7 @@ First-party Apache Spark DataSource v2 connector. Read and write GVDB collection
 
     ```kotlin
     dependencies {
-        implementation("io.gvdb:gvdb-spark-connector_2.13:0.16.0")
+        implementation("io.gvdb:gvdb-spark-connector_2.13:0.17.0") // x-release-please-version
     }
     ```
 
@@ -18,14 +18,14 @@ First-party Apache Spark DataSource v2 connector. Read and write GVDB collection
     <dependency>
       <groupId>io.gvdb</groupId>
       <artifactId>gvdb-spark-connector_2.13</artifactId>
-      <version>0.16.0</version>
+      <version>0.17.0</version> <!-- x-release-please-version -->
     </dependency>
     ```
 
 === "spark-submit"
 
     ```bash
-    spark-submit --packages io.gvdb:gvdb-spark-connector_2.13:0.16.0 my_job.py
+    spark-submit --packages io.gvdb:gvdb-spark-connector_2.13:0.17.0 my_job.py # x-release-please-version
     ```
 
 Built for **Spark 3.5+** on **Scala 2.13**. JVM 17.

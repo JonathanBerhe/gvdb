@@ -8,7 +8,7 @@ First-party Apache Flink sink connector. Write streaming embeddings to GVDB with
 
     ```kotlin
     dependencies {
-        implementation("io.gvdb:gvdb-flink-connector:0.16.0")
+        implementation("io.gvdb:gvdb-flink-connector:0.17.0") // x-release-please-version
     }
     ```
 
@@ -18,7 +18,7 @@ First-party Apache Flink sink connector. Write streaming embeddings to GVDB with
     <dependency>
       <groupId>io.gvdb</groupId>
       <artifactId>gvdb-flink-connector</artifactId>
-      <version>0.16.0</version>
+      <version>0.17.0</version> <!-- x-release-please-version -->
     </dependency>
     ```
 
@@ -26,7 +26,7 @@ First-party Apache Flink sink connector. Write streaming embeddings to GVDB with
 
     ```bash
     flink run -c io.gvdb.examples.FlinkSinkExample \
-        -C /path/to/gvdb-flink-connector-0.16.0-all.jar \
+        -C /path/to/gvdb-flink-connector-0.17.0-all.jar \ # x-release-please-version
         /path/to/your-job.jar
     ```
 
