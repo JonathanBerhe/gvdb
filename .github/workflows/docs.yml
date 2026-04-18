@@ -1,0 +1,62 @@
+name: Docs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - 'README.md'
+      - 'ROADMAP.md'
+      - 'CHANGELOG.md'
+      - 'clients/python/README.md'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - 'README.md'
+      - 'ROADMAP.md'
+      - 'CHANGELOG.md'
+      - 'clients/python/README.md'
+      - '.github/workflows/docs.yml'
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Zensical
+        run: |
+          uv venv .venv-docs
+          uv pip install --python .venv-docs/bin/python -r requirements-docs.txt
+      - name: Build
+        run: .venv-docs/bin/zensical build
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    environment:
+      name: github-pages
+      url: ${{ steps.zensical.outputs.page_url }}
+    steps:
+      # Pinned to v1.0.7 SHA to prevent a mutable tag from gaining deploy permissions.
+      - name: Build and deploy Zensical site
+        id: zensical
+        uses: cssnr/zensical-action@4a85be625b4c38e82cb7b3c1c8a9683c86807468

@@ -1,0 +1,139 @@
+site_name: GVDB
+site_description: Distributed vector database for billion-scale similarity search
+site_author: Jonathan Berhe
+site_url: https://jonathanberhe.github.io/gvdb/
+
+repo_url: https://github.com/JonathanBerhe/gvdb
+repo_name: JonathanBerhe/gvdb
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - navigation.tracking
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+    - search.share
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      permalink_title: Anchor link to this section
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/JonathanBerhe/gvdb
+  generator: false
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+      - Distributed Cluster: getting-started/distributed-cluster.md
+  - Features:
+      - Vector Search: features/vector-search.md
+      - TurboQuant: features/turboquant.md
+      - Sparse Vectors: features/sparse-vectors.md
+      - Hybrid Search: features/hybrid-search.md
+      - Metadata Filtering: features/metadata-filtering.md
+      - TTL: features/ttl.md
+      - RBAC: features/rbac.md
+      - Tiered Storage: features/tiered-storage.md
+      - GPU Acceleration: features/gpu-acceleration.md
+      - Persistence: features/persistence.md
+  - Use Cases:
+      - RAG: use-cases/rag.md
+      - Semantic Search: use-cases/semantic-search.md
+      - Bulk Ingestion: use-cases/bulk-ingestion.md
+      - Streaming Ingestion: use-cases/streaming-ingestion.md
+  - Python SDK:
+      - Overview: python-sdk/index.md
+      - Client API: python-sdk/client.md
+      - Bulk Import: python-sdk/bulk-import.md
+      - Examples: python-sdk/examples.md
+  - Connectors:
+      - Spark: connectors/spark.md
+      - Flink: connectors/flink.md
+      - Java Client: connectors/java-client.md
+  - Architecture:
+      - Overview: architecture/overview.md
+      - Modules: architecture/modules.md
+      - Consensus: architecture/consensus.md
+      - Storage: architecture/storage.md
+  - Operations:
+      - Deploy with Helm: operations/deploy-helm.md
+      - Deploy with Docker: operations/deploy-docker.md
+      - Configuration: operations/configuration.md
+      - Monitoring: operations/monitoring.md
+      - Security: operations/security.md
+  - Reference:
+      - CLI: reference/cli.md
+      - Config: reference/config.md
+  - Roadmap: roadmap.md
+  - Changelog: changelog.md
+  - Contributing: contributing.md
