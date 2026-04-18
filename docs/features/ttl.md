@@ -48,4 +48,3 @@ A background thread in each `gvdb-single-node` and `gvdb-data-node` process peri
 ## See also
 
 - [Client API — insert](../python-sdk/client.md#insert)
-- [Architecture — storage](../architecture/storage.md) for segment lifecycle
