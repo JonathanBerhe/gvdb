@@ -5,6 +5,7 @@ add_library(gvdb_storage
   segment_manager.cpp
   scalar_index.cpp
   object_store.cpp
+  filesystem_object_store.cpp
   segment_cache.cpp
   segment_manifest.cpp
   tiered_segment_manager.cpp
