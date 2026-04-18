@@ -5,7 +5,8 @@
        build-ui run-ui \
        lint-sdk test-sdk test-sdk-kind generate-python-stubs \
        bench-metal \
-       build-connectors test-connectors
+       build-connectors test-connectors \
+       docs-install docs-serve docs-build
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -149,6 +150,21 @@ port-forward:
 
 status:
 	kubectl get pods -n $(HELM_NAMESPACE) -o wide
+
+# ---------------------------------------------------------------------------
+# Documentation (Zensical — https://zensical.org)
+# ---------------------------------------------------------------------------
+DOCS_VENV = .venv-docs
+
+docs-install:
+	@[ -d $(DOCS_VENV) ] || uv venv $(DOCS_VENV)
+	@uv pip install --python $(DOCS_VENV)/bin/python -r requirements-docs.txt
+
+docs-serve: docs-install
+	@$(DOCS_VENV)/bin/zensical serve
+
+docs-build: docs-install
+	@$(DOCS_VENV)/bin/zensical build
 
 # ---------------------------------------------------------------------------
 # Web UI

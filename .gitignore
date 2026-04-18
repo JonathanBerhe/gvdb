@@ -109,8 +109,9 @@ STORAGE_COMPACTION_OPTIONS.md
 **/CLAUDE.md
 ROADMAP_DISTRIBUTED.md
 
-# Documentation (auto-generated)
-docs/
+# Documentation (Zensical build output)
+site/
+.venv-docs/
 
 # Compiled Go test binaries
 test/e2e/e2e_test
