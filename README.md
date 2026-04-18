@@ -4,6 +4,8 @@ A high-performance distributed vector database written in C++ for similarity sea
 
 Store, index, and search high-dimensional vectors (embeddings from OpenAI, Cohere, HuggingFace, etc.) with sub-millisecond latency. Use it to power semantic search, recommendation engines, RAG pipelines, image retrieval, and anomaly detection.
 
+**Documentation**: [jonathanberhe.github.io/gvdb](https://jonathanberhe.github.io/gvdb/)
+
 ## Features
 
 - **Vector Search**: FLAT, HNSW, IVF_FLAT, IVF_PQ, IVF_SQ, TurboQuant, IVF_TURBOQUANT index types + AUTO selection
