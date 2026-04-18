@@ -1,23 +1,10 @@
 # CLI reference
 
-Common flags for every GVDB binary. All flags have environment-variable equivalents via `GVDB_<UPPER_CASE_NAME>`.
+Flag lists for each GVDB binary. **Authoritative source**: [`src/main/*.cpp`](https://github.com/JonathanBerhe/gvdb/tree/main/src/main) — run `<binary> --help` for the version you have installed.
 
-## Shared flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--config <path>` | — | Path to YAML config file |
-| `--bind-address <host:port>` | `0.0.0.0:50051` | gRPC bind address |
-| `--advertise-address <host:port>` | `<bind-address>` | Address advertised to other nodes |
-| `--data-dir <path>` | `./gvdb-data` | Local data directory |
-| `--node-id <int>` | `1` | Unique node ID (required for clustered binaries) |
-| `--log-level <level>` | `info` | `trace` / `debug` / `info` / `warn` / `error` |
-| `--help` | | Print help |
-| `--version` | | Print version |
+Flag vs. env-var vs. YAML: a CLI flag overrides the environment variable, which overrides the YAML config, which overrides the built-in default.
 
 ## `gvdb-single-node`
-
-All-in-one server for dev and small workloads.
 
 ```bash
 gvdb-single-node --port 50051 --data-dir /var/lib/gvdb
@@ -25,28 +12,35 @@ gvdb-single-node --port 50051 --data-dir /var/lib/gvdb
 
 | Flag | Description |
 |------|-------------|
-| `--port <int>` | gRPC port (alias for `--bind-address :PORT`) |
-| `--http-port <int>` | Health + metrics port (default `8080`) |
+| `--config FILE` | YAML config file (optional) |
+| `--port PORT` | gRPC server port. Default `50051`. |
+| `--data-dir PATH` | Data directory. Default `/tmp/gvdb`. |
+| `--node-id ID` | Node ID. Default `1`. |
+| `--help`, `-h` | Show help |
 
 ## `gvdb-coordinator`
-
-Cluster metadata via Raft consensus.
 
 ```bash
 gvdb-coordinator \
   --node-id 1 \
   --bind-address 0.0.0.0:50051 \
-  --peers 10.0.0.2:50051,10.0.0.3:50051
+  --raft-address 0.0.0.0:50052 \
+  --raft-peers 2@host-b:50052,3@host-c:50052
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--peers <list>` | Comma-separated list of peer coordinators |
-| `--raft-dir <path>` | Raft log directory (default `<data-dir>/raft`) |
+| `--config FILE` | YAML config file |
+| `--node-id ID` | Node ID (unique per coordinator) |
+| `--bind-address HOST:PORT` | gRPC bind address |
+| `--advertise-address HOST:PORT` | Address advertised to peers (defaults to bind) |
+| `--raft-address HOST:PORT` | Raft transport bind address |
+| `--raft-peers ID@HOST:PORT,...` | Peer coordinators |
+| `--data-dir PATH` | Data directory |
+| `--single-node` | Run as a single-node Raft (no peers required) |
+| `--help`, `-h` | Show help |
 
 ## `gvdb-data-node`
-
-Sharded vector storage.
 
 ```bash
 gvdb-data-node \
@@ -57,12 +51,17 @@ gvdb-data-node \
 
 | Flag | Description |
 |------|-------------|
-| `--coordinator <host:port>` | Coordinator address (repeatable) |
-| `--memory-limit-gb <int>` | Memory budget for vector storage |
+| `--config FILE` | YAML config file |
+| `--node-id ID` | Node ID |
+| `--bind-address HOST:PORT` | gRPC bind address |
+| `--advertise-address HOST:PORT` | Address advertised to cluster |
+| `--coordinator HOST:PORT` | Coordinator address (repeatable for HA) |
+| `--shards N` | Number of shards this node owns |
+| `--memory-limit-gb N` | Memory budget for vector data |
+| `--data-dir PATH` | Data directory |
+| `--help`, `-h` | Show help |
 
 ## `gvdb-query-node`
-
-Search fan-out and result merging.
 
 ```bash
 gvdb-query-node \
@@ -71,9 +70,17 @@ gvdb-query-node \
   --coordinator localhost:50051
 ```
 
-## `gvdb-proxy`
+| Flag | Description |
+|------|-------------|
+| `--node-id ID` | Node ID |
+| `--bind-address HOST:PORT` | gRPC bind address |
+| `--advertise-address HOST:PORT` | Address advertised to cluster |
+| `--coordinator HOST:PORT` | Coordinator address |
+| `--memory-limit-gb N` | Memory budget |
+| `--data-dir PATH` | Data directory |
+| `--help`, `-h` | Show help |
 
-Client entry point.
+## `gvdb-proxy`
 
 ```bash
 gvdb-proxy \
@@ -85,20 +92,25 @@ gvdb-proxy \
 
 | Flag | Description |
 |------|-------------|
-| `--coordinators <list>` | Coordinator addresses |
-| `--data-nodes <list>` | Data node addresses (seed list) |
-| `--query-nodes <list>` | Query node addresses (seed list) |
+| `--config FILE` | YAML config file |
+| `--node-id ID` | Node ID |
+| `--bind-address HOST:PORT` | gRPC bind address |
+| `--coordinators LIST` | Comma-separated coordinator addresses |
+| `--data-nodes LIST` | Comma-separated data-node addresses (seed list) |
+| `--query-nodes LIST` | Comma-separated query-node addresses (seed list) |
+| `--data-dir PATH` | Data directory |
+| `--help`, `-h` | Show help |
 
 ## Environment variables
 
-Equivalent env vars override the same settings:
+Partial env-var override is supported for cloud-native deployments:
 
-- `GVDB_CONFIG`
-- `GVDB_BIND_ADDRESS`
-- `GVDB_ADVERTISE_ADDRESS`
-- `GVDB_DATA_DIR`
-- `GVDB_NODE_ID`
-- `GVDB_LOG_LEVEL`
+| Var | Honored by | Replaces |
+|-----|------------|----------|
+| `GVDB_BIND_ADDRESS` | all clustered binaries | `--bind-address` |
+| `GVDB_ADVERTISE_ADDRESS` | coordinator, data-node, query-node | `--advertise-address` |
+| `GVDB_DATA_DIR` | all | `--data-dir` |
+| `GVDB_RAFT_ADDRESS` | coordinator | `--raft-address` |
 
 Precedence: **flag > env var > YAML > default**.
 

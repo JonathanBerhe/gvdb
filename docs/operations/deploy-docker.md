@@ -17,26 +17,28 @@ The image publishes both GVDB binaries and supporting libraries. The same image 
 
 ## Environment variables
 
-All binaries accept env vars for cloud-native deployments:
+The clustered binaries honor a handful of env vars:
 
-| Var | Effect |
-|-----|--------|
-| `GVDB_BIND_ADDRESS` | Override `--bind-address` |
-| `GVDB_ADVERTISE_ADDRESS` | Override `--advertise-address` |
-| `GVDB_DATA_DIR` | Override `--data-dir` |
-| `GVDB_CONFIG` | Path to YAML config file |
+| Var | Honored by | Replaces |
+|-----|------------|----------|
+| `GVDB_BIND_ADDRESS` | coordinator, data-node, query-node, proxy | `--bind-address` |
+| `GVDB_ADVERTISE_ADDRESS` | coordinator, data-node, query-node | `--advertise-address` |
+| `GVDB_DATA_DIR` | all clustered binaries | `--data-dir` |
+| `GVDB_RAFT_ADDRESS` | coordinator | `--raft-address` |
+
+`gvdb-single-node` does not read env vars — use `--config`, `--port`, `--data-dir`, `--node-id` flags.
 
 Example:
 
 ```bash
 docker run -d \
-  -e GVDB_BIND_ADDRESS=0.0.0.0:50051 \
-  -e GVDB_ADVERTISE_ADDRESS=gvdb.example.com:50051 \
+  -e GVDB_BIND_ADDRESS=0.0.0.0:50060 \
+  -e GVDB_ADVERTISE_ADDRESS=data-1.gvdb.svc:50060 \
   -e GVDB_DATA_DIR=/var/lib/gvdb \
   -v "$PWD/gvdb-data:/var/lib/gvdb" \
-  -p 50051:50051 \
+  -p 50060:50060 \
   ghcr.io/jonathanberhe/gvdb:latest \
-  gvdb-single-node
+  gvdb-data-node --node-id 101 --coordinator coord.gvdb.svc:50051
 ```
 
 ## Config file
@@ -56,14 +58,14 @@ Example `config.yaml`:
 
 ```yaml
 server:
+  bind_address: "0.0.0.0"
   grpc_port: 50051
   auth:
     enabled: true
-    rbac:
-      users:
-        - api_key: "admin-key"
-          role: admin
-          collections: ["*"]
+    roles:
+      - key: "admin-key"
+        role: admin
+        collections: ["*"]
 
 storage:
   data_dir: /var/lib/gvdb

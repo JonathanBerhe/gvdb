@@ -46,9 +46,10 @@ for h in hits:
 
 ```python
 # "Users who viewed X also viewed..."
+viewed = client.get("catalog", [viewed_item_id])   # list of dicts
 results = client.search(
     "catalog",
-    query_vector=client.get("catalog", [viewed_item_id])[0].vector,
+    query_vector=viewed[0]["vector"],
     top_k=10,
     filter_expression="category = 'electronics'",
 )
@@ -68,7 +69,7 @@ results = client.search("images", query_vector=clip_encode_text("a dog on a beac
 
 ## Anomaly detection
 
-Anomalies are points far from their nearest neighbours in embedding space. Use [range search](../python-sdk/client.md) with a radius threshold, or compute the mean distance to the top-k and flag outliers:
+Anomalies are points far from their nearest neighbours in embedding space. Use [range search](../python-sdk/client.md#range-search-by-radius) with a radius threshold, or compute the mean distance to the top-k and flag outliers:
 
 ```python
 results = client.search("transactions", query_vector=candidate, top_k=10)

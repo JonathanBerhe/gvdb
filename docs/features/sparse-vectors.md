@@ -9,43 +9,52 @@ GVDB supports sparse retrieval for **learned sparse embeddings** like SPLADE —
 
 ## How it works
 
-Sparse vectors are stored in an **inverted posting-list index**. For each non-zero dimension, GVDB keeps a posting list of `(vector_id, weight)` pairs sorted by weight. Query evaluation uses WAND-style top-k with dynamic pruning.
+Sparse vectors are stored in an **inverted posting-list index**. For each non-zero dimension, GVDB keeps a posting list sorted by weight. Query evaluation uses WAND-style top-k with dynamic pruning.
 
 ## Insert
 
-Use `SparseVector` with a dict of `{dim: weight}`:
+In the Python SDK, sparse vectors are plain `dict[int, float]` — there is **no `SparseVector` class**. Pass them alongside dense vectors (or on their own) through `sparse_vectors=` on `insert`:
 
 ```python
-from gvdb import GVDBClient, SparseVector
+from gvdb import GVDBClient
 
 client = GVDBClient("localhost:50051")
-client.create_collection_sparse("sparse_col")
+client.create_collection("docs", dimension=768, metric="cosine")
 
-client.insert_sparse(
-    "sparse_col",
+# Mix dense + sparse in a single insert
+client.insert(
+    "docs",
     ids=[1, 2, 3],
+    vectors=[dense_emb_1, dense_emb_2, dense_emb_3],
     sparse_vectors=[
-        SparseVector({42: 0.8, 137: 0.3, 2048: 1.2}),
-        SparseVector({7: 0.5, 42: 0.9}),
-        SparseVector({137: 1.1, 9999: 0.4}),
+        {42: 0.8, 137: 0.3, 2048: 1.2},
+        {7: 0.5, 42: 0.9},
+        {137: 1.1, 9999: 0.4},
     ],
 )
 ```
 
 ## Search
 
+Sparse-only search is not exposed as a dedicated method in the Python SDK. Use `hybrid_search` with `sparse_weight=1.0` and `vector_weight=0.0` to effectively do sparse-only retrieval:
+
 ```python
-query = SparseVector({42: 0.7, 137: 0.5})
-results = client.search_sparse("sparse_col", query, top_k=10)
-for r in results:
-    print(r.id, r.distance)
+results = client.hybrid_search(
+    "docs",
+    sparse_query={42: 0.7, 137: 0.5},
+    top_k=10,
+    vector_weight=0.0,
+    text_weight=0.0,
+    sparse_weight=1.0,
+)
 ```
 
 ## Three-way hybrid
 
-Sparse shines in combination with dense vectors and BM25 full-text via Reciprocal Rank Fusion. See [hybrid search](hybrid-search.md).
+Sparse shines in combination with dense vectors and BM25 full-text via weighted fusion. See [hybrid search](hybrid-search.md).
 
-## Further reading
+## See also
 
 - [Hybrid search](hybrid-search.md) — dense + sparse + BM25 in one query
 - [RAG use case](../use-cases/rag.md) — sparse-dense hybrid for retrieval-augmented generation
+- [Client API — insert](../python-sdk/client.md#insert)

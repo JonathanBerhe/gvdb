@@ -38,9 +38,13 @@ client = GVDBClient("localhost:50051", api_key="your-key")  # api_key optional
 # Create a collection
 client.create_collection("my_vectors", dimension=768)
 
-# Insert vectors
-vectors = [[0.1]*768, [0.3]*768]
-client.insert("my_vectors", ids=[1, 2], vectors=vectors)
+# Insert vectors with metadata (so hybrid search has a BM25 field)
+client.insert(
+    "my_vectors",
+    ids=[1, 2],
+    vectors=[[0.1]*768, [0.3]*768],
+    metadata=[{"description": "running shoes"}, {"description": "kitchen knives"}],
+)
 
 # Search
 results = client.search("my_vectors", query_vector=[0.1]*768, top_k=10)
@@ -52,8 +56,8 @@ results = client.hybrid_search(
     "my_vectors",
     query_vector=[0.1]*768,
     text_query="running shoes",
-    top_k=10,
     text_field="description",
+    top_k=10,
     return_metadata=True,
 )
 

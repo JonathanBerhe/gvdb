@@ -1,6 +1,6 @@
 # Examples
 
-Runnable scripts that exercise common Python SDK workflows.
+Runnable scripts that exercise common Python SDK workflows. For the authoritative API surface, see [Client API](client.md).
 
 ## Quickstart — end-to-end CRUD + search
 
@@ -72,16 +72,16 @@ from gvdb import GVDBClient
 
 client = GVDBClient("localhost:50051")
 
-client.create_collection("products", dimension=768)
+client.create_collection("products", dimension=768, metric="cosine")
 
 client.insert(
     "products",
     ids=[1, 2, 3],
     vectors=[dense_emb_1, dense_emb_2, dense_emb_3],
     metadata=[
-        {"title": "Running shoes — marathon ready", "price": 129.0},
-        {"title": "Kitchen knife set, 8 pieces", "price": 89.0},
-        {"title": "Trail running shoe, waterproof", "price": 159.0},
+        {"text": "Running shoes — marathon ready", "price": 129.0},
+        {"text": "Kitchen knife set, 8 pieces", "price": 89.0},
+        {"text": "Trail running shoe, waterproof", "price": 159.0},
     ],
 )
 
@@ -89,44 +89,85 @@ results = client.hybrid_search(
     "products",
     query_vector=query_dense,
     text_query="running shoes",
-    text_field="title",
+    text_field="text",
     top_k=5,
+    vector_weight=0.6,
+    text_weight=0.4,
     return_metadata=True,
 )
 
 for r in results:
-    print(r.id, r.score, r.metadata["title"])
+    print(r.id, r.distance, r.metadata["text"])
 ```
 
-## Bulk import from Parquet
+## Three-way hybrid (dense + sparse + BM25)
+
+Sparse vectors are plain `dict[int, float]` — no special class to import:
+
+```python
+client.insert(
+    "products",
+    ids=[1, 2, 3],
+    vectors=[dense_emb_1, dense_emb_2, dense_emb_3],
+    sparse_vectors=[
+        {42: 0.8, 137: 0.3, 2048: 1.2},   # non-zero SPLADE dimensions
+        {7: 0.5, 42: 0.9},
+        {137: 1.1, 9999: 0.4},
+    ],
+    metadata=[{"text": "..."}, {"text": "..."}, {"text": "..."}],
+)
+
+results = client.hybrid_search(
+    "products",
+    query_vector=query_dense,
+    text_query="running shoes",
+    sparse_query={42: 0.7, 137: 0.5},
+    text_field="text",
+    top_k=5,
+    vector_weight=0.5,
+    text_weight=0.3,
+    sparse_weight=0.2,
+    return_metadata=True,
+)
+```
+
+## Server-side bulk import from S3
 
 ```python
 from gvdb import GVDBClient
 
 client = GVDBClient("localhost:50051")
-result = client.import_parquet(
-    "s3://my-bucket/embeddings.parquet",   # or local path
-    collection="catalog",
-    batch_size=10_000,
+
+# Create the target collection (bulk_import does NOT auto-create)
+client.create_collection("catalog", dimension=768)
+
+import_id = client.bulk_import(
+    "catalog",
+    source_uri="s3://my-bucket/embeddings.parquet",
+    format="parquet",
+    vector_column="vector",
+    id_column="id",
 )
-print(result)
+
+status = client.wait_for_import(import_id, poll_interval=2.0, timeout=3600.0)
+print(status)
+# {"state": 2, "imported_vectors": 1_000_000, "segments_created": 12, ...}
 ```
 
 ## Per-vector TTL
 
 ```python
-import time
 from gvdb import GVDBClient
 
 client = GVDBClient("localhost:50051")
 client.create_collection("sessions", dimension=384)
 
-now = int(time.time())
+# ttl_seconds is RELATIVE. 0 means "no expiration".
 client.insert(
     "sessions",
     ids=[1, 2, 3],
     vectors=[[0.1]*384, [0.2]*384, [0.3]*384],
-    expire_at=now + 3600,   # all vectors expire in 1 hour
+    ttl_seconds=[3600, 3600, 0],   # first two expire in 1 hour; third never
 )
 ```
 
@@ -137,11 +178,36 @@ admin = GVDBClient("localhost:50051", api_key="admin-key")
 admin.create_collection("shared", dimension=384)
 
 analyst = GVDBClient("localhost:50051", api_key="analyst-key")
-analyst.search("shared", query_vector=[...], top_k=5)  # OK: readonly on 'shared'
-# analyst.drop_collection("shared")                      # PermissionDeniedError
+analyst.search("shared", query_vector=[0.1]*384, top_k=5)   # OK: readonly on 'shared'
+
+try:
+    analyst.drop_collection("shared")
+except Exception as e:
+    # grpc.StatusCode.PERMISSION_DENIED
+    print(f"Rejected: {e}")
 ```
 
 See [RBAC](../features/rbac.md).
+
+## Error handling
+
+The SDK re-raises `grpc.RpcError` directly. Branch on `.code()`:
+
+```python
+import grpc
+from gvdb import GVDBClient
+
+client = GVDBClient("localhost:50051")
+try:
+    client.drop_collection("does-not-exist")
+except grpc.RpcError as e:
+    if e.code() == grpc.StatusCode.NOT_FOUND:
+        pass
+    elif e.code() == grpc.StatusCode.PERMISSION_DENIED:
+        raise
+    else:
+        raise
+```
 
 ## See also
 

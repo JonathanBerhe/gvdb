@@ -1,15 +1,18 @@
 # Bulk import
 
-Load millions of vectors from common ML formats in a single call. Auto-creates the collection, supports resume via upsert idempotency, and shows progress bars (with `tqdm`).
+Two paths for loading many vectors:
 
-## Install extras
+1. **Client-side importers** — Python reads the file, streams over gRPC. Good for most workloads up to a few million rows.
+2. **Server-side bulk import** — the server reads directly from S3/MinIO. 3–5× faster for billion-scale loads.
+
+## Client-side importers
+
+### Install extras
 
 ```bash
 pip install gvdb[import]       # Parquet, NumPy, Pandas, tqdm
 pip install gvdb[import-all]   # plus AnnData + polars
 ```
-
-Individual extras:
 
 | Extra | Deps |
 |-------|------|
@@ -19,7 +22,20 @@ Individual extras:
 | `gvdb[h5ad]` | anndata, numpy |
 | `gvdb[progress]` | tqdm |
 
-## NumPy
+### Shared parameters
+
+Every `import_*` helper accepts these kwargs:
+
+| Arg | Default | Description |
+|-----|---------|-------------|
+| `batch_size` | `10_000` | Rows per insert RPC |
+| `mode` | `"upsert"` | `"upsert"` (idempotent, safe to re-run) or `"stream_insert"` (faster) |
+| `metric` | `"cosine"` | Distance metric when auto-creating the collection |
+| `index_type` | `"auto"` | Index type when auto-creating the collection |
+| `max_retries` | `3` | Retries per batch on transient errors |
+| `show_progress` | `True` | tqdm progress bar (requires `gvdb[progress]`) |
+
+### NumPy
 
 ```python
 import numpy as np
@@ -28,109 +44,135 @@ from gvdb import GVDBClient
 client = GVDBClient("localhost:50051")
 
 vectors = np.random.rand(100_000, 768).astype(np.float32)
-result = client.import_numpy(vectors, "embeddings")
+result = client.import_numpy(
+    vectors,
+    "embeddings",
+    ids=None,                       # None → sequential IDs starting from 0
+    metadata=None,
+    batch_size=10_000,
+)
 print(result)
-# ImportResult(total=100000, batches=10, elapsed=12.3s, ...)
+# ImportResult(total=100000, batches=10, failed=0, elapsed=12.3s, ...)
 ```
 
-Pass `ids=...` to control the IDs; otherwise they default to `range(len(vectors))`.
+### Parquet
 
-## Parquet
-
-Expected schema: `id` (int), `vector` (list<float>), and optional metadata columns.
-
-```python
-result = client.import_parquet("vectors.parquet", "embeddings")
-```
-
-Custom column names:
+Expected schema: `id` (int), `vector` (list<float>), plus any metadata columns.
 
 ```python
 result = client.import_parquet(
     "vectors.parquet",
     "embeddings",
-    id_column="row_id",
-    vector_column="embedding",
+    vector_column="vector",
+    id_column="id",
 )
 ```
 
-## Pandas DataFrame
+### Pandas / Polars DataFrame
 
 ```python
 import pandas as pd
 
 df = pd.DataFrame({
     "id": range(1000),
-    "embedding": [[...] for _ in range(1000)],
+    "vector": [[...] for _ in range(1000)],
     "category": [...],
     "price": [...],
 })
 
 result = client.import_dataframe(
     df,
-    collection="products",
-    vector_column="embedding",
+    "products",
+    vector_column="vector",
+    id_column="id",
 )
 ```
 
-Non-vector columns (other than `id`) become per-vector metadata automatically.
+Non-vector, non-id columns become per-vector metadata (scalars only: int, float, str, bool).
 
-## CSV
+### CSV
 
-Two CSV formats are supported:
+Two vector encodings are auto-detected:
 
 ```python
-# 1. Vector encoded as JSON array in a single column
-result = client.import_csv("data.csv", "embeddings")   # expects 'id' + 'vector' JSON
+# 1. JSON array in a single column: "[0.1, 0.2, 0.3]"
+result = client.import_csv("data.csv", "embeddings", vector_column="vector", id_column="id")
 
-# 2. Dimension-prefixed columns (vec_0 ... vec_767)
-result = client.import_csv(
-    "wide.csv",
-    "embeddings",
-    vector_prefix="vec_",
-)
+# 2. Dimension-prefixed columns: vector_0, vector_1, ..., vector_N
+result = client.import_csv("wide.csv", "embeddings", vector_column="vector")
 ```
 
-## AnnData (`.h5ad`)
+### AnnData (`.h5ad`)
 
-For single-cell workflows — import cell embeddings as vectors, `obs` columns as metadata:
+For single-cell workflows — import cell embeddings, `obs` columns as metadata:
 
 ```python
 result = client.import_h5ad(
     "adata.h5ad",
     "cells",
-    embedding_key="X_pca",             # or "X_umap", "X_scvi", ...
+    embedding_key="X_pca",          # or "X_umap", "X_scvi", ...
+    id_column=None,                 # defaults to row index
+    metadata_columns=None,          # None = include all obs columns
 )
 ```
 
-## Tuning
-
-All importers accept:
-
-| Arg | Default | Description |
-|-----|---------|-------------|
-| `batch_size` | 5000 | Rows per insert RPC |
-| `mode` | `"upsert"` | `"upsert"` (idempotent, retries-safe) or `"stream_insert"` (faster) |
-| `workers` | 1 | Parallel insert workers (pyarrow only for Parquet) |
-| `show_progress` | `True` | tqdm bar if installed |
-
-## Return value
-
-Every importer returns an `ImportResult`:
+### `ImportResult`
 
 ```python
 ImportResult(
-    total=100_000,
-    inserted=98_742,
-    updated=1_258,
-    failed=0,
-    batches=20,
-    elapsed=12.3,
-    failures=[],
+    total_count=100_000,
+    batch_count=10,
+    failed_count=0,
+    elapsed_seconds=12.3,
+    collection="embeddings",
+    dimension=768,
+    created_collection=True,
 )
 ```
 
+## Server-side bulk import
+
+For S3/MinIO-backed loads, skip gRPC entirely — the server downloads the file and writes segments directly:
+
+```python
+import_id = client.bulk_import(
+    "my_collection",
+    source_uri="s3://my-bucket/embeddings.parquet",
+    format="parquet",           # "parquet" or "numpy"
+    vector_column="vector",
+    id_column="id",
+)
+
+status = client.wait_for_import(import_id, poll_interval=2.0, timeout=3600.0)
+# status == {"state": 2, "total_vectors": 1_000_000, "imported_vectors": 1_000_000,
+#            "progress_percent": 100.0, "segments_created": 12, ...}
+```
+
+Polling and cancellation:
+
+```python
+status = client.get_import_status(import_id)
+client.cancel_import(import_id)      # -> True if accepted
+```
+
+`state` is an integer:
+
+| Value | Meaning |
+|-------|---------|
+| 0 | PENDING |
+| 1 | RUNNING |
+| 2 | COMPLETED |
+| 3 | FAILED |
+| 4 | CANCELLED |
+
+**The collection must already exist** when you call `bulk_import` — unlike client-side importers, the server-side path does not auto-create collections.
+
+## Alternatives for very large workloads
+
+- **Spark** for parallel loads from data lakes — see the [Spark connector](../connectors/spark.md).
+- **Flink** for streaming ingestion — see the [Flink connector](../connectors/flink.md).
+
 ## See also
 
-- [Use case: bulk ingestion](../use-cases/bulk-ingestion.md)
 - [Client API](client.md)
+- [Use case: bulk ingestion](../use-cases/bulk-ingestion.md)

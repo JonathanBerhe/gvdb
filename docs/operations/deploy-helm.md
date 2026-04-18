@@ -25,121 +25,130 @@ helm upgrade gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
 
 ## Values reference
 
-All values can be set via `--set key=value` or a custom `values.yaml`.
+The chart is intentionally minimal. Exposed keys mirror [`deploy/helm/gvdb/values.yaml`](https://github.com/JonathanBerhe/gvdb/blob/main/deploy/helm/gvdb/values.yaml) — follow that file for the source of truth.
 
-### Replicas
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `coordinator.replicas` | `3` | Coordinators (use 3 for quorum) |
-| `dataNode.replicas` | `2` | Data nodes — scale for storage + insert throughput |
-| `queryNode.replicas` | `1` | Query nodes — scale for QPS |
-
-### Service exposure
+### `image`
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `proxy.service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer` |
-| `proxy.service.port` | `50050` | gRPC port |
-
-### Image
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `image.repository` | `ghcr.io/jonathanberhe/gvdb` | Container image |
-| `image.tag` | `latest` | Image tag — pin to a version in production |
+| `image.repository` | `gvdb` | Container image name |
+| `image.tag` | `""` (falls back to `Chart.appVersion`) | Image tag |
 | `image.pullPolicy` | `IfNotPresent` | |
 
-### Storage
+### `coordinator`
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
+| `coordinator.replicas` | `1` | Coordinators (use 3 for Raft quorum in production) |
+| `coordinator.singleNode` | `true` | Run as single-node embedded coordinator |
+| `coordinator.resources` | see values.yaml | CPU/memory requests and limits |
+| `coordinator.storage.size` | `1Gi` | PVC size for Raft log |
+| `coordinator.storage.storageClass` | `""` (cluster default) | StorageClass override |
+
+### `dataNode`
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `dataNode.replicas` | `2` | Data nodes — scale for storage + insert throughput |
+| `dataNode.memoryLimitGb` | `4` | Memory budget for vector storage |
+| `dataNode.resources` | see values.yaml | CPU/memory requests and limits |
 | `dataNode.storage.size` | `5Gi` | PVC size per data node |
-| `dataNode.storage.storageClassName` | — | StorageClass (cluster default if unset) |
-| `dataNode.memoryLimitGb` | `4` | Memory budget for vector data |
+| `dataNode.storage.storageClass` | `""` | StorageClass override |
 
-### Auth
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `auth.enabled` | `false` | Enable API key / RBAC |
-| `auth.apiKeys` | `[]` | Legacy list of admin API keys |
-| `auth.rbac` | `{}` | Full RBAC config (see [RBAC](../features/rbac.md)) |
-
-### Tiered storage (S3 / MinIO)
-
-```yaml
-storage:
-  objectStore:
-    enabled: true
-    endpoint: https://s3.amazonaws.com
-    region: us-east-1
-    bucket: gvdb-cold
-    prefix: segments/
-    cacheSizeGb: 50
-    uploadThreads: 4
-    accessKeyId: "<from Secret>"
-    secretAccessKey: "<from Secret>"
-```
-
-See [tiered storage](../features/tiered-storage.md) for the full picture.
-
-### Observability
+### `queryNode`
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `metrics.enabled` | `true` | Expose Prometheus metrics on `:9090` |
-| `metrics.serviceMonitor.enabled` | `false` | Create a ServiceMonitor (requires Prometheus Operator) |
+| `queryNode.replicas` | `1` | Query nodes — scale for QPS |
+| `queryNode.memoryLimitGb` | `4` | Memory budget |
+| `queryNode.resources` | see values.yaml | CPU/memory requests and limits |
+| `queryNode.storage.size` | `2Gi` | PVC size |
+| `queryNode.storage.storageClass` | `""` | StorageClass override |
 
-### Web UI
+### `proxy`
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `ui.enabled` | `false` | Deploy the GVDB web UI alongside the cluster |
+| `proxy.replicas` | `1` | Proxy replicas (horizontally scalable) |
+| `proxy.resources` | see values.yaml | CPU/memory requests and limits |
+| `proxy.service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer` |
+| `proxy.service.port` | `50050` | gRPC port |
+| `proxy.service.nodePort` | `""` | Explicit NodePort when `type: NodePort` |
+
+### `config` (server-side config ConfigMap)
+
+| Parameter | Default |
+|-----------|---------|
+| `config.server.maxMessageSizeMb` | `256` |
+| `config.server.maxConcurrentStreams` | `1000` |
+| `config.storage.segmentMaxSizeMb` | `512` |
+| `config.storage.walBufferSizeMb` | `64` |
+| `config.storage.enableCompression` | `true` |
+| `config.storage.compactionThreads` | `2` |
+| `config.index.defaultIndexType` | `"HNSW"` |
+| `config.index.hnswM` | `16` |
+| `config.index.hnswEfConstruction` | `200` |
+| `config.index.hnswEfSearch` | `100` |
+| `config.logging.level` | `"info"` |
+| `config.logging.consoleEnabled` | `true` |
+| `config.logging.fileEnabled` | `false` |
+
+### `ui`
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `ui.enabled` | `false` | Deploy the GVDB Web UI alongside the cluster |
+| `ui.image.repository` | `ghcr.io/jonathanberhe/gvdb-ui` | UI image |
+| `ui.image.tag` | `latest` | UI tag |
+| `ui.port` | `8080` | Container port |
 | `ui.service.type` | `ClusterIP` | |
+| `ui.service.port` | `8080` | |
 
-See the full [`deploy/helm/gvdb/values.yaml`](https://github.com/JonathanBerhe/gvdb/blob/main/deploy/helm/gvdb/values.yaml) in the repo for every parameter.
+## What the chart does **not** surface (yet)
 
-## Example: production setup
+The following are **not Helm-parameterized**. Configure them by mounting a custom `gvdb-config.yaml` ConfigMap / Secret that overrides the values the chart renders, or patch the StatefulSet directly:
+
+- **Authentication** / **RBAC** — API keys, RBAC users (see [Security](security.md))
+- **TLS** — mutual TLS material (certificates, keys)
+- **Audit logging**
+- **Prometheus `ServiceMonitor`**
+- **Object storage** (S3 / MinIO) for [tiered storage](../features/tiered-storage.md) — the server supports it, but the chart doesn't expose the knobs
+
+Contributions to expose these in the Helm chart are welcome — see the [roadmap](../roadmap.md).
+
+## Example: small production setup
 
 ```yaml title="values.prod.yaml"
+image:
+  tag: v1.2.0
+
 coordinator:
   replicas: 3
+  singleNode: false
 
 dataNode:
   replicas: 5
   memoryLimitGb: 16
   storage:
     size: 200Gi
-    storageClassName: gp3
+    storageClass: gp3
 
 queryNode:
   replicas: 3
 
 proxy:
+  replicas: 2
   service:
     type: LoadBalancer
-  replicas: 2
 
-auth:
+config:
+  index:
+    defaultIndexType: "AUTO"
+  logging:
+    level: "info"
+
+ui:
   enabled: true
-  rbac:
-    users:
-      - apiKey: "${ADMIN_KEY}"
-        role: admin
-        collections: ["*"]
-
-storage:
-  objectStore:
-    enabled: true
-    endpoint: https://s3.us-east-1.amazonaws.com
-    region: us-east-1
-    bucket: gvdb-cold
-    cacheSizeGb: 100
-
-metrics:
-  serviceMonitor:
-    enabled: true
 ```
 
 ```bash
@@ -151,6 +160,5 @@ helm upgrade --install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
 ## See also
 
 - [Distributed cluster](../getting-started/distributed-cluster.md) — walkthrough
-- [Configuration](configuration.md) — per-node YAML
-- [Monitoring](monitoring.md)
-- [Security](security.md)
+- [Configuration](configuration.md) — the server-side YAML the chart renders
+- [Security](security.md) — how to layer auth/TLS on top of the chart

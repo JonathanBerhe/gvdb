@@ -4,36 +4,32 @@ Every GVDB binary exposes Prometheus metrics and a health endpoint. Dashboards f
 
 ## Prometheus metrics
 
-Each node exposes metrics on port `9090` by default:
+Each node exposes metrics on `server.metrics_port` (default `9090`):
 
 ```bash
 curl http://<node>:9090/metrics
 ```
 
-Key metric families:
+Exposed metric families cover RPCs (rate, latency, errors), segments (counts by state, sizes), index builds (queue depth), the query result cache, replication, and Raft. The exact set evolves across versions — scrape the endpoint to see what's live on your deployment.
 
-| Metric | Description |
-|--------|-------------|
-| `gvdb_rpc_requests_total` | Counter per RPC, labelled by method + status |
-| `gvdb_rpc_duration_seconds` | Latency histogram per RPC |
-| `gvdb_collection_vectors` | Current vector count per collection |
-| `gvdb_segment_count` | Segments by state (growing/sealed/flushed) |
-| `gvdb_index_build_queue_size` | Pending sealed segments awaiting index build |
-| `gvdb_cache_hits_total` / `gvdb_cache_misses_total` | Query result cache |
-| `gvdb_replication_lag_bytes` | Per-replica replication lag |
-| `gvdb_raft_*` | Coordinator consensus metrics |
+## ServiceMonitor
 
-## ServiceMonitor (Prometheus Operator)
-
-Enable via Helm:
+The Helm chart does not render a `ServiceMonitor` yet. To add one, create a Kubernetes manifest that selects the GVDB pods' metrics port:
 
 ```yaml
-metrics:
-  serviceMonitor:
-    enabled: true
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gvdb
+  namespace: gvdb
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gvdb
+  endpoints:
+    - port: metrics
+      interval: 30s
 ```
-
-This creates a `ServiceMonitor` resource that Prometheus Operator picks up automatically.
 
 ## Grafana dashboards
 
@@ -48,14 +44,16 @@ Key panels:
 - **Segment counts by state**
 - **Replication lag**
 
-## Health endpoint
+## Health check
 
-```bash
-curl http://<node>:8080/health
-# {"status":"ok","version":"0.16.0","uptime_seconds":3600}
+Every node implements the `HealthCheck` gRPC method on its main port. From a client:
+
+```python
+from gvdb import GVDBClient
+GVDBClient("localhost:50051").health_check()
 ```
 
-Kubernetes readiness and liveness probes point here in the [Helm chart](deploy-helm.md).
+The Helm chart wires Kubernetes readiness/liveness probes to this RPC.
 
 ## Web UI
 
@@ -94,7 +92,9 @@ Structured JSON audit logs for every non-public RPC. Enable in config:
 logging:
   audit:
     enabled: true
-    path: /var/log/gvdb/audit.jsonl
+    file_path: /var/log/gvdb/audit.jsonl
+    max_file_size_mb: 100
+    max_files: 10
 ```
 
 Each line records `timestamp`, `api_key_id`, `operation`, `collection`, `status`, `grpc_code`, `latency_ms`, `item_count`. See [RBAC](../features/rbac.md#audit-logging).

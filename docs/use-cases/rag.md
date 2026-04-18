@@ -28,17 +28,22 @@ graph LR
 ## Ingestion
 
 ```python
-from gvdb import GVDBClient, SparseVector
+from gvdb import GVDBClient
 
 client = GVDBClient("localhost:50051")
 
 client.create_collection("docs", dimension=768, metric="cosine")
 
-# For each chunk: dense embedding + original text stored as metadata
+# For each chunk: dense embedding + sparse SPLADE + original text as metadata
 client.insert(
     "docs",
     ids=[1, 2, 3],
     vectors=[dense_emb_1, dense_emb_2, dense_emb_3],
+    sparse_vectors=[                         # dict[int, float] — no custom class
+        sparse_splade_1,
+        sparse_splade_2,
+        sparse_splade_3,
+    ],
     metadata=[
         {"text": "Chunk 1 content...", "source": "doc_a.pdf", "page": 1},
         {"text": "Chunk 2 content...", "source": "doc_a.pdf", "page": 2},
@@ -47,21 +52,24 @@ client.insert(
 )
 ```
 
-For hybrid retrieval, also insert the sparse embedding (SPLADE etc.). See [sparse vectors](../features/sparse-vectors.md).
+See [sparse vectors](../features/sparse-vectors.md) for how SPLADE-style dicts work.
 
 ## Retrieval
 
 Three-way hybrid (dense + sparse + BM25) typically wins:
 
 ```python
-def retrieve(query: str, query_dense, query_sparse, k: int = 5):
+def retrieve(query: str, query_dense, query_sparse: dict[int, float], k: int = 5):
     results = client.hybrid_search(
         "docs",
         query_vector=query_dense,
-        sparse_vector=query_sparse,
+        sparse_query=query_sparse,
         text_query=query,
         text_field="text",
         top_k=k,
+        vector_weight=0.5,
+        text_weight=0.2,
+        sparse_weight=0.3,
         return_metadata=True,
     )
     return [r.metadata["text"] for r in results]
@@ -70,7 +78,7 @@ def retrieve(query: str, query_dense, query_sparse, k: int = 5):
 ## Generation
 
 ```python
-def answer(query: str, query_dense, query_sparse) -> str:
+def answer(query: str, query_dense, query_sparse: dict[int, float]) -> str:
     context_chunks = retrieve(query, query_dense, query_sparse, k=5)
     context = "\n\n".join(context_chunks)
 

@@ -1,6 +1,6 @@
 # RBAC
 
-Role-based access control with per-collection scoping. Configured via YAML, enforced by a gRPC interceptor.
+Role-based access control with per-collection scoping. Configured via the server YAML, enforced by a gRPC interceptor.
 
 ## Roles
 
@@ -15,25 +15,27 @@ Role-based access control with per-collection scoping. Configured via YAML, enfo
 
 ## YAML configuration
 
+Auth is **not** a Helm value — configure it in the server config mounted from your own ConfigMap / Secret. See [Configuration](../operations/configuration.md) for the full schema.
+
 ```yaml
-auth:
-  enabled: true
-  rbac:
-    users:
-      - api_key: "admin-key-abc123"
+server:
+  auth:
+    enabled: true
+    roles:
+      - key: "admin-key-abc123"
         role: admin
         collections: ["*"]
 
-      - api_key: "analyst-key-xyz789"
+      - key: "analyst-key-xyz789"
         role: readonly
         collections: ["products", "reviews"]
 
-      - api_key: "writer-key-def456"
+      - key: "writer-key-def456"
         role: readwrite
         collections: ["sessions"]
 ```
 
-Wildcards (`"*"`) grant access to every collection.
+Wildcards (`["*"]`) grant access to every collection.
 
 ## Connect with an API key
 
@@ -53,19 +55,22 @@ Wildcards (`"*"`) grant access to every collection.
     var client = new GvdbClient(config);
     ```
 
+The client sends `authorization: Bearer <key>` as gRPC metadata.
+
 ## Legacy `api_keys` list
 
-For backward compatibility, a flat `api_keys` list is still accepted. Keys declared this way are treated as `admin`:
+For backward compatibility, a flat list is still accepted. Keys declared this way are treated as `admin`:
 
 ```yaml
-auth:
-  enabled: true
-  api_keys:
-    - "legacy-key-1"
-    - "legacy-key-2"
+server:
+  auth:
+    enabled: true
+    api_keys:
+      - "legacy-key-1"
+      - "legacy-key-2"
 ```
 
-Migrate to the RBAC block as soon as you can — legacy keys have no scoping.
+Migrate to `auth.roles` as soon as you can — legacy keys have no scoping.
 
 ## Audit logging
 
@@ -75,12 +80,12 @@ Enable structured JSON audit logs for every non-public RPC:
 logging:
   audit:
     enabled: true
-    path: /var/log/gvdb/audit.jsonl
+    file_path: "/var/log/gvdb/audit.jsonl"
 ```
 
 Each entry records `timestamp`, `api_key_id`, `operation`, `collection`, `status`, `grpc_code`, `latency_ms`, `item_count`.
 
-## Further reading
+## See also
 
 - [Security](../operations/security.md) — TLS, API keys, and RBAC in production
 - [Configuration](../operations/configuration.md) — full YAML schema
