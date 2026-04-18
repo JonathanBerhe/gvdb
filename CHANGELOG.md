@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.17.0](https://github.com/JonathanBerhe/gvdb/compare/v0.16.0...v0.17.0) (2026-04-18)
+
+
+### Features
+
+* **connectors:** modernize Java connector APIs and tests ([3c757e5](https://github.com/JonathanBerhe/gvdb/commit/3c757e5be4174b14e8cd767ff9574d0a609654a5))
+* **connectors:** modernize Java connector APIs and tests ([1c136e7](https://github.com/JonathanBerhe/gvdb/commit/1c136e7eca9885752aa613f0cacbb7bdae288e37))
+* **docs:** add Zensical docs site auto-deployed to GitHub Pages ([49bc02b](https://github.com/JonathanBerhe/gvdb/commit/49bc02b74f50cbd7be6eb762bb8fc8a039eda808))
+* **docs:** add Zensical docs site auto-deployed to GitHub Pages ([32afe99](https://github.com/JonathanBerhe/gvdb/commit/32afe993476aea961a097f68f2c512a568fa2171))
+* **storage:** FilesystemObjectStore backend and shared IObjectStore contract tests ([796535c](https://github.com/JonathanBerhe/gvdb/commit/796535ca9230f0bab28e45960382daab30f677c8))
+* **storage:** FilesystemObjectStore backend and shared IObjectStore contract tests ([2508097](https://github.com/JonathanBerhe/gvdb/commit/2508097af5b54e8bc832c414ec7955fccd5ccb49))
+* **utils:** xxHash64 checksum utility for integrity verification ([175dd64](https://github.com/JonathanBerhe/gvdb/commit/175dd64f7367c65e51b314bc5ee71cd2870e3190))
+* **utils:** xxHash64 checksum utility for integrity verification ([1d76161](https://github.com/JonathanBerhe/gvdb/commit/1d7616152bfc3787ac34143b3facb9fac150862e))
+
+
+### Bug Fixes
+
+* **docs:** align SDK/Helm/config docs with real API + harden deploy workflow ([ff6f899](https://github.com/JonathanBerhe/gvdb/commit/ff6f8996963662240ebbacff3c827f0471bd1b53))
+* **docs:** install Zensical into uv venv for PEP 668 systems ([0425d7c](https://github.com/JonathanBerhe/gvdb/commit/0425d7ce058f6504d9977713336971f9096abeb7))
+* **storage:** fsync temp file and parent dir for durable FilesystemObjectStore writes ([6552095](https://github.com/JonathanBerhe/gvdb/commit/65520955a89912b38a81e25c33966ba725ffada1))
+* **storage:** use reserved .gvdb-tmp subdir for atomic-write temps ([4836f9c](https://github.com/JonathanBerhe/gvdb/commit/4836f9ce04bd59d3fb0e4dd2d94abf01369cdfd9))
+* **storage:** validate absolute() error in FilesystemObjectStore::Create ([2300131](https://github.com/JonathanBerhe/gvdb/commit/230013181af3f8377536a0601aa66f095c22a26a))
+
 ## [0.16.0](https://github.com/JonathanBerhe/gvdb/compare/v0.15.0...v0.16.0) (2026-04-16)
 
 
