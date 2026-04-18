@@ -337,10 +337,12 @@ func RunLoadTest() bool {
 			continue
 		}
 
-		// Generate large batch
-		fmt.Printf("\n  %dD (%s): Generating %d vectors...\n", test.dim, test.modelName, test.batch)
-		vectors := make([]*pb.VectorWithId, test.batch)
-		for i := 0; i < test.batch; i++ {
+		// Generate large batch (scaled via GVDB_E2E_SCALE so resource-constrained
+		// clusters can exercise the same code path at reduced volume).
+		batchCount := Scaled(test.batch)
+		fmt.Printf("\n  %dD (%s): Generating %d vectors...\n", test.dim, test.modelName, batchCount)
+		vectors := make([]*pb.VectorWithId, batchCount)
+		for i := 0; i < batchCount; i++ {
 			vectors[i] = &pb.VectorWithId{
 				Id:     uint64(i + 1),
 				Vector: GenerateRandomVector(test.dim),
@@ -348,7 +350,7 @@ func RunLoadTest() bool {
 		}
 
 		// Calculate memory estimate
-		memoryMB := float64(test.dim) * 4.0 * float64(test.batch) / (1024.0 * 1024.0)
+		memoryMB := float64(test.dim) * 4.0 * float64(batchCount) / (1024.0 * 1024.0)
 		fmt.Printf("  Estimated message size: %.1f MB\n", memoryMB)
 
 		// Insert
@@ -366,7 +368,7 @@ func RunLoadTest() bool {
 		if err != nil {
 			fmt.Printf("  ❌ FAILED: %v\n", err)
 		} else {
-			throughput := float64(test.batch) / latency.Seconds()
+			throughput := float64(batchCount) / latency.Seconds()
 			fmt.Printf("  ✅ SUCCESS: %.0fms, %.0f vectors/sec\n",
 				latency.Seconds()*1000, throughput)
 		}
@@ -429,12 +431,17 @@ func RunLoadTest() bool {
 		}
 		conn.Close()
 
+		// Scale per-thread payload count via GVDB_E2E_SCALE. Thread count is
+		// left untouched so the concurrency dimension of the test still runs
+		// at full fan-out — we're only reducing the payload per thread.
+		perThread := Scaled(test.perThread)
+
 		// Calculate total vectors and memory
-		totalVectors := test.threads * test.perThread
-		memoryMB := float64(test.dim) * 4.0 * float64(test.perThread) / (1024.0 * 1024.0)
+		totalVectors := test.threads * perThread
+		memoryMB := float64(test.dim) * 4.0 * float64(perThread) / (1024.0 * 1024.0)
 
 		fmt.Printf("\n  %s\n", test.modelName)
-		fmt.Printf("    Total vectors: %d (%d × %d)\n", totalVectors, test.threads, test.perThread)
+		fmt.Printf("    Total vectors: %d (%d × %d)\n", totalVectors, test.threads, perThread)
 		fmt.Printf("    Message size per thread: %.1f MB\n", memoryMB)
 
 		// Concurrent insert
@@ -450,10 +457,10 @@ func RunLoadTest() bool {
 			go func(tid int) {
 				defer wg.Done()
 
-				// Generate vectors
-				vectors := make([]*pb.VectorWithId, test.perThread)
-				for i := 0; i < test.perThread; i++ {
-					vecID := uint64(tid*test.perThread + i + 1)
+				// Generate vectors (perThread already scaled above).
+				vectors := make([]*pb.VectorWithId, perThread)
+				for i := 0; i < perThread; i++ {
+					vecID := uint64(tid*perThread + i + 1)
 					vectors[i] = &pb.VectorWithId{
 						Id:     vecID,
 						Vector: GenerateRandomVector(test.dim),
@@ -513,7 +520,7 @@ func RunLoadTest() bool {
 			p50 := latencies[len(latencies)*50/100]
 			p95 := latencies[len(latencies)*95/100]
 
-			throughput := float64(successCount*int32(test.perThread)) / totalElapsed.Seconds()
+			throughput := float64(successCount*int32(perThread)) / totalElapsed.Seconds()
 
 			fmt.Printf("    ✅ SUCCESS: %d/%d threads succeeded\n", successCount, test.threads)
 			fmt.Printf("       Total time: %.2fs\n", totalElapsed.Seconds())
