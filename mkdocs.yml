@@ -120,11 +120,6 @@ nav:
       - Spark: connectors/spark.md
       - Flink: connectors/flink.md
       - Java Client: connectors/java-client.md
-  - Architecture:
-      - Overview: architecture/overview.md
-      - Modules: architecture/modules.md
-      - Consensus: architecture/consensus.md
-      - Storage: architecture/storage.md
   - Operations:
       - Deploy with Helm: operations/deploy-helm.md
       - Deploy with Docker: operations/deploy-docker.md
@@ -134,6 +129,5 @@ nav:
   - Reference:
       - CLI: reference/cli.md
       - Config: reference/config.md
-  - Roadmap: roadmap.md
   - Changelog: changelog.md
   - Contributing: contributing.md
