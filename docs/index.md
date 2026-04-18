@@ -101,8 +101,6 @@ graph TB
     style QN2 fill:#ffd43b,color:#333
 ```
 
-See the [architecture overview](architecture/overview.md) for a deeper walkthrough.
-
 ## 30-second quickstart
 
 === "Python"

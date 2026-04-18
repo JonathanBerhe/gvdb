@@ -132,7 +132,7 @@ Each entry contains `timestamp`, `api_key_id`, `operation`, `collection`, `statu
 
 ## Multi-tenancy
 
-Phase 1 (`tenant_id` on collection metadata, RBAC restricted to a tenant's collections) is in progress — see the [roadmap](../roadmap.md).
+Phase 1 (`tenant_id` on collection metadata, RBAC restricted to a tenant's collections) is in progress.
 
 ## See also
 
