@@ -88,6 +88,5 @@ Evictions are background; in-flight queries are never interrupted.
 
 ## See also
 
-- [Architecture — storage](../architecture/storage.md) for segment lifecycle
 - [Configuration](../operations/configuration.md) — full YAML schema
 - [Deploy with Helm](../operations/deploy-helm.md)
