@@ -1,137 +1,147 @@
 # Configuration
 
-Every GVDB binary reads a YAML config file and overrides from CLI flags and environment variables.
-
-Precedence: **CLI flag > env var > YAML > default**.
+Every GVDB binary reads a YAML config file. For the authoritative schema, see [`include/utils/config.h`](https://github.com/JonathanBerhe/gvdb/blob/main/include/utils/config.h); the struct field names map directly to YAML keys.
 
 ## Minimal YAML
 
 ```yaml
 server:
+  bind_address: "0.0.0.0"
   grpc_port: 50051
 
 storage:
-  data_dir: /var/lib/gvdb
+  data_dir: "/var/lib/gvdb"
 
 logging:
-  level: info
+  level: "info"
 ```
 
-Run with `--config /etc/gvdb/config.yaml` or `GVDB_CONFIG=/etc/gvdb/config.yaml`.
+Run with `--config /etc/gvdb/config.yaml`.
 
 ## Full schema
 
 ```yaml
 server:
+  bind_address: "0.0.0.0"
   grpc_port: 50051
-  http_port: 8080                  # health endpoint, prometheus (:9090 by default)
+  metrics_port: 9090
+  max_message_size_mb: 256
+  max_concurrent_streams: 1000
 
   tls:
     enabled: false
-    cert_path: /etc/gvdb/server.crt
-    key_path: /etc/gvdb/server.key
-    client_ca_path: /etc/gvdb/ca.crt   # for mutual TLS
+    cert_path: ""
+    key_path: ""
+    ca_cert_path: ""          # for mutual TLS
+    mutual_tls: false
 
   auth:
     enabled: false
-    api_keys:                       # legacy — treated as admin
-      - "legacy-key-1"
-    rbac:
-      users:
-        - api_key: "admin-key"
-          role: admin
-          collections: ["*"]
-        - api_key: "reader-key"
-          role: readonly
-          collections: ["products", "reviews"]
+    api_keys: []              # legacy: flat list, each key treated as admin
+
+    roles:                    # RBAC — preferred over api_keys
+      - key: "admin-key"
+        role: admin           # admin | readwrite | readonly | collection_admin
+        collections: ["*"]    # "*" = all collections
+
+      - key: "reader-key"
+        role: readonly
+        collections: ["products", "reviews"]
 
 storage:
-  data_dir: /var/lib/gvdb
-  ttl_sweep_interval_seconds: 60
+  data_dir: "/tmp/gvdb"
+  segment_max_size_mb: 512
+  wal_buffer_size_mb: 64
+  enable_compression: true
+  compaction_threads: 4
 
-  segment:
-    seal_size_bytes: 1073741824    # 1 GiB auto-seal threshold
-    compaction_idle_seconds: 300
-
-  wal:
-    buffer_size_bytes: 16777216    # 16 MiB
-    sync_interval_ms: 1000
-
-  object_store:                     # tiered storage (S3 / MinIO)
-    enabled: false
-    endpoint: https://s3.amazonaws.com
-    region: us-east-1
-    bucket: gvdb-cold
-    prefix: segments/
-    access_key_id: ""
-    secret_access_key: ""
-    upload_threads: 4
-    cache_size_gb: 50
+  # Object store (S3/MinIO). Empty `object_store_type` disables tiered storage.
+  object_store_type: ""            # "s3" or "minio"
+  object_store_endpoint: ""        # e.g. "http://minio:9000"
+  object_store_access_key: ""
+  object_store_secret_key: ""
+  object_store_bucket: ""
+  object_store_region: ""
+  object_store_prefix: ""
+  object_store_use_ssl: true
+  object_store_cache_size_mb: 256
+  object_store_upload_threads: 2
 
 index:
-  memory_budget_gb: 4
-  hnsw:
-    m: 16
-    ef_construction: 200
-    ef_search: 64
-  ivf:
-    nlist: 16384
-    nprobe: 32
-
-cluster:
-  node_id: 1
-  role: single-node                 # coordinator | data-node | query-node | proxy | single-node
-  bind_address: 0.0.0.0:50051
-  advertise_address: ""             # defaults to bind_address
-  coordinators:                     # required for data-node/query-node/proxy
-    - localhost:50051
-
-consensus:
-  data_dir: /var/lib/gvdb/raft
-  election_timeout_ms: 1000
-  heartbeat_interval_ms: 100
-  snapshot_distance: 10000
+  default_index_type: "HNSW"       # FLAT | HNSW | IVF_FLAT | IVF_PQ | IVF_SQ
+                                    # | TURBOQUANT | IVF_TURBOQUANT | AUTO
+  hnsw_m: 16
+  hnsw_ef_construction: 200
+  hnsw_ef_search: 100
+  ivf_nlist: 100
+  use_gpu: false
 
 logging:
-  level: info                       # trace | debug | info | warn | error
-  format: json                      # json | text
+  level: "info"                     # trace | debug | info | warn | error
+  console_enabled: true
+  file_enabled: true
+  file_path: "/tmp/gvdb/logs/gvdb.log"
+  max_file_size_mb: 100
+  max_files: 10
+
   audit:
     enabled: false
-    path: /var/log/gvdb/audit.jsonl
-    rotation_mb: 100
+    file_path: "/tmp/gvdb/logs/audit.jsonl"
+    max_file_size_mb: 100
     max_files: 10
 
-metrics:
-  prometheus_port: 9090
-  enabled: true
+consensus:
+  node_id: 1
+  single_node_mode: true
+  peers: []                         # list of peer addresses for coordinator role
+  election_timeout_ms: 5000
+  heartbeat_interval_ms: 1000
 ```
 
-## Environment variables
+## Default config shipped with the Helm chart
 
-Common ones that map to the above:
+The Helm chart renders a ConfigMap with a subset of these keys — see [Deploy with Helm](deploy-helm.md). The starting-point ConfigMap lives at [`deploy/k8s/configmap.yaml`](https://github.com/JonathanBerhe/gvdb/blob/main/deploy/k8s/configmap.yaml).
 
-| Env | YAML path |
-|-----|-----------|
-| `GVDB_CONFIG` | Path to YAML file |
-| `GVDB_BIND_ADDRESS` | `cluster.bind_address` |
-| `GVDB_ADVERTISE_ADDRESS` | `cluster.advertise_address` |
-| `GVDB_DATA_DIR` | `storage.data_dir` |
-| `GVDB_NODE_ID` | `cluster.node_id` |
-| `GVDB_LOG_LEVEL` | `logging.level` |
+## Overriding in Helm deployments
 
-## Per-node role
+The Helm chart doesn't expose `server.auth`, `server.tls`, or `storage.object_store_*` as values. Override by mounting a custom ConfigMap / Secret over the chart-rendered one, or by post-rendering Helm output.
 
-In a distributed deployment, each binary reads the same YAML but picks up role-specific fields:
+Example — custom auth + TLS layered on top of the chart:
 
-- **Coordinator**: `cluster.role: coordinator`, `consensus.*`, `cluster.coordinators` (peers)
-- **Data node**: `cluster.role: data-node`, `cluster.coordinators` (address list), `storage.*`
-- **Query node**: `cluster.role: query-node`, `cluster.coordinators`
-- **Proxy**: `cluster.role: proxy`, `cluster.coordinators`
+```yaml
+# gvdb-config.yaml (mounted as ConfigMap, replaces chart-rendered config)
+server:
+  bind_address: "0.0.0.0"
+  grpc_port: 50051
+  tls:
+    enabled: true
+    cert_path: "/etc/gvdb/tls/server.crt"
+    key_path: "/etc/gvdb/tls/server.key"
+    mutual_tls: true
+    ca_cert_path: "/etc/gvdb/tls/ca.crt"
+  auth:
+    enabled: true
+    roles:
+      - key: "admin-key"
+        role: admin
+        collections: ["*"]
 
-The [Helm chart](deploy-helm.md) renders per-role ConfigMaps automatically.
+storage:
+  data_dir: "/data/gvdb"
+  segment_max_size_mb: 512
+
+index:
+  default_index_type: "AUTO"
+
+logging:
+  level: "info"
+  audit:
+    enabled: true
+```
 
 ## See also
 
-- [Helm deploy](deploy-helm.md) — how values translate to config
-- [Security](security.md) — TLS + RBAC production setup
-- [Reference — CLI](../reference/cli.md) — every flag
+- [Deploy with Helm](deploy-helm.md) — what the chart renders
+- [Security](security.md) — TLS + auth + audit
+- [CLI reference](../reference/cli.md) — flags that override config
+- [Config reference](../reference/config.md) — condensed schema view

@@ -157,7 +157,7 @@ status:
 DOCS_VENV = .venv-docs
 
 docs-install:
-	@uv venv $(DOCS_VENV)
+	@[ -d $(DOCS_VENV) ] || uv venv $(DOCS_VENV)
 	@uv pip install --python $(DOCS_VENV)/bin/python -r requirements-docs.txt
 
 docs-serve: docs-install

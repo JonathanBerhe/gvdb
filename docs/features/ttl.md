@@ -10,44 +10,34 @@ Attach a time-to-live to individual vectors. Expired vectors are skipped at quer
 
 ## Insert with TTL
 
+Pass a per-vector `ttl_seconds` list to `insert`. The TTL is a **relative duration** (seconds from now) — a value of `0` means "no expiration":
+
 ```python
-import time
 from gvdb import GVDBClient
 
 client = GVDBClient("localhost:50051")
 client.create_collection("sessions", dimension=384)
 
-# Vectors expire 1 hour from now
-now = int(time.time())
-ttl_seconds = 3600
-
 client.insert(
     "sessions",
     ids=[1, 2, 3],
     vectors=[[0.1]*384, [0.2]*384, [0.3]*384],
-    expire_at=[now + ttl_seconds] * 3,   # absolute unix timestamps
+    ttl_seconds=[3600, 3600, 0],   # first two expire in 1 hour; third never
 )
 ```
-
-You can also pass a single `expire_at` to apply to every vector in the batch.
 
 ## Query-time filtering
 
 Expired vectors are **atomically excluded** from every search — no stale results, even before the sweep runs:
 
 ```python
-results = client.search("sessions", query_vector=[...], top_k=10)
+results = client.search("sessions", query_vector=[0.1]*384, top_k=10)
 # Only non-expired vectors returned
 ```
 
 ## Background sweep
 
-A background thread periodically scans segments and permanently removes expired vectors. Configure the interval in the server YAML:
-
-```yaml
-storage:
-  ttl_sweep_interval_seconds: 60
-```
+A background thread in each `gvdb-single-node` and `gvdb-data-node` process periodically scans segments and permanently removes expired vectors. The sweep runs on a fixed cadence — see [`src/main/data_node_main.cpp`](https://github.com/JonathanBerhe/gvdb/blob/main/src/main/data_node_main.cpp) for the current interval.
 
 ## Guarantees
 
@@ -55,7 +45,7 @@ storage:
 - **Serialization-safe**: expired vectors survive flush/reload and are filtered consistently.
 - **No double-delete**: the sweep is idempotent.
 
-## Further reading
+## See also
 
-- [Python SDK — client API](../python-sdk/client.md#insert)
+- [Client API — insert](../python-sdk/client.md#insert)
 - [Architecture — storage](../architecture/storage.md) for segment lifecycle

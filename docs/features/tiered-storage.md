@@ -10,13 +10,20 @@ Offload sealed segments to object storage automatically. Hot data stays on local
 
 ## Architecture
 
-```
-┌─────────────┐  async upload  ┌─────────────┐
-│ Data node   │ ─────────────▶ │ S3 / MinIO  │
-│             │                │ (cold tier) │
-│ Local disk  │ ◀───────────── │             │
-│ (hot cache) │   lazy download└─────────────┘
-└─────────────┘
+```mermaid
+graph LR
+    subgraph DN[gvdb-data-node]
+        direction TB
+        Local[(Local disk<br/>hot cache)]
+    end
+
+    Object[(S3 / MinIO<br/>cold tier)]
+
+    Local -- "async upload<br/>on seal" --> Object
+    Object -- "lazy download<br/>on read miss" --> Local
+
+    style Local fill:#51cf66,color:#fff
+    style Object fill:#4a9eff,color:#fff
 ```
 
 - `TieredSegmentManager` composes the local `SegmentManager` + `IObjectStore` + an LRU `SegmentCache`.
@@ -32,25 +39,30 @@ S3 support is behind a CMake flag:
 make build CMAKE_EXTRA="-DGVDB_WITH_S3=ON"
 ```
 
-Runtime deps: `libssl-dev`, `libcurl4-openssl-dev`. The Docker image includes them.
+Runtime deps: `libssl-dev`, `libcurl4-openssl-dev`. The prebuilt Docker image includes them.
 
-## Configuration
+## Server configuration
+
+Object store settings live under `storage` in the server YAML. An empty `object_store_type` disables tiered storage:
 
 ```yaml
 storage:
-  data_dir: /var/lib/gvdb
+  data_dir: "/var/lib/gvdb"
 
-  object_store:
-    enabled: true
-    endpoint: https://s3.amazonaws.com   # or http://minio:9000 for MinIO
-    region: us-east-1
-    bucket: gvdb-cold
-    prefix: segments/
-    access_key_id: ${AWS_ACCESS_KEY_ID}
-    secret_access_key: ${AWS_SECRET_ACCESS_KEY}
-    upload_threads: 4
-    cache_size_gb: 50
+  object_store_type: "s3"                 # "s3" or "minio"
+  object_store_endpoint: "https://s3.amazonaws.com"
+  object_store_region: "us-east-1"
+  object_store_bucket: "gvdb-cold"
+  object_store_prefix: "segments/"
+  object_store_access_key: "..."
+  object_store_secret_key: "..."
+  object_store_use_ssl: true
+  object_store_cache_size_mb: 50000       # 50 GB
+  object_store_upload_threads: 4
 ```
+
+!!! warning "Not a Helm value"
+    The Helm chart does not expose `storage.object_store_*` as values. Mount a custom ConfigMap / Secret with these fields set, overriding the chart-rendered config. Credentials should come from a Kubernetes Secret.
 
 ## MinIO locally
 
@@ -60,7 +72,7 @@ For testing, run MinIO via Docker Compose:
 docker compose -f test/integration/docker-compose.minio.yml up -d
 ```
 
-Then point `endpoint` at `http://localhost:9000`.
+Then set `object_store_type: minio` and `object_store_endpoint: http://localhost:9000`.
 
 Run the S3 integration tests:
 
@@ -74,7 +86,8 @@ The local cache is an **LRU** with a configurable size. On miss, GVDB blocks unt
 
 Evictions are background; in-flight queries are never interrupted.
 
-## Further reading
+## See also
 
 - [Architecture — storage](../architecture/storage.md) for segment lifecycle
-- [Deploy with Helm](../operations/deploy-helm.md) for configuring S3 via Helm values
+- [Configuration](../operations/configuration.md) — full YAML schema
+- [Deploy with Helm](../operations/deploy-helm.md)

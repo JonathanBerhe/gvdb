@@ -1,166 +1,81 @@
 # Config reference
 
-Full YAML schema for every GVDB binary. Values shown are defaults.
-
-See [operations/configuration](../operations/configuration.md) for how precedence and env vars work.
+Condensed YAML schema for the GVDB server. For the per-field narrative and production examples, see [Configuration](../operations/configuration.md). **Authoritative source**: [`include/utils/config.h`](https://github.com/JonathanBerhe/gvdb/blob/main/include/utils/config.h).
 
 ```yaml
 server:
+  bind_address: "0.0.0.0"
   grpc_port: 50051
-  http_port: 8080
+  metrics_port: 9090
+  max_message_size_mb: 256
+  max_concurrent_streams: 1000
 
   tls:
     enabled: false
     cert_path: ""
     key_path: ""
-    client_ca_path: ""          # mutual TLS
+    ca_cert_path: ""          # for mutual TLS
+    mutual_tls: false
 
   auth:
     enabled: false
-
-    api_keys: []                # legacy: all keys treated as admin
-
-    rbac:
-      users: []
-      # - api_key: "admin-key"
-      #   role: admin            # admin | readwrite | readonly | collection_admin
-      #   collections: ["*"]     # "*" = all collections
+    api_keys: []              # legacy: flat list, each treated as admin
+    roles: []                 # RBAC — preferred
+      # - key: "admin-key"
+      #   role: admin         # admin | readwrite | readonly | collection_admin
+      #   collections: ["*"]
 
 storage:
-  data_dir: "./gvdb-data"
-  ttl_sweep_interval_seconds: 60
+  data_dir: "/tmp/gvdb"
+  segment_max_size_mb: 512
+  wal_buffer_size_mb: 64
+  enable_compression: true
+  compaction_threads: 4
 
-  segment:
-    seal_size_bytes: 1073741824 # 1 GiB
-    compaction_idle_seconds: 300
-    flush_on_seal: true
-
-  wal:
-    buffer_size_bytes: 16777216 # 16 MiB
-    sync_interval_ms: 1000
-
-  object_store:
-    enabled: false
-    endpoint: ""                 # e.g. https://s3.amazonaws.com or http://minio:9000
-    region: "us-east-1"
-    bucket: ""
-    prefix: "segments/"
-    access_key_id: ""
-    secret_access_key: ""
-    upload_threads: 4
-    cache_size_gb: 10
+  object_store_type: ""       # "s3" or "minio"; empty = disabled
+  object_store_endpoint: ""
+  object_store_access_key: ""
+  object_store_secret_key: ""
+  object_store_bucket: ""
+  object_store_region: ""
+  object_store_prefix: ""
+  object_store_use_ssl: true
+  object_store_cache_size_mb: 256
+  object_store_upload_threads: 2
 
 index:
-  memory_budget_gb: 4
-
-  hnsw:
-    m: 16
-    ef_construction: 200
-    ef_search: 64
-
-  ivf:
-    nlist: 16384
-    nprobe: 32
-
-  pq:
-    m: 96
-    nbits: 8
-
-  turboquant:
-    bits: 4                     # 1 | 2 | 4 | 8
-
-cluster:
-  node_id: 1
-  role: "single-node"           # single-node | coordinator | data-node | query-node | proxy
-  bind_address: "0.0.0.0:50051"
-  advertise_address: ""         # defaults to bind_address
-  coordinators: []              # required for non-coordinator roles
-  peers: []                     # required for coordinator role
-  heartbeat_interval_ms: 1000
-
-consensus:
-  data_dir: ""                  # defaults to <storage.data_dir>/raft
-  election_timeout_ms: 1000
-  heartbeat_interval_ms: 100
-  snapshot_distance: 10000
-  snapshot_creation_ms: 60000
-
-query_cache:
-  enabled: true
-  max_entries: 10000
-  ttl_seconds: 300
-
-metrics:
-  enabled: true
-  prometheus_port: 9090
+  default_index_type: "HNSW"  # FLAT | HNSW | IVF_FLAT | IVF_PQ | IVF_SQ
+                               # | TURBOQUANT | IVF_TURBOQUANT | AUTO
+  hnsw_m: 16
+  hnsw_ef_construction: 200
+  hnsw_ef_search: 100
+  ivf_nlist: 100
+  use_gpu: false
 
 logging:
-  level: "info"                 # trace | debug | info | warn | error
-  format: "json"                # json | text
+  level: "info"               # trace | debug | info | warn | error
+  console_enabled: true
+  file_enabled: true
+  file_path: "/tmp/gvdb/logs/gvdb.log"
+  max_file_size_mb: 100
+  max_files: 10
 
   audit:
     enabled: false
-    path: "/var/log/gvdb/audit.jsonl"
-    rotation_mb: 100
+    file_path: "/tmp/gvdb/logs/audit.jsonl"
+    max_file_size_mb: 100
     max_files: 10
-```
 
-## Per-role required fields
-
-### Single-node
-
-No `cluster.peers` or `cluster.coordinators` required.
-
-### Coordinator
-
-```yaml
-cluster:
-  role: coordinator
-  node_id: 1
-  peers:
-    - coord-2:50051
-    - coord-3:50051
 consensus:
-  data_dir: /var/lib/gvdb/raft
-```
-
-### Data node
-
-```yaml
-cluster:
-  role: data-node
-  node_id: 101
-  coordinators:
-    - coord-1:50051
-    - coord-2:50051
-    - coord-3:50051
-```
-
-### Query node
-
-```yaml
-cluster:
-  role: query-node
-  node_id: 201
-  coordinators:
-    - coord-1:50051
-    - coord-2:50051
-    - coord-3:50051
-```
-
-### Proxy
-
-```yaml
-cluster:
-  role: proxy
-  coordinators:
-    - coord-1:50051
-    - coord-2:50051
-    - coord-3:50051
+  node_id: 1
+  single_node_mode: true
+  peers: []
+  election_timeout_ms: 5000
+  heartbeat_interval_ms: 1000
 ```
 
 ## See also
 
-- [Configuration (operations)](../operations/configuration.md)
-- [CLI reference](cli.md)
-- [Helm chart](../operations/deploy-helm.md)
+- [Configuration](../operations/configuration.md) — per-field narrative
+- [CLI reference](cli.md) — flags that override config
+- [Helm chart](../operations/deploy-helm.md) — `config.*` subset surfaced as Helm values
