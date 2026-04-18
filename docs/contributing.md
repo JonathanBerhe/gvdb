@@ -77,7 +77,7 @@ See the top-level [`CLAUDE.md`](https://github.com/JonathanBerhe/gvdb/blob/main/
 - RAII + smart pointers (no raw `new`/`delete`)
 - `absl::Status` / `absl::StatusOr<T>` for fallible operations
 - Warnings as errors (`-Wall -Wextra -Werror`)
-- Module dependency rules (see [architecture](architecture/modules.md))
+- Module dependency rules (see [`CLAUDE.md`](https://github.com/JonathanBerhe/gvdb/blob/main/CLAUDE.md#module-architecture-and-dependencies))
 
 Python SDK follows `ruff` defaults. Run `make lint-sdk`.
 
@@ -108,10 +108,8 @@ Open an issue on GitHub with:
 
 ## Feature requests
 
-Open an issue or discussion. If the feature is in the [roadmap](roadmap.md), great — comment there to add your voice.
+Open an issue or discussion.
 
 ## See also
 
-- [Architecture](architecture/overview.md)
-- [Roadmap](roadmap.md)
 - [Changelog](changelog.md)

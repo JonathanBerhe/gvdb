@@ -59,4 +59,3 @@ The reference: *TurboQuant: Online Near-Optimal Quantization for Vectors* (ICLR 
 ## Further reading
 
 - [Vector search](vector-search.md) — full index catalogue
-- [Architecture — modules](../architecture/modules.md#index) — where TurboQuant lives in the codebase

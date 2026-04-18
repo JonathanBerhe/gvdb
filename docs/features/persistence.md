@@ -50,6 +50,4 @@ This seals the current growing segment and blocks until it reaches `FLUSHED`.
 
 ## Further reading
 
-- [Architecture — storage](../architecture/storage.md) for segment internals
 - [Tiered storage](tiered-storage.md) for S3/MinIO offload
-- [Architecture — consensus](../architecture/consensus.md) for metadata durability
