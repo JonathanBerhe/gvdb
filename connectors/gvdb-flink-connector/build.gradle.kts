@@ -44,8 +44,6 @@ publishing {
         create<MavenPublication>("maven") {
             from(components["java"])
             artifactId = "gvdb-flink-connector"
-
-            artifact(tasks.shadowJar)
         }
     }
     repositories {
