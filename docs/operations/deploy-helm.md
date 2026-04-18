@@ -114,7 +114,7 @@ The following are **not Helm-parameterized**. Configure them by mounting a custo
 - **Prometheus `ServiceMonitor`**
 - **Object storage** (S3 / MinIO) for [tiered storage](../features/tiered-storage.md) — the server supports it, but the chart doesn't expose the knobs
 
-Contributions to expose these in the Helm chart are welcome — see the [roadmap](../roadmap.md).
+Contributions to expose these in the Helm chart are welcome.
 
 ## Example: small production setup
 

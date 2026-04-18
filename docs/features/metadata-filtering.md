@@ -64,4 +64,3 @@ Metadata filters compose with all search modes:
 ## Further reading
 
 - [Python SDK — client API](../python-sdk/client.md) for method signatures
-- [Architecture — storage](../architecture/storage.md) for how scalar indexes are persisted
