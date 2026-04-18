@@ -1,0 +1,55 @@
+name: Docs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - 'README.md'
+      - 'ROADMAP.md'
+      - 'CHANGELOG.md'
+      - 'clients/python/README.md'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Zensical
+        run: uv pip install --system -r requirements-docs.txt
+      - name: Build
+        run: zensical build
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    environment:
+      name: github-pages
+      url: ${{ steps.zensical.outputs.page_url }}
+    steps:
+      - name: Build and deploy Zensical site
+        id: zensical
+        uses: cssnr/zensical-action@v1
