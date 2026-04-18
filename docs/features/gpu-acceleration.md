@@ -44,4 +44,3 @@ This builds and runs `gvdb-metal-bench`, which compares CPU and GPU throughput a
 ## Further reading
 
 - [Vector search](vector-search.md) — full index catalogue
-- [Architecture — modules](../architecture/modules.md) for where Metal code lives
