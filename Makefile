@@ -154,14 +154,17 @@ status:
 # ---------------------------------------------------------------------------
 # Documentation (Zensical — https://zensical.org)
 # ---------------------------------------------------------------------------
+DOCS_VENV = .venv-docs
+
 docs-install:
-	@uv pip install --system -r requirements-docs.txt
+	@uv venv $(DOCS_VENV)
+	@uv pip install --python $(DOCS_VENV)/bin/python -r requirements-docs.txt
 
 docs-serve: docs-install
-	@zensical serve
+	@$(DOCS_VENV)/bin/zensical serve
 
 docs-build: docs-install
-	@zensical build
+	@$(DOCS_VENV)/bin/zensical build
 
 # ---------------------------------------------------------------------------
 # Web UI
