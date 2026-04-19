@@ -35,6 +35,50 @@ void HeartbeatSender::Stop() {
   }
 }
 
+bool HeartbeatSender::SendDrainHeartbeatOnce() {
+  auto channel = grpc::CreateChannel(coordinator_address_,
+                                      grpc::InsecureChannelCredentials());
+  auto stub = proto::internal::InternalService::NewStub(channel);
+
+  proto::internal::HeartbeatRequest request;
+  auto* node_info = request.mutable_node_info();
+  node_info->set_node_id(node_id_);
+  node_info->set_node_type(node_type_);
+  node_info->set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
+  node_info->set_grpc_address(grpc_address_);
+
+  grpc::ClientContext context;
+  context.set_deadline(std::chrono::system_clock::now() +
+                       std::chrono::seconds(2));
+
+  proto::internal::HeartbeatResponse response;
+  auto status = stub->Heartbeat(&context, request, &response);
+
+  if (status.ok() && response.acknowledged()) {
+    utils::Logger::Instance().Info(
+        "Drain heartbeat acknowledged (node_id={})", node_id_);
+    return true;
+  }
+  utils::Logger::Instance().Warn(
+      "Drain heartbeat failed (node_id={}): {}", node_id_,
+      status.error_message());
+  return false;
+}
+
+bool HeartbeatSender::DrainAndStop() {
+  // Join the send loop first so no racing NODE_STATUS_READY heartbeat can
+  // overwrite our DRAINING signal at the coordinator. Assumes shutdown_flag_
+  // has already been set by the caller (SIGTERM handler).
+  Stop();
+
+  if (SendDrainHeartbeatOnce()) return true;
+
+  // One fast retry — drain is best-effort but worth a second try if the
+  // first RPC raced a transient coordinator hiccup.
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  return SendDrainHeartbeatOnce();
+}
+
 void HeartbeatSender::SendLoop() {
   auto channel = grpc::CreateChannel(coordinator_address_,
                                       grpc::InsecureChannelCredentials());

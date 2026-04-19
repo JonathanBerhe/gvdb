@@ -22,12 +22,22 @@ enum NodeType {
 }
 
 enum NodeStatus {
+  // Default / unset — node has not yet reported a status.
   NODE_STATUS_UNKNOWN = 0;
+  // Node is initializing and not yet ready to serve traffic.
   NODE_STATUS_STARTING = 1;
+  // Node is healthy and accepting requests.
   NODE_STATUS_READY = 2;
+  // Node is operational but under high load.
   NODE_STATUS_BUSY = 3;
+  // Node is operational with reduced capacity (partial failure).
   NODE_STATUS_DEGRADED = 4;
+  // Node is unreachable or has failed.
   NODE_STATUS_DOWN = 5;
+  // Node is shutting down gracefully. Sent as a final heartbeat from the node
+  // so the coordinator stops routing new work to it without waiting for
+  // heartbeat timeout (roadmap 0b.1).
+  NODE_STATUS_DRAINING = 6;
 }
 
 message NodeInfo {
@@ -204,6 +214,12 @@ message RouteQueryRequest {
   uint32 top_k = 3;
   string filter = 4;
   bool return_metadata = 5;
+  // When true, the coordinator may return a non-primary replica as the
+  // target for a shard if the primary is draining. Proxies set this for
+  // read operations where stale-but-live replicas are acceptable. Writes
+  // must always go to the primary and should leave this false (roadmap
+  // 0b.1 — proper primary migration is 0b.3).
+  bool prefer_routable_replica = 6;
 }
 
 message RouteQueryResponse {
