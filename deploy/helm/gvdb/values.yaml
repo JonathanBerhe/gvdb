@@ -21,9 +21,10 @@ dataNode:
   replicas: 2
   memoryLimitGb: 4
   # Seconds between SIGTERM and SIGKILL. Pod uses this window to send a
-  # draining heartbeat to the coordinator and finish in-flight work
-  # (roadmap 0b.1).
-  terminationGracePeriodSeconds: 30
+  # draining heartbeat to the coordinator, wait for in-flight index builds
+  # to finish (IVF can take tens of seconds), and close gRPC connections
+  # cleanly (roadmap 0b.1).
+  terminationGracePeriodSeconds: 60
   resources:
     requests:
       memory: "512Mi"

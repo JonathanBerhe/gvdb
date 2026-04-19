@@ -514,6 +514,115 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_NonexistentCollection") {
   CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
 }
 
+// Roadmap 0b.1: when a shard's primary is draining and the caller set
+// prefer_routable_replica, RouteQuery must return a non-draining replica
+// instead of the draining primary. This is the integration-level proof that
+// the drain signal actually sheds query traffic off the draining node.
+TEST_CASE_FIXTURE(InternalServiceRpcTest,
+                  "RouteQuery_PrefersReplicaWhenPrimaryDraining") {
+  // Register two data nodes (primary=1, replica=2) with both the registry
+  // and the shard manager.
+  proto::internal::NodeInfo replica_info;
+  replica_info.set_node_id(2);
+  replica_info.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  replica_info.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  replica_info.set_grpc_address("localhost:50052");
+  node_registry_->UpdateNode(replica_info);
+
+  (void)shard_manager_->RegisterNode(core::MakeNodeId(1));
+  (void)shard_manager_->RegisterNode(core::MakeNodeId(2));
+
+  auto coll = coordinator_->CreateCollection(
+      "drain_route_test", 8, core::MetricType::L2, core::IndexType::FLAT, 1);
+  REQUIRE(coll.ok());
+  auto metadata = coordinator_->GetCollectionMetadata("drain_route_test");
+  REQUIRE(metadata.ok());
+  for (const auto& sid : metadata->shard_ids) {
+    (void)shard_manager_->SetPrimaryNode(sid, core::MakeNodeId(1));
+    (void)shard_manager_->AddReplica(sid, core::MakeNodeId(2));
+  }
+
+  // Primary transitions to DRAINING via a final heartbeat.
+  proto::internal::NodeInfo drain_info;
+  drain_info.set_node_id(1);
+  drain_info.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  drain_info.set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
+  drain_info.set_grpc_address("localhost:50051");
+  node_registry_->UpdateNode(drain_info);
+
+  // Read path: prefer_routable_replica=true → coordinator must pick replica 2.
+  {
+    grpc::ServerContext ctx;
+    proto::internal::RouteQueryRequest req;
+    req.set_collection_name("drain_route_test");
+    req.set_prefer_routable_replica(true);
+    proto::internal::RouteQueryResponse resp;
+    auto status = service_->RouteQuery(&ctx, &req, &resp);
+    REQUIRE(status.ok());
+    REQUIRE(resp.target_node_ids_size() > 0);
+    for (int i = 0; i < resp.target_node_ids_size(); ++i) {
+      CHECK_EQ(resp.target_node_ids(i), 2u);
+      CHECK_EQ(resp.target_node_addresses(i), "localhost:50052");
+    }
+  }
+
+  // Write path: prefer_routable_replica=false (default) → must stay on
+  // primary 1 even though it is draining. The drain signal must not silently
+  // redirect writes; 0b.3 handles primary migration.
+  {
+    grpc::ServerContext ctx;
+    proto::internal::RouteQueryRequest req;
+    req.set_collection_name("drain_route_test");
+    // read_only left default (false)
+    proto::internal::RouteQueryResponse resp;
+    auto status = service_->RouteQuery(&ctx, &req, &resp);
+    REQUIRE(status.ok());
+    REQUIRE(resp.target_node_ids_size() > 0);
+    for (int i = 0; i < resp.target_node_ids_size(); ++i) {
+      CHECK_EQ(resp.target_node_ids(i), 1u);
+      CHECK_EQ(resp.target_node_addresses(i), "localhost:50051");
+    }
+  }
+}
+
+// If the primary is draining AND no routable replica exists, RouteQuery must
+// fall back to the primary rather than returning an empty address. Better to
+// have stale routing than broken routing — the caller will see a connection
+// error on the now-dead node and can retry.
+TEST_CASE_FIXTURE(InternalServiceRpcTest,
+                  "RouteQuery_FallsBackToPrimaryWhenNoReplicaRoutable") {
+  (void)shard_manager_->RegisterNode(core::MakeNodeId(1));
+
+  auto coll = coordinator_->CreateCollection(
+      "drain_solo", 8, core::MetricType::L2, core::IndexType::FLAT, 1);
+  REQUIRE(coll.ok());
+  auto metadata = coordinator_->GetCollectionMetadata("drain_solo");
+  REQUIRE(metadata.ok());
+  for (const auto& sid : metadata->shard_ids) {
+    (void)shard_manager_->SetPrimaryNode(sid, core::MakeNodeId(1));
+  }
+
+  // Primary drains; no replica exists.
+  proto::internal::NodeInfo drain_info;
+  drain_info.set_node_id(1);
+  drain_info.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  drain_info.set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
+  drain_info.set_grpc_address("localhost:50051");
+  node_registry_->UpdateNode(drain_info);
+
+  grpc::ServerContext ctx;
+  proto::internal::RouteQueryRequest req;
+  req.set_collection_name("drain_solo");
+  req.set_prefer_routable_replica(true);
+  proto::internal::RouteQueryResponse resp;
+  auto status = service_->RouteQuery(&ctx, &req, &resp);
+  REQUIRE(status.ok());
+  REQUIRE(resp.target_node_ids_size() > 0);
+  for (int i = 0; i < resp.target_node_ids_size(); ++i) {
+    CHECK_EQ(resp.target_node_ids(i), 1u);
+  }
+}
+
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "ExecuteShardQuery_NonexistentSegment") {
   grpc::ServerContext ctx;
   proto::internal::ExecuteShardQueryRequest request;

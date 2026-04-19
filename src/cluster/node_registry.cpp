@@ -28,9 +28,42 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
 
   auto it = nodes_.find(node_id);
   if (it != nodes_.end()) {
-    // Update existing node
+    // Merge incoming heartbeat into the existing record rather than wholesale
+    // replacing it. Heartbeats carry a sparse NodeInfo (identity + status
+    // only; drain heartbeats especially). We preserve observability fields
+    // (memory/disk/perf counters) from the previous heartbeat when the
+    // incoming value is zero, so the DRAINING transition does not clobber
+    // the last known resource snapshot used by GetClusterHealth.
     const bool was_draining = it->second.IsDraining();
-    it->second.info = node_info;
+    auto& stored = it->second.info;
+
+    // Identity + status: always overwrite.
+    stored.set_node_id(node_info.node_id());
+    stored.set_node_type(node_info.node_type());
+    stored.set_status(node_info.status());
+    if (!node_info.grpc_address().empty()) {
+      stored.set_grpc_address(node_info.grpc_address());
+    }
+    if (!node_info.raft_address().empty()) {
+      stored.set_raft_address(node_info.raft_address());
+    }
+
+    // Resource fields: only overwrite when the incoming message provides a
+    // non-zero value (proto3 cannot distinguish "unset" from "zero").
+    if (node_info.memory_total_bytes() > 0) {
+      stored.set_memory_total_bytes(node_info.memory_total_bytes());
+      stored.set_memory_used_bytes(node_info.memory_used_bytes());
+    }
+    if (node_info.disk_total_bytes() > 0) {
+      stored.set_disk_total_bytes(node_info.disk_total_bytes());
+      stored.set_disk_used_bytes(node_info.disk_used_bytes());
+    }
+    if (node_info.total_requests() > 0) {
+      stored.set_total_requests(node_info.total_requests());
+      stored.set_avg_latency_ms(node_info.avg_latency_ms());
+      stored.set_error_count(node_info.error_count());
+    }
+
     it->second.last_heartbeat = now;
     it->second.total_heartbeats++;
 
@@ -158,6 +191,13 @@ std::vector<RegisteredNode> NodeRegistry::GetRoutableNodesByType(
     }
   }
   return result;
+}
+
+bool NodeRegistry::IsNodeRoutable(uint32_t node_id) const {
+  std::shared_lock lock(mutex_);
+  auto it = nodes_.find(node_id);
+  if (it == nodes_.end()) return false;
+  return it->second.IsRoutable(heartbeat_timeout_);
 }
 
 std::vector<RegisteredNode> NodeRegistry::GetFailedNodes() const {
