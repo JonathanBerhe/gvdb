@@ -180,6 +180,15 @@ class Coordinator {
   // Handle failed node: reassign shards, promote replicas
   void HandleFailedNode(core::NodeId failed_node_id);
 
+  // Migrate shards off a node that has signalled NODE_STATUS_DRAINING
+  // (roadmap 0b.3). Unlike HandleFailedNode, the draining node is still
+  // alive and serving reads — we can safely promote replicas and remove
+  // the draining node from the shard assignment map before its gRPC server
+  // is shut down. Called from the health-check loop; safe to invoke
+  // repeatedly (self-limiting: once shards are migrated, GetShardsForNode
+  // returns empty and the node is unregistered).
+  void HandleDrainingNode(core::NodeId draining_node_id);
+
   // Dynamic shard rebalancing
   // Returns the number of shards successfully moved. collection_id(0) = all.
   absl::StatusOr<uint32_t> ExecuteRebalancePlan(
@@ -209,6 +218,7 @@ class Coordinator {
   std::unique_ptr<std::thread> health_check_thread_;
   void HealthCheckLoop();
   void DetectFailedNodes();
+  void DetectDrainingNodes();
   void CheckReplication();
   void CheckConsistency();
   absl::Status RepairSegment(core::SegmentId segment_id,
