@@ -9,6 +9,7 @@
 #include "cluster/internal_client.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include <chrono>
 #include <memory>
 #include <string>
 #include <map>
@@ -180,6 +181,21 @@ class Coordinator {
   // Handle failed node: reassign shards, promote replicas
   void HandleFailedNode(core::NodeId failed_node_id);
 
+  // Fires a debounced ExecuteRebalancePlan whenever a new healthy data
+  // node appears in the registry that the coordinator hasn't seen before.
+  // Runs the plan in a detached thread so it does not block the
+  // health-check loop (rebalance is bounded at kMaxMovesPerCycle, but each
+  // ReplicateSegmentData call can take seconds). Called from the
+  // health-check loop; public so tests can drive it directly (roadmap
+  // 0b.2).
+  void DetectNewDataNodes();
+
+  // Public for testing: snapshot the set of data-node IDs the coordinator
+  // currently considers "known" for auto-rebalance bookkeeping (0b.2).
+  // Tests use this to assert that new nodes are tracked and that pruning
+  // on unregister works.
+  std::set<core::NodeId> KnownDataNodesForTesting() const;
+
   // Migrate shards off a node that has signalled NODE_STATUS_DRAINING
   // (roadmap 0b.3). Unlike HandleFailedNode, the draining node is still
   // alive and serving reads — we can safely promote replicas and remove
@@ -239,6 +255,15 @@ class Coordinator {
   static constexpr size_t kMaxMovesPerCycle = 4;
   mutable std::mutex migration_mutex_;
   std::set<core::ShardId> shards_migrating_;
+
+  // Auto-rebalance bookkeeping (roadmap 0b.2). Tracks data-node IDs we've
+  // already noticed so that DetectNewDataNodes only fires on genuine
+  // scale-up events, and a steady-clock stamp for debouncing so a rolling
+  // restart of N pods doesn't trigger N rebalances in quick succession.
+  static constexpr std::chrono::seconds kAutoRebalanceDebounce{60};
+  mutable std::mutex known_nodes_mutex_;
+  std::set<core::NodeId> known_data_nodes_;
+  std::chrono::steady_clock::time_point last_auto_rebalance_at_{};
 
   // Helper methods
   core::NodeId AllocateNodeId();

@@ -663,6 +663,10 @@ void Coordinator::HealthCheckLoop() {
     // would be handled as a failure instead (less graceful).
     DetectDrainingNodes();
     DetectFailedNodes();
+    // Fire auto-rebalance if any new data node has joined since last cycle
+    // (roadmap 0b.2). Ordered after drain/failure so we don't rebalance
+    // onto nodes that are actively leaving.
+    DetectNewDataNodes();
     CheckReplication();
 
     health_check_cycle_count_++;
@@ -686,6 +690,67 @@ void Coordinator::DetectDrainingNodes() {
   }
 }
 
+std::set<core::NodeId> Coordinator::KnownDataNodesForTesting() const {
+  std::lock_guard lock(known_nodes_mutex_);
+  return known_data_nodes_;
+}
+
+void Coordinator::DetectNewDataNodes() {
+  auto data_nodes = node_registry_->GetHealthyNodesByType(
+      proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+
+  std::vector<core::NodeId> newly_seen;
+  {
+    std::lock_guard lock(known_nodes_mutex_);
+    for (const auto& n : data_nodes) {
+      if (n.IsDraining()) continue;  // don't count departing nodes
+      auto id = core::MakeNodeId(n.info.node_id());
+      auto [it, inserted] = known_data_nodes_.insert(id);
+      if (inserted) newly_seen.push_back(id);
+    }
+  }
+
+  if (newly_seen.empty()) return;
+
+  // In single-node / in-process test mode there is no coordinator client
+  // to actually execute the rebalance. We still update the tracking set
+  // above so the baseline is correct if a client_factory_ is later wired
+  // in.
+  if (!client_factory_) return;
+
+  // Debounce: in a rolling restart scenario, several pods come up in quick
+  // succession. Only fire the rebalance once per kAutoRebalanceDebounce
+  // window regardless of how many nodes newly joined.
+  const auto now = std::chrono::steady_clock::now();
+  if (last_auto_rebalance_at_ != std::chrono::steady_clock::time_point{} &&
+      now - last_auto_rebalance_at_ < kAutoRebalanceDebounce) {
+    utils::Logger::Instance().Info(
+        "Auto-rebalance: {} new data node(s) seen; skipping rebalance "
+        "(within debounce window)", newly_seen.size());
+    return;
+  }
+  last_auto_rebalance_at_ = now;
+
+  utils::Logger::Instance().Info(
+      "Auto-rebalance: {} new data node(s) joined; scheduling "
+      "ExecuteRebalancePlan", newly_seen.size());
+
+  // Run asynchronously. ExecuteRebalancePlan is bounded by
+  // kMaxMovesPerCycle but each ExecuteSingleMove issues ReplicateSegmentData
+  // + DeleteSegment RPCs that can take multiple seconds; blocking the
+  // health-check loop for that long would delay failure detection.
+  std::thread([this]() {
+    auto result = ExecuteRebalancePlan(core::CollectionId(0));
+    if (result.ok()) {
+      utils::Logger::Instance().Info(
+          "Auto-rebalance completed: {} shards moved", *result);
+    } else {
+      utils::Logger::Instance().Warn(
+          "Auto-rebalance failed: {}", result.status().message());
+    }
+  }).detach();
+}
+
 void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
   auto shards = shard_manager_->GetShardsForNode(draining_node_id);
   if (shards.empty()) {
@@ -693,6 +758,12 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
     // never held any. Unregister once from ShardManager (idempotent — we
     // tolerate the NotFound on subsequent cycles).
     (void)shard_manager_->UnregisterNode(draining_node_id, /*graceful=*/true);
+    {
+      // Same pruning as the post-migration path: let a future rejoin
+      // be detected as a scale-up event (0b.2).
+      std::lock_guard lock(known_nodes_mutex_);
+      known_data_nodes_.erase(draining_node_id);
+    }
     return;
   }
 
@@ -759,6 +830,12 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
   auto remaining = shard_manager_->GetShardsForNode(draining_node_id);
   if (remaining.empty()) {
     (void)shard_manager_->UnregisterNode(draining_node_id, /*graceful=*/true);
+    {
+      // Forget this node so a future rejoin (same id) is treated as a
+      // genuine scale-up event and auto-rebalance fires again (0b.2).
+      std::lock_guard lock(known_nodes_mutex_);
+      known_data_nodes_.erase(draining_node_id);
+    }
     utils::Logger::Instance().Info(
         "Drain: node {} fully drained, unregistered from shard manager",
         core::ToUInt32(draining_node_id));
@@ -1005,6 +1082,12 @@ void Coordinator::HandleFailedNode(core::NodeId failed_node_id) {
 
   // Remove failed node from shard manager
   shard_manager_->UnregisterNode(failed_node_id, false);
+  {
+    // Same pruning as the drain path: allow a future rejoin to be detected
+    // as a scale-up event (0b.2).
+    std::lock_guard lock(known_nodes_mutex_);
+    known_data_nodes_.erase(failed_node_id);
+  }
   utils::Logger::Instance().Info("Removed failed node {} from shard manager",
                                   core::ToUInt32(failed_node_id));
 }
