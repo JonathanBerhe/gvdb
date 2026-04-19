@@ -657,6 +657,11 @@ void Coordinator::HealthCheckLoop() {
   RecoverMigratingShards();
 
   while (running_.load(std::memory_order_acquire)) {
+    // Check draining nodes BEFORE failure detection: a cleanly draining node
+    // that finishes migration will be unregistered here; if we ran failure
+    // detection first, a draining node whose heartbeat had just timed out
+    // would be handled as a failure instead (less graceful).
+    DetectDrainingNodes();
     DetectFailedNodes();
     CheckReplication();
 
@@ -666,6 +671,97 @@ void Coordinator::HealthCheckLoop() {
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(kHealthCheckIntervalMs));
+  }
+}
+
+void Coordinator::DetectDrainingNodes() {
+  // Ask the registry for nodes that are actively draining (status = DRAINING
+  // AND heartbeat still fresh). Stale draining nodes are intentionally
+  // excluded — they will be handled as hard failures by DetectFailedNodes
+  // below. This also avoids wasted iteration over the long tail of never-
+  // pruned dead nodes that accumulate in NodeRegistry.
+  auto draining = node_registry_->GetDrainingNodes();
+  for (const auto& reg : draining) {
+    HandleDrainingNode(core::MakeNodeId(reg.info.node_id()));
+  }
+}
+
+void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
+  auto shards = shard_manager_->GetShardsForNode(draining_node_id);
+  if (shards.empty()) {
+    // No shards left on this node — either already drained or the node
+    // never held any. Unregister once from ShardManager (idempotent — we
+    // tolerate the NotFound on subsequent cycles).
+    (void)shard_manager_->UnregisterNode(draining_node_id, /*graceful=*/true);
+    return;
+  }
+
+  for (const auto& shard_info : shards) {
+    auto primary_result = shard_manager_->GetPrimaryNode(shard_info.shard_id);
+    if (!primary_result.ok()) continue;
+    auto replicas_result = shard_manager_->GetReplicaNodes(shard_info.shard_id);
+    std::vector<core::NodeId> replicas;
+    if (replicas_result.ok()) replicas = *replicas_result;
+
+    if (*primary_result == draining_node_id) {
+      // Case 1: draining node is PRIMARY. Prefer promoting an existing
+      // routable replica (fast, no data movement).
+      core::NodeId new_primary = core::kInvalidNodeId;
+      for (const auto& r : replicas) {
+        if (r == draining_node_id) continue;
+        if (node_registry_->IsNodeRoutable(core::ToUInt32(r))) {
+          new_primary = r;
+          break;
+        }
+      }
+
+      if (new_primary == core::kInvalidNodeId) {
+        // No routable replica to promote. Leave this shard for the next
+        // cycle — either another node becomes routable or the draining
+        // node's heartbeat eventually times out and HandleFailedNode
+        // takes over with its own replica-promotion logic. Proactive
+        // segment replication to a fresh node is deferred to a later
+        // phase of 0b.3 (needs the collection context to compute
+        // ShardSegmentId and bounded concurrency).
+        utils::Logger::Instance().Warn(
+            "Drain: no routable replica for shard {} on draining node {}; "
+            "will retry next cycle",
+            core::ToUInt16(shard_info.shard_id),
+            core::ToUInt32(draining_node_id));
+        continue;
+      }
+
+      auto status = shard_manager_->SetPrimaryNode(
+          shard_info.shard_id, new_primary);
+      if (status.ok()) {
+        utils::Logger::Instance().Info(
+            "Drain: promoted replica {} to primary for shard {} "
+            "(was on draining node {})",
+            core::ToUInt32(new_primary),
+            core::ToUInt16(shard_info.shard_id),
+            core::ToUInt32(draining_node_id));
+      }
+    } else {
+      // Case 2: draining node is a REPLICA. Primary still serves this
+      // shard, so we can drop the replica immediately.
+      auto status = shard_manager_->RemoveReplica(
+          shard_info.shard_id, draining_node_id);
+      if (status.ok()) {
+        utils::Logger::Instance().Info(
+            "Drain: removed draining node {} as replica of shard {}",
+            core::ToUInt32(draining_node_id),
+            core::ToUInt16(shard_info.shard_id));
+      }
+    }
+  }
+
+  // If all shards migrated, finalize by unregistering.
+  auto remaining = shard_manager_->GetShardsForNode(draining_node_id);
+  if (remaining.empty()) {
+    (void)shard_manager_->UnregisterNode(draining_node_id, /*graceful=*/true);
+    utils::Logger::Instance().Info(
+        "Drain: node {} fully drained, unregistered from shard manager",
+        core::ToUInt32(draining_node_id));
   }
 }
 

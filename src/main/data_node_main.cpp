@@ -1,11 +1,16 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
+#include <chrono>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <grpcpp/grpcpp.h>
+
+#include "internal.grpc.pb.h"
 
 #include "cluster/data_node.h"
 #include "cluster/shard_manager.h"
@@ -37,7 +42,96 @@ struct DataNodeArgs {
   std::vector<std::string> coordinator_addresses;
   std::vector<int> assigned_shards;
   size_t memory_limit_gb = 8;
+  // Max seconds to wait after sending DRAINING for the coordinator to
+  // migrate shards off this node before we shut down the gRPC server
+  // (roadmap 0b.3). Bounded by terminationGracePeriodSeconds in K8s.
+  int drain_wait_seconds = 15;
 };
+
+namespace {
+
+// Poll the coordinator for our remaining shard assignments. Returns when
+// either no shards remain assigned to this node or the timeout elapses.
+// Used during graceful shutdown so the gRPC server stays up long enough
+// for the coordinator to promote replicas via Coordinator::HandleDrainingNode.
+//
+// Transient RPC failures do NOT cause us to exit the wait early: the whole
+// point of the drain budget is to let the coordinator catch up. We retry
+// with short backoff and only give up when the overall deadline is reached.
+void WaitForDrainCompletion(const std::string& coordinator_address,
+                            int node_id,
+                            std::chrono::seconds timeout) {
+  using namespace gvdb;
+  if (coordinator_address.empty() || timeout.count() <= 0) return;
+
+  auto channel = grpc::CreateChannel(coordinator_address,
+                                      grpc::InsecureChannelCredentials());
+  auto stub = proto::internal::InternalService::NewStub(channel);
+
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  // 1s poll aligns with coordinator HealthCheckLoop period so we don't spin
+  // before DetectDrainingNodes has had a chance to run.
+  const auto poll_interval = std::chrono::milliseconds(1000);
+  int consecutive_rpc_failures = 0;
+
+  while (std::chrono::steady_clock::now() < deadline) {
+    proto::internal::GetShardAssignmentsRequest req;
+    req.set_collection_id(0);  // all collections
+    proto::internal::GetShardAssignmentsResponse resp;
+    grpc::ClientContext ctx;
+    ctx.set_deadline(std::chrono::system_clock::now() +
+                     std::chrono::seconds(2));
+
+    auto status = stub->GetShardAssignments(&ctx, req, &resp);
+    if (!status.ok()) {
+      // Transient: retry rather than fail open. Failing open here would
+      // let the data-node shut down its gRPC server before migration
+      // completes, defeating the drain-wait budget and risking data loss.
+      ++consecutive_rpc_failures;
+      utils::Logger::Instance().Warn(
+          "Drain wait: GetShardAssignments failed (attempt {}): {}",
+          consecutive_rpc_failures, status.error_message());
+      // Short exponential backoff, capped so we still poll within budget.
+      auto backoff = std::chrono::milliseconds(
+          std::min(2000, 250 * (1 << std::min(3, consecutive_rpc_failures - 1))));
+      if (std::chrono::steady_clock::now() + backoff >= deadline) break;
+      std::this_thread::sleep_for(backoff);
+      continue;
+    }
+    consecutive_rpc_failures = 0;
+
+    bool still_assigned = false;
+    for (const auto& a : resp.assignments()) {
+      if (a.primary_node_id() == static_cast<uint32_t>(node_id)) {
+        still_assigned = true;
+        break;
+      }
+      for (uint32_t replica : a.node_ids()) {
+        if (replica == static_cast<uint32_t>(node_id)) {
+          still_assigned = true;
+          break;
+        }
+      }
+      if (still_assigned) break;
+    }
+
+    if (!still_assigned) {
+      utils::Logger::Instance().Info(
+          "Drain wait: node {} has no remaining shard assignments", node_id);
+      return;
+    }
+    // Check deadline BEFORE sleeping so we don't overshoot by a full
+    // poll interval when close to timeout.
+    if (std::chrono::steady_clock::now() + poll_interval >= deadline) break;
+    std::this_thread::sleep_for(poll_interval);
+  }
+  utils::Logger::Instance().Warn(
+      "Drain wait: timeout reached with shards still assigned to node {} "
+      "(coordinator will fall back to heartbeat-timeout eviction)",
+      node_id);
+}
+
+}  // namespace
 
 void PrintUsage(const char* program_name) {
   std::cout << "Usage: " << program_name << " [options]\n"
@@ -50,6 +144,7 @@ void PrintUsage(const char* program_name) {
             << "  --shards SHARD_IDS          Comma-separated shard IDs\n"
             << "  --config FILE               YAML config file (for S3/MinIO settings)\n"
             << "  --memory-limit-gb SIZE      Memory limit in GB (default: 8)\n"
+            << "  --drain-wait-seconds SEC    Max seconds to wait for shard drain on shutdown (default: 15)\n"
             << "  --help                      Show this help message\n";
 }
 
@@ -96,6 +191,8 @@ bool ParseArgs(int argc, char** argv, DataNodeArgs& args) {
       args.config_file = argv[++i];
     } else if (arg == "--memory-limit-gb" && i + 1 < argc) {
       args.memory_limit_gb = std::stoull(argv[++i]);
+    } else if (arg == "--drain-wait-seconds" && i + 1 < argc) {
+      args.drain_wait_seconds = std::stoi(argv[++i]);
     } else {
       std::cerr << "Unknown argument: " << arg << std::endl;
       PrintUsage(argv[0]);
@@ -283,6 +380,18 @@ int main(int argc, char** argv) {
     if (build_thread.joinable()) build_thread.join();
     if (ttl_sweep_thread.joinable()) ttl_sweep_thread.join();
     heartbeat.reset();  // no-op join (already stopped above)
+
+    // Keep the gRPC server up until the coordinator has migrated our shards
+    // off. If we close the server immediately, in-flight ReplicateSegment
+    // pulls from other data nodes would fail and HandleDrainingNode would
+    // be unable to promote replicas (roadmap 0b.3). Bounded by
+    // drain_wait_seconds so a wedged coordinator can't block shutdown
+    // forever — on timeout we fall back to heartbeat-timeout eviction.
+    if (!args.coordinator_addresses.empty() && args.drain_wait_seconds > 0) {
+      WaitForDrainCompletion(args.coordinator_addresses[0], args.node_id,
+                             std::chrono::seconds(args.drain_wait_seconds));
+    }
+
     server->Shutdown();
     utils::ServerBootstrap::StopMetricsServer();
     std::cout << "Shutdown complete. Goodbye!" << std::endl;
