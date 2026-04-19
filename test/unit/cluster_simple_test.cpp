@@ -615,6 +615,175 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodeNoReplicaLeavesOrphan") {
   CHECK_EQ(*primary_after, primary_id);
 }
 
+// ---------------------------------------------------------------------------
+// Graceful drain (roadmap 0b.3) — Coordinator::HandleDrainingNode
+// ---------------------------------------------------------------------------
+
+// A draining primary with a routable replica: replica is promoted,
+// draining node is unregistered from ShardManager.
+TEST_CASE_FIXTURE(CoordinatorTest, "HandleDrainingNodePromotesReplica") {
+  auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
+  auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
+  auto coord = std::make_unique<Coordinator>(shard_manager, node_registry);
+
+  core::NodeId primary_id = core::MakeNodeId(1);
+  core::NodeId replica_id = core::MakeNodeId(2);
+  REQUIRE(shard_manager->RegisterNode(primary_id).ok());
+  REQUIRE(shard_manager->RegisterNode(replica_id).ok());
+
+  proto::internal::NodeInfo proto_primary;
+  proto_primary.set_node_id(1);
+  proto_primary.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  proto_primary.set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
+  proto_primary.set_grpc_address("localhost:50051");
+  node_registry->UpdateNode(proto_primary);
+
+  proto::internal::NodeInfo proto_replica;
+  proto_replica.set_node_id(2);
+  proto_replica.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  proto_replica.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  proto_replica.set_grpc_address("localhost:50052");
+  node_registry->UpdateNode(proto_replica);
+
+  core::ShardId shard = core::MakeShardId(0);
+  REQUIRE(shard_manager->SetPrimaryNode(shard, primary_id).ok());
+  REQUIRE(shard_manager->AddReplica(shard, replica_id).ok());
+
+  coord->HandleDrainingNode(primary_id);
+
+  auto primary_after = shard_manager->GetPrimaryNode(shard);
+  REQUIRE(primary_after.ok());
+  CHECK_EQ(*primary_after, replica_id);
+
+  // Draining node should be fully unregistered from the shard manager.
+  auto remaining = shard_manager->GetShardsForNode(primary_id);
+  CHECK(remaining.empty());
+}
+
+// A draining REPLICA (primary is healthy): the replica entry is simply
+// dropped — no data movement needed.
+TEST_CASE_FIXTURE(CoordinatorTest, "HandleDrainingNodeDropsReplicaEntry") {
+  auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
+  auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
+  auto coord = std::make_unique<Coordinator>(shard_manager, node_registry);
+
+  core::NodeId primary_id = core::MakeNodeId(1);
+  core::NodeId replica_id = core::MakeNodeId(2);
+  REQUIRE(shard_manager->RegisterNode(primary_id).ok());
+  REQUIRE(shard_manager->RegisterNode(replica_id).ok());
+
+  proto::internal::NodeInfo proto_primary;
+  proto_primary.set_node_id(1);
+  proto_primary.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  proto_primary.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  proto_primary.set_grpc_address("localhost:50051");
+  node_registry->UpdateNode(proto_primary);
+
+  proto::internal::NodeInfo proto_replica;
+  proto_replica.set_node_id(2);
+  proto_replica.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  proto_replica.set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
+  proto_replica.set_grpc_address("localhost:50052");
+  node_registry->UpdateNode(proto_replica);
+
+  core::ShardId shard = core::MakeShardId(0);
+  REQUIRE(shard_manager->SetPrimaryNode(shard, primary_id).ok());
+  REQUIRE(shard_manager->AddReplica(shard, replica_id).ok());
+
+  coord->HandleDrainingNode(replica_id);
+
+  // Primary unchanged.
+  auto primary_after = shard_manager->GetPrimaryNode(shard);
+  REQUIRE(primary_after.ok());
+  CHECK_EQ(*primary_after, primary_id);
+
+  // Replica dropped.
+  auto replicas_after = shard_manager->GetReplicaNodes(shard);
+  REQUIRE(replicas_after.ok());
+  CHECK(std::find(replicas_after->begin(), replicas_after->end(), replica_id)
+        == replicas_after->end());
+
+  // Draining node fully unregistered.
+  auto remaining = shard_manager->GetShardsForNode(replica_id);
+  CHECK(remaining.empty());
+}
+
+// Draining primary with NO routable replica: we leave the shard on the
+// draining node (best-effort) and log. This is safer than silently
+// dropping data; the heartbeat-timeout failure path takes over once the
+// pod exits.
+TEST_CASE_FIXTURE(CoordinatorTest,
+                  "HandleDrainingNodeNoReplicaLeavesShardInPlace") {
+  auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
+  auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
+  auto coord = std::make_unique<Coordinator>(shard_manager, node_registry);
+
+  core::NodeId primary_id = core::MakeNodeId(1);
+  REQUIRE(shard_manager->RegisterNode(primary_id).ok());
+
+  proto::internal::NodeInfo proto_primary;
+  proto_primary.set_node_id(1);
+  proto_primary.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  proto_primary.set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
+  proto_primary.set_grpc_address("localhost:50051");
+  node_registry->UpdateNode(proto_primary);
+
+  core::ShardId shard = core::MakeShardId(0);
+  REQUIRE(shard_manager->SetPrimaryNode(shard, primary_id).ok());
+
+  coord->HandleDrainingNode(primary_id);
+
+  auto primary_after = shard_manager->GetPrimaryNode(shard);
+  REQUIRE(primary_after.ok());
+  CHECK_EQ(*primary_after, primary_id);
+
+  // Node must remain registered so the next cycle (or the eventual
+  // heartbeat-timeout path) can act on it.
+  auto remaining = shard_manager->GetShardsForNode(primary_id);
+  CHECK(!remaining.empty());
+}
+
+// Idempotency: calling HandleDrainingNode twice after full migration is a
+// no-op (the second call finds no shards and silently unregisters again).
+TEST_CASE_FIXTURE(CoordinatorTest, "HandleDrainingNodeIsIdempotent") {
+  auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
+  auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
+  auto coord = std::make_unique<Coordinator>(shard_manager, node_registry);
+
+  core::NodeId primary_id = core::MakeNodeId(1);
+  core::NodeId replica_id = core::MakeNodeId(2);
+  REQUIRE(shard_manager->RegisterNode(primary_id).ok());
+  REQUIRE(shard_manager->RegisterNode(replica_id).ok());
+
+  proto::internal::NodeInfo proto_replica;
+  proto_replica.set_node_id(2);
+  proto_replica.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  proto_replica.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  proto_replica.set_grpc_address("localhost:50052");
+  node_registry->UpdateNode(proto_replica);
+
+  proto::internal::NodeInfo proto_primary;
+  proto_primary.set_node_id(1);
+  proto_primary.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  proto_primary.set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
+  proto_primary.set_grpc_address("localhost:50051");
+  node_registry->UpdateNode(proto_primary);
+
+  core::ShardId shard = core::MakeShardId(0);
+  REQUIRE(shard_manager->SetPrimaryNode(shard, primary_id).ok());
+  REQUIRE(shard_manager->AddReplica(shard, replica_id).ok());
+
+  coord->HandleDrainingNode(primary_id);
+  // Second call is a no-op and must not crash or resurrect the node.
+  coord->HandleDrainingNode(primary_id);
+
+  auto primary_after = shard_manager->GetPrimaryNode(shard);
+  REQUIRE(primary_after.ok());
+  CHECK_EQ(*primary_after, replica_id);
+  auto remaining = shard_manager->GetShardsForNode(primary_id);
+  CHECK(remaining.empty());
+}
+
 TEST_CASE_FIXTURE(CoordinatorTest, "CreateCollectionMultiShard") {
   // Register two data nodes
   proto::internal::NodeInfo node1;
