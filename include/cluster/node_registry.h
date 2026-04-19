@@ -30,16 +30,15 @@ struct RegisteredNode {
     return elapsed < timeout;
   }
 
+  bool IsDraining() const {
+    return info.status() == proto::internal::NodeStatus::NODE_STATUS_DRAINING;
+  }
+
   // A node is considered "routable" only if it is healthy AND not actively
   // draining. Draining nodes have sent a graceful-shutdown heartbeat and
   // should not receive new work (roadmap 0b.1).
   bool IsRoutable(std::chrono::milliseconds timeout) const {
-    return IsHealthy(timeout) &&
-           info.status() != proto::internal::NodeStatus::NODE_STATUS_DRAINING;
-  }
-
-  bool IsDraining() const {
-    return info.status() == proto::internal::NodeStatus::NODE_STATUS_DRAINING;
+    return IsHealthy(timeout) && !IsDraining();
   }
 
   std::chrono::milliseconds TimeSinceLastHeartbeat() const {
