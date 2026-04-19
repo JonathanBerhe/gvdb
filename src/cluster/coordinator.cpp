@@ -57,6 +57,9 @@ NodeInfo ConvertProtoNodeInfo(const proto::internal::NodeInfo& proto_info) {
     case proto::internal::NodeStatus::NODE_STATUS_DOWN:
       info.status = NodeStatus::FAILED;  // Map DOWN to FAILED
       break;
+    case proto::internal::NodeStatus::NODE_STATUS_DRAINING:
+      info.status = NodeStatus::LEAVING;  // Graceful shutdown in progress
+      break;
     default:
       info.status = NodeStatus::HEALTHY;  // Default
       break;
@@ -112,7 +115,7 @@ proto::internal::NodeInfo ToProtoNodeInfo(const NodeInfo& info) {
       proto_info.set_status(proto::internal::NodeStatus::NODE_STATUS_DOWN);
       break;
     case NodeStatus::LEAVING:
-      proto_info.set_status(proto::internal::NodeStatus::NODE_STATUS_DOWN);
+      proto_info.set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
       break;
   }
 
@@ -305,8 +308,10 @@ std::vector<NodeInfo> Coordinator::GetHealthyNodes(NodeType type) const {
       break;
   }
 
-  // Get healthy nodes of the specified type from NodeRegistry
-  auto registered_nodes = node_registry_->GetHealthyNodesByType(proto_type);
+  // Get nodes fit to receive new work — healthy AND not draining. Draining
+  // nodes have sent a graceful-shutdown heartbeat and should not be targets
+  // of new placement or replication (roadmap 0b.1).
+  auto registered_nodes = node_registry_->GetRoutableNodesByType(proto_type);
 
   // Convert to Coordinator::NodeInfo
   std::vector<NodeInfo> result;

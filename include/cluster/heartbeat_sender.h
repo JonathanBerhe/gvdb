@@ -29,6 +29,13 @@ class HeartbeatSender {
   // Stop heartbeat thread (called by destructor)
   void Stop();
 
+  // Send a single heartbeat with NODE_STATUS_DRAINING so the coordinator stops
+  // routing new work to this node immediately instead of waiting for heartbeat
+  // timeout. Thread-safe and independent of the background loop — uses its own
+  // short-lived channel so it works even during shutdown.
+  // Returns true if the drain heartbeat was acknowledged by the coordinator.
+  bool SendDrainHeartbeat();
+
  private:
   void SendLoop();
 

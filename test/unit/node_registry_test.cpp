@@ -375,3 +375,121 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "RegisteredNodeTimeSinceLastHeartbeat") {
   CHECK(elapsed >= 50ms);
   CHECK(elapsed < 200ms);
 }
+
+// ============================================================================
+// Drain signaling (roadmap 0b.1) — NODE_STATUS_DRAINING
+// ============================================================================
+
+// Helper that mirrors MakeNodeInfo but sets a DRAINING status.
+static proto::internal::NodeInfo MakeDrainingNodeInfo(
+    uint32_t id,
+    proto::internal::NodeType type,
+    const std::string& address = "localhost:50051") {
+  auto info = MakeNodeInfo(id, type, address);
+  info.set_status(proto::internal::NODE_STATUS_DRAINING);
+  return info;
+}
+
+// 19. A node transitions to DRAINING when it sends a heartbeat with that
+//     status. The stored info.status() reflects the latest heartbeat.
+TEST_CASE_FIXTURE(NodeRegistryTest, "UpdateNodeTransitionsToDraining") {
+  registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
+
+  RegisteredNode node;
+  REQUIRE(registry_.GetNode(1, &node));
+  CHECK_EQ(node.info.status(), proto::internal::NODE_STATUS_READY);
+  CHECK_FALSE(node.IsDraining());
+
+  // Second heartbeat with DRAINING status — node should be marked as draining.
+  registry_.UpdateNode(
+      MakeDrainingNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
+
+  REQUIRE(registry_.GetNode(1, &node));
+  CHECK_EQ(node.info.status(), proto::internal::NODE_STATUS_DRAINING);
+  CHECK(node.IsDraining());
+}
+
+// 20. IsRoutable requires both healthy heartbeat AND non-draining status.
+TEST_CASE_FIXTURE(NodeRegistryTest, "IsRoutableRequiresHealthyAndNotDraining") {
+  registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
+
+  RegisteredNode node;
+  REQUIRE(registry_.GetNode(1, &node));
+
+  CHECK(node.IsHealthy(50ms));
+  CHECK(node.IsRoutable(50ms));
+
+  // Mark as draining via another heartbeat.
+  registry_.UpdateNode(
+      MakeDrainingNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
+  REQUIRE(registry_.GetNode(1, &node));
+
+  // Still healthy (recent heartbeat) but no longer routable.
+  CHECK(node.IsHealthy(50ms));
+  CHECK_FALSE(node.IsRoutable(50ms));
+}
+
+// 21. GetRoutableNodes excludes draining nodes while GetHealthyNodes keeps
+//     them — the latter is used for cluster-level health reporting.
+TEST_CASE_FIXTURE(NodeRegistryTest, "GetRoutableNodesExcludesDraining") {
+  registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
+  registry_.UpdateNode(MakeNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));
+  registry_.UpdateNode(
+      MakeDrainingNodeInfo(3, proto::internal::NODE_TYPE_DATA_NODE));
+
+  auto healthy = registry_.GetHealthyNodes();
+  CHECK_EQ(healthy.size(), 3);  // draining node is still "healthy"
+
+  auto routable = registry_.GetRoutableNodes();
+  CHECK_EQ(routable.size(), 2);
+  for (const auto& n : routable) {
+    CHECK_NE(n.info.node_id(), 3u);
+  }
+}
+
+// 22. GetRoutableNodesByType combines type filter with drain exclusion.
+TEST_CASE_FIXTURE(NodeRegistryTest, "GetRoutableNodesByTypeCombinesFilters") {
+  registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
+  registry_.UpdateNode(
+      MakeDrainingNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));
+  registry_.UpdateNode(MakeNodeInfo(3, proto::internal::NODE_TYPE_QUERY_NODE));
+  registry_.UpdateNode(
+      MakeDrainingNodeInfo(4, proto::internal::NODE_TYPE_QUERY_NODE));
+
+  auto routable_data =
+      registry_.GetRoutableNodesByType(proto::internal::NODE_TYPE_DATA_NODE);
+  REQUIRE_EQ(routable_data.size(), 1);
+  CHECK_EQ(routable_data[0].info.node_id(), 1u);
+
+  auto routable_query =
+      registry_.GetRoutableNodesByType(proto::internal::NODE_TYPE_QUERY_NODE);
+  REQUIRE_EQ(routable_query.size(), 1);
+  CHECK_EQ(routable_query[0].info.node_id(), 3u);
+
+  // Healthy-by-type still counts draining nodes (for observability).
+  auto healthy_data =
+      registry_.GetHealthyNodesByType(proto::internal::NODE_TYPE_DATA_NODE);
+  CHECK_EQ(healthy_data.size(), 2);
+}
+
+// 23. A draining node whose heartbeat eventually times out is no longer
+//     routable AND no longer healthy — belt and braces.
+TEST_CASE_FIXTURE(NodeRegistryTest, "DrainingNodeBecomesFailedAfterTimeout") {
+  registry_.UpdateNode(
+      MakeDrainingNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
+
+  auto routable_now = registry_.GetRoutableNodes();
+  CHECK_EQ(routable_now.size(), 0);
+
+  // Let the heartbeat age past the 50ms timeout.
+  std::this_thread::sleep_for(100ms);
+
+  auto routable_after = registry_.GetRoutableNodes();
+  CHECK_EQ(routable_after.size(), 0);
+
+  auto healthy_after = registry_.GetHealthyNodes();
+  CHECK_EQ(healthy_after.size(), 0);
+
+  auto failed = registry_.GetFailedNodes();
+  CHECK_EQ(failed.size(), 1);
+}

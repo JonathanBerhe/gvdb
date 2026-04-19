@@ -150,6 +150,11 @@ int main(int argc, char** argv) {
 
     // Graceful shutdown
     std::cout << "\nShutting down gracefully..." << std::endl;
+
+    // Notify coordinator that we're draining so it stops routing new work
+    // immediately instead of waiting for heartbeat timeout (roadmap 0b.1).
+    if (heartbeat) heartbeat->SendDrainHeartbeat();
+
     heartbeat.reset();
     server->Shutdown();
     utils::ServerBootstrap::StopMetricsServer();
