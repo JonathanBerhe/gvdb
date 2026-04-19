@@ -214,6 +214,12 @@ message RouteQueryRequest {
   uint32 top_k = 3;
   string filter = 4;
   bool return_metadata = 5;
+  // When true, the coordinator may return a non-primary replica as the
+  // target for a shard if the primary is draining. Proxies set this for
+  // read operations where stale-but-live replicas are acceptable. Writes
+  // must always go to the primary and should leave this false (roadmap
+  // 0b.1 — proper primary migration is 0b.3).
+  bool prefer_routable_replica = 6;
 }
 
 message RouteQueryResponse {

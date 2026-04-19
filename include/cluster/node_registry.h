@@ -75,6 +75,12 @@ class NodeRegistry {
   std::vector<RegisteredNode> GetRoutableNodes() const;
   std::vector<RegisteredNode> GetRoutableNodesByType(proto::internal::NodeType type) const;
 
+  // Convenience: "is this specific node routable right now?" using the
+  // registry's configured heartbeat timeout. Callers that only have a node_id
+  // should prefer this over constructing a RegisteredNode and calling
+  // IsRoutable(timeout) directly, which risks passing the wrong timeout.
+  bool IsNodeRoutable(uint32_t node_id) const;
+
   // Get failed/unhealthy nodes
   std::vector<RegisteredNode> GetFailedNodes() const;
 

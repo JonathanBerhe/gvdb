@@ -29,15 +29,24 @@ class HeartbeatSender {
   // Stop heartbeat thread (called by destructor)
   void Stop();
 
-  // Send a single heartbeat with NODE_STATUS_DRAINING so the coordinator stops
-  // routing new work to this node immediately instead of waiting for heartbeat
-  // timeout. Thread-safe and independent of the background loop — uses its own
-  // short-lived channel so it works even during shutdown.
+  // Stop the background loop (if running), then synchronously send a final
+  // heartbeat with NODE_STATUS_DRAINING so the coordinator stops routing new
+  // work to this node immediately instead of waiting for heartbeat timeout.
+  //
+  // Order matters: we join the loop first so no concurrent NODE_STATUS_READY
+  // heartbeat can race the drain signal and overwrite it at the registry.
+  // Retries the drain RPC once on failure with a short backoff.
+  //
+  // Requires the shutdown_flag passed in the constructor to have been set
+  // (normal path: SIGTERM handler in ServerBootstrap); otherwise the loop join
+  // would hang indefinitely.
+  //
   // Returns true if the drain heartbeat was acknowledged by the coordinator.
-  bool SendDrainHeartbeat();
+  bool DrainAndStop();
 
  private:
   void SendLoop();
+  bool SendDrainHeartbeatOnce();
 
   std::string coordinator_address_;
   int node_id_;

@@ -99,7 +99,7 @@ proto::internal::InternalService::Stub* ProxyService::GetCoordinatorInternalClie
 }
 
 proto::VectorDBService::Stub* ProxyService::GetDataNodeClientForCollection(
-    const std::string& collection_name) {
+    const std::string& collection_name, bool read_only) {
   // Ask the coordinator which data node owns this collection's shard
   auto* internal_client = GetCoordinatorInternalClient();
   if (!internal_client) {
@@ -110,6 +110,9 @@ proto::VectorDBService::Stub* ProxyService::GetDataNodeClientForCollection(
   proto::internal::RouteQueryRequest route_req;
   route_req.set_collection_name(collection_name);
   route_req.set_top_k(0);
+  // Reads can safely land on a routable replica if the primary is draining.
+  // Writes must always go to the primary (roadmap 0b.1).
+  route_req.set_prefer_routable_replica(read_only);
 
   proto::internal::RouteQueryResponse route_resp;
   grpc::ClientContext ctx;
@@ -367,7 +370,9 @@ grpc::Status ProxyService::Get(
   AuditContext::SetCollection(request->collection_name());
   AuditContext::SetItemCount(request->ids().size());
 
-  auto* client = GetDataNodeClientForCollection(request->collection_name());
+  // Read path — replica fallback OK when primary is draining (0b.1).
+  auto* client = GetDataNodeClientForCollection(
+      request->collection_name(), /*read_only=*/true);
   if (!client) {
     int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
     client = GetDataNodeClient(shard);
@@ -448,7 +453,9 @@ grpc::Status ProxyService::ListVectors(
     const proto::ListVectorsRequest* request,
     proto::ListVectorsResponse* response) {
 
-  auto* client = GetDataNodeClientForCollection(request->collection_name());
+  // Read path — replica fallback OK when primary is draining (0b.1).
+  auto* client = GetDataNodeClientForCollection(
+      request->collection_name(), /*read_only=*/true);
   if (!client) {
     int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
     client = GetDataNodeClient(shard);
@@ -468,7 +475,9 @@ grpc::Status ProxyService::HybridSearch(
     proto::HybridSearchResponse* response) {
   AuditContext::SetCollection(request->collection_name());
 
-  auto* client = GetDataNodeClientForCollection(request->collection_name());
+  // Read path — replica fallback OK when primary is draining (0b.1).
+  auto* client = GetDataNodeClientForCollection(
+      request->collection_name(), /*read_only=*/true);
   if (!client) {
     int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
     client = GetDataNodeClient(shard);
