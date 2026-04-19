@@ -54,6 +54,10 @@ namespace {
 // either no shards remain assigned to this node or the timeout elapses.
 // Used during graceful shutdown so the gRPC server stays up long enough
 // for the coordinator to promote replicas via Coordinator::HandleDrainingNode.
+//
+// Transient RPC failures do NOT cause us to exit the wait early: the whole
+// point of the drain budget is to let the coordinator catch up. We retry
+// with short backoff and only give up when the overall deadline is reached.
 void WaitForDrainCompletion(const std::string& coordinator_address,
                             int node_id,
                             std::chrono::seconds timeout) {
@@ -65,6 +69,11 @@ void WaitForDrainCompletion(const std::string& coordinator_address,
   auto stub = proto::internal::InternalService::NewStub(channel);
 
   const auto deadline = std::chrono::steady_clock::now() + timeout;
+  // 1s poll aligns with coordinator HealthCheckLoop period so we don't spin
+  // before DetectDrainingNodes has had a chance to run.
+  const auto poll_interval = std::chrono::milliseconds(1000);
+  int consecutive_rpc_failures = 0;
+
   while (std::chrono::steady_clock::now() < deadline) {
     proto::internal::GetShardAssignmentsRequest req;
     req.set_collection_id(0);  // all collections
@@ -75,10 +84,21 @@ void WaitForDrainCompletion(const std::string& coordinator_address,
 
     auto status = stub->GetShardAssignments(&ctx, req, &resp);
     if (!status.ok()) {
+      // Transient: retry rather than fail open. Failing open here would
+      // let the data-node shut down its gRPC server before migration
+      // completes, defeating the drain-wait budget and risking data loss.
+      ++consecutive_rpc_failures;
       utils::Logger::Instance().Warn(
-          "Drain wait: GetShardAssignments failed: {}", status.error_message());
-      break;  // Can't tell, don't block shutdown.
+          "Drain wait: GetShardAssignments failed (attempt {}): {}",
+          consecutive_rpc_failures, status.error_message());
+      // Short exponential backoff, capped so we still poll within budget.
+      auto backoff = std::chrono::milliseconds(
+          std::min(2000, 250 * (1 << std::min(3, consecutive_rpc_failures - 1))));
+      if (std::chrono::steady_clock::now() + backoff >= deadline) break;
+      std::this_thread::sleep_for(backoff);
+      continue;
     }
+    consecutive_rpc_failures = 0;
 
     bool still_assigned = false;
     for (const auto& a : resp.assignments()) {
@@ -100,7 +120,10 @@ void WaitForDrainCompletion(const std::string& coordinator_address,
           "Drain wait: node {} has no remaining shard assignments", node_id);
       return;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // Check deadline BEFORE sleeping so we don't overshoot by a full
+    // poll interval when close to timeout.
+    if (std::chrono::steady_clock::now() + poll_interval >= deadline) break;
+    std::this_thread::sleep_for(poll_interval);
   }
   utils::Logger::Instance().Warn(
       "Drain wait: timeout reached with shards still assigned to node {} "

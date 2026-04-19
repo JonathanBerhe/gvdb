@@ -675,14 +675,13 @@ void Coordinator::HealthCheckLoop() {
 }
 
 void Coordinator::DetectDrainingNodes() {
-  // Find every node that is both alive (recent heartbeat) and has self-
-  // reported NODE_STATUS_DRAINING. For each, try to migrate its shards
-  // off to routable nodes.
-  auto all = node_registry_->GetAllNodes();
-  for (const auto& reg : all) {
-    if (!reg.IsDraining()) continue;
-    // If the heartbeat has timed out, DetectFailedNodes will handle it
-    // as a hard failure below — nothing we can do gracefully.
+  // Ask the registry for nodes that are actively draining (status = DRAINING
+  // AND heartbeat still fresh). Stale draining nodes are intentionally
+  // excluded — they will be handled as hard failures by DetectFailedNodes
+  // below. This also avoids wasted iteration over the long tail of never-
+  // pruned dead nodes that accumulate in NodeRegistry.
+  auto draining = node_registry_->GetDrainingNodes();
+  for (const auto& reg : draining) {
     HandleDrainingNode(core::MakeNodeId(reg.info.node_id()));
   }
 }

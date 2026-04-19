@@ -84,6 +84,12 @@ class NodeRegistry {
   // Get failed/unhealthy nodes
   std::vector<RegisteredNode> GetFailedNodes() const;
 
+  // Get nodes that are actively draining AND still within heartbeat timeout.
+  // Stale draining nodes (heartbeat expired) are intentionally excluded —
+  // they are handled by the failure path rather than the graceful drain
+  // path (roadmap 0b.3).
+  std::vector<RegisteredNode> GetDrainingNodes() const;
+
   // Remove a node from the registry
   void RemoveNode(uint32_t node_id);
 
