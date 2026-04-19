@@ -35,6 +35,36 @@ void HeartbeatSender::Stop() {
   }
 }
 
+bool HeartbeatSender::SendDrainHeartbeat() {
+  auto channel = grpc::CreateChannel(coordinator_address_,
+                                      grpc::InsecureChannelCredentials());
+  auto stub = proto::internal::InternalService::NewStub(channel);
+
+  proto::internal::HeartbeatRequest request;
+  auto* node_info = request.mutable_node_info();
+  node_info->set_node_id(node_id_);
+  node_info->set_node_type(node_type_);
+  node_info->set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
+  node_info->set_grpc_address(grpc_address_);
+
+  grpc::ClientContext context;
+  context.set_deadline(std::chrono::system_clock::now() +
+                       std::chrono::seconds(2));
+
+  proto::internal::HeartbeatResponse response;
+  auto status = stub->Heartbeat(&context, request, &response);
+
+  if (status.ok() && response.acknowledged()) {
+    utils::Logger::Instance().Info(
+        "Drain heartbeat acknowledged (node_id={})", node_id_);
+    return true;
+  }
+  utils::Logger::Instance().Warn(
+      "Drain heartbeat failed (node_id={}): {}", node_id_,
+      status.error_message());
+  return false;
+}
+
 void HeartbeatSender::SendLoop() {
   auto channel = grpc::CreateChannel(coordinator_address_,
                                       grpc::InsecureChannelCredentials());

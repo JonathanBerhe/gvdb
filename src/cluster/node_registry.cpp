@@ -23,18 +23,28 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
 
   uint32_t node_id = node_info.node_id();
   auto now = std::chrono::steady_clock::now();
+  const bool is_draining =
+      node_info.status() == proto::internal::NodeStatus::NODE_STATUS_DRAINING;
 
   auto it = nodes_.find(node_id);
   if (it != nodes_.end()) {
     // Update existing node
+    const bool was_draining = it->second.IsDraining();
     it->second.info = node_info;
     it->second.last_heartbeat = now;
     it->second.total_heartbeats++;
 
-    utils::Logger::Instance().Debug("Updated node {} (type={}, total_heartbeats={})",
-                                     node_id,
-                                     static_cast<int>(node_info.node_type()),
-                                     it->second.total_heartbeats);
+    if (is_draining && !was_draining) {
+      utils::Logger::Instance().Info(
+          "Node {} entered DRAINING state (type={}, address={})",
+          node_id, static_cast<int>(node_info.node_type()),
+          node_info.grpc_address());
+    } else {
+      utils::Logger::Instance().Debug(
+          "Updated node {} (type={}, total_heartbeats={})", node_id,
+          static_cast<int>(node_info.node_type()),
+          it->second.total_heartbeats);
+    }
   } else {
     // Register new node
     RegisteredNode node;
@@ -46,10 +56,10 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
 
     nodes_[node_id] = std::move(node);
 
-    utils::Logger::Instance().Info("Registered new node {} (type={}, address={})",
-                                    node_id,
-                                    static_cast<int>(node_info.node_type()),
-                                    node_info.grpc_address());
+    utils::Logger::Instance().Info(
+        "Registered new node {} (type={}, address={}{})", node_id,
+        static_cast<int>(node_info.node_type()), node_info.grpc_address(),
+        is_draining ? ", DRAINING" : "");
   }
 }
 
@@ -121,6 +131,32 @@ std::vector<RegisteredNode> NodeRegistry::GetHealthyNodesByType(
     }
   }
 
+  return result;
+}
+
+std::vector<RegisteredNode> NodeRegistry::GetRoutableNodes() const {
+  std::shared_lock lock(mutex_);
+
+  std::vector<RegisteredNode> result;
+  for (const auto& [id, node] : nodes_) {
+    if (node.IsRoutable(heartbeat_timeout_)) {
+      result.push_back(node);
+    }
+  }
+  return result;
+}
+
+std::vector<RegisteredNode> NodeRegistry::GetRoutableNodesByType(
+    proto::internal::NodeType type) const {
+  std::shared_lock lock(mutex_);
+
+  std::vector<RegisteredNode> result;
+  for (const auto& [id, node] : nodes_) {
+    if (node.info.node_type() == type &&
+        node.IsRoutable(heartbeat_timeout_)) {
+      result.push_back(node);
+    }
+  }
   return result;
 }
 

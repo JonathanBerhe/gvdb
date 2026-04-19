@@ -28,6 +28,10 @@ enum NodeStatus {
   NODE_STATUS_BUSY = 3;
   NODE_STATUS_DEGRADED = 4;
   NODE_STATUS_DOWN = 5;
+  // Node is shutting down gracefully. Sent as a final heartbeat from the node
+  // so the coordinator stops routing new work to it without waiting for
+  // heartbeat timeout (roadmap 0b.1).
+  NODE_STATUS_DRAINING = 6;
 }
 
 message NodeInfo {
