@@ -4,6 +4,7 @@
 #include "cluster/coordinator.h"
 #include "cluster/internal_client.h"
 #include "utils/logger.h"
+#include "utils/metrics.h"
 #include "network/proto_conversions.h"
 #include "absl/strings/str_cat.h"
 #include "internal.grpc.pb.h"
@@ -145,12 +146,17 @@ class ScopeGuard {
 Coordinator::Coordinator(
     std::shared_ptr<ShardManager> shard_manager,
     std::shared_ptr<NodeRegistry> node_registry,
-    std::shared_ptr<IInternalServiceClientFactory> client_factory)
+    std::shared_ptr<IInternalServiceClientFactory> client_factory,
+    AutoRebalanceConfig auto_rebalance)
     : shard_manager_(std::move(shard_manager)),
       node_registry_(std::move(node_registry)),
+      auto_rebalance_config_(auto_rebalance),
       client_factory_(std::move(client_factory)) {
-  utils::Logger::Instance().Info("Coordinator initialized (using NodeRegistry, distributed_mode={})",
-                                  client_factory_ != nullptr);
+  utils::Logger::Instance().Info(
+      "Coordinator initialized (using NodeRegistry, distributed_mode={}, "
+      "auto_rebalance_debounce={}s)",
+      client_factory_ != nullptr,
+      auto_rebalance_config_.debounce.count());
 }
 
 Coordinator::~Coordinator() {
@@ -160,6 +166,26 @@ Coordinator::~Coordinator() {
 absl::Status Coordinator::Start(const std::string& bind_address) {
   utils::Logger::Instance().Info("Starting coordinator on {}", bind_address);
 
+  // Seed the "known data nodes" set with whoever is already heartbeating
+  // (roadmap 0b.2 review #3). Without this, every existing data node
+  // looks "new" on the first health-check cycle after a coordinator
+  // restart → we would fire an unnecessary rebalance even if the cluster
+  // was already balanced. Seeding on Start() means only nodes that join
+  // AFTER we're running count as scale-up events.
+  {
+    auto data_nodes = node_registry_->GetHealthyNodesByType(
+        proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    std::lock_guard lock(known_nodes_mutex_);
+    known_data_nodes_.clear();
+    for (const auto& n : data_nodes) {
+      if (n.IsDraining()) continue;
+      known_data_nodes_.insert(core::MakeNodeId(n.info.node_id()));
+    }
+    utils::Logger::Instance().Info(
+        "Auto-rebalance: seeded known_data_nodes_ with {} existing node(s)",
+        known_data_nodes_.size());
+  }
+
   running_.store(true, std::memory_order_release);
   StartHealthCheckLoop();
 
@@ -167,12 +193,29 @@ absl::Status Coordinator::Start(const std::string& bind_address) {
 }
 
 absl::Status Coordinator::Shutdown() {
-  if (!running_.exchange(false, std::memory_order_acq_rel)) {
-    return absl::OkStatus();  // Already shut down
+  const bool was_running =
+      running_.exchange(false, std::memory_order_acq_rel);
+  if (was_running) {
+    utils::Logger::Instance().Info("Shutting down coordinator");
+    StopHealthCheckLoop();
   }
 
-  utils::Logger::Instance().Info("Shutting down coordinator");
-  StopHealthCheckLoop();
+  // Always wait for any in-flight auto-rebalance worker — even if Start()
+  // was never called — so that a joinable std::thread isn't destroyed
+  // and doesn't std::terminate the process (roadmap 0b.2 review #1).
+  // Tests construct a Coordinator and call DetectNewDataNodes directly
+  // without Start(); the worker thread is still live.
+  {
+    std::lock_guard lock(rebalance_worker_mutex_);
+    if (rebalance_worker_ && rebalance_worker_->joinable()) {
+      if (was_running) {
+        utils::Logger::Instance().Info(
+            "Coordinator shutdown: waiting for auto-rebalance worker to finish");
+      }
+      rebalance_worker_->join();
+    }
+    rebalance_worker_.reset();
+  }
 
   return absl::OkStatus();
 }
@@ -695,11 +738,31 @@ std::set<core::NodeId> Coordinator::KnownDataNodesForTesting() const {
   return known_data_nodes_;
 }
 
+std::optional<Coordinator::LastAutoRebalance>
+Coordinator::GetLastAutoRebalance() const {
+  std::lock_guard lock(rebalance_worker_mutex_);
+  return last_auto_rebalance_;
+}
+
+bool Coordinator::WaitForAutoRebalanceIdleForTesting(
+    std::chrono::milliseconds timeout) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (!rebalance_in_flight_.load(std::memory_order_acquire)) return true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  return !rebalance_in_flight_.load(std::memory_order_acquire);
+}
+
 void Coordinator::DetectNewDataNodes() {
+  // Lock ordering: NodeRegistry's own shared_mutex is acquired inside this
+  // call and released before we take known_nodes_mutex_ below. Never hold
+  // known_nodes_mutex_ while calling back into NodeRegistry.
   auto data_nodes = node_registry_->GetHealthyNodesByType(
       proto::internal::NodeType::NODE_TYPE_DATA_NODE);
 
   std::vector<core::NodeId> newly_seen;
+  bool within_debounce = false;
   {
     std::lock_guard lock(known_nodes_mutex_);
     for (const auto& n : data_nodes) {
@@ -708,47 +771,96 @@ void Coordinator::DetectNewDataNodes() {
       auto [it, inserted] = known_data_nodes_.insert(id);
       if (inserted) newly_seen.push_back(id);
     }
+
+    if (newly_seen.empty()) return;
+
+    // In single-node / in-process test mode there is no coordinator client
+    // to actually execute the rebalance. Tracking is done above so the
+    // baseline is correct if a client_factory_ is later wired in.
+    if (!client_factory_) return;
+
+    // Debounce: in a rolling restart scenario, several pods come up in
+    // quick succession. Only fire the rebalance once per debounce window
+    // regardless of how many nodes newly joined (review #13: timestamp is
+    // read+written under the same mutex as known_data_nodes_).
+    const auto now = std::chrono::steady_clock::now();
+    if (last_auto_rebalance_at_ != std::chrono::steady_clock::time_point{} &&
+        now - last_auto_rebalance_at_ < auto_rebalance_config_.debounce) {
+      within_debounce = true;
+    } else {
+      last_auto_rebalance_at_ = now;
+    }
   }
 
-  if (newly_seen.empty()) return;
+  std::string ids_str;
+  for (size_t i = 0; i < newly_seen.size(); ++i) {
+    if (i > 0) ids_str += ",";
+    ids_str += std::to_string(core::ToUInt32(newly_seen[i]));
+  }
 
-  // In single-node / in-process test mode there is no coordinator client
-  // to actually execute the rebalance. We still update the tracking set
-  // above so the baseline is correct if a client_factory_ is later wired
-  // in.
-  if (!client_factory_) return;
-
-  // Debounce: in a rolling restart scenario, several pods come up in quick
-  // succession. Only fire the rebalance once per kAutoRebalanceDebounce
-  // window regardless of how many nodes newly joined.
-  const auto now = std::chrono::steady_clock::now();
-  if (last_auto_rebalance_at_ != std::chrono::steady_clock::time_point{} &&
-      now - last_auto_rebalance_at_ < kAutoRebalanceDebounce) {
+  if (within_debounce) {
     utils::Logger::Instance().Info(
-        "Auto-rebalance: {} new data node(s) seen; skipping rebalance "
-        "(within debounce window)", newly_seen.size());
+        "Auto-rebalance: new data node(s) [{}] seen; skipping rebalance "
+        "(within debounce window)", ids_str);
+    utils::MetricsRegistry::Instance().IncAutoRebalanceDebounced();
     return;
   }
-  last_auto_rebalance_at_ = now;
+
+  // Overlap guard: one rebalance thread at a time. If a worker is still
+  // running from a previous trigger, drop this one rather than spawn a
+  // concurrent rebalance that would double-count moves and log noise
+  // (review #2).
+  bool expected = false;
+  if (!rebalance_in_flight_.compare_exchange_strong(
+          expected, true, std::memory_order_acq_rel)) {
+    utils::Logger::Instance().Info(
+        "Auto-rebalance: previous worker still in flight; skipping "
+        "trigger for new node(s) [{}]", ids_str);
+    utils::MetricsRegistry::Instance().IncAutoRebalanceDebounced();
+    return;
+  }
 
   utils::Logger::Instance().Info(
-      "Auto-rebalance: {} new data node(s) joined; scheduling "
-      "ExecuteRebalancePlan", newly_seen.size());
+      "Auto-rebalance: new data node(s) [{}] joined; scheduling "
+      "ExecuteRebalancePlan", ids_str);
+  utils::MetricsRegistry::Instance().IncAutoRebalanceTriggered();
 
-  // Run asynchronously. ExecuteRebalancePlan is bounded by
-  // kMaxMovesPerCycle but each ExecuteSingleMove issues ReplicateSegmentData
-  // + DeleteSegment RPCs that can take multiple seconds; blocking the
-  // health-check loop for that long would delay failure detection.
-  std::thread([this]() {
-    auto result = ExecuteRebalancePlan(core::CollectionId(0));
-    if (result.ok()) {
-      utils::Logger::Instance().Info(
-          "Auto-rebalance completed: {} shards moved", *result);
-    } else {
-      utils::Logger::Instance().Warn(
-          "Auto-rebalance failed: {}", result.status().message());
+  // Join any previous finished worker so we don't leak the thread handle
+  // (review #1). Then start a new one.
+  {
+    std::lock_guard lock(rebalance_worker_mutex_);
+    if (rebalance_worker_ && rebalance_worker_->joinable()) {
+      rebalance_worker_->join();
     }
-  }).detach();
+    rebalance_worker_ = std::make_unique<std::thread>([this]() {
+      auto result = ExecuteRebalancePlan(core::CollectionId(0));
+      LastAutoRebalance snapshot;
+      snapshot.completed_at = std::chrono::steady_clock::now();
+      if (result.ok()) {
+        snapshot.status = absl::OkStatus();
+        snapshot.moves = *result;
+        if (*result == 0) {
+          utils::Logger::Instance().Debug(
+              "Auto-rebalance completed: 0 shards moved (already balanced)");
+        } else {
+          utils::Logger::Instance().Info(
+              "Auto-rebalance completed: {} shards moved", *result);
+          utils::MetricsRegistry::Instance().AddAutoRebalanceMovesCompleted(
+              *result);
+        }
+      } else {
+        snapshot.status = result.status();
+        utils::Logger::Instance().Warn(
+            "Auto-rebalance failed: {}", result.status().message());
+        utils::MetricsRegistry::Instance().IncAutoRebalanceFailures();
+      }
+      {
+        std::lock_guard inner(rebalance_worker_mutex_);
+        last_auto_rebalance_ = snapshot;
+      }
+      rebalance_in_flight_.store(false, std::memory_order_release);
+    });
+  }
 }
 
 void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {

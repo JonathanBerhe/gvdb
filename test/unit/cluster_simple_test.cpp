@@ -570,6 +570,11 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodePromotesReplica") {
   REQUIRE(primary_before.ok());
   CHECK_EQ(*primary_before, primary_id);
 
+  // Register the failing primary in the coordinator's known-nodes set so we
+  // can verify it is pruned on failure (roadmap 0b.2).
+  coord->DetectNewDataNodes();
+  REQUIRE(coord->KnownDataNodesForTesting().count(primary_id) == 1);
+
   // Handle failure of the primary node
   coord->HandleFailedNode(primary_id);
 
@@ -577,6 +582,9 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodePromotesReplica") {
   auto primary_after = shard_manager->GetPrimaryNode(test_shard);
   REQUIRE(primary_after.ok());
   CHECK_EQ(*primary_after, replica_id);
+
+  // Failed node must be pruned so a rejoin is detected as a scale-up.
+  CHECK(coord->KnownDataNodesForTesting().count(primary_id) == 0);
 }
 
 TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodeNoReplicaLeavesOrphan") {
@@ -604,6 +612,11 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodeNoReplicaLeavesOrphan") {
   REQUIRE(primary_before.ok());
   CHECK_EQ(*primary_before, primary_id);
 
+  // Register the failing node in the coordinator's known-nodes set so we
+  // can verify it is pruned on failure (roadmap 0b.2).
+  coord->DetectNewDataNodes();
+  REQUIRE(coord->KnownDataNodesForTesting().count(primary_id) == 1);
+
   // Handle failure - no replicas available to promote
   coord->HandleFailedNode(primary_id);
 
@@ -613,6 +626,9 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodeNoReplicaLeavesOrphan") {
   auto primary_after = shard_manager->GetPrimaryNode(test_shard);
   REQUIRE(primary_after.ok());
   CHECK_EQ(*primary_after, primary_id);
+
+  // Failed node must be pruned so a rejoin is detected as a scale-up.
+  CHECK(coord->KnownDataNodesForTesting().count(primary_id) == 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -825,6 +841,87 @@ TEST_CASE_FIXTURE(CoordinatorTest, "DetectNewDataNodesSkipsDrainingNodes") {
   REQUIRE_EQ(known.size(), 1);
   CHECK(known.count(core::MakeNodeId(101)) == 1);
   CHECK(known.count(core::MakeNodeId(102)) == 0);
+}
+
+// With a client_factory_ wired in, DetectNewDataNodes actually spawns the
+// rebalance worker, records the result, and allows subsequent triggers only
+// after it finishes. The NullInternalServiceClientFactory is sufficient:
+// ExecuteRebalancePlan returns cleanly when there is nothing to rebalance.
+TEST_CASE_FIXTURE(CoordinatorTest,
+                  "DetectNewDataNodesSpawnsWorkerWhenClientFactoryPresent") {
+  auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
+  auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
+  auto client_factory = std::make_shared<NullInternalServiceClientFactory>();
+  AutoRebalanceConfig cfg;
+  cfg.debounce = std::chrono::seconds(0);  // tests disable debounce
+  auto coord = std::make_unique<Coordinator>(
+      shard_manager, node_registry, client_factory, cfg);
+
+  proto::internal::NodeInfo n;
+  n.set_node_id(101);
+  n.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  n.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  n.set_grpc_address("localhost:50060");
+  node_registry->UpdateNode(n);
+
+  REQUIRE_FALSE(coord->GetLastAutoRebalance().has_value());
+  coord->DetectNewDataNodes();
+
+  // Wait for the detached worker to finish (bounded).
+  REQUIRE(coord->WaitForAutoRebalanceIdleForTesting(
+      std::chrono::seconds(5)));
+
+  auto last = coord->GetLastAutoRebalance();
+  REQUIRE(last.has_value());
+  CHECK(last->status.ok());
+  // No shards registered → plan is empty → 0 moves completed.
+  CHECK_EQ(last->moves, 0u);
+}
+
+// Debounce: with the debounce window set to a large value, a second call
+// immediately after the first is suppressed — no new worker spawns.
+TEST_CASE_FIXTURE(CoordinatorTest,
+                  "DetectNewDataNodesDebouncesSecondCall") {
+  auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
+  auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
+  auto client_factory = std::make_shared<NullInternalServiceClientFactory>();
+  AutoRebalanceConfig cfg;
+  cfg.debounce = std::chrono::hours(1);  // effectively suppress follow-ups
+  auto coord = std::make_unique<Coordinator>(
+      shard_manager, node_registry, client_factory, cfg);
+
+  proto::internal::NodeInfo a;
+  a.set_node_id(101);
+  a.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  a.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  a.set_grpc_address("localhost:50060");
+  node_registry->UpdateNode(a);
+
+  coord->DetectNewDataNodes();
+  REQUIRE(coord->WaitForAutoRebalanceIdleForTesting(
+      std::chrono::seconds(5)));
+  auto after_first = coord->GetLastAutoRebalance();
+  REQUIRE(after_first.has_value());
+
+  // Add a second node; the debounce window should prevent a second
+  // rebalance from running.
+  proto::internal::NodeInfo b;
+  b.set_node_id(102);
+  b.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  b.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  b.set_grpc_address("localhost:50061");
+  node_registry->UpdateNode(b);
+
+  coord->DetectNewDataNodes();
+
+  // The GetLastAutoRebalance snapshot must not have advanced — the second
+  // call was debounced, so no new worker completed.
+  auto after_second = coord->GetLastAutoRebalance();
+  REQUIRE(after_second.has_value());
+  CHECK_EQ(after_first->completed_at, after_second->completed_at);
+
+  // Both nodes still tracked, though.
+  CHECK_EQ(coord->KnownDataNodesForTesting().size(), 2);
 }
 
 // Pruning: when a node finishes draining and is unregistered, the known
