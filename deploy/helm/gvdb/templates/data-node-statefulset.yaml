@@ -16,6 +16,9 @@ spec:
       labels:
         {{- include "gvdb.dataNode.selectorLabels" . | nindent 8 }}
     spec:
+      # Give the pod time to send a drain heartbeat to the coordinator and
+      # finish in-flight work before K8s sends SIGKILL (roadmap 0b.1).
+      terminationGracePeriodSeconds: {{ .Values.dataNode.terminationGracePeriodSeconds | default 30 }}
       initContainers:
         - name: wait-for-coordinator
           image: "{{ include "gvdb.image" . }}"

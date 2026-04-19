@@ -127,7 +127,13 @@ class ProxyService final : public proto::VectorDBService::Service {
   proto::internal::InternalService::Stub* GetCoordinatorInternalClient();
   proto::VectorDBService::Stub* GetQueryNodeClient();
   proto::VectorDBService::Stub* GetDataNodeClient(int shard_id);
-  proto::VectorDBService::Stub* GetDataNodeClientForCollection(const std::string& collection_name);
+  // Resolve a collection to one of its data nodes via the coordinator's
+  // RouteQuery RPC. Set `read_only=true` for read operations so the
+  // coordinator may return a routable replica when the primary is draining
+  // (roadmap 0b.1). Writes must leave read_only=false — they go to the
+  // primary (possibly draining) for correct ordering.
+  proto::VectorDBService::Stub* GetDataNodeClientForCollection(
+      const std::string& collection_name, bool read_only = false);
   proto::VectorDBService::Stub* GetOrCreateDataClient(const std::string& address);
 };
 

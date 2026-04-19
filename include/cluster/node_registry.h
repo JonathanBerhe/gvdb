@@ -30,6 +30,17 @@ struct RegisteredNode {
     return elapsed < timeout;
   }
 
+  bool IsDraining() const {
+    return info.status() == proto::internal::NodeStatus::NODE_STATUS_DRAINING;
+  }
+
+  // A node is considered "routable" only if it is healthy AND not actively
+  // draining. Draining nodes have sent a graceful-shutdown heartbeat and
+  // should not receive new work (roadmap 0b.1).
+  bool IsRoutable(std::chrono::milliseconds timeout) const {
+    return IsHealthy(timeout) && !IsDraining();
+  }
+
   std::chrono::milliseconds TimeSinceLastHeartbeat() const {
     auto now = std::chrono::steady_clock::now();
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -53,9 +64,22 @@ class NodeRegistry {
   std::vector<RegisteredNode> GetAllNodes() const;
   std::vector<RegisteredNode> GetNodesByType(proto::internal::NodeType type) const;
 
-  // Get only healthy nodes
+  // Get only healthy nodes (alive per heartbeat timeout). Includes nodes that
+  // have sent NODE_STATUS_DRAINING — use GetRoutableNodes*() if you need to
+  // filter those out for routing decisions.
   std::vector<RegisteredNode> GetHealthyNodes() const;
   std::vector<RegisteredNode> GetHealthyNodesByType(proto::internal::NodeType type) const;
+
+  // Get only nodes that are healthy AND not draining. Prefer this when
+  // selecting targets for new work (insert, query routing, replica placement).
+  std::vector<RegisteredNode> GetRoutableNodes() const;
+  std::vector<RegisteredNode> GetRoutableNodesByType(proto::internal::NodeType type) const;
+
+  // Convenience: "is this specific node routable right now?" using the
+  // registry's configured heartbeat timeout. Callers that only have a node_id
+  // should prefer this over constructing a RegisteredNode and calling
+  // IsRoutable(timeout) directly, which risks passing the wrong timeout.
+  bool IsNodeRoutable(uint32_t node_id) const;
 
   // Get failed/unhealthy nodes
   std::vector<RegisteredNode> GetFailedNodes() const;

@@ -610,26 +610,51 @@ grpc::Status InternalService::RouteQuery(
     const auto& metadata = *metadata_result;
     response->set_collection_id(core::ToUInt32(metadata.collection_id));
 
-    // For each shard, find the primary data node
+    const bool prefer_replica = request->prefer_routable_replica();
+
+    // For each shard, find a target data node. Prefer the primary; if the
+    // primary is draining and the caller allows replica fallback (reads),
+    // pick the first routable replica instead so we shed traffic off the
+    // draining node immediately rather than waiting for heartbeat timeout
+    // (roadmap 0b.1).
     for (const auto& shard_id : metadata.shard_ids) {
       auto primary_result = shard_manager_->GetPrimaryNode(shard_id);
       if (!primary_result.ok()) continue;
 
-      core::NodeId node_id = *primary_result;
-      if (node_id == core::kInvalidNodeId) continue;
+      core::NodeId primary_id = *primary_result;
+      if (primary_id == core::kInvalidNodeId) continue;
 
-      // Get node address from registry
-      std::string address;
+      core::NodeId selected_id = primary_id;
+      std::string selected_address;
+
       if (node_registry_) {
+        const bool primary_draining =
+            !node_registry_->IsNodeRoutable(core::ToUInt32(primary_id));
+
+        if (primary_draining && prefer_replica) {
+          // Try to find a routable replica.
+          auto replicas_result = shard_manager_->GetReplicaNodes(shard_id);
+          if (replicas_result.ok()) {
+            for (auto replica : *replicas_result) {
+              if (replica == primary_id) continue;
+              if (!node_registry_->IsNodeRoutable(core::ToUInt32(replica))) {
+                continue;
+              }
+              selected_id = replica;
+              break;
+            }
+          }
+        }
+
         cluster::RegisteredNode node;
-        if (node_registry_->GetNode(core::ToUInt32(node_id), &node)) {
-          address = node.info.grpc_address();
+        if (node_registry_->GetNode(core::ToUInt32(selected_id), &node)) {
+          selected_address = node.info.grpc_address();
         }
       }
 
       response->add_target_shard_ids(core::ToUInt16(shard_id));
-      response->add_target_node_ids(core::ToUInt32(node_id));
-      response->add_target_node_addresses(address);
+      response->add_target_node_ids(core::ToUInt32(selected_id));
+      response->add_target_node_addresses(selected_address);
     }
 
     utils::Logger::Instance().Debug("RouteQuery: {} shards for collection '{}'",
