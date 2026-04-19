@@ -214,6 +214,21 @@ std::vector<RegisteredNode> NodeRegistry::GetFailedNodes() const {
   return result;
 }
 
+std::vector<RegisteredNode> NodeRegistry::GetDrainingNodes() const {
+  std::shared_lock lock(mutex_);
+
+  std::vector<RegisteredNode> result;
+  for (const auto& [id, node] : nodes_) {
+    // Only include nodes that are *actively* draining: status = DRAINING
+    // AND last heartbeat is still within the timeout. A draining node whose
+    // heartbeat has expired is stale — the failure-detection path handles it.
+    if (node.IsDraining() && node.IsHealthy(heartbeat_timeout_)) {
+      result.push_back(node);
+    }
+  }
+  return result;
+}
+
 void NodeRegistry::RemoveNode(uint32_t node_id) {
   std::unique_lock lock(mutex_);
 
