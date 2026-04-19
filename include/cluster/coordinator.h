@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 #include <map>
+#include <optional>
 #include <shared_mutex>
 #include <atomic>
 #include <thread>
@@ -118,13 +119,24 @@ inline core::SegmentId ShardSegmentId(core::CollectionId cid, uint32_t shard_ind
   return static_cast<core::SegmentId>(core::ToUInt32(cid) * 1000 + shard_index);
 }
 
+// Auto-rebalance configuration (roadmap 0b.2). `debounce` caps how often a
+// new-node event can trigger ExecuteRebalancePlan — a rolling restart of N
+// pods within the window only fires one rebalance. Tests pass a very small
+// value to drive the debounce path deterministically. Defined outside the
+// Coordinator class so the default-initialized default argument in the
+// constructor doesn't run into C++ parse-ordering issues.
+struct AutoRebalanceConfig {
+  std::chrono::seconds debounce{60};
+};
+
 // Coordinator manages cluster metadata and operations
 class Coordinator {
  public:
   explicit Coordinator(
       std::shared_ptr<ShardManager> shard_manager,
       std::shared_ptr<NodeRegistry> node_registry,
-      std::shared_ptr<IInternalServiceClientFactory> client_factory = nullptr);
+      std::shared_ptr<IInternalServiceClientFactory> client_factory = nullptr,
+      AutoRebalanceConfig auto_rebalance = AutoRebalanceConfig{});
   ~Coordinator();
 
   // Cluster initialization
@@ -196,6 +208,24 @@ class Coordinator {
   // on unregister works.
   std::set<core::NodeId> KnownDataNodesForTesting() const;
 
+  // Observable state for the most recent auto-rebalance attempt (0b.2).
+  // Returns std::nullopt if no auto-rebalance has run yet. The returned
+  // pair is (status, steady-clock timestamp of completion). Exposed for
+  // dashboards, post-incident forensics, and tests that need to assert
+  // a rebalance actually fired without racing on the detached worker.
+  struct LastAutoRebalance {
+    absl::Status status;
+    std::chrono::steady_clock::time_point completed_at;
+    uint32_t moves = 0;
+  };
+  std::optional<LastAutoRebalance> GetLastAutoRebalance() const;
+
+  // Block until the most recent auto-rebalance worker finishes (or the
+  // timeout elapses). Returns true if the worker joined within the
+  // deadline. Tests use this to deterministically sequence against the
+  // detached rebalance thread (0b.2).
+  bool WaitForAutoRebalanceIdleForTesting(std::chrono::milliseconds timeout);
+
   // Migrate shards off a node that has signalled NODE_STATUS_DRAINING
   // (roadmap 0b.3). Unlike HandleFailedNode, the draining node is still
   // alive and serving reads — we can safely promote replicas and remove
@@ -256,14 +286,34 @@ class Coordinator {
   mutable std::mutex migration_mutex_;
   std::set<core::ShardId> shards_migrating_;
 
-  // Auto-rebalance bookkeeping (roadmap 0b.2). Tracks data-node IDs we've
-  // already noticed so that DetectNewDataNodes only fires on genuine
-  // scale-up events, and a steady-clock stamp for debouncing so a rolling
-  // restart of N pods doesn't trigger N rebalances in quick succession.
-  static constexpr std::chrono::seconds kAutoRebalanceDebounce{60};
+  // Auto-rebalance bookkeeping (roadmap 0b.2).
+  //
+  // Lock order (to prevent nested-lock deadlock): NodeRegistry's internal
+  // mutex is acquired INSIDE GetHealthyNodesByType()/GetDrainingNodes() and
+  // released before we take `known_nodes_mutex_`. NEVER hold
+  // `known_nodes_mutex_` while calling back into NodeRegistry.
+  //
+  // `known_data_nodes_` tracks IDs we've already noticed so DetectNewDataNodes
+  // only fires on genuine scale-up events. `last_auto_rebalance_at_` is the
+  // debounce timestamp — guarded by `known_nodes_mutex_` so external callers
+  // (tests) don't race with the health-check thread. `auto_rebalance_config_`
+  // is immutable after construction.
+  AutoRebalanceConfig auto_rebalance_config_;
   mutable std::mutex known_nodes_mutex_;
-  std::set<core::NodeId> known_data_nodes_;
-  std::chrono::steady_clock::time_point last_auto_rebalance_at_{};
+  std::set<core::NodeId> known_data_nodes_;              // guarded by known_nodes_mutex_
+  std::chrono::steady_clock::time_point last_auto_rebalance_at_{};  // guarded by known_nodes_mutex_
+
+  // Serializes access to the detached rebalance worker. Only one rebalance
+  // is permitted in flight at a time (#2 from review); see
+  // `rebalance_in_flight_`. On shutdown, Shutdown() joins this thread to
+  // prevent the worker from touching a destroyed coordinator (#1 from review).
+  mutable std::mutex rebalance_worker_mutex_;
+  std::unique_ptr<std::thread> rebalance_worker_;
+  std::atomic<bool> rebalance_in_flight_{false};
+
+  // Last observable auto-rebalance result. Guarded by `rebalance_worker_mutex_`
+  // because it is set by the worker thread and read by observers.
+  std::optional<LastAutoRebalance> last_auto_rebalance_;
 
   // Helper methods
   core::NodeId AllocateNodeId();

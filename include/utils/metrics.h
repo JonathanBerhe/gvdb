@@ -134,6 +134,37 @@ class MetricsRegistry {
    */
   void SetMemoryUsage(uint64_t bytes);
 
+  // ============================================================================
+  // Auto-Rebalance Metrics (roadmap 0b.2)
+  // ============================================================================
+
+  /**
+   * @brief Increment the counter for auto-rebalance attempts that passed
+   *        the new-node + debounce + overlap-guard checks and scheduled a
+   *        worker thread.
+   */
+  void IncAutoRebalanceTriggered();
+
+  /**
+   * @brief Increment the counter for auto-rebalance attempts that were
+   *        suppressed because the debounce window had not elapsed or a
+   *        prior worker was still in flight.
+   */
+  void IncAutoRebalanceDebounced();
+
+  /**
+   * @brief Add to the counter of shard moves successfully completed by
+   *        auto-rebalance. One successful ExecuteRebalancePlan may move
+   *        multiple shards.
+   */
+  void AddAutoRebalanceMovesCompleted(uint64_t moves);
+
+  /**
+   * @brief Increment the counter of auto-rebalance workers that returned
+   *        a non-OK status.
+   */
+  void IncAutoRebalanceFailures();
+
  private:
   MetricsRegistry();
   ~MetricsRegistry();
@@ -164,6 +195,12 @@ class MetricsRegistry {
   prometheus::Family<prometheus::Gauge>* vector_count_;
   prometheus::Family<prometheus::Gauge>* collection_count_;
   prometheus::Family<prometheus::Gauge>* memory_usage_bytes_;
+
+  // Auto-rebalance counters (roadmap 0b.2)
+  prometheus::Family<prometheus::Counter>* auto_rebalance_triggered_;
+  prometheus::Family<prometheus::Counter>* auto_rebalance_debounced_;
+  prometheus::Family<prometheus::Counter>* auto_rebalance_moves_completed_;
+  prometheus::Family<prometheus::Counter>* auto_rebalance_failures_;
 };
 
 /**

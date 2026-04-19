@@ -123,6 +123,29 @@ MetricsRegistry::MetricsRegistry()
                              .Name("gvdb_memory_usage_bytes")
                              .Help("Current memory usage in bytes")
                              .Register(*registry_);
+
+  // Auto-rebalance counters (roadmap 0b.2). No labels — there is a single
+  // coordinator process and a single rebalance subsystem.
+  auto_rebalance_triggered_ = &prometheus::BuildCounter()
+                                   .Name("gvdb_auto_rebalance_triggered_total")
+                                   .Help("Total ExecuteRebalancePlan workers "
+                                         "spawned by DetectNewDataNodes")
+                                   .Register(*registry_);
+  auto_rebalance_debounced_ = &prometheus::BuildCounter()
+                                   .Name("gvdb_auto_rebalance_debounced_total")
+                                   .Help("Auto-rebalance attempts suppressed "
+                                         "by debounce window or overlap guard")
+                                   .Register(*registry_);
+  auto_rebalance_moves_completed_ =
+      &prometheus::BuildCounter()
+           .Name("gvdb_auto_rebalance_moves_completed_total")
+           .Help("Shard moves completed by auto-rebalance workers")
+           .Register(*registry_);
+  auto_rebalance_failures_ = &prometheus::BuildCounter()
+                                  .Name("gvdb_auto_rebalance_failures_total")
+                                  .Help("Auto-rebalance workers that returned "
+                                        "a non-OK status")
+                                  .Register(*registry_);
 }
 
 MetricsRegistry::~MetricsRegistry() {
@@ -277,6 +300,27 @@ void MetricsRegistry::SetCollectionCount(uint64_t count) {
 
 void MetricsRegistry::SetMemoryUsage(uint64_t bytes) {
   memory_usage_bytes_->Add({}).Set(static_cast<double>(bytes));
+}
+
+// ============================================================================
+// Auto-Rebalance Metrics (roadmap 0b.2)
+// ============================================================================
+
+void MetricsRegistry::IncAutoRebalanceTriggered() {
+  auto_rebalance_triggered_->Add({}).Increment();
+}
+
+void MetricsRegistry::IncAutoRebalanceDebounced() {
+  auto_rebalance_debounced_->Add({}).Increment();
+}
+
+void MetricsRegistry::AddAutoRebalanceMovesCompleted(uint64_t moves) {
+  auto_rebalance_moves_completed_->Add({}).Increment(
+      static_cast<double>(moves));
+}
+
+void MetricsRegistry::IncAutoRebalanceFailures() {
+  auto_rebalance_failures_->Add({}).Increment();
 }
 
 // ============================================================================
