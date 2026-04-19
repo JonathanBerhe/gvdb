@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.19.0](https://github.com/JonathanBerhe/gvdb/compare/v0.18.0...v0.19.0) (2026-04-19)
+
+
+### Features
+
+* **cluster:** graceful shard drain on node SIGTERM ([7a03f9f](https://github.com/JonathanBerhe/gvdb/commit/7a03f9f3a6f9d1c3ffba424e974a4ae4540c9471))
+* **cluster:** graceful shard drain on node SIGTERM ([67113b0](https://github.com/JonathanBerhe/gvdb/commit/67113b0aeb9d27e156bf31129c8a86c9292a82f8))
+
+
+### Bug Fixes
+
+* **cluster:** retry drain-wait on RPC error and filter stale draining nodes ([ba5399f](https://github.com/JonathanBerhe/gvdb/commit/ba5399fc8027d8838d83f894c2030f7044aad4bb))
+
 ## [0.18.0](https://github.com/JonathanBerhe/gvdb/compare/v0.17.0...v0.18.0) (2026-04-19)
 
 
