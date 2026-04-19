@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.18.0](https://github.com/JonathanBerhe/gvdb/compare/v0.17.0...v0.18.0) (2026-04-19)
+
+
+### Features
+
+* **cluster:** signal draining state via final heartbeat on SIGTERM ([6d11736](https://github.com/JonathanBerhe/gvdb/commit/6d11736adbf2417cc21efb4650955c502cca977f))
+* **cluster:** signal draining state via final heartbeat on SIGTERM ([ba61e12](https://github.com/JonathanBerhe/gvdb/commit/ba61e12ddca537037c4e6beb86d8e1922303ab8f))
+
+
+### Bug Fixes
+
+* **cluster:** address review feedback on drain signaling ([19a4fff](https://github.com/JonathanBerhe/gvdb/commit/19a4fff77928d489931c9164cc4e502dae98812a))
+* **connectors:** remove duplicate shadow artifact in publications ([3767508](https://github.com/JonathanBerhe/gvdb/commit/376750862528d55ffbf833a304bb8d9a6711e649))
+* **connectors:** unblock Java publish + sync docs site ([e52ce9d](https://github.com/JonathanBerhe/gvdb/commit/e52ce9db8b4a8b7356e18d7aba33a3531e5c1cad))
+
 ## [0.17.0](https://github.com/JonathanBerhe/gvdb/compare/v0.16.0...v0.17.0) (2026-04-18)
 
 

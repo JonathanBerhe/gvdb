@@ -8,7 +8,7 @@ Standalone Java/Kotlin client — CRUD, search, and hybrid search without Spark 
 
     ```kotlin
     dependencies {
-        implementation("io.gvdb:gvdb-java-client:0.17.0") // x-release-please-version
+        implementation("io.gvdb:gvdb-java-client:0.18.0") // x-release-please-version
     }
     ```
 
@@ -18,7 +18,7 @@ Standalone Java/Kotlin client — CRUD, search, and hybrid search without Spark 
     <dependency>
       <groupId>io.gvdb</groupId>
       <artifactId>gvdb-java-client</artifactId>
-      <version>0.17.0</version> <!-- x-release-please-version -->
+      <version>0.18.0</version> <!-- x-release-please-version -->
     </dependency>
     ```
 
