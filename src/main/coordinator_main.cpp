@@ -152,13 +152,28 @@ int main(int argc, char** argv) {
     }
 
     if (!args.single_node_mode) {
-      utils::Logger::Instance().Info("Waiting for leader election...");
+      // Bootstrap-tolerant leader-election wait (roadmap 0b.4). During a
+      // cold start of an HA cluster, peer pods may take tens of seconds
+      // to become reachable (DNS propagation, scheduling, image pulls) —
+      // a short hard timeout would cause every coordinator pod to
+      // crashloop forever. Wait up to kElectionWaitSeconds; if no leader
+      // by then, log a warning and continue so the gRPC server comes up.
+      // Readiness/health reporting reflects the not-leader state, and
+      // Raft can still converge after the election wait elapses.
+      constexpr int kElectionWaitSeconds = 60;
+      utils::Logger::Instance().Info(
+          "Waiting up to {}s for leader election...", kElectionWaitSeconds);
       auto start_time = std::chrono::steady_clock::now();
       while (!raft_node->IsLeader() && raft_node->GetLeaderId() < 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        if (std::chrono::steady_clock::now() - start_time > std::chrono::seconds(10)) {
-          std::cerr << "Leader election timeout." << std::endl;
-          return 1;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        if (utils::ServerBootstrap::ShutdownFlag().load()) break;
+        if (std::chrono::steady_clock::now() - start_time >
+            std::chrono::seconds(kElectionWaitSeconds)) {
+          utils::Logger::Instance().Warn(
+              "No Raft leader elected after {}s — continuing startup; "
+              "election will complete when enough peers are reachable",
+              kElectionWaitSeconds);
+          break;
         }
       }
     }
