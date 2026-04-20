@@ -13,8 +13,16 @@ namespace consensus {
 struct RaftConfig {
   // Node identification
   int node_id = 0;                          // Unique node identifier (0-based)
-  std::vector<std::string> peers;           // Addresses of other Raft nodes (host:port)
-  std::string listen_address = "0.0.0.0:0"; // Address to listen on
+  std::vector<std::string> peers;           // Declared Raft peers in "id:host:port" format
+  // listen_address is the BIND address. Today NuRaft's launcher extracts
+  // only the port and binds on 0.0.0.0:port; the host portion is historical
+  // and ignored for binding. Keep default 0.0.0.0:0 (let the caller pick).
+  std::string listen_address = "0.0.0.0:0";
+  // advertise_address is the peer-facing endpoint stored in the NuRaft
+  // srv_config. On K8s this should be the StatefulSet pod's FQDN so other
+  // replicas can reach it regardless of pod IP churn. When empty, falls
+  // back to listen_address for backward compatibility (roadmap 0b.4).
+  std::string advertise_address;
 
   // Data directory
   std::string data_dir = "/tmp/gvdb/raft";  // Directory for Raft logs and snapshots
