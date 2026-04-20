@@ -476,7 +476,12 @@ core::Status RaftNode::InitializeNuRaft() {
 
   nuraft::raft_server::init_options init_opts;
   init_opts.skip_initial_election_timeout_ = false;  // Participate in election immediately
-  init_opts.start_server_in_constructor_ = false;    // Start manually after init
+  // Let NuRaft's raft_server ctor call start_server() for us. The prior
+  // "false + manual start" pattern was never wired up — start_server() is
+  // what arms the election timer and spawns the bg commit/append threads
+  // (libnuraft raft_server.cxx:264-317), so without it the cluster never
+  // progresses past INIT and no leader is ever elected (roadmap 0b.4-followup).
+  init_opts.start_server_in_constructor_ = true;
 
   raft_server_ = launcher_->init(
       state_machine_,
