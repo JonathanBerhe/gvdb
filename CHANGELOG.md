@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.20.0](https://github.com/JonathanBerhe/gvdb/compare/v0.19.0...v0.20.0) (2026-04-20)
+
+
+### Features
+
+* **chart+consensus:** coordinator HA + production hardening primitives ([048b998](https://github.com/JonathanBerhe/gvdb/commit/048b99838b35130b88eca29ed58f604bb38fb38a))
+* **consensus:** coordinator HA via ordinal-based Raft peer seeding ([7cbad11](https://github.com/JonathanBerhe/gvdb/commit/7cbad1164c921fd994263f086ec4a7d930cec076))
+* **helm:** opt-in hardening primitives for production K8s ([948de5c](https://github.com/JonathanBerhe/gvdb/commit/948de5cff525a3c8a4705d832e34481ef0a92c70))
+
+
+### Bug Fixes
+
+* **chart+consensus:** enable HA bootstrap via parallel pods and tolerant election wait ([758c9ee](https://github.com/JonathanBerhe/gvdb/commit/758c9ee986a38f4103f6f3f777ce9de2e81841a3))
+* **chart+consensus:** harden Raft peer seeding and chart primitives ([b2c8141](https://github.com/JonathanBerhe/gvdb/commit/b2c8141f64a2f53983d567127e5c70ecd2f604eb))
+
 ## [0.19.0](https://github.com/JonathanBerhe/gvdb/compare/v0.18.0...v0.19.0) (2026-04-19)
 
 
