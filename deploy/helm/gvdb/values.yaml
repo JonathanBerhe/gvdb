@@ -3,6 +3,11 @@ image:
   tag: ""          # defaults to Chart appVersion
   pullPolicy: IfNotPresent
 
+# K8s cluster DNS domain. Defaults to cluster.local; override for clusters
+# using a custom domain (e.g. "cluster.internal") so FQDNs in the chart
+# resolve correctly (roadmap 0b.5).
+clusterDomain: cluster.local
+
 coordinator:
   # Set replicas: 3 (or 5, 7...) for Raft HA. Each pod derives its node-id
   # from the StatefulSet ordinal + 1, and --raft-peers is populated from
@@ -24,9 +29,18 @@ coordinator:
   # Production hardening primitives (roadmap 0b.5). All default off so the
   # dev / kind install is unchanged. Enable in a values-prod.yaml overlay.
   podDisruptionBudget:
+    # Prevents voluntary disruptions (drain, cluster-autoscaler) from
+    # evicting too many replicas at once. Default off so dev/kind with 1
+    # replica isn't blocked by an unsatisfiable budget. For HA Raft
+    # quorum, set minAvailable = replicas - 1 (e.g. 2 for replicas: 3) —
+    # otherwise K8s can evict enough pods to break quorum. Chart
+    # validates minAvailable <= replicas and fails fast otherwise.
     enabled: false
-    minAvailable: 1  # for HA, set to replicas - 1
-  podAntiAffinity: false  # soft (preferred) anti-affinity across hostnames
+    minAvailable: 1
+  podAntiAffinity:
+    enabled: false
+    type: preferred  # "preferred" (soft) or "required" (hard)
+    topologyKey: kubernetes.io/hostname  # e.g. topology.kubernetes.io/zone for AZ spread
   topologySpreadConstraints: []  # user-provided raw list, e.g. AZ spread
   serviceAccount:
     create: false
@@ -56,7 +70,10 @@ dataNode:
   podDisruptionBudget:
     enabled: false
     minAvailable: 1
-  podAntiAffinity: false
+  podAntiAffinity:
+    enabled: false
+    type: preferred
+    topologyKey: kubernetes.io/hostname
   topologySpreadConstraints: []
   serviceAccount:
     create: false
@@ -82,7 +99,10 @@ queryNode:
   podDisruptionBudget:
     enabled: false
     minAvailable: 1
-  podAntiAffinity: false
+  podAntiAffinity:
+    enabled: false
+    type: preferred
+    topologyKey: kubernetes.io/hostname
   topologySpreadConstraints: []
   serviceAccount:
     create: false
@@ -107,7 +127,10 @@ proxy:
   podDisruptionBudget:
     enabled: false
     minAvailable: 1
-  podAntiAffinity: false
+  podAntiAffinity:
+    enabled: false
+    type: preferred
+    topologyKey: kubernetes.io/hostname
   topologySpreadConstraints: []
   serviceAccount:
     create: false
@@ -127,7 +150,12 @@ proxy:
 #     containerSecurityContext:
 #       allowPrivilegeEscalation: false
 #       capabilities: {drop: [ALL]}
-#       readOnlyRootFilesystem: false  # GVDB writes to /data/gvdb/*
+#       # readOnlyRootFilesystem: true is SUPPORTED by the chart because
+#       # the default --data-dir for every workload is /data/gvdb/* which
+#       # is backed by a PVC mount and remains writable regardless of the
+#       # root filesystem mode. Confirm your container image doesn't write
+#       # to other root paths (e.g. /tmp via a third-party library) before
+#       # enabling; if it does, mount an emptyDir on /tmp.
 security:
   podSecurityContext: {}
   containerSecurityContext: {}

@@ -16,17 +16,22 @@ spec:
       labels:
         {{- include "gvdb.dataNode.selectorLabels" . | nindent 8 }}
     spec:
+      {{- if or .Values.dataNode.serviceAccount.create .Values.dataNode.serviceAccount.name }}
       serviceAccountName: {{ include "gvdb.dataNode.serviceAccountName" . }}
-      {{- with .Values.dataNode.priorityClassName }}
+      {{- end }}
+      {{- with (include "gvdb.dataNode.priorityClassName" .) }}
       priorityClassName: {{ . }}
       {{- end }}
       {{- with .Values.security.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.dataNode.podAntiAffinity }}
+      {{- if .Values.dataNode.podAntiAffinity.enabled }}
       affinity:
-        {{- include "gvdb.antiAffinity" (dict "selectorLabels" (include "gvdb.dataNode.selectorLabels" .)) | nindent 8 }}
+        {{- include "gvdb.antiAffinity" (dict
+             "selectorLabels" (include "gvdb.dataNode.selectorLabels" .)
+             "type" .Values.dataNode.podAntiAffinity.type
+             "topologyKey" .Values.dataNode.podAntiAffinity.topologyKey) | nindent 8 }}
       {{- end }}
       {{- with .Values.dataNode.topologySpreadConstraints }}
       topologySpreadConstraints:
