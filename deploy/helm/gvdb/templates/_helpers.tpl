@@ -103,6 +103,60 @@ service is fronted by the headless service.
 {{- end }}
 
 {{/*
+Resolve the effective ServiceAccount name for each workload. If the user
+enabled serviceAccount.create, prefer the explicit name override or fall
+back to "<release>-<workload>" so the Pod spec reference matches what the
+serviceaccount.yaml template created (roadmap 0b.5).
+*/}}
+{{- define "gvdb.coordinator.serviceAccountName" -}}
+{{- if .Values.coordinator.serviceAccount.create -}}
+{{ default (printf "%s-coordinator" (include "gvdb.fullname" .)) .Values.coordinator.serviceAccount.name }}
+{{- else -}}
+{{ default "default" .Values.coordinator.serviceAccount.name }}
+{{- end -}}
+{{- end }}
+
+{{- define "gvdb.dataNode.serviceAccountName" -}}
+{{- if .Values.dataNode.serviceAccount.create -}}
+{{ default (printf "%s-data-node" (include "gvdb.fullname" .)) .Values.dataNode.serviceAccount.name }}
+{{- else -}}
+{{ default "default" .Values.dataNode.serviceAccount.name }}
+{{- end -}}
+{{- end }}
+
+{{- define "gvdb.queryNode.serviceAccountName" -}}
+{{- if .Values.queryNode.serviceAccount.create -}}
+{{ default (printf "%s-query-node" (include "gvdb.fullname" .)) .Values.queryNode.serviceAccount.name }}
+{{- else -}}
+{{ default "default" .Values.queryNode.serviceAccount.name }}
+{{- end -}}
+{{- end }}
+
+{{- define "gvdb.proxy.serviceAccountName" -}}
+{{- if .Values.proxy.serviceAccount.create -}}
+{{ default (printf "%s-proxy" (include "gvdb.fullname" .)) .Values.proxy.serviceAccount.name }}
+{{- else -}}
+{{ default "default" .Values.proxy.serviceAccount.name }}
+{{- end -}}
+{{- end }}
+
+{{/*
+Soft pod anti-affinity that keeps pods of the same workload on different
+nodes when possible. `preferred` over `required` so a single-node dev
+cluster (kind) can still schedule all replicas (roadmap 0b.5).
+*/}}
+{{- define "gvdb.antiAffinity" -}}
+podAntiAffinity:
+  preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchLabels:
+            {{- .selectorLabels | nindent 12 }}
+        topologyKey: kubernetes.io/hostname
+{{- end }}
+
+{{/*
 Generate the Raft peer list for the coordinator StatefulSet in
 "id:host:port" format. Node ids are 1-indexed (ordinal + 1) to match
 NuRaft's requirement that server id > 0. Used when coordinator.replicas > 1
