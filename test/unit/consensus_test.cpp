@@ -179,6 +179,64 @@ TEST_CASE_FIXTURE(MetadataStoreTest, "VersionTracking") {
 }
 
 // ============================================================================
+// Raft Peer Parsing Tests (roadmap 0b.4)
+// ============================================================================
+
+TEST_CASE("ParseRaftPeerSpec accepts valid id:host:port") {
+  auto p = ParseRaftPeerSpec("2:gvdb-coordinator-1.svc.cluster.local:8300");
+  REQUIRE(p.ok());
+  CHECK_EQ(p->id, 2);
+  CHECK_EQ(p->endpoint, "gvdb-coordinator-1.svc.cluster.local:8300");
+}
+
+TEST_CASE("ParseRaftPeerSpec accepts simple host:port") {
+  auto p = ParseRaftPeerSpec("3:localhost:9002");
+  REQUIRE(p.ok());
+  CHECK_EQ(p->id, 3);
+  CHECK_EQ(p->endpoint, "localhost:9002");
+}
+
+TEST_CASE("ParseRaftPeerSpec rejects missing id") {
+  auto p = ParseRaftPeerSpec(":localhost:9000");
+  CHECK_FALSE(p.ok());
+}
+
+TEST_CASE("ParseRaftPeerSpec rejects non-integer id") {
+  auto p = ParseRaftPeerSpec("abc:localhost:9000");
+  CHECK_FALSE(p.ok());
+}
+
+TEST_CASE("ParseRaftPeerSpec rejects zero id") {
+  auto p = ParseRaftPeerSpec("0:localhost:9000");
+  CHECK_FALSE(p.ok());
+}
+
+TEST_CASE("ParseRaftPeerSpec rejects negative id") {
+  auto p = ParseRaftPeerSpec("-1:localhost:9000");
+  CHECK_FALSE(p.ok());
+}
+
+TEST_CASE("ParseRaftPeerSpec rejects endpoint without port") {
+  auto p = ParseRaftPeerSpec("1:localhost");
+  CHECK_FALSE(p.ok());
+}
+
+TEST_CASE("ParseRaftPeerSpec rejects empty endpoint") {
+  auto p = ParseRaftPeerSpec("1:");
+  CHECK_FALSE(p.ok());
+}
+
+TEST_CASE("ParseRaftPeerSpec rejects trailing colon with empty port") {
+  auto p = ParseRaftPeerSpec("1:host:");
+  CHECK_FALSE(p.ok());
+}
+
+TEST_CASE("ParseRaftPeerSpec rejects spec without any colon") {
+  auto p = ParseRaftPeerSpec("just-a-name");
+  CHECK_FALSE(p.ok());
+}
+
+// ============================================================================
 // RaftNode Tests
 // ============================================================================
 
