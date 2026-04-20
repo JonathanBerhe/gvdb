@@ -243,7 +243,8 @@ void GvdbLogStore::apply_pack(ulong index, buffer& pack) {
             "apply_pack: failed to persist entry at index {}", current_index);
         throw std::runtime_error("Failed to persist entry during apply_pack");
       }
-      // Advance next_idx past this entry so next_slot() is correct
+      // next_slot() must point one past the highest index we hold, so advance
+      // next_idx_ to current_index + 1 whenever this entry extends the log.
       if (current_index + 1 > next_idx_.load(std::memory_order_acquire)) {
         next_idx_.store(current_index + 1, std::memory_order_release);
       }

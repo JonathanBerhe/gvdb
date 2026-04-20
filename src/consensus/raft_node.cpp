@@ -404,11 +404,7 @@ core::Status RaftNode::InitializeNuRaft() {
       ? config_.listen_address
       : config_.advertise_address;
 
-  // Persistent mode (RocksDB-backed log + state store) so that Raft log and
-  // cluster_config survive coordinator restarts — required for production HA.
-  // Paths layer under the existing raft data_dir convention plumbed from
-  // coordinator_main (args.data_dir + "/raft"); RocksDB create_if_missing
-  // handles bootstrap.
+  // Persistent log+state so Raft survives coordinator restart (required for HA).
   const std::string log_path = config_.data_dir + "/log";
   const std::string state_path = config_.data_dir + "/state";
   state_mgr_ = std::make_shared<GvdbStateManager>(
@@ -486,11 +482,6 @@ core::Status RaftNode::InitializeNuRaft() {
 
   nuraft::raft_server::init_options init_opts;
   init_opts.skip_initial_election_timeout_ = false;  // Participate in election immediately
-  // Let NuRaft's raft_server ctor call start_server() for us. The prior
-  // "false + manual start" pattern was never wired up — start_server() is
-  // what arms the election timer and spawns the bg commit/append threads
-  // (libnuraft raft_server.cxx:264-317), so without it the cluster never
-  // progresses past INIT and no leader is ever elected (roadmap 0b.4-followup).
   init_opts.start_server_in_constructor_ = true;
 
   raft_server_ = launcher_->init(
