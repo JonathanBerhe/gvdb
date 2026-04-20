@@ -403,9 +403,19 @@ core::Status RaftNode::InitializeNuRaft() {
   const std::string& advertise = config_.advertise_address.empty()
       ? config_.listen_address
       : config_.advertise_address;
+
+  // Persistent mode (RocksDB-backed log + state store) so that Raft log and
+  // cluster_config survive coordinator restarts — required for production HA.
+  // Paths layer under the existing raft data_dir convention plumbed from
+  // coordinator_main (args.data_dir + "/raft"); RocksDB create_if_missing
+  // handles bootstrap.
+  const std::string log_path = config_.data_dir + "/log";
+  const std::string state_path = config_.data_dir + "/state";
   state_mgr_ = std::make_shared<GvdbStateManager>(
       config_.node_id,
-      advertise);
+      advertise,
+      log_path,
+      state_path);
 
   // Seed the cluster configuration with the declared peers (roadmap 0b.4).
   // Accepted format for each entry: "id:host:port" — self is identified by
