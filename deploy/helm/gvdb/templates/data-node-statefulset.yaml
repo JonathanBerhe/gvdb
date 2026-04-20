@@ -16,6 +16,22 @@ spec:
       labels:
         {{- include "gvdb.dataNode.selectorLabels" . | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "gvdb.dataNode.serviceAccountName" . }}
+      {{- with .Values.dataNode.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.security.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.dataNode.podAntiAffinity }}
+      affinity:
+        {{- include "gvdb.antiAffinity" (dict "selectorLabels" (include "gvdb.dataNode.selectorLabels" .)) | nindent 8 }}
+      {{- end }}
+      {{- with .Values.dataNode.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       # Give the pod time to send a drain heartbeat to the coordinator and
       # finish in-flight work before K8s sends SIGKILL (roadmap 0b.1).
       terminationGracePeriodSeconds: {{ .Values.dataNode.terminationGracePeriodSeconds | default 30 }}
@@ -35,6 +51,10 @@ spec:
         - name: data-node
           image: "{{ include "gvdb.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.security.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           command: ["sh", "-c"]
           args:
             - |

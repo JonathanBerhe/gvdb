@@ -21,6 +21,18 @@ coordinator:
   storage:
     size: 1Gi
     storageClass: ""
+  # Production hardening primitives (roadmap 0b.5). All default off so the
+  # dev / kind install is unchanged. Enable in a values-prod.yaml overlay.
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1  # for HA, set to replicas - 1
+  podAntiAffinity: false  # soft (preferred) anti-affinity across hostnames
+  topologySpreadConstraints: []  # user-provided raw list, e.g. AZ spread
+  serviceAccount:
+    create: false
+    name: ""
+    annotations: {}  # populate with IRSA / Workload Identity / Azure WI
+  priorityClassName: ""  # set to <release>-coordinator when priorityClasses.create=true
 
 dataNode:
   replicas: 2
@@ -40,6 +52,17 @@ dataNode:
   storage:
     size: 5Gi
     storageClass: ""
+  # Hardening (roadmap 0b.5) — same shape as coordinator.
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+  podAntiAffinity: false
+  topologySpreadConstraints: []
+  serviceAccount:
+    create: false
+    name: ""
+    annotations: {}  # e.g. eks.amazonaws.com/role-arn: ... for S3 access
+  priorityClassName: ""
 
 queryNode:
   replicas: 1
@@ -55,6 +78,17 @@ queryNode:
   storage:
     size: 2Gi
     storageClass: ""
+  # Hardening (roadmap 0b.5).
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+  podAntiAffinity: false
+  topologySpreadConstraints: []
+  serviceAccount:
+    create: false
+    name: ""
+    annotations: {}
+  priorityClassName: ""
 
 proxy:
   replicas: 1
@@ -69,6 +103,48 @@ proxy:
     type: ClusterIP
     port: 50050
     nodePort: ""
+  # Hardening (roadmap 0b.5).
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+  podAntiAffinity: false
+  topologySpreadConstraints: []
+  serviceAccount:
+    create: false
+    name: ""
+    annotations: {}
+  priorityClassName: ""
+
+# Pod- and container-level security contexts applied to every workload
+# (roadmap 0b.5). Empty by default to preserve existing behavior; populate
+# in a production values overlay, e.g.:
+#   security:
+#     podSecurityContext:
+#       runAsNonRoot: true
+#       runAsUser: 1000
+#       fsGroup: 1000
+#       seccompProfile: {type: RuntimeDefault}
+#     containerSecurityContext:
+#       allowPrivilegeEscalation: false
+#       capabilities: {drop: [ALL]}
+#       readOnlyRootFilesystem: false  # GVDB writes to /data/gvdb/*
+security:
+  podSecurityContext: {}
+  containerSecurityContext: {}
+
+# PriorityClass objects for each workload (roadmap 0b.5). Cluster-scoped
+# resource — only create when ops explicitly allow it. Defaults reserve
+# headroom under the K8s system-cluster-critical value (2000000000).
+priorityClasses:
+  create: false
+  coordinator:
+    value: 1000000
+  dataNode:
+    value: 900000
+  queryNode:
+    value: 800000
+  proxy:
+    value: 700000
 
 config:
   server:

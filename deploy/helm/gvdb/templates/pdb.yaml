@@ -1,0 +1,74 @@
+{{/*
+PodDisruptionBudget templates (roadmap 0b.5).
+
+One PDB per workload, all opt-in. In HA topologies these prevent
+`kubectl drain` / cluster-autoscaler from evicting too many replicas at
+once. Defaults off so dev/kind (1 replica per workload) isn't blocked by
+an unsatisfiable PDB.
+
+Each block uses `minAvailable` — operators who prefer `maxUnavailable`
+can override in their own values file.
+*/}}
+
+{{- if .Values.coordinator.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "gvdb.fullname" . }}-coordinator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.coordinator.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.coordinator.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "gvdb.coordinator.selectorLabels" . | nindent 6 }}
+{{- end }}
+
+{{- if .Values.dataNode.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "gvdb.fullname" . }}-data-node
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.dataNode.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.dataNode.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "gvdb.dataNode.selectorLabels" . | nindent 6 }}
+{{- end }}
+
+{{- if .Values.queryNode.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "gvdb.fullname" . }}-query-node
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.queryNode.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.queryNode.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "gvdb.queryNode.selectorLabels" . | nindent 6 }}
+{{- end }}
+
+{{- if .Values.proxy.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "gvdb.fullname" . }}-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.proxy.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.proxy.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "gvdb.proxy.selectorLabels" . | nindent 6 }}
+{{- end }}

@@ -16,10 +16,30 @@ spec:
       labels:
         {{- include "gvdb.coordinator.selectorLabels" . | nindent 8 }}
     spec:
+      serviceAccountName: {{ include "gvdb.coordinator.serviceAccountName" . }}
+      {{- with .Values.coordinator.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.security.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.coordinator.podAntiAffinity }}
+      affinity:
+        {{- include "gvdb.antiAffinity" (dict "selectorLabels" (include "gvdb.coordinator.selectorLabels" .)) | nindent 8 }}
+      {{- end }}
+      {{- with .Values.coordinator.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: coordinator
           image: "{{ include "gvdb.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.security.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           command: ["sh", "-c"]
           args:
             - |
