@@ -8,6 +8,13 @@ metadata:
 spec:
   serviceName: {{ include "gvdb.coordinator.serviceName" . }}
   replicas: {{ .Values.coordinator.replicas }}
+  # Start all coordinator pods in parallel (roadmap 0b.4). The default
+  # OrderedReady deadlocks HA bootstrap: pod-0 can't reach Ready until
+  # Raft quorum forms, Raft quorum needs pod-1/pod-2, and OrderedReady
+  # won't start pod-1 until pod-0 is Ready. Parallel breaks the cycle.
+  # Safe for statelessly-identified pods because each pod derives its
+  # identity from HOSTNAME independently.
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       {{- include "gvdb.coordinator.selectorLabels" . | nindent 6 }}
@@ -54,12 +61,16 @@ spec:
               # parsed ordinal explicitly so a future StatefulSet rename
               # that breaks the '<name>-<ordinal>' pattern fails loud
               # instead of silently producing node-id=1 for every pod.
-              set -euo pipefail
+              # Use POSIX-portable constructs (runtime shell is /bin/sh =
+              # dash) — no bash-isms like [[ ]] or `set -o pipefail`.
+              set -eu
               ORDINAL=${HOSTNAME##*-}
-              if ! [[ "$ORDINAL" =~ ^[0-9]+$ ]]; then
-                echo "ERROR: could not parse ordinal from HOSTNAME=$HOSTNAME" >&2
-                exit 1
-              fi
+              case "$ORDINAL" in
+                ''|*[!0-9]*)
+                  echo "ERROR: could not parse ordinal from HOSTNAME=$HOSTNAME" >&2
+                  exit 1
+                  ;;
+              esac
               NODE_ID=$((ORDINAL + 1))
               CLUSTER_DOMAIN="{{ include "gvdb.clusterDomain" . }}"
               ADVERTISE="${HOSTNAME}.{{ include "gvdb.coordinator.serviceName" . }}.{{ .Release.Namespace }}.svc.${CLUSTER_DOMAIN}:50051"
@@ -96,7 +107,11 @@ spec:
           livenessProbe:
             tcpSocket:
               port: 50051
-            initialDelaySeconds: 15
+            # The coordinator waits up to 60s for Raft leader election
+            # during HA bootstrap before opening :50051 (roadmap 0b.4).
+            # Give the probe enough runway to not kill the pod mid-
+            # election when peers come up in parallel.
+            initialDelaySeconds: 90
             periodSeconds: 20
           resources:
             {{- toYaml .Values.coordinator.resources | nindent 12 }}
