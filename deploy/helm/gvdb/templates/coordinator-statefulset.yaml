@@ -16,17 +16,22 @@ spec:
       labels:
         {{- include "gvdb.coordinator.selectorLabels" . | nindent 8 }}
     spec:
+      {{- if or .Values.coordinator.serviceAccount.create .Values.coordinator.serviceAccount.name }}
       serviceAccountName: {{ include "gvdb.coordinator.serviceAccountName" . }}
-      {{- with .Values.coordinator.priorityClassName }}
+      {{- end }}
+      {{- with (include "gvdb.coordinator.priorityClassName" .) }}
       priorityClassName: {{ . }}
       {{- end }}
       {{- with .Values.security.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.coordinator.podAntiAffinity }}
+      {{- if .Values.coordinator.podAntiAffinity.enabled }}
       affinity:
-        {{- include "gvdb.antiAffinity" (dict "selectorLabels" (include "gvdb.coordinator.selectorLabels" .)) | nindent 8 }}
+        {{- include "gvdb.antiAffinity" (dict
+             "selectorLabels" (include "gvdb.coordinator.selectorLabels" .)
+             "type" .Values.coordinator.podAntiAffinity.type
+             "topologyKey" .Values.coordinator.podAntiAffinity.topologyKey) | nindent 8 }}
       {{- end }}
       {{- with .Values.coordinator.topologySpreadConstraints }}
       topologySpreadConstraints:
@@ -45,16 +50,26 @@ spec:
             - |
               # Derive a 1-indexed node-id from the StatefulSet ordinal so
               # each coordinator pod gets a stable identity across restarts
-              # (roadmap 0b.4). NuRaft requires node_id > 0.
+              # (roadmap 0b.4). NuRaft requires node_id > 0. Validate the
+              # parsed ordinal explicitly so a future StatefulSet rename
+              # that breaks the '<name>-<ordinal>' pattern fails loud
+              # instead of silently producing node-id=1 for every pod.
+              set -euo pipefail
               ORDINAL=${HOSTNAME##*-}
+              if ! [[ "$ORDINAL" =~ ^[0-9]+$ ]]; then
+                echo "ERROR: could not parse ordinal from HOSTNAME=$HOSTNAME" >&2
+                exit 1
+              fi
               NODE_ID=$((ORDINAL + 1))
-              ADVERTISE="${HOSTNAME}.{{ include "gvdb.coordinator.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local:50051"
-              RAFT_ADVERTISE="${HOSTNAME}.{{ include "gvdb.coordinator.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local:8300"
+              CLUSTER_DOMAIN="{{ include "gvdb.clusterDomain" . }}"
+              ADVERTISE="${HOSTNAME}.{{ include "gvdb.coordinator.serviceName" . }}.{{ .Release.Namespace }}.svc.${CLUSTER_DOMAIN}:50051"
+              RAFT_ADVERTISE="${HOSTNAME}.{{ include "gvdb.coordinator.serviceName" . }}.{{ .Release.Namespace }}.svc.${CLUSTER_DOMAIN}:8300"
               exec /usr/local/bin/gvdb-coordinator \
                 --node-id $NODE_ID \
                 --bind-address 0.0.0.0:50051 \
                 --advertise-address $ADVERTISE \
-                --raft-address $RAFT_ADVERTISE \
+                --raft-address 0.0.0.0:8300 \
+                --raft-advertise-address $RAFT_ADVERTISE \
                 --data-dir /data/gvdb/coordinator \
                 {{- if le (int .Values.coordinator.replicas) 1 }}
                 --single-node

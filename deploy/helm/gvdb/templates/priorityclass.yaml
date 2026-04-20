@@ -17,7 +17,7 @@ proxy are stateless(ish) and can be rescheduled more cheaply.
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
-  name: {{ include "gvdb.fullname" . }}-coordinator
+  name: {{ include "gvdb.priorityClass.name.coordinator" . }}
   labels:
     {{- include "gvdb.coordinator.labels" . | nindent 4 }}
 value: {{ .Values.priorityClasses.coordinator.value }}
@@ -27,7 +27,7 @@ description: "GVDB coordinator — Raft leader, never preempt"
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
-  name: {{ include "gvdb.fullname" . }}-data-node
+  name: {{ include "gvdb.priorityClass.name.dataNode" . }}
   labels:
     {{- include "gvdb.dataNode.labels" . | nindent 4 }}
 value: {{ .Values.priorityClasses.dataNode.value }}
@@ -37,7 +37,7 @@ description: "GVDB data-node — holds vector segments"
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
-  name: {{ include "gvdb.fullname" . }}-query-node
+  name: {{ include "gvdb.priorityClass.name.queryNode" . }}
   labels:
     {{- include "gvdb.queryNode.labels" . | nindent 4 }}
 value: {{ .Values.priorityClasses.queryNode.value }}
@@ -47,7 +47,7 @@ description: "GVDB query-node — search cache + fan-out"
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
-  name: {{ include "gvdb.fullname" . }}-proxy
+  name: {{ include "gvdb.priorityClass.name.proxy" . }}
   labels:
     {{- include "gvdb.proxy.labels" . | nindent 4 }}
 value: {{ .Values.priorityClasses.proxy.value }}

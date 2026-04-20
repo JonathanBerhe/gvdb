@@ -34,6 +34,10 @@ struct CoordinatorArgs {
   std::string bind_address = "0.0.0.0:50051";
   std::string advertise_address;
   std::string raft_address = "0.0.0.0:8300";
+  // Peer-facing Raft endpoint. Optional — when empty, raft_address is
+  // used. Set to the pod FQDN in K8s so other Raft replicas can reach
+  // us regardless of pod IP churn (roadmap 0b.4).
+  std::string raft_advertise_address;
   std::vector<std::string> raft_peers;
   std::string data_dir = "/tmp/gvdb/coordinator";
   std::string config_file;
@@ -46,7 +50,11 @@ void PrintUsage(const char* program_name) {
             << "  --node-id ID             Node ID (default: 1)\n"
             << "  --bind-address ADDR      gRPC bind address (default: 0.0.0.0:50051)\n"
             << "  --advertise-address ADDR Address advertised to peers (default: bind-address)\n"
-            << "  --raft-address ADDR      Raft listen address (default: 0.0.0.0:8300)\n"
+            << "  --raft-address ADDR      Raft BIND address (default: 0.0.0.0:8300).\n"
+            << "                           Only the port is used; NuRaft binds 0.0.0.0.\n"
+            << "  --raft-advertise-address ADDR  Peer-facing Raft endpoint (host:port).\n"
+            << "                           Set to the pod FQDN in K8s. Falls back to\n"
+            << "                           --raft-address when empty (roadmap 0b.4).\n"
             << "  --raft-peers PEERS       Comma-separated Raft peers in 'id:host:port' format\n"
             << "                           (e.g. '1:host1:8300,2:host2:8300,3:host3:8300').\n"
             << "                           Passing this flag implies --multi-node.\n"
@@ -70,6 +78,8 @@ bool ParseArgs(int argc, char** argv, CoordinatorArgs& args) {
       args.advertise_address = argv[++i];
     } else if (arg == "--raft-address" && i + 1 < argc) {
       args.raft_address = argv[++i];
+    } else if (arg == "--raft-advertise-address" && i + 1 < argc) {
+      args.raft_advertise_address = argv[++i];
     } else if (arg == "--raft-peers" && i + 1 < argc) {
       std::string peers_str = argv[++i];
       size_t start = 0;
@@ -107,6 +117,8 @@ int main(int argc, char** argv) {
   args.advertise_address = utils::ResolveFlag("GVDB_ADVERTISE_ADDRESS", args.advertise_address);
   args.data_dir = utils::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
   args.raft_address = utils::ResolveFlag("GVDB_RAFT_ADDRESS", args.raft_address);
+  args.raft_advertise_address = utils::ResolveFlag(
+      "GVDB_RAFT_ADVERTISE_ADDRESS", args.raft_advertise_address);
   utils::ServerBootstrap::InstallSignalHandlers();
 
   auto log_status = utils::ServerBootstrap::InitializeLogger(
@@ -128,6 +140,7 @@ int main(int argc, char** argv) {
     raft_config.node_id = args.node_id;
     raft_config.single_node_mode = args.single_node_mode;
     raft_config.listen_address = args.raft_address;
+    raft_config.advertise_address = args.raft_advertise_address;
     raft_config.peers = args.raft_peers;
     raft_config.data_dir = args.data_dir + "/raft";
 
