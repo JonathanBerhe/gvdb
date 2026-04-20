@@ -23,15 +23,23 @@ spec:
           command: ["sh", "-c"]
           args:
             - |
+              # Derive a 1-indexed node-id from the StatefulSet ordinal so
+              # each coordinator pod gets a stable identity across restarts
+              # (roadmap 0b.4). NuRaft requires node_id > 0.
+              ORDINAL=${HOSTNAME##*-}
+              NODE_ID=$((ORDINAL + 1))
               ADVERTISE="${HOSTNAME}.{{ include "gvdb.coordinator.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local:50051"
+              RAFT_ADVERTISE="${HOSTNAME}.{{ include "gvdb.coordinator.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local:8300"
               exec /usr/local/bin/gvdb-coordinator \
-                --node-id 1 \
+                --node-id $NODE_ID \
                 --bind-address 0.0.0.0:50051 \
                 --advertise-address $ADVERTISE \
-                --raft-address 0.0.0.0:8300 \
+                --raft-address $RAFT_ADVERTISE \
                 --data-dir /data/gvdb/coordinator \
-                {{- if .Values.coordinator.singleNode }}
+                {{- if le (int .Values.coordinator.replicas) 1 }}
                 --single-node
+                {{- else }}
+                --raft-peers {{ include "gvdb.coordinator.raftPeers" . | quote }}
                 {{- end }}
           ports:
             - containerPort: 50051

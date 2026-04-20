@@ -91,10 +91,32 @@ Query node headless service FQDN
 {{- end }}
 
 {{/*
-Generate coordinator address for pod 0
+Generate coordinator address for pod 0. Other pods discover the cluster via
+the Raft peer list (see gvdb.coordinator.raftPeers); clients and data-nodes
+use this single-pod address because today there is only one coordinator
+address for RouteQuery/Heartbeat RPCs. When replicas > 1, pod-0 still boots
+and becomes reachable; leader election may move elsewhere but the gRPC
+service is fronted by the headless service.
 */}}
 {{- define "gvdb.coordinator.address" -}}
 {{ include "gvdb.fullname" . }}-coordinator-0.{{ include "gvdb.coordinator.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local:50051
+{{- end }}
+
+{{/*
+Generate the Raft peer list for the coordinator StatefulSet in
+"id:host:port" format. Node ids are 1-indexed (ordinal + 1) to match
+NuRaft's requirement that server id > 0. Used when coordinator.replicas > 1
+to enable HA Raft quorum (roadmap 0b.4).
+*/}}
+{{- define "gvdb.coordinator.raftPeers" -}}
+{{- $fullname := include "gvdb.fullname" . -}}
+{{- $serviceName := include "gvdb.coordinator.serviceName" . -}}
+{{- $namespace := .Release.Namespace -}}
+{{- $replicas := int .Values.coordinator.replicas -}}
+{{- range $i := until $replicas -}}
+{{- if $i }},{{ end -}}
+{{ add $i 1 }}:{{ $fullname }}-coordinator-{{ $i }}.{{ $serviceName }}.{{ $namespace }}.svc.cluster.local:8300
+{{- end -}}
 {{- end }}
 
 {{/*

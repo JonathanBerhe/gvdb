@@ -4,7 +4,12 @@ image:
   pullPolicy: IfNotPresent
 
 coordinator:
+  # Set replicas: 3 (or 5, 7...) for Raft HA. Each pod derives its node-id
+  # from the StatefulSet ordinal + 1, and --raft-peers is populated from
+  # the headless service DNS in "id:host:port" format (roadmap 0b.4).
+  # replicas: 1 keeps --single-node mode (dev / kind default).
   replicas: 1
+  # Legacy toggle retained for clarity — ignored when replicas > 1.
   singleNode: true
   resources:
     requests:

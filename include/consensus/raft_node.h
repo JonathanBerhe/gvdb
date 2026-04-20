@@ -26,6 +26,19 @@ namespace consensus {
 class MetadataStateMachine;
 class GvdbStateManager;
 
+// A Raft peer derived from the "id:host:port" --raft-peers format (roadmap
+// 0b.4). Public so the parser can be unit-tested without spinning up a
+// real Raft server.
+struct RaftPeerSpec {
+  int id = 0;
+  std::string endpoint;  // "host:port"
+};
+
+// Parse one peer spec. Returns an error if the format is wrong, the id
+// isn't an integer, the id is non-positive, or the endpoint is missing
+// its port separator.
+core::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec);
+
 // Raft node for distributed consensus
 // Supports both single-node mode (for development) and multi-node mode (using NuRaft)
 //

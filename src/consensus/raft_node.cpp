@@ -48,6 +48,33 @@ class NuRaftLoggerAdapter : public nuraft::logger {
 };
 
 
+core::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec) {
+  auto first_colon = spec.find(':');
+  if (first_colon == std::string::npos || first_colon == 0) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Raft peer must be 'id:host:port', got: ", spec));
+  }
+  RaftPeerSpec out;
+  try {
+    out.id = std::stoi(spec.substr(0, first_colon));
+  } catch (const std::exception&) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Raft peer id must be an integer in: ", spec));
+  }
+  if (out.id <= 0) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Raft peer id must be > 0 in: ", spec));
+  }
+  out.endpoint = spec.substr(first_colon + 1);
+  if (out.endpoint.empty() ||
+      out.endpoint.find(':') == std::string::npos ||
+      out.endpoint.find(':') == out.endpoint.size() - 1) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Raft peer endpoint must be 'host:port' in: ", spec));
+  }
+  return out;
+}
+
 RaftNode::RaftNode(const RaftConfig& config)
     : config_(config) {
 
@@ -322,6 +349,37 @@ core::Status RaftNode::InitializeNuRaft() {
   state_mgr_ = std::make_shared<GvdbStateManager>(
       config_.node_id,
       config_.listen_address);
+
+  // Seed the cluster configuration with the declared peers (roadmap 0b.4).
+  // Accepted format for each entry: "id:host:port" — self is identified by
+  // matching `id` against `config_.node_id` and skipped. Without this step
+  // NuRaft starts with a single-server cluster config and no quorum ever
+  // forms. This runs BEFORE launcher_->init() so the initial cluster_config
+  // contains all intended members at bootstrap.
+  //
+  // On subsequent restarts the state manager has a persisted cluster_config
+  // with more than one server — we trust that and skip reseeding to avoid
+  // clobbering runtime membership changes.
+  if (!config_.peers.empty()) {
+    auto existing = state_mgr_->load_config();
+    if (existing->get_servers().size() == 1) {
+      for (const auto& peer_spec : config_.peers) {
+        auto parsed = ParseRaftPeerSpec(peer_spec);
+        if (!parsed.ok()) return parsed.status();
+        if (parsed->id == config_.node_id) continue;  // self
+        existing->get_servers().push_back(
+            nuraft::cs_new<nuraft::srv_config>(parsed->id, parsed->endpoint));
+      }
+      state_mgr_->save_config(*existing);
+      utils::Logger::Instance().Info(
+          "Seeded cluster_config with {} server(s) including self",
+          existing->get_servers().size());
+    } else {
+      utils::Logger::Instance().Info(
+          "Using persisted cluster_config with {} server(s)",
+          existing->get_servers().size());
+    }
+  }
 
   // Parse port from listen_address for raft_launcher
   // Format: "host:port" -> extract port number
