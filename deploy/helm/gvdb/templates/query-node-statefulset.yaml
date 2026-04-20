@@ -16,6 +16,27 @@ spec:
       labels:
         {{- include "gvdb.queryNode.selectorLabels" . | nindent 8 }}
     spec:
+      {{- if or .Values.queryNode.serviceAccount.create .Values.queryNode.serviceAccount.name }}
+      serviceAccountName: {{ include "gvdb.queryNode.serviceAccountName" . }}
+      {{- end }}
+      {{- with (include "gvdb.queryNode.priorityClassName" .) }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.security.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.queryNode.podAntiAffinity.enabled }}
+      affinity:
+        {{- include "gvdb.antiAffinity" (dict
+             "selectorLabels" (include "gvdb.queryNode.selectorLabels" .)
+             "type" .Values.queryNode.podAntiAffinity.type
+             "topologyKey" .Values.queryNode.podAntiAffinity.topologyKey) | nindent 8 }}
+      {{- end }}
+      {{- with .Values.queryNode.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       # Give the pod time to send a drain heartbeat to the coordinator and
       # finish in-flight work before K8s sends SIGKILL (roadmap 0b.1).
       terminationGracePeriodSeconds: {{ .Values.queryNode.terminationGracePeriodSeconds | default 30 }}
@@ -35,6 +56,10 @@ spec:
         - name: query-node
           image: "{{ include "gvdb.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.security.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           command: ["sh", "-c"]
           args:
             - |

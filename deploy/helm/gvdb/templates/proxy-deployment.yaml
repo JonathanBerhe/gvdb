@@ -15,6 +15,27 @@ spec:
       labels:
         {{- include "gvdb.proxy.selectorLabels" . | nindent 8 }}
     spec:
+      {{- if or .Values.proxy.serviceAccount.create .Values.proxy.serviceAccount.name }}
+      serviceAccountName: {{ include "gvdb.proxy.serviceAccountName" . }}
+      {{- end }}
+      {{- with (include "gvdb.proxy.priorityClassName" .) }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.security.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.proxy.podAntiAffinity.enabled }}
+      affinity:
+        {{- include "gvdb.antiAffinity" (dict
+             "selectorLabels" (include "gvdb.proxy.selectorLabels" .)
+             "type" .Values.proxy.podAntiAffinity.type
+             "topologyKey" .Values.proxy.podAntiAffinity.topologyKey) | nindent 8 }}
+      {{- end }}
+      {{- with .Values.proxy.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       initContainers:
         - name: wait-for-coordinator
           image: "{{ include "gvdb.image" . }}"
@@ -42,6 +63,10 @@ spec:
         - name: proxy
           image: "{{ include "gvdb.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.security.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           command:
             - /usr/local/bin/gvdb-proxy
           args:
