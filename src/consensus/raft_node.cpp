@@ -403,9 +403,16 @@ core::Status RaftNode::InitializeNuRaft() {
   const std::string& advertise = config_.advertise_address.empty()
       ? config_.listen_address
       : config_.advertise_address;
+
+  // Persistent log+state so Raft survives coordinator restart (required for HA).
+  const std::filesystem::path raft_dir(config_.data_dir);
+  const std::string log_path = (raft_dir / "log").string();
+  const std::string state_path = (raft_dir / "state").string();
   state_mgr_ = std::make_shared<GvdbStateManager>(
       config_.node_id,
-      advertise);
+      advertise,
+      log_path,
+      state_path);
 
   // Seed the cluster configuration with the declared peers (roadmap 0b.4).
   // Accepted format for each entry: "id:host:port" — self is identified by
@@ -476,7 +483,7 @@ core::Status RaftNode::InitializeNuRaft() {
 
   nuraft::raft_server::init_options init_opts;
   init_opts.skip_initial_election_timeout_ = false;  // Participate in election immediately
-  init_opts.start_server_in_constructor_ = false;    // Start manually after init
+  init_opts.start_server_in_constructor_ = true;
 
   raft_server_ = launcher_->init(
       state_machine_,
