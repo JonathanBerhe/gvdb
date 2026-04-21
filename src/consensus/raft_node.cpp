@@ -405,8 +405,9 @@ core::Status RaftNode::InitializeNuRaft() {
       : config_.advertise_address;
 
   // Persistent log+state so Raft survives coordinator restart (required for HA).
-  const std::string log_path = config_.data_dir + "/log";
-  const std::string state_path = config_.data_dir + "/state";
+  const std::filesystem::path raft_dir(config_.data_dir);
+  const std::string log_path = (raft_dir / "log").string();
+  const std::string state_path = (raft_dir / "state").string();
   state_mgr_ = std::make_shared<GvdbStateManager>(
       config_.node_id,
       advertise,

@@ -70,6 +70,11 @@ ptr<log_entry> GvdbLogStore::last_entry() const {
     }
     auto entry = read_entry_from_db(next - 1);
     if (!entry) {
+      // DB claims this index exists (next > start) but read returned null —
+      // log an error so corruption isn't silently masked as "empty log".
+      utils::Logger::Instance().Error(
+          "last_entry: read_entry_from_db({}) returned null (start={}, next={})",
+          next - 1, start, next);
       return nuraft::cs_new<log_entry>(0, nuraft::buffer::alloc(0));
     }
     return entry;
@@ -239,6 +244,10 @@ void GvdbLogStore::apply_pack(ulong index, buffer& pack) {
     ptr<log_entry> entry = log_entry::deserialize(*entry_buf);
     if (persistent_mode_) {
       if (!write_entry_to_db(current_index, entry)) {
+        // Partial-state on failure: entries N..current_index-1 remain in
+        // RocksDB with next_idx_ already advanced, matching append()'s
+        // throw-on-IO-error contract. NuRaft's snapshot-install path is
+        // expected to retry from scratch on restart.
         utils::Logger::Instance().Error(
             "apply_pack: failed to persist entry at index {}", current_index);
         throw std::runtime_error("Failed to persist entry during apply_pack");
