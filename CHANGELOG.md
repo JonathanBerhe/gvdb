@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.20.1](https://github.com/JonathanBerhe/gvdb/compare/v0.20.0...v0.20.1) (2026-04-21)
+
+
+### Bug Fixes
+
+* **consensus:** enable distributed Raft leader election for HA coordinator ([bc49146](https://github.com/JonathanBerhe/gvdb/commit/bc49146b9ec7ccdd8a42c412edc0f04076dd5852))
+* **consensus:** persist Raft log+state and route log_store reads through persistent mode ([c4776c4](https://github.com/JonathanBerhe/gvdb/commit/c4776c4e3e91b086d3b7adfd1739f1220543a5a4))
+* **consensus:** start raft_server in ctor so election timer actually arms ([9f9492d](https://github.com/JonathanBerhe/gvdb/commit/9f9492d2ae9abb1ddf6c91a51bd0852448d5913f))
+
+## [0.20.0](https://github.com/JonathanBerhe/gvdb/compare/v0.19.0...v0.20.0) (2026-04-20)
+
+
+### Features
+
+* **chart+consensus:** coordinator HA + production hardening primitives ([048b998](https://github.com/JonathanBerhe/gvdb/commit/048b99838b35130b88eca29ed58f604bb38fb38a))
+* **consensus:** coordinator HA via ordinal-based Raft peer seeding ([7cbad11](https://github.com/JonathanBerhe/gvdb/commit/7cbad1164c921fd994263f086ec4a7d930cec076))
+* **helm:** opt-in hardening primitives for production K8s ([948de5c](https://github.com/JonathanBerhe/gvdb/commit/948de5cff525a3c8a4705d832e34481ef0a92c70))
+
+
+### Bug Fixes
+
+* **chart+consensus:** enable HA bootstrap via parallel pods and tolerant election wait ([758c9ee](https://github.com/JonathanBerhe/gvdb/commit/758c9ee986a38f4103f6f3f777ce9de2e81841a3))
+* **chart+consensus:** harden Raft peer seeding and chart primitives ([b2c8141](https://github.com/JonathanBerhe/gvdb/commit/b2c8141f64a2f53983d567127e5c70ecd2f604eb))
+
+## [0.19.0](https://github.com/JonathanBerhe/gvdb/compare/v0.18.0...v0.19.0) (2026-04-19)
+
+
+### Features
+
+* **cluster:** auto-rebalance on new data node join ([e787770](https://github.com/JonathanBerhe/gvdb/commit/e78777086938220a5ab0e83691ee01b7f243617f))
+* **cluster:** auto-rebalance on new data node join ([1ce2908](https://github.com/JonathanBerhe/gvdb/commit/1ce2908b4e149579d2e15e590eed369723ce1ce0))
+* **cluster:** graceful shard drain on node SIGTERM ([7a03f9f](https://github.com/JonathanBerhe/gvdb/commit/7a03f9f3a6f9d1c3ffba424e974a4ae4540c9471))
+* **cluster:** graceful shard drain on node SIGTERM ([67113b0](https://github.com/JonathanBerhe/gvdb/commit/67113b0aeb9d27e156bf31129c8a86c9292a82f8))
+
+
+### Bug Fixes
+
+* **cluster:** harden auto-rebalance lifecycle, metrics, and observability ([2bb70f7](https://github.com/JonathanBerhe/gvdb/commit/2bb70f7678bdf2d671fbf22e34f91eed68546c12))
+* **cluster:** retry drain-wait on RPC error and filter stale draining nodes ([ba5399f](https://github.com/JonathanBerhe/gvdb/commit/ba5399fc8027d8838d83f894c2030f7044aad4bb))
+
 ## [0.18.0](https://github.com/JonathanBerhe/gvdb/compare/v0.17.0...v0.18.0) (2026-04-19)
 
 

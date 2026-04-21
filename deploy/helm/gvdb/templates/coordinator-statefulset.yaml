@@ -8,6 +8,13 @@ metadata:
 spec:
   serviceName: {{ include "gvdb.coordinator.serviceName" . }}
   replicas: {{ .Values.coordinator.replicas }}
+  # Start all coordinator pods in parallel (roadmap 0b.4). The default
+  # OrderedReady deadlocks HA bootstrap: pod-0 can't reach Ready until
+  # Raft quorum forms, Raft quorum needs pod-1/pod-2, and OrderedReady
+  # won't start pod-1 until pod-0 is Ready. Parallel breaks the cycle.
+  # Safe for statelessly-identified pods because each pod derives its
+  # identity from HOSTNAME independently.
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       {{- include "gvdb.coordinator.selectorLabels" . | nindent 6 }}
@@ -16,22 +23,69 @@ spec:
       labels:
         {{- include "gvdb.coordinator.selectorLabels" . | nindent 8 }}
     spec:
+      {{- if or .Values.coordinator.serviceAccount.create .Values.coordinator.serviceAccount.name }}
+      serviceAccountName: {{ include "gvdb.coordinator.serviceAccountName" . }}
+      {{- end }}
+      {{- with (include "gvdb.coordinator.priorityClassName" .) }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.security.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.coordinator.podAntiAffinity.enabled }}
+      affinity:
+        {{- include "gvdb.antiAffinity" (dict
+             "selectorLabels" (include "gvdb.coordinator.selectorLabels" .)
+             "type" .Values.coordinator.podAntiAffinity.type
+             "topologyKey" .Values.coordinator.podAntiAffinity.topologyKey) | nindent 8 }}
+      {{- end }}
+      {{- with .Values.coordinator.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: coordinator
           image: "{{ include "gvdb.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.security.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           command: ["sh", "-c"]
           args:
             - |
-              ADVERTISE="${HOSTNAME}.{{ include "gvdb.coordinator.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local:50051"
+              # Derive a 1-indexed node-id from the StatefulSet ordinal so
+              # each coordinator pod gets a stable identity across restarts
+              # (roadmap 0b.4). NuRaft requires node_id > 0. Validate the
+              # parsed ordinal explicitly so a future StatefulSet rename
+              # that breaks the '<name>-<ordinal>' pattern fails loud
+              # instead of silently producing node-id=1 for every pod.
+              # Use POSIX-portable constructs (runtime shell is /bin/sh =
+              # dash) — no bash-isms like [[ ]] or `set -o pipefail`.
+              set -eu
+              ORDINAL=${HOSTNAME##*-}
+              case "$ORDINAL" in
+                ''|*[!0-9]*)
+                  echo "ERROR: could not parse ordinal from HOSTNAME=$HOSTNAME" >&2
+                  exit 1
+                  ;;
+              esac
+              NODE_ID=$((ORDINAL + 1))
+              CLUSTER_DOMAIN="{{ include "gvdb.clusterDomain" . }}"
+              ADVERTISE="${HOSTNAME}.{{ include "gvdb.coordinator.serviceName" . }}.{{ .Release.Namespace }}.svc.${CLUSTER_DOMAIN}:50051"
+              RAFT_ADVERTISE="${HOSTNAME}.{{ include "gvdb.coordinator.serviceName" . }}.{{ .Release.Namespace }}.svc.${CLUSTER_DOMAIN}:8300"
               exec /usr/local/bin/gvdb-coordinator \
-                --node-id 1 \
+                --node-id $NODE_ID \
                 --bind-address 0.0.0.0:50051 \
                 --advertise-address $ADVERTISE \
                 --raft-address 0.0.0.0:8300 \
+                --raft-advertise-address $RAFT_ADVERTISE \
                 --data-dir /data/gvdb/coordinator \
-                {{- if .Values.coordinator.singleNode }}
+                {{- if le (int .Values.coordinator.replicas) 1 }}
                 --single-node
+                {{- else }}
+                --raft-peers {{ include "gvdb.coordinator.raftPeers" . | quote }}
                 {{- end }}
           ports:
             - containerPort: 50051
@@ -53,7 +107,11 @@ spec:
           livenessProbe:
             tcpSocket:
               port: 50051
-            initialDelaySeconds: 15
+            # The coordinator waits up to 60s for Raft leader election
+            # during HA bootstrap before opening :50051 (roadmap 0b.4).
+            # Give the probe enough runway to not kill the pod mid-
+            # election when peers come up in parallel.
+            initialDelaySeconds: 90
             periodSeconds: 20
           resources:
             {{- toYaml .Values.coordinator.resources | nindent 12 }}

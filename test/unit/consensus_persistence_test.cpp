@@ -222,6 +222,81 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "SequentialWrites") {
   CHECK(log_store.flush());
 }
 
+// Test 6: last_entry() honors persistent mode (replication read path)
+TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "LastEntryPersistent") {
+  std::string log_path = (test_dir_ / "logs").string();
+  GvdbLogStore log_store(log_path);
+
+  // Empty log → dummy sentinel with term 0
+  auto empty = log_store.last_entry();
+  REQUIRE_NE(empty, nullptr);
+  CHECK_EQ(empty->get_term(), 0);
+
+  // After append, last_entry must match the last appended entry —
+  // the pre-fix bug returned the sentinel here because the method
+  // only consulted the in-memory `logs_` map.
+  auto e1 = create_log_entry(7, "first");
+  auto e2 = create_log_entry(8, "last");
+  log_store.append(e1);
+  log_store.append(e2);
+
+  auto last = log_store.last_entry();
+  REQUIRE_NE(last, nullptr);
+  CHECK_EQ(last->get_term(), 8);
+}
+
+// Test 7: log_entries() honors persistent mode (leader replication path)
+TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "LogEntriesPersistent") {
+  std::string log_path = (test_dir_ / "logs").string();
+  GvdbLogStore log_store(log_path);
+
+  for (int i = 1; i <= 5; ++i) {
+    auto e = create_log_entry(i, "v" + std::to_string(i));
+    log_store.append(e);
+  }
+
+  // Range read spanning multiple entries must pull from RocksDB —
+  // the pre-fix bug returned nullptr because it consulted `logs_`.
+  auto entries = log_store.log_entries(2, 5);
+  REQUIRE_NE(entries, nullptr);
+  REQUIRE_EQ(entries->size(), 3);
+  CHECK_EQ((*entries)[0]->get_term(), 2);
+  CHECK_EQ((*entries)[1]->get_term(), 3);
+  CHECK_EQ((*entries)[2]->get_term(), 4);
+
+  // Missing-index case returns nullptr (compacted / beyond tail)
+  CHECK_EQ(log_store.log_entries(100, 105), nullptr);
+}
+
+// Test 8: apply_pack() persists entries and advances next_idx_
+TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "ApplyPackPersistent") {
+  std::string log_path = (test_dir_ / "logs").string();
+
+  // Build a pack from a source store.
+  ptr<buffer> packed;
+  {
+    GvdbLogStore src(log_path + "_src");
+    for (int i = 1; i <= 3; ++i) {
+      auto e = create_log_entry(10 + i, "pkt" + std::to_string(i));
+      src.append(e);
+    }
+    packed = src.pack(1, 3);
+    REQUIRE_NE(packed, nullptr);
+  }
+
+  // Apply into a fresh persistent store at index 1.
+  GvdbLogStore dst(log_path);
+  dst.apply_pack(1, *packed);
+
+  // next_slot must advance to one past the highest applied index —
+  // the pre-fix bug wrote into `logs_` (which is unused in persistent
+  // mode) and left next_idx_ untouched.
+  CHECK_EQ(dst.next_slot(), 4);
+  auto read = dst.entry_at(3);
+  REQUIRE_NE(read, nullptr);
+  CHECK_EQ(read->get_term(), 13);
+}
+
 // State Manager Persistence Tests
 class GvdbStateManagerPersistenceTest {
  public:

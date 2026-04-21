@@ -48,6 +48,86 @@ class NuRaftLoggerAdapter : public nuraft::logger {
 };
 
 
+core::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec) {
+  // Be tolerant of whitespace introduced by hand-edited YAML / env vars —
+  // strip leading/trailing whitespace on the whole spec, the id, and the
+  // endpoint. Reject any embedded whitespace in the id or inside the
+  // endpoint's host/port to keep errors unambiguous.
+  auto strip = [](std::string s) {
+    auto begin = s.find_first_not_of(" \t\r\n");
+    if (begin == std::string::npos) return std::string();
+    auto end = s.find_last_not_of(" \t\r\n");
+    return s.substr(begin, end - begin + 1);
+  };
+
+  std::string trimmed = strip(spec);
+  auto first_colon = trimmed.find(':');
+  if (first_colon == std::string::npos || first_colon == 0) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Raft peer must be 'id:host:port', got: ", spec));
+  }
+  RaftPeerSpec out;
+  std::string id_str = strip(trimmed.substr(0, first_colon));
+  if (id_str.find_first_of(" \t\r\n") != std::string::npos) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Raft peer id contains whitespace in: ", spec));
+  }
+  try {
+    out.id = std::stoi(id_str);
+  } catch (const std::exception&) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Raft peer id must be an integer in: ", spec));
+  }
+  if (out.id <= 0) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Raft peer id must be > 0 in: ", spec));
+  }
+  out.endpoint = strip(trimmed.substr(first_colon + 1));
+  if (out.endpoint.empty() ||
+      out.endpoint.find(':') == std::string::npos ||
+      out.endpoint.find(':') == out.endpoint.size() - 1 ||
+      out.endpoint.find_first_of(" \t\r\n") != std::string::npos) {
+    return core::InvalidArgumentError(
+        absl::StrCat("Raft peer endpoint must be 'host:port' in: ", spec));
+  }
+  return out;
+}
+
+core::StatusOr<PeerListPlan> PrepareRaftPeerList(
+    int self_id,
+    const std::vector<std::string>& declared_peers,
+    size_t persisted_cluster_size) {
+  PeerListPlan plan;
+  std::set<int> seen_ids;
+  bool self_found = false;
+
+  for (const auto& raw : declared_peers) {
+    auto parsed = ParseRaftPeerSpec(raw);
+    if (!parsed.ok()) return parsed.status();
+
+    if (!seen_ids.insert(parsed->id).second) {
+      return core::InvalidArgumentError(
+          absl::StrCat("Duplicate Raft peer id ", parsed->id,
+                       " in --raft-peers"));
+    }
+    if (parsed->id == self_id) self_found = true;
+    plan.peers.push_back(*parsed);
+  }
+
+  if (!plan.peers.empty() && !self_found) {
+    return core::InvalidArgumentError(
+        absl::StrCat("--node-id ", self_id,
+                     " does not appear in --raft-peers — the declared "
+                     "peer list must include this node"));
+  }
+
+  // Seed when the persisted config is fresh or single-self; trust otherwise.
+  // size==0 covers partial-write / corruption (GvdbStateManager normally
+  // leaves at least self, but we still want to recover cleanly).
+  plan.needs_seed = persisted_cluster_size <= 1;
+  return plan;
+}
+
 RaftNode::RaftNode(const RaftConfig& config)
     : config_(config) {
 
@@ -317,11 +397,55 @@ core::Status RaftNode::InitializeNuRaft() {
   // This ensures both single-node and multi-node modes use the same store
   state_machine_ = std::make_shared<MetadataStateMachine>(&metadata_store_);
 
-  // Create state manager with node ID and endpoint
-  // Note: listen_address should be in format "host:port"
+  // The NuRaft srv_config endpoint is what peers use to connect to us —
+  // prefer the explicit advertise_address (K8s FQDN) and fall back to
+  // listen_address for single-node / backward-compat paths (roadmap 0b.4).
+  const std::string& advertise = config_.advertise_address.empty()
+      ? config_.listen_address
+      : config_.advertise_address;
+
+  // Persistent log+state so Raft survives coordinator restart (required for HA).
+  const std::filesystem::path raft_dir(config_.data_dir);
+  const std::string log_path = (raft_dir / "log").string();
+  const std::string state_path = (raft_dir / "state").string();
   state_mgr_ = std::make_shared<GvdbStateManager>(
       config_.node_id,
-      config_.listen_address);
+      advertise,
+      log_path,
+      state_path);
+
+  // Seed the cluster configuration with the declared peers (roadmap 0b.4).
+  // Accepted format for each entry: "id:host:port" — self is identified by
+  // matching `id` against `config_.node_id` and skipped. Without this step
+  // NuRaft starts with a single-server cluster config and no quorum ever
+  // forms. This runs BEFORE launcher_->init() so the initial cluster_config
+  // contains all intended members at bootstrap.
+  //
+  // On subsequent restarts the state manager has a persisted cluster_config
+  // with more than one server — we trust that and skip reseeding to avoid
+  // clobbering runtime membership changes.
+  if (!config_.peers.empty()) {
+    auto existing = state_mgr_->load_config();
+    auto plan = PrepareRaftPeerList(config_.node_id, config_.peers,
+                                    existing->get_servers().size());
+    if (!plan.ok()) return plan.status();
+
+    if (plan->needs_seed) {
+      for (const auto& peer : plan->peers) {
+        if (peer.id == config_.node_id) continue;  // self already in config
+        existing->get_servers().push_back(
+            nuraft::cs_new<nuraft::srv_config>(peer.id, peer.endpoint));
+      }
+      state_mgr_->save_config(*existing);
+      utils::Logger::Instance().Info(
+          "Seeded cluster_config with {} server(s) including self",
+          existing->get_servers().size());
+    } else {
+      utils::Logger::Instance().Info(
+          "Using persisted cluster_config with {} server(s)",
+          existing->get_servers().size());
+    }
+  }
 
   // Parse port from listen_address for raft_launcher
   // Format: "host:port" -> extract port number
@@ -359,7 +483,7 @@ core::Status RaftNode::InitializeNuRaft() {
 
   nuraft::raft_server::init_options init_opts;
   init_opts.skip_initial_election_timeout_ = false;  // Participate in election immediately
-  init_opts.start_server_in_constructor_ = false;    // Start manually after init
+  init_opts.start_server_in_constructor_ = true;
 
   raft_server_ = launcher_->init(
       state_machine_,

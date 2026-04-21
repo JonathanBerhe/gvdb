@@ -493,3 +493,41 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "DrainingNodeBecomesFailedAfterTimeout") {
   auto failed = registry_.GetFailedNodes();
   CHECK_EQ(failed.size(), 1);
 }
+
+// 24. GetDrainingNodes returns only nodes that are both DRAINING AND still
+//     alive per heartbeat timeout. Stale draining nodes belong to the
+//     failure path, not the graceful drain path (roadmap 0b.3).
+TEST_CASE_FIXTURE(NodeRegistryTest, "GetDrainingNodesExcludesStaleDraining") {
+  // Node 1: ready (non-draining). Should never appear in GetDrainingNodes.
+  registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
+  // Node 2: actively draining + fresh heartbeat. Should appear.
+  registry_.UpdateNode(
+      MakeDrainingNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));
+  // Node 3: draining but heartbeat will age past timeout below. Should
+  // be excluded (stale draining → failure-path territory).
+  registry_.UpdateNode(
+      MakeDrainingNodeInfo(3, proto::internal::NODE_TYPE_DATA_NODE));
+
+  // Fresh — all three present.
+  auto fresh = registry_.GetDrainingNodes();
+  REQUIRE_EQ(fresh.size(), 2);
+  std::set<uint32_t> fresh_ids;
+  for (const auto& n : fresh) fresh_ids.insert(n.info.node_id());
+  CHECK(fresh_ids.count(2) == 1);
+  CHECK(fresh_ids.count(3) == 1);
+
+  // Let only node 3 age out: refresh 1 and 2 after the sleep; leave 3 stale.
+  std::this_thread::sleep_for(100ms);
+  registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
+  registry_.UpdateNode(
+      MakeDrainingNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));
+
+  auto after = registry_.GetDrainingNodes();
+  REQUIRE_EQ(after.size(), 1);
+  CHECK_EQ(after[0].info.node_id(), 2u);
+
+  // Stale draining node 3 is now in the failed set.
+  auto failed = registry_.GetFailedNodes();
+  REQUIRE_EQ(failed.size(), 1);
+  CHECK_EQ(failed[0].info.node_id(), 3u);
+}

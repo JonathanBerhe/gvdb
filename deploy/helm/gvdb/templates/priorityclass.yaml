@@ -1,0 +1,56 @@
+{{/*
+PriorityClass templates (roadmap 0b.5).
+
+Prevents GVDB components from being preempted by lower-priority batch
+workloads on a shared cluster. Opt-in because PriorityClass is a cluster-
+scoped resource — installing these without operator consent can shift
+eviction behavior for unrelated pods. Layer values:
+
+  coordinator > data-node > query-node > proxy
+
+Coordinator has the highest value because Raft leader loss stalls metadata
+ops; data-node next because it holds the actual segments; query-node and
+proxy are stateless(ish) and can be rescheduled more cheaply.
+*/}}
+
+{{- if .Values.priorityClasses.create }}
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ include "gvdb.priorityClass.name.coordinator" . }}
+  labels:
+    {{- include "gvdb.coordinator.labels" . | nindent 4 }}
+value: {{ .Values.priorityClasses.coordinator.value }}
+globalDefault: false
+description: "GVDB coordinator — Raft leader, never preempt"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ include "gvdb.priorityClass.name.dataNode" . }}
+  labels:
+    {{- include "gvdb.dataNode.labels" . | nindent 4 }}
+value: {{ .Values.priorityClasses.dataNode.value }}
+globalDefault: false
+description: "GVDB data-node — holds vector segments"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ include "gvdb.priorityClass.name.queryNode" . }}
+  labels:
+    {{- include "gvdb.queryNode.labels" . | nindent 4 }}
+value: {{ .Values.priorityClasses.queryNode.value }}
+globalDefault: false
+description: "GVDB query-node — search cache + fan-out"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ include "gvdb.priorityClass.name.proxy" . }}
+  labels:
+    {{- include "gvdb.proxy.labels" . | nindent 4 }}
+value: {{ .Values.priorityClasses.proxy.value }}
+globalDefault: false
+description: "GVDB proxy — stateless gateway"
+{{- end }}

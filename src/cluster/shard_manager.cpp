@@ -265,7 +265,10 @@ absl::Status ShardManager::UnregisterNode(core::NodeId node_id, bool graceful) {
   assigned_nodes_.erase(node_id);
 
   if (graceful) {
-    // TODO: Implement graceful shutdown - migrate shards to other nodes
+    // Caller is responsible for having migrated this node's shards off
+    // before reaching here — see Coordinator::HandleDrainingNode which
+    // promotes replicas / drops replica entries and only then calls this
+    // with graceful=true (roadmap 0b.3).
     utils::Logger::Instance().Info("Gracefully unregistering node {}",
                                    core::ToUInt32(node_id));
   } else {
