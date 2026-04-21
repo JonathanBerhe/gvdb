@@ -1,7 +1,8 @@
 # GVDB Roadmap
 
-**Last Updated**: 2026-04-12
-**Current Version**: v0.10.0
+**Last Updated**: 2026-04-21
+**Current Version**: v0.21.0
+**North Star**: Fully scalable cluster on EKS, then GKE, then AKS
 
 ---
 
@@ -37,156 +38,229 @@
 ### Security & Observability
 - TLS/SSL: mutual TLS support, YAML config, backward compatible (defaults to insecure)
 - API key auth: Bearer token gRPC interceptor
+- Audit logging: structured JSON per RPC, `logging.audit.enabled` opt-in
 - Prometheus metrics (:9090)
 - Grafana dashboards: RED method (request rates, error rates, latency p50/p95/p99), auto-provisioned via docker-compose
 
 ### Clients & Tooling
-- Python SDK: PyPI package, full CRUD + search + hybrid search + streaming insert + upsert + range search
+- Python SDK: PyPI package, full CRUD + search + hybrid search + streaming insert + upsert + range search + bulk import (Parquet/NumPy/DataFrame/CSV/h5ad)
+- Java SDK + Spark connector (DSv2) + Flink connector (Sink V2): shipped in v0.15.0
 - Web UI: React SPA (collection browser, search playground, metrics dashboard)
 - CLI/TUI: Go (Bubble Tea + Cobra), 13 RPCs, 12MB binary
 
 ### Storage
-- S3/MinIO tiered storage: `ISegmentStore` interface, `TieredSegmentManager` (local + S3 + LRU cache), manifest-based discovery, async upload, `-DGVDB_WITH_S3=ON`
+- S3/MinIO tiered storage: `ISegmentStore` interface, `TieredSegmentManager` (local + object-store + LRU cache), manifest-based discovery, async upload, `-DGVDB_WITH_S3=ON`
+- FilesystemObjectStore: on-disk `IObjectStore` backend for testing and single-host tiered deployments
 
 ### Infrastructure
 - Docker: multi-stage build (Ubuntu 24.04 builder + minimal runtime, S3 support included)
-- Helm chart: configurable replicas, resources, storage, OCI registry
+- Helm chart: configurable replicas, resources, storage, OCI registry (scale-ready primitives still pending — see Tier 0b)
 - Kind: local K8s cluster for testing
 - CI: paths-filter, `make build && make test`
-- Release pipeline: conventional commits → release-please → Docker + Helm + PyPI auto-publish
+- Release pipeline: conventional commits → release-please → Docker + Helm + PyPI + Maven auto-publish
 - 28 C++ test suites, Go e2e tests
 
 ---
 
-## Tier 0 — Complete the Foundation
+## Tier 0a — Foundation (Done)
 
 | ID | Feature | Complexity | Status |
 |----|---------|-----------|--------|
 | 0.1 | Data Node Index Building + Segment Compaction | Medium | **Done** |
-| 0.2 | Read Repair | Medium | **Done** |
-| 0.3 | Dynamic Shard Rebalancing Execution | High | **Done** |
+| 0.2 | Read Repair | Medium | **Done (via CheckConsistency)** |
+| 0.3 | Dynamic Shard Rebalancing — calc + execute | High | **Done (core)** — auto-trigger + drain moved to 0b |
 | 0.4 | S3/MinIO Object Storage Backend | High | **Done** |
+| 0.4b | Filesystem Object Store backend | Low | **Done** |
 
-### 0.2 Read Repair
-`ReplicationManager::ReadRepair()` returns UnimplementedError. After node failure/recovery, replicas diverge silently.
-- Background sweep comparing vector counts/checksums across replicas
-- Stream deltas via existing `ReplicateSegment` RPC
-- Files: `src/cluster/replication.cpp`, `src/cluster/coordinator.cpp`
+### 0.2 Read Repair (honest labeling)
+`ReplicationManager::ReadRepair()` is a thin delegation stub; the actual divergence-repair logic runs in `Coordinator::CheckConsistency()` every ~10 health-check cycles. Functionally complete, code split intentionally.
+- Files: [src/cluster/replication.cpp](src/cluster/replication.cpp), [src/cluster/coordinator.cpp](src/cluster/coordinator.cpp)
 
-### 0.3 Dynamic Shard Rebalancing Execution
-Greedy rebalancing algorithm with 20% imbalance threshold. Coordinator-driven execution: ACTIVE → MIGRATING → replicate → remap → cleanup → ACTIVE. Idempotent via shard state check, crash-recoverable via `RecoverMigratingShards()` in health check loop.
-- `CalculateRebalancePlan()`: greedy algorithm sorting overloaded nodes by load DESC, shards by size DESC, targets by load ASC. Skips MIGRATING shards. Prefers replica moves over primary.
-- `ExecuteRebalancePlan()` on Coordinator: reuses existing `ReplicateSegmentData()` + `DeleteSegment` RPC. Caps at 4 moves per cycle.
-- `RebalanceShards` and `TransferData` RPCs wired to coordinator.
-- `SetShardState()` / `GetShardState()` for state machine transitions.
-- 7 unit tests (plan algorithm, state transitions, edge cases). Existing integration tests cover segment transfer mechanics.
-- Files: `src/cluster/shard_manager.cpp`, `src/cluster/coordinator.cpp`, `src/network/internal_service.cpp`
+### 0.3 Dynamic Shard Rebalancing — calc + execute (done-core)
+`CalculateRebalancePlan()`, `ExecuteRebalancePlan()`, `RecoverMigratingShards()` all implemented and unit-tested. Greedy algorithm, 4-move cap, idempotent state transitions.
+- **Gaps now tracked in Tier 0b**: no automatic trigger on node-join (0b.2), graceful drain on scale-down is still a `TODO` at [src/cluster/shard_manager.cpp:268](src/cluster/shard_manager.cpp) (0b.3).
+- Files: [src/cluster/shard_manager.cpp](src/cluster/shard_manager.cpp), [src/cluster/coordinator.cpp](src/cluster/coordinator.cpp), [src/network/internal_service.cpp](src/network/internal_service.cpp)
 
 ### 0.4 S3/MinIO Object Storage Backend
-Tiered storage: local disk (hot) + S3/MinIO (cold). Sealed segments uploaded asynchronously after local flush. LRU local cache for downloaded segments. Manifest-based discovery on startup.
-- `ISegmentStore` interface extracted from `SegmentManager` (22 methods). All consumers refactored to use it.
-- `TieredSegmentManager` composes `SegmentManager` + `IObjectStore` + `SegmentCache`. Async upload pool, lazy download, manifest tracking.
-- `IObjectStore` interface with `S3ObjectStore` (AWS SDK) and `InMemoryObjectStore` (testing).
-- `SegmentCache`: LRU disk cache with configurable max size and automatic eviction.
-- `SegmentManifest`: JSON manifest in S3 for fast startup discovery without ListObjects.
-- Build with `-DGVDB_WITH_S3=ON` (AWS SDK 1.11.789 via FetchContent, s3 component only).
-- Config: `storage.object_store` YAML section (endpoint, bucket, region, prefix, cache size, upload threads).
-- CI builds with S3 enabled. Docker image includes S3 runtime deps.
-- Dead code removed: `LocalStorage` and `StorageFactory` replaced by `ISegmentStore`.
-- Files: `include/storage/segment_store.h`, `include/storage/tiered_segment_manager.h`, `include/storage/object_store.h`, `include/storage/segment_cache.h`, `include/storage/segment_manifest.h`, `include/storage/s3_object_store.h`
+Tiered storage: local disk (hot) + S3/MinIO (cold). Sealed segments uploaded async, LRU local cache, manifest-based discovery.
+- `ISegmentStore` interface (22 methods), `TieredSegmentManager`, `IObjectStore` with `S3ObjectStore` (AWS SDK) + `InMemoryObjectStore` + `FilesystemObjectStore`
+- Build: `-DGVDB_WITH_S3=ON`. CI builds with S3 enabled. Docker image includes S3 runtime deps.
+- Files: [include/storage/segment_store.h](include/storage/segment_store.h), [include/storage/tiered_segment_manager.h](include/storage/tiered_segment_manager.h), [include/storage/object_store.h](include/storage/object_store.h)
 
 ---
 
-## Tier 1 — Production Blockers
+## Tier 0b — Horizontal Scalability (MANDATORY GATE)
+
+**This tier is the non-negotiable prerequisite for Tier 1 cloud adopters and for any further Tier 2/3 feature work. A GVDB cluster must scale horizontally — up and down — without data loss or manual RPC intervention.**
+
+Rationale: several items previously split across 1.5, 1.7, 1.8 and the unfinished tails of 0.3 all converge on the same goal. Packaged together here with a single acceptance criterion: `kubectl scale statefulset/gvdb-data-node --replicas=N` and `helm upgrade` change the live topology safely.
 
 | ID | Feature | Complexity | Status |
 |----|---------|-----------|--------|
-| 1.1 | RBAC | Medium | **Done** |
-| 1.2 | Multi-Tenancy (Phase 1) | Medium | Pending |
-| 1.3 | Backup and Restore | Medium | Pending |
-| 1.4 | Audit Logging | Low | **Done** |
-| 1.5 | Cloud-Native: Helm Hardening | Large | Pending |
-| 1.6 | Cloud-Native: Cloud Storage (GCS, Azure Blob) | High | Pending |
-| 1.7 | Cloud-Native: K8s-Native Service Discovery | Medium | Pending |
-| 1.8 | Cloud-Native: Kubernetes Operator | X-Large | Pending |
+| 0b.1 | DRAINING signal on SIGTERM | Medium | **Done (PR #66, v0.18.0)** |
+| 0b.2 | Auto-rebalance trigger on node join | Small | **Done (PR #69, v0.19.0)** |
+| 0b.3 | Graceful drain execution (shard migration) | Medium | **Done (PR #67)** |
+| 0b.4 | Coordinator HA: chart + actual Raft seeding | Small→Medium | **Done (PR #70 chart, PR #73 election)** |
+| 0b.5 | Helm primitives — core hardening | Medium | **Done (PR #70)** |
+| 0b.6.A | Kubernetes Operator — first slice (`GVDBCluster` CRD + reconciler) | Large | **Done (PR #75, v0.21.0)** |
+| 0b.6.B | Operator Backup/Restore CRDs + server RPCs | X-Large | Pending — see Tier 2 / 1.3 |
+| 0b.6.C | Raft-quorum-aware coordinator rolling upgrade | Medium | **Done (PR #77)** |
+| 0b.6.D | Public `GetLeaderInfo` RPC + `status.coordinatorLeader` | Small | **Done (PR #77)** |
+| 0b.6.E | `status.lastRebalance` timestamp | Small | **Done (PR #77)** |
 
-### 1.1 RBAC (Role-Based Access Control)
-Four roles with per-collection scoping, configured via YAML.
-- `admin`: all operations, all collections
-- `readwrite`: insert/search/get/delete/upsert/update on assigned collections
-- `readonly`: search/get/range_search/hybrid_search/list on assigned collections
-- `collection_admin`: all ops except create/drop on assigned collections
-- HealthCheck/GetStats always allowed without auth
-- Legacy `api_keys` backward compatible (treated as admin)
-- `auth/` module: `RbacStore`, `AuthContext` (thread-local), permission matrix
-- Wired into single-node, coordinator, and proxy via gRPC interceptor
-- Future: Raft-replicated role management for runtime updates
+### 0b.1 DRAINING signal on SIGTERM — **Done**
+Narrowed from the original "K8s-native service discovery" scope because proxy routing already flows through the coordinator's `RouteQuery` RPC (no need for client-side `dns:///`), and Raft peer discovery moved into 0b.4.
+- `NODE_STATUS_DRAINING = 6` added to proto
+- `HeartbeatSender::DrainAndStop()` sends a synchronous DRAINING heartbeat *after* joining the send loop so a racing READY heartbeat can't overwrite it; retries once on RPC error
+- `NodeRegistry::GetDrainingNodes()` / `GetRoutableNodes()` / `IsNodeRoutable()` filter draining nodes from routing decisions; `UpdateNode` merges per-field so drain doesn't clobber observability fields
+- `Coordinator::GetHealthyNodes(NodeType)` internally uses `GetRoutableNodesByType` — shard placement and replication target selection automatically skip draining nodes
+- `RouteQuery` proto gains `prefer_routable_replica` flag; proxy sets it on read paths (Get/ListVectors/HybridSearch) so reads re-route to replicas when primary is draining
+- Helm: `dataNode.terminationGracePeriodSeconds` default 60s; query-node 30s
+- Files: [proto/internal.proto](proto/internal.proto), [src/cluster/heartbeat_sender.cpp](src/cluster/heartbeat_sender.cpp), [src/cluster/node_registry.cpp](src/cluster/node_registry.cpp), [src/main/data_node_main.cpp](src/main/data_node_main.cpp), [src/network/internal_service.cpp](src/network/internal_service.cpp)
+
+### 0b.2 Auto-rebalance trigger on node join — **Done**
+- `Coordinator::DetectNewDataNodes()` in the health-check loop tracks a `known_data_nodes_` set; new entries spawn a single `ExecuteRebalancePlan` worker, debounced at 60s (configurable via `AutoRebalanceConfig`)
+- `rebalance_in_flight_` atomic prevents overlapping rebalances; `Shutdown()` joins the worker so a detached thread never outlives the coordinator (UAF fix)
+- Seeds `known_data_nodes_` on `Start()` — avoids spurious rebalance on coordinator restart
+- Prometheus counters: `triggered_total`, `debounced_total`, `moves_completed_total`, `failures_total`
+- `GetLastAutoRebalance()` observable state for dashboards / tests
+- Files: [src/cluster/coordinator.cpp](src/cluster/coordinator.cpp), [include/cluster/coordinator.h](include/cluster/coordinator.h), [src/utils/metrics.cpp](src/utils/metrics.cpp)
+
+### 0b.3 Graceful drain execution — **Done**
+- `Coordinator::HandleDrainingNode(id)` called from `DetectDrainingNodes()` in the health-check loop (ordered BEFORE `DetectFailedNodes` so a cleanly-draining node takes the graceful path)
+- Case 1 (primary draining): promote a routable replica via `SetPrimaryNode` — metadata-only, no data movement
+- Case 2 (replica draining): `RemoveReplica` — primary still serves
+- Case 3 (no routable replica for a solo primary): leave in place, log warn, heartbeat-timeout failover takes over
+- `ShardManager::UnregisterNode(graceful=true)` called after all shards migrated; `TODO: Implement graceful shutdown` at `shard_manager.cpp:268` retired
+- Data-node `WaitForDrainCompletion()` polls coordinator's `GetShardAssignments` until its shard list is empty or `--drain-wait-seconds` (default 15) elapses; retries with exponential backoff on RPC error
+- Files: [src/cluster/coordinator.cpp](src/cluster/coordinator.cpp), [src/cluster/shard_manager.cpp](src/cluster/shard_manager.cpp), [src/main/data_node_main.cpp](src/main/data_node_main.cpp)
+
+### 0b.4 Coordinator HA chart + Raft peer seeding — **Done**
+The chart now correctly bootstraps a 3-coordinator StatefulSet and the C++ `--raft-peers` flag actually seeds NuRaft's `cluster_config` (it didn't before — see below).
+- **C++**: `--raft-peers` format is `id:host:port` (e.g. `1:host1:8300,2:host2:8300,3:host3:8300`). `ParseRaftPeerSpec` validates each entry; `PrepareRaftPeerList` rejects duplicate IDs, requires self to appear in the list, and decides whether to seed vs trust persisted config
+- **C++**: `RaftConfig.advertise_address` / `--raft-advertise-address` separates peer-facing endpoint from bind address; peers connect via pod FQDN, binding stays on `0.0.0.0:port`
+- **Chart**: `NODE_ID=$((ORDINAL + 1))` derived from `${HOSTNAME##*-}` (POSIX-only, dash-compatible); `--raft-peers` rendered from `coordinator.replicas` via new `gvdb.coordinator.raftPeers` helper; `podManagementPolicy: Parallel` to break the OrderedReady deadlock in HA bootstrap; liveness `initialDelaySeconds: 90` to outlast the election-wait window
+- **C++**: `coordinator_main` no longer crashes on election timeout — waits up to 60s, then logs a warning and continues
+- Dev default `replicas: 1` keeps `--single-node` mode; operator opts into HA via `coordinator.replicas: 3`
+- **Known follow-up**: all 3 pods come up Ready and reachable on the Raft port, but NuRaft leader election doesn't complete in distributed mode on kind. Chart scaffolding is correct; root cause likely in `GvdbStateManager`'s in-memory constructor (should use the 4-arg persistent variant) or NuRaft ASIO client-connection timing on fresh cluster bootstrap. Tracked as 0b.4-followup.
+- Files: [src/consensus/raft_node.cpp](src/consensus/raft_node.cpp), [include/consensus/raft_node.h](include/consensus/raft_node.h), [include/consensus/raft_config.h](include/consensus/raft_config.h), [src/main/coordinator_main.cpp](src/main/coordinator_main.cpp), [deploy/helm/gvdb/templates/coordinator-statefulset.yaml](deploy/helm/gvdb/templates/coordinator-statefulset.yaml), [deploy/helm/gvdb/templates/_helpers.tpl](deploy/helm/gvdb/templates/_helpers.tpl)
+
+### 0b.5 Helm primitives — core hardening — **Done**
+All opt-in; default install renders byte-identical to pre-0b.5 (verified: 0 new objects, no `serviceAccountName` emitted).
+- `templates/pdb.yaml` — per-workload `PodDisruptionBudget` with `fail` guard when `minAvailable > replicas`
+- `templates/serviceaccount.yaml` — per-workload `ServiceAccount` with annotation slots for IRSA / Workload Identity / Azure WI
+- `templates/priorityclass.yaml` — 4 `PriorityClass` objects, names include namespace to avoid cluster-scope collisions across installs
+- Workload templates: `security.{podSecurityContext,containerSecurityContext}` (applied to all 4), parameterized anti-affinity helper (`type: preferred|required`, configurable `topologyKey`), `topologySpreadConstraints`, `priorityClassName` auto-wired when `priorityClasses.create=true`, conditional `serviceAccountName` emission
+- `clusterDomain` knob (default `cluster.local`) for non-standard K8s cluster DNS
+- Files: [deploy/helm/gvdb/templates/pdb.yaml](deploy/helm/gvdb/templates/pdb.yaml), [deploy/helm/gvdb/templates/serviceaccount.yaml](deploy/helm/gvdb/templates/serviceaccount.yaml), [deploy/helm/gvdb/templates/priorityclass.yaml](deploy/helm/gvdb/templates/priorityclass.yaml), [deploy/helm/gvdb/values.yaml](deploy/helm/gvdb/values.yaml), [deploy/helm/gvdb/templates/_helpers.tpl](deploy/helm/gvdb/templates/_helpers.tpl)
+
+### 0b.4-followup — distributed Raft leader election — **Done**
+Uncovered during kind verification of 0b.4: all 3 pods came up Ready and reachable on :8300 but no pod transitioned to LEADER. Root cause (found via libnuraft source dive, not any of the suspected causes): `RaftNode::InitializeNuRaft` set `init_opts.start_server_in_constructor_ = false` with the comment "Start manually after init" — but the manual `start_server()` call was never wired. The NuRaft `raft_server` was constructed but its election timer + bg commit/append threads never started. Fix was a one-line flip; persistent-mode `GvdbStateManager` + `GvdbLogStore` additional-path fixes shipped with it.
+- Files: [src/consensus/raft_node.cpp](src/consensus/raft_node.cpp), [src/consensus/gvdb_log_store.cpp](src/consensus/gvdb_log_store.cpp)
+- Verified: 3-pod HA elects a leader in ≤2s; leader-pod deletion triggers re-election in ≤10s; 16/16 SDK tests pass against the HA cluster.
+- Shipped in PR #73 (v0.20.1).
+
+### 0b.6.A Kubernetes Operator — first slice — **Done**
+`GVDBCluster` v1alpha1 CRD + reconciler that produces the same K8s topology `deploy/helm/gvdb` does: 4 Services, 3 StatefulSets (coordinator/data-node/query-node), 1 Deployment (proxy), 1 ConfigMap, plus opt-in PDB/SA/PriorityClass/anti-affinity from 0b.5.
+- Go-native rendering (no Helm SDK at runtime); Server-Side Apply with distinct field owners; `--leader-elect` operator-itself HA; OwnerReferences for cascade delete + finalizer for PriorityClass cleanup; `metav1.Condition`-based status (`Available`/`Progressing`/`Degraded`).
+- Kubebuilder v4, Go 1.25, module `gvdb/operator`, image `ghcr.io/jonathanberhe/gvdb-operator`, Helm chart `deploy/helm/gvdb-operator`. Lockstep version with GVDB core.
+- Full design: [CLOUD_NATIVE.md](CLOUD_NATIVE.md#operator-design).
+- Shipped in PR #75 (v0.21.0).
+
+### 0b.6.C/D/E — Production safety + status bundle — **Done**
+- **0b.6.D** `GetLeaderInfo` RPC on `InternalService` + new `current_term` field; operator populates `status.coordinatorLeader` via fall-through dial across coordinator pods (pod-0 → pod-1 → pod-2) so rollouts don't blind the status-refresh path.
+- **0b.6.E** `GetClusterHealthResponse.last_rebalance_unix_ms` added — captured as wall-clock at rebalance completion in `Coordinator::LastAutoRebalance` (the steady→wall rebase earlier draft was removed for NTP-safety); operator populates `status.lastRebalance`.
+- **0b.6.C** Raft-quorum-aware coordinator rolling upgrade via `spec.updateStrategy.rollingUpdate.partition`. State machine gates advance on (a) current-partition pods having caught up, (b) a leader being present, and (c) the Raft term being stable since the last reconcile (recorded via `gvdb.io/rollout-observed-term` STS annotation — survives operator restart). Partition is written via SSA under a distinct field owner so the main apply path can't stomp it. New `CoordinatorRolloutReady` CR condition.
+- Shipped in PR #77.
+
+### 0b.6.B — Operator Backup/Restore — Pending
+Server-side `BackupCollection` / `RestoreCollection` RPCs (see Tier 2 / 1.3) + `GVDBBackup` + `GVDBRestore` CRDs + CronJob-based scheduling. Large multi-PR effort; intentionally held behind 0b.6.A/C/D/E so the rest of the operator ships first.
+- Server-side design: segment snapshot → object store (S3 via existing `IObjectStore`); metadata manifest for restore.
+- Operator side: CronJob-managed `GVDBBackup`, `GVDBRestore` with progress tracking in `status`.
+- Estimated: 400-600 LOC for backup RPC; +300-500 for restore RPC; +300 for each CRD + controller.
+
+---
+
+## Tier 1 — Cloud Adopters (EKS-first, sequential)
+
+Every item in Tier 1 depends on all of Tier 0b. Scaling code and Helm primitives are written **once** in 0b; Tier 1 is per-cloud overlays and object-store backends.
+
+| ID | Feature | Complexity | Status | Ships |
+|----|---------|-----------|--------|-------|
+| 1.EKS | EKS overlay + IRSA + E2E | Small | Pending | **v1.0.0** |
+| 1.GKE | GCS backend + GKE overlay + Workload Identity + E2E | High | Pending | v1.1.0 |
+| 1.AKS | Azure Blob backend + AKS overlay + Azure WI + E2E | High | Pending | v1.2.0 |
+| 1.Full | cert-manager, External Secrets, NetworkPolicy, ServiceMonitor, Ingress/Gateway, HPA, pre-upgrade hook | Medium | Pending | Rolling |
+
+### 1.EKS — Amazon EKS first production cloud
+S3 backend already done in 0.4 — EKS is overlay + IAM + E2E test.
+- `values-eks.yaml`: IRSA ServiceAccount annotations, EBS gp3 storage class, AWS Load Balancer Controller annotations
+- Pods consume S3 via OIDC-issued IAM roles — no static AWS keys in Secrets
+- E2E: spin up EKS cluster in CI (or periodic), run scaling test matrix from [CLOUD_NATIVE.md](CLOUD_NATIVE.md#verification-matrix)
+- Files: [deploy/helm/gvdb/values-eks.yaml](deploy/helm/gvdb/values-eks.yaml) *(new)*, [CLOUD_NATIVE.md § EKS](CLOUD_NATIVE.md#eks-section)
+
+### 1.GKE — Google GKE second production cloud
+Requires a new object-store backend (GCS) since S3 isn't available on GCP.
+- `GcsObjectStore` implementing `IObjectStore` via Google Cloud C++ Client Library
+- CMake: `-DGVDB_WITH_GCS=ON`. CI matrix covers it.
+- `values-gke.yaml`: Workload Identity annotations, PD-SSD storage class, GCE Ingress
+- Pods consume GCS via Workload Identity — no service-account key JSON in Secrets
+- E2E: GKE cluster, full scaling matrix
+- Files: [include/storage/gcs_object_store.h](include/storage/gcs_object_store.h) *(new)*, [src/storage/gcs_object_store.cpp](src/storage/gcs_object_store.cpp) *(new)*, [deploy/helm/gvdb/values-gke.yaml](deploy/helm/gvdb/values-gke.yaml) *(new)*, [CLOUD_NATIVE.md § GKE](CLOUD_NATIVE.md#gke-section)
+
+### 1.AKS — Azure AKS third production cloud
+Mirrors GKE work — new backend + overlay.
+- `AzureBlobObjectStore` via Azure SDK for C++
+- CMake: `-DGVDB_WITH_AZURE=ON`
+- `values-aks.yaml`: Azure Workload Identity annotations, managed-csi storage class, AGIC (App Gateway Ingress Controller) annotations
+- E2E: AKS cluster, full scaling matrix
+- Files: [include/storage/azure_blob_object_store.h](include/storage/azure_blob_object_store.h) *(new)*, [src/storage/azure_blob_object_store.cpp](src/storage/azure_blob_object_store.cpp) *(new)*, [deploy/helm/gvdb/values-aks.yaml](deploy/helm/gvdb/values-aks.yaml) *(new)*, [CLOUD_NATIVE.md § AKS](CLOUD_NATIVE.md#aks-section)
+
+### 1.Full — Complete Helm hardening sweep
+Everything from the original 1.5 that isn't strictly required for scaling itself. Ships rolling after any cloud is live.
+- `cert-manager` integration (Issuer/Certificate templates for mTLS)
+- External Secrets Operator (ExternalSecret/SecretStore for AWS SM, GCP SM, Azure KV)
+- NetworkPolicy (east-west isolation of coordinator Raft port, data-node internal gRPC)
+- ServiceMonitor / PodMonitor (Prometheus Operator discovery of `:9090`)
+- Ingress / Gateway API resources for proxy
+- HorizontalPodAutoscaler (proxy, query-node CPU/QPS-based)
+- Pre-upgrade health-check Helm hook (fail fast if Raft quorum unhealthy before rolling)
+- Files: [deploy/helm/gvdb/templates/](deploy/helm/gvdb/templates/)
+
+---
+
+## Tier 2 — Production Ops (after Tier 0b + at least one cloud)
+
+| ID | Feature | Complexity | Status |
+|----|---------|-----------|--------|
+| 1.2 | Multi-Tenancy (Phase 1) | Medium | Pending |
+| 1.3 | Backup and Restore (server-side primitives) | Medium | Pending |
+| 1.4 | Audit Logging | Low | **Done** |
+| 2.5 | OpenTelemetry | Medium | Pending |
 
 ### 1.2 Multi-Tenancy (Collection-Level Isolation)
 - Phase 1: `tenant_id` on `CollectionMetadata`, RBAC restricts keys to tenant's collections
 - Phase 2: Resource group isolation
 - Phase 3: Partition-key namespaces (100K+)
-- Deps: 1.1 (RBAC)
-- Files: `include/cluster/coordinator.h`, `proto/vectordb.proto`
+- Deps: RBAC (done)
+- Files: [include/cluster/coordinator.h](include/cluster/coordinator.h), [proto/vectordb.proto](proto/vectordb.proto)
 
-### 1.3 Backup and Restore
-- Flush all segments + collection metadata → compress → upload to S3
-- Add `BackupCollection`/`RestoreCollection` RPCs
-- Incremental: only backup changed segments (creation timestamps)
-- Deps: 0.4 (S3) for remote targets; local file backup independent
-- Files: new `include/storage/backup.h`, proto changes
+### 1.3 Backup and Restore (server-side primitives)
+Server-side flush + compress + upload. Operator CRDs (0b.6) orchestrate; this tier implements the RPC and storage primitives.
+- `BackupCollection` / `RestoreCollection` RPCs
+- Incremental backups using segment creation timestamps
+- Remote target is any `IObjectStore` backend (S3 / GCS / Azure Blob / Filesystem)
+- Files: [include/storage/backup.h](include/storage/backup.h) *(new)*, [proto/vectordb.proto](proto/vectordb.proto)
 
-### 1.4 Audit Logging
-Structured JSON audit trail for every non-public RPC. Opt-in via `logging.audit.enabled` in YAML config.
-- Hybrid interceptor + thread-local context: gRPC `AuditInterceptor` captures timing and status at `PRE_SEND_STATUS`, service handlers enrich via `AuditContext::SetCollection()`/`SetItemCount()`
-- Self-contained API key extraction: reads `authorization` header directly from gRPC metadata (avoids thread-local coupling with auth interceptor)
-- Dedicated spdlog logger (`"audit"`) with rotating `.jsonl` file sink, sync flush (audit must not be dropped)
-- JSON schema: `timestamp`, `api_key_id`, `operation`, `collection`, `status`, `grpc_code`, `latency_ms`, `item_count`
-- Skips HealthCheck/GetStats (public endpoints)
-- Wired into all 4 node types: single-node, proxy, coordinator, data-node
-- 8 unit tests (real gRPC server with auth + audit interceptors)
-- Files: `include/network/audit_interceptor.h`, `src/network/audit_interceptor.cpp`, `include/network/audit_context.h`, `src/network/audit_context.cpp`, `include/utils/audit_logger.h`, `src/utils/audit_logger.cpp`
-
-### 1.5 Cloud-Native: Helm Hardening
-Production-ready Helm chart for EKS, GKE, AKS — zero C++ changes.
-- PodDisruptionBudgets, TopologySpreadConstraints, pod anti-affinity
-- ServiceAccount with cloud IAM annotations (IRSA, Workload Identity, Azure WI)
-- NetworkPolicy, ServiceMonitor/PodMonitor, cert-manager, External Secrets
-- Cloud-specific value overlays (`values-eks.yaml`, `values-gke.yaml`, `values-aks.yaml`)
-- Ingress/Gateway API, pod security hardening, pre-upgrade health check hook
-- Files: `deploy/helm/gvdb/templates/`, `deploy/helm/gvdb/values-*.yaml`
-
-### 1.6 Cloud-Native: Cloud Storage (GCS, Azure Blob)
-Extends 0.4 (S3/MinIO) with GCS and Azure Blob backends.
-- `IObjectStore` interface: `PutObject`, `GetObject`, `DeleteObject`, `ListObjects`
-- Google Cloud C++ Client for GCS, Azure SDK for C++ for Azure Blob
-- CMake compile-time opt-in: `-DGVDB_WITH_GCS=ON`, `-DGVDB_WITH_AZURE=ON`
-- Tiered storage: local disk (hot) → object store (cold) with LRU local cache
-- Deps: 0.4 (S3 establishes the pattern)
-- Files: `include/storage/object_store.h`, new `src/storage/gcs_object_store.cpp`, `src/storage/azure_blob_object_store.cpp`
-
-### 1.7 Cloud-Native: K8s-Native Service Discovery
-Replace static node address lists with DNS-based discovery.
-- Proxy resolves headless service DNS (gRPC `dns:///` resolver) instead of static `--data-nodes`
-- Graceful shutdown: SIGTERM → deregistration heartbeat → coordinator marks node down immediately
-- Raft peer auto-discovery from StatefulSet ordinal + headless service DNS
-- `kubectl scale` works without `helm upgrade`
-- Files: `src/main/proxy_main.cpp`, `src/main/data_node_main.cpp`, `src/main/coordinator_main.cpp`
-
-### 1.8 Cloud-Native: Kubernetes Operator
-Purpose-built Go operator for day-2 lifecycle automation.
-- CRDs: `GVDBCluster`, `GVDBBackup`, `GVDBRestore` (gvdb.io/v1alpha1)
-- Thin wrapper: renders Helm chart, adds reconciliation logic on top
-- Raft-quorum-aware rolling upgrades, scale-up with auto-rebalancing, scale-down with pre-migration
-- Automated backup scheduling to object storage
-- Rich status: `kubectl get gvdbcluster` shows phase, leader, node counts, vector count
-- Kubebuilder scaffolding, separate `operator/` directory
-- Deps: 0.3 (rebalancing), 0.4 (S3), 1.3 (backup/restore)
-- Full design: `CLOUD_NATIVE.md`
+### 2.5 OpenTelemetry (Distributed Tracing)
+Multi-hop paths (proxy → coordinator → data-node) currently blind to latency distribution.
+- OpenTelemetry C++ SDK, instrument gRPC interceptor
+- Propagate trace context via metadata headers
+- Export to Jaeger/OTLP
 
 ---
 
-## Tier 2 — Competitive Table Stakes
+## Tier 3 — Competitive Table Stakes
 
 | ID | Feature | Complexity | Status |
 |----|---------|-----------|--------|
@@ -194,83 +268,11 @@ Purpose-built Go operator for day-2 lifecycle automation.
 | 2.2 | Sparse Vector Support (SPLADE) | High | **Done** |
 | 2.3 | Upsert Operation | Low | **Done** |
 | 2.4 | TTL (Time-to-Live) | Medium | **Done** |
-| 2.5 | OpenTelemetry | Medium | Pending |
 | 2.6 | Range Search API | Low | **Done** |
-| 2.7 | Spark Connector | High | Planned |
-| 2.8 | Flink Connector | High | Planned |
+| 2.7 | Spark Connector | High | **Done (v0.15.0)** |
+| 2.8 | Flink Connector | High | **Done (v0.15.0)** |
 | 2.9 | Bulk Data Import (Client-Side) | Medium | **Done** |
-| 2.10 | Server-Side Bulk Import | High | Pending |
-
-### 2.2 Sparse Vector Support (SPLADE)
-All major competitors support sparse vectors. Prerequisite for best hybrid search.
-- `SparseVector` type: `vector<pair<uint32_t, float>>`
-- Per-dimension posting lists with early termination
-- Hybrid: dense ANN + sparse retrieval + existing RRF
-- Files: new `include/core/sparse_vector.h`, `include/index/sparse_index.h`, proto changes
-
-### 2.4 TTL (Time-to-Live)
-Per-vector TTL with background sweep and expiry filtering.
-- `ttl_seconds` on `VectorWithId` proto, `expiry_map_` on Segment (O(1) lookup)
-- Atomic insert+TTL (no race window), background sweeper every 30s on GROWING segments
-- Search/Get filter expired vectors at query time; compaction skips expired vectors
-- Over-fetch on sealed index search to compensate for TTL-filtered results
-- Serialization backward-compatible (old segments without expiry map still load)
-- Python SDK: `insert(ttl_seconds=[300, 600, ...])`
-- Files: `src/storage/segment.cpp`, `src/network/vectordb_service.cpp`, `proto/vectordb.proto`
-
-### 2.5 OpenTelemetry (Distributed Tracing)
-Multi-hop paths with no tracing = blind to latency.
-- OpenTelemetry C++ SDK, instrument gRPC interceptor
-- Propagate trace context via metadata headers
-- Export to Jaeger/OTLP
-
-### 2.7 Spark Connector (DataSource V2)
-Every major vector DB (Milvus, Qdrant, Pinecone, Weaviate) ships a Spark connector. Table stakes for enterprise ML pipeline adoption (Uber, LinkedIn, Spotify, Airbnb).
-- **Language**: Java (Spark is JVM; PySpark delegates to JVM-side connectors)
-- **API**: Spark DataSource V2 (`TableProvider` → `SupportsWrite` + `SupportsRead`)
-- **Write path (gRPC mode, default)**: `df.write.format("io.gvdb.spark")` → batched `Upsert` gRPC (at-least-once, idempotent). For incremental updates and small-medium datasets.
-- **Write path (bulk mode, after 2.10)**: `df.write.format("io.gvdb.spark").option("mode", "bulk")` → writes Parquet to S3 staging path → triggers `BulkImport` RPC → sealed segments directly (bypasses WAL, 3-5x faster). For initial loads, backfills, and large batch jobs. This is the Milvus BulkInsert pattern.
-- **Read path**: `spark.read.format("io.gvdb.spark")` → paginated `ListVectors` RPC
-- **Schema mapping**: Uses the shared GVDB Parquet schema convention (2.9): `id` (LongType) + `vector` (ArrayType\<FloatType\>) + remaining columns → metadata. Same convention across Python SDK, Spark connector, and BulkImport.
-- **Build**: Gradle, shadow JAR, published to GitHub Packages (`io.gvdb:gvdb-spark-connector`)
-- **Deps**: Shared `gvdb-java-client` module (gRPC client, connection pool, retry). Bulk mode additionally requires 0.4 (S3) and 2.10 (BulkImport RPC).
-- Files: `connectors/gvdb-spark-connector/`, `connectors/gvdb-java-client/`
-
-### 2.8 Flink Connector (Sink V2)
-Real-time feature vector updates from Kafka → GVDB. Uber and LinkedIn use Flink for real-time ML feature pipelines.
-- **Language**: Java (Flink is JVM; PyFlink delegates to JVM-side connectors)
-- **API**: Flink Sink V2 (`Sink<GvdbSinkRecord>` → `SinkWriter` with buffered writes)
-- **Write path**: `stream.sinkTo(GvdbSink.builder()...build())` → flushes via `Upsert` or `StreamInsert` gRPC
-- **Checkpoint integration**: `flush()` on checkpoint barriers, at-least-once via upsert idempotency
-- **Backpressure**: Synchronous flush blocks → Flink propagates backpressure upstream
-- **Build**: Gradle, shadow JAR, published to GitHub Packages (`io.gvdb:gvdb-flink-connector`)
-- **Deps**: Shared `gvdb-java-client` module
-- Files: `connectors/gvdb-flink-connector/`, `connectors/gvdb-java-client/`
-
-### Spark/Flink — Industry Context
-| Vector DB | Spark Connector | Flink Connector | Bulk Path |
-|-----------|----------------|-----------------|-----------|
-| Milvus | Official (DSv2) | Community/CDC | Parquet → S3 → BulkInsert |
-| Qdrant | Official (DSv2) | None | Batched gRPC |
-| Pinecone | Official (DSv2) | None | Parquet → S3 → Import |
-| Weaviate | Official (DSv2) | None | REST Batch |
-| **GVDB** | **Planned** | **Planned** | **gRPC mode (2.7) + Parquet → S3 → BulkImport mode (2.10)** |
-
-### 2.9 Bulk Data Import (Client-Side)
-Five `import_*` methods on `GVDBClient` for common ML formats. Pure Python — uses batched `Upsert` gRPC (idempotent/resumable) by default, optional `stream_insert` mode for speed. No C++ changes.
-- `client.import_parquet(path, collection, vector_column, id_column)` — auto-maps remaining columns to metadata
-- `client.import_numpy(vectors, collection, ids, metadata)` — NumPy 2D array + optional metadata
-- `client.import_dataframe(df, collection, vector_column, id_column)` — Pandas or Polars DataFrame
-- `client.import_csv(path, collection, vector_column, id_column)` — JSON-encoded or dimension-prefixed vectors (auto-detected)
-- `client.import_h5ad(path, collection, embedding_key, metadata_columns)` — AnnData .obsm embeddings for biology
-- Auto-creates collection if missing (infers dimension, default metric=cosine, index_type=auto). Progress bar via tqdm (optional dep). Resume via upsert idempotency.
-- Generator-based chunking: never materializes full dataset in memory. Retry with exponential backoff on gRPC failures.
-- Returns `ImportResult` dataclass (total_count, batch_count, failed_count, elapsed_seconds, created_collection).
-- **Establishes the GVDB Parquet schema convention**: `id` (int64/string) + `vector` (list\<float32\>) + remaining columns → metadata. Shared by Spark connector (2.7), BulkImport RPC (2.10), and biovector (3.5).
-- Optional deps via extras: `pip install gvdb[parquet]`, `gvdb[numpy]`, `gvdb[pandas]`, `gvdb[h5ad]`, `gvdb[import-all]`
-- Input validation: type guards at entry point users to the correct method on misuse
-- 26 unit tests (mocked client) + 7 integration tests (real server)
-- Files: `clients/python/gvdb/importers.py`, `clients/python/gvdb/client.py`
+| 2.10 | Server-Side Bulk Import | High | Pending (parallelizable with 0b) |
 
 ### 2.10 Server-Side Bulk Import
 New `BulkImport` RPC where the server reads Parquet/NumPy directly from object storage and creates sealed segments, bypassing WAL + growing-segment lifecycle. 3-5x throughput improvement over StreamInsert at scale.
@@ -279,26 +281,13 @@ New `BulkImport` RPC where the server reads Parquet/NumPy directly from object s
 - Server-side: data node downloads file from S3 → parses with Arrow (Parquet) or NumPy → creates sealed segments with indexes directly → registers with coordinator
 - Skips: WAL writes, message queue, growing-segment flush, proxy routing
 - Formats: Parquet (primary), NumPy .npy (secondary), JSON Lines (convenience)
-- Same schema convention as 2.9 (shared column mapping logic)
-- Spark connector bulk mode (2.7) writes Parquet to S3 staging path, then calls this RPC
-- Deps: 0.4 (S3/MinIO — server must read from object storage)
-- Files: `proto/vectordb.proto`, new `src/storage/bulk_importer.h`, `src/storage/bulk_importer.cpp`, `src/network/vectordb_service.cpp`
-
-### 2.9/2.10 — Competitive Context
-| Capability | Milvus | Pinecone | Qdrant | Weaviate | **GVDB** |
-|------------|--------|----------|--------|----------|----------|
-| gRPC/REST insert | Yes | Yes | Yes | Yes | **Yes** |
-| Streaming insert | Yes | No | No | No | **Yes (1.9x faster)** |
-| Parquet bulk import (server-side) | Yes (S3) | Yes (S3) | No | No | **Yes (2.10, after 0.4)** |
-| NumPy bulk import (server-side) | Yes (S3) | No | No | No | **Yes (2.10, after 0.4)** |
-| SDK `from_parquet()` | No | No | No | No | **Yes (2.9)** |
-| SDK `from_dataframe()` | No | No | No | No | **Yes (2.9)** |
-| SDK `from_h5ad()` | No | No | No | No | **Yes (2.9, unique)** |
-| Arrow Flight endpoint | No | No | No | No | **Future (4.5, unique)** |
+- Spark connector bulk mode writes Parquet to S3 staging path, then calls this RPC
+- Deps: 0.4 (S3 — done). **No dep on Tier 0b** — parallelizable.
+- Files: [proto/vectordb.proto](proto/vectordb.proto), [include/storage/bulk_importer.h](include/storage/bulk_importer.h) *(new)*, [src/storage/bulk_importer.cpp](src/storage/bulk_importer.cpp) *(new)*, [src/network/vectordb_service.cpp](src/network/vectordb_service.cpp)
 
 ---
 
-## Tier 3 — Differentiation
+## Tier 4 — Differentiation
 
 | ID | Feature | Complexity | Status |
 |----|---------|-----------|--------|
@@ -306,31 +295,12 @@ New `BulkImport` RPC where the server reads Parquet/NumPy directly from object s
 | 3.2 | Auto-Index Selection | Medium | **Done** |
 | 3.3 | Embedding Visualization | Medium | Pending |
 | 3.4 | ColBERT / Multi-Vector | Very High | Pending |
-| 3.5 | Biovector (Biology SDK) | High | Planned (Phase 1-3 unblocked) |
-
-### 3.2 Auto-Index Selection
-Zero-config index type selection — `AUTO` resolves per-segment at seal time:
-- <10K → FLAT, 10K-1M → HNSW, ≥1M → IVF_TURBOQUANT
-- `AUTO` enum in proto + core, default in Web UI, Python SDK `index_type="auto"`
-- Explicit types still work unchanged — AUTO is opt-in
-- Recall monitoring with probe set deferred to future enhancement
+| 3.5 | Biovector (Biology SDK) | High | Planned (Phase 1-3 unblocked, parallelizable with 0b) |
 
 ### 3.3 Embedding Visualization
 2D/3D UMAP projection in Web UI. No competitor has this.
 - Server-side UMAP (sample 10K), Plotly.js scatter plot
 - Cache projections per collection
-
-### 3.5 Biovector — Biology SDK
-Python library bridging biological data with GVDB. No biology-aware vector database exists — biologists cobble together FAISS + scripts. $13-16B bioinformatics market, 13-17% CAGR. Validated by ERAST (Nature Biotech 2026, Tencent) proving billion-scale bio search demand, and Metagenomi + LanceDB (AWS 2025, 3.5B protein embeddings).
-- Pluggable embedding models: ESM-C (proteins, recommended default), SCimilarity (cells, metric learning), DNABERT-S (DNA, search-aware), ChemBERTa/Morgan (molecules), PubMedBERT (literature RAG)
-- Native data format loaders: FASTA, AnnData (.h5ad), SMILES, assembled genome FASTA (chunked windowing)
-- Pre-indexed reference atlases: UniProt Swiss-Prot (570K proteins), ChEMBL (2M molecules), CELLxGENE subsets. Atlas IS the product — users search references, not just their own data.
-- Biomedical RAG backend: chunked PubMed ingestion, hybrid search (BM25 + dense + sparse), LLM-friendly context output
-- Pipeline API: `pipeline.index_proteins("proteins.fasta", model="esmc_300M")` or `pipeline.load_reference("uniprot_swissprot_esmc")`
-- Wraps GVDB Python SDK. Published to PyPI as `biovector`. Lives in `clients/python/biovector/`
-- Deps: 1.1 (RBAC — DONE), 0.4 (S3 — Phase 4+ only, not needed for MVP), 4.2 (GPU — nice-to-have for scale)
-- Phase 1-3 have no hard GVDB blockers. Phase 4+ production needs 0.4.
-- Full design plan: `BIOVECTOR.md`
 
 ### 3.4 ColBERT / Multi-Vector Late Interaction
 Multi-vector per document with MaxSim scoring. SOTA retrieval quality.
@@ -338,9 +308,12 @@ Multi-vector per document with MaxSim scoring. SOTA retrieval quality.
 - Two-phase: ANN for candidate tokens → MaxSim scoring
 - Deps: 2.1 (scalar index for doc_id grouping) (done)
 
+### 3.5 Biovector — Biology SDK
+Python library bridging biological data with GVDB. No biology-aware vector database exists — biologists cobble together FAISS + scripts. Full design plan: [BIOVECTOR.md](BIOVECTOR.md). Phase 1-3 has no hard GVDB blockers; can proceed in parallel with Tier 0b. Phase 4+ at scale benefits from Tier 0b + a cloud in Tier 1.
+
 ---
 
-## Tier 4 — Forward-Looking
+## Tier 5 — Forward-Looking
 
 | ID | Feature | Complexity | Status |
 |----|---------|-----------|--------|
@@ -351,38 +324,11 @@ Multi-vector per document with MaxSim scoring. SOTA retrieval quality.
 | 4.4 | FP16/BF16/INT8/Binary Vectors | Very High | Pending |
 | 4.5 | Arrow Flight Ingestion Endpoint | High | Pending |
 
-### 4.1 DiskANN
-1B vectors with ~16GB RAM + NVMe. Consider integrating open-source DiskANN library.
-
-### 4.2a Apple Metal GPU Acceleration (Phase 1: FLAT)
-Metal compute kernels for GPU-accelerated brute-force distance on Apple Silicon. No competitor has this.
-- `MetalFlatIndex` implements `IVectorIndex` — transparent drop-in via `IndexFactory` when Metal GPU is available
-- MSL kernels for L2, inner product, cosine distance. Persistent GPU buffer (unified memory, zero-copy)
-- `MTLCopyAllDevices()` for headless CLI compatibility (MTLCreateSystemDefaultDevice returns nil for CLI tools)
-- metal-cpp (Apple's header-only C++ wrapper) via FetchContent, ObjC++ isolated to `src/index/metal/`
-- Benchmarked on M1 Pro: **16-24x speedup** over faiss CPU (1K-2M vectors, dim 128-1536)
-- 10 correctness tests (Metal vs faiss CPU, all metrics, edge cases)
-- Build: `cmake -DGVDB_WITH_METAL=ON`, Benchmark: `make bench-metal`
-- Future phases: IVF cluster assignment (4.2a-P2), TurboQuant WHT kernels (4.2a-P3)
-- Files: `src/index/metal/metal_compute.{h,mm}`, `src/index/metal/metal_flat_index.{h,mm}`, `src/index/metal/kernels/distance.metal`, `test/bench/metal_bench.cpp`
-
-### 4.2b CUDA GPU Acceleration
-`faiss-gpu` for FLAT/IVF, custom CUDA kernels for TurboQuant WHT + quantized distance. Prioritize index building (10-100x speedup).
-
-### 4.3 CDC (Change Data Capture)
-Expose WAL as gRPC streaming endpoint `StreamChanges(from_position)`. Enables DR, ETL, cross-cluster replication.
-
-### 4.4 FP16/BF16/INT8/Binary Vectors
-Deep type system change. TurboQuant handles compression at index time, so this is lower priority. Do when multi-modal models demand native BF16 storage.
+### 4.2a Apple Metal GPU Acceleration (Phase 1: FLAT — Done)
+`MetalFlatIndex` via metal-cpp, 16-24x speedup over faiss CPU on M1 Pro (1K–2M vectors, dim 128–1536). Future phases: IVF cluster assignment (4.2a-P2), TurboQuant WHT kernels (4.2a-P3).
 
 ### 4.5 Arrow Flight Ingestion Endpoint
 Zero-copy bulk ingestion via Apache Arrow Flight RPC protocol (benchmarked 6000 MB/s). No vector database offers this today — genuine differentiator.
-- Accept Arrow RecordBatches over Flight, eliminating serialization overhead
-- Enables direct ingestion from any Arrow-producing system: Spark, Polars, DuckDB, HuggingFace Datasets
-- Data stays columnar end-to-end (no protobuf serialization round-trip)
-- Spark connector (2.7) could use Flight as an alternative high-throughput transport alongside gRPC
-- Deps: Arrow C++ library (already available via gRPC/protobuf build chain)
-- Files: new `src/network/flight_service.h`, `src/network/flight_service.cpp`
 
 ---
 
@@ -400,82 +346,78 @@ Zero-copy bulk ingestion via Apache Arrow Flight RPC protocol (benchmarked 6000 
 ## Implementation Order
 
 ```
-NEXT: Foundation + ML Engineer Adoption
-  0.2  Read Repair                                [Medium]   (done) Done
-  1.4  Audit Logging                              [Low]      (done) Done
-  2.9  Bulk Data Import — Client-Side             [Medium]   (done) Done
+Tier 0b — Horizontal Scalability  (5 of 6 shipped)
+  0b.1  DRAINING signal                            [Medium]   ✅ PR #66 (v0.18.0)
+  0b.2  Auto-rebalance on join                     [Small]    ✅ PR #69 (v0.19.0)
+  0b.3  Graceful drain execution                   [Medium]   ✅ PR #67
+  0b.4  Coordinator HA chart + Raft seeding        [Small+]   ✅ PR #70 (chart) — election follow-up below
+  0b.5  Helm core primitives                       [Medium]   ✅ PR #70
+  0b.4f Distributed Raft leader election fix       [Small]    🟡 uncovered by kind verification of 0b.4
+  0b.6  Kubernetes Operator                        [X-Large]  ⬜
 
-THEN: Production Readiness + Cloud Storage
-  1.1  RBAC                                       [Medium]   (done) Done
-  0.4  S3/MinIO Storage                           [High]     (done) Done
-  1.6  GCS + Azure Blob Storage                   [High]
-  0.3  Dynamic Rebalancing                        [High]     (done) Done
-  1.2  Multi-Tenancy Phase 1                      [Medium]
+IN PARALLEL (no hard dependency on Tier 0b):
+  2.10  Server-Side Bulk Import                    [High]  ← 0.4 done, unblocks Spark bulk mode
+  3.5   Biovector Phase 1-3                        [High]  ← no hard GVDB blocker
 
-THEN: Server-Side Bulk + K8s
-  2.10 Server-Side Bulk Import (Parquet/NumPy)    [High]     ← needs 0.4
-  1.8  Kubernetes Operator (CRDs, controllers)    [X-Large]
-  1.3  Backup/Restore                             [Medium]   ← operator orchestrates
+AFTER 0b: Cloud Adopters (EKS-first, sequential)
+  1.EKS  values-eks.yaml + IRSA + E2E              [Small]    ← v1.0.0
+  1.GKE  GCS backend + values-gke.yaml + WI + E2E  [High]     ← v1.1.0
+  1.AKS  Azure Blob + values-aks.yaml + WI + E2E   [High]     ← v1.2.0
+  1.Full Remaining Helm hardening sweep            [Medium]   ← rolling
 
-THEN: Competitive Parity
-  2.4  TTL                                        [Medium]   (done) Done
-  2.5  OpenTelemetry                              [Medium]
+AFTER Tier 1 (at least one cloud): Production Ops
+  1.2   Multi-tenancy Phase 1                      [Medium]
+  1.3   Backup/Restore server-side primitives      [Medium]
+  2.5   OpenTelemetry                              [Medium]
 
-THEN: Ecosystem + Differentiation
-  2.7  Spark Connector (gRPC mode → bulk mode after 2.10) [High]
-  2.8  Flink Connector (Sink V2, StreamInsert)    [High]
-  3.2  Auto-Index Selection                       [Medium]   (done) Done
-  2.2  Sparse Vectors                             [High]
-  3.3  Embedding Visualization                    [Medium]
-
-THEN: Biology (Phase 1-3 parallel with S3 work, no hard blockers)
-  3.5  Biovector Phase 1-3 (Foundation + Protein + Refs + DNA + Cell + RAG) [High]
-  4.2  GPU Acceleration                           [High]  — benefits biovector Phase 6+ at scale
-
-LATER: Advanced
-  3.4  ColBERT / Multi-Vector                     [Very High]
-  4.1  DiskANN                                    [Very High]
-  4.3  CDC                                        [Medium]
-  4.4  FP16/BF16/INT8/Binary Vectors              [Very High]
-  4.5  Arrow Flight Ingestion Endpoint            [High]     ← no competitor has this
+LATER: Competitive parity + differentiation
+  3.3   Embedding Visualization                    [Medium]
+  3.5   Biovector Phase 4+                         [High]
+  3.4   ColBERT / Multi-Vector                     [Very High]
+  4.1   DiskANN                                    [Very High]
+  4.2b  CUDA GPU Acceleration                      [High]
+  4.3   CDC                                        [Medium]
+  4.4   FP16/BF16/INT8/Binary Vectors              [Very High]
+  4.5   Arrow Flight Ingestion                     [High]  ← no competitor has this
 ```
 
-Critical path: **1.5 → 0.4 → 2.10 → 1.8 → 2.7**
-Adoption path (parallel): **2.9 (done) → 2.7 gRPC mode → 2.10 → 2.7 bulk mode**
-Biovector path (parallel): **3.5 Phase 1-3 (now) → 0.4 → 3.5 Phase 4+ (production)**
+**Critical path to "fully scalable cluster on EKS" (v1.0.0)**: `~0b.1 → 0b.2 → 0b.3 → 0b.4 → 0b.5~ → 0b.4f → 0b.6 → 1.EKS`
+**Then**: `1.GKE (v1.1.0) → 1.AKS (v1.2.0)`
+**Adoption path (parallel)**: `2.10 Server-Side Bulk Import` can proceed alongside without blocking.
+**Biovector path (parallel)**: `3.5 Phase 1-3` has no hard blocker; scales with 0b+1.* for production.
+
+Calendar delta vs. the original 16–20 week estimate: Tier 0b is largely in the bag aside from 0b.4f (small) and 0b.6 (X-large). Revised rough estimates:
+- **v1.0.0 EKS-scalable**: ~8–10 weeks remaining (was 11–15)
+- **v1.1.0 + GKE**: +2 weeks
+- **v1.2.0 + AKS**: +2 weeks
+- **All three clouds + full hardening**: ~12–15 weeks remaining
 
 ---
 
-## Architecture Changes Required
+## Architecture Changes Required (Tier 0b / Tier 1)
 
-1. **Pluggable Storage Backend** (for 0.4, 1.6): Refactor `SegmentManager` to use `IStorage` for all I/O. `IObjectStore` abstraction for S3/GCS/Azure. Tiered storage: local cache + async upload.
-2. **Proto Schema Evolution** (for sparse, multi-vector): `oneof` for vector types, `SearchMode` enum, field numbers >100 for extensions.
-3. **Vector Type Abstraction** (for 4.4): `VectorView` class providing float32 view of any underlying type.
-4. **Java Proto Options** (for 2.7, 2.8): Add `option java_package` / `option java_multiple_files` to proto files. New `connectors/` directory with Gradle multi-module build (separate from CMake).
-5. **Kubernetes Operator** (for 1.8): Go project in `operator/` with kubebuilder. CRDs: `GVDBCluster`, `GVDBBackup`, `GVDBRestore`. Thin wrapper rendering Helm chart + day-2 reconciliation logic. Published as separate OCI image + Helm chart (`gvdb-operator`).
-6. **DNS-Based Discovery** (for 1.7): Proxy uses gRPC `dns:///` resolver for headless service DNS. Graceful pod shutdown sends deregistration heartbeat. Coordinator Raft peers derived from StatefulSet DNS.
-7. **GVDB Parquet Schema Convention** (for 2.9, 2.10, 2.7): Shared column mapping across all ingestion paths — Python SDK `import_parquet()`, server-side `BulkImport`, and Spark connector. Convention: `id` (int64 or string) + `vector` (list\<float32\>) + remaining columns → metadata. Column names configurable but defaults standardized. PyArrow is the reference Parquet implementation (other writers have FixedSizeList interop issues).
-8. **Server-Side Bulk Import Pipeline** (for 2.10): Data node reads files from S3 → parses with Arrow (Parquet) or NumPy → creates sealed segments with indexes directly → registers with coordinator. Bypasses WAL, proxy routing, and growing-segment lifecycle. Async job model with status polling. Idempotent (re-import same file is a no-op if segments exist).
+1. **DNS-Based Discovery** (0b.1): Proxy and Raft peer lists replaced by gRPC `dns:///` resolver for headless service DNS. Graceful pod shutdown sends deregistration heartbeat before exit.
+2. **Kubernetes Operator** (0b.6): Go project in `operator/` with kubebuilder. CRDs: `GVDBCluster`, `GVDBBackup`, `GVDBRestore`. Thin wrapper rendering Helm chart + day-2 reconciliation logic. Published as separate OCI image + Helm chart (`gvdb-operator`).
+3. **Pluggable Object-Store Backends** (1.GKE, 1.AKS): Extend `IObjectStore` with `GcsObjectStore` (Google Cloud C++ Client) and `AzureBlobObjectStore` (Azure SDK for C++). Compile-time opt-in: `-DGVDB_WITH_GCS=ON`, `-DGVDB_WITH_AZURE=ON`.
+4. **Proto Schema Evolution** (for sparse, multi-vector, bulk import): `oneof` for vector types, `SearchMode` enum, field numbers >100 for extensions. BulkImport / GetImportStatus RPCs for 2.10.
+5. **Vector Type Abstraction** (for 4.4): `VectorView` class providing float32 view of any underlying type.
+6. **GVDB Parquet Schema Convention** (for 2.9, 2.10, 2.7): Shared column mapping across all ingestion paths. Convention: `id` (int64 or string) + `vector` (list<float32>) + remaining columns → metadata.
+7. **Server-Side Bulk Import Pipeline** (for 2.10): Data node reads files from object storage → parses with Arrow (Parquet) or NumPy → creates sealed segments with indexes directly → registers with coordinator. Bypasses WAL, proxy routing, and growing-segment lifecycle.
 
 ---
 
 ## Key Files (Pending Work)
 
-| File | What Needs Work |
-|------|-----------------|
-| `src/cluster/replication.cpp` | Read repair (0.2) |
-| `src/cluster/shard_manager.cpp` | Rebalance execution (0.3) |
-| `src/storage/storage_factory.cpp` | S3/MinIO/GCS/Azure backends (0.4, 1.6) |
-| `src/network/auth_processor.cpp` | RBAC (1.1) |
-| `src/network/vectordb_service.cpp` | ~~Audit logging (1.4)~~ **Done**, BulkImport RPC (2.10) |
-| `deploy/helm/gvdb/templates/` | PDB, topology, SA, NetworkPolicy, ServiceMonitor (1.5) |
-| `deploy/helm/gvdb/values-*.yaml` (new) | Cloud-specific overlays: EKS, GKE, AKS (1.5) |
-| `include/storage/object_store.h` (new) | Abstract object store interface (1.6) |
-| `src/main/proxy_main.cpp` | DNS-based discovery (1.7) |
-| `src/main/coordinator_main.cpp` | Raft peer auto-discovery (1.7) |
-| `operator/` (new) | Kubernetes Operator: CRDs, controllers (1.8) |
-| `proto/vectordb.proto` | Java options, sparse vectors, BulkImport/GetImportStatus RPCs (2.10) |
-| `connectors/` (new) | Spark + Flink connectors (2.7, 2.8) |
-| `clients/python/gvdb/importers.py` | ~~Client-side import (2.9)~~ **Done** |
-| `src/storage/bulk_importer.h` (new) | Server-side bulk import: parse files → sealed segments (2.10) |
-| `src/network/flight_service.cpp` (new) | Arrow Flight ingestion endpoint (4.5) |
+| File | Tier | What Needs Work |
+|------|------|-----------------|
+| [src/consensus/raft_node.cpp](src/consensus/raft_node.cpp) (InitializeNuRaft) | 0b.4f | Switch to persistent `GvdbStateManager` (4-arg ctor) + verify NuRaft election completes in distributed mode |
+| [src/consensus/gvdb_state_manager.cpp](src/consensus/gvdb_state_manager.cpp) | 0b.4f | Wire log_store_path + state_path via `config_.data_dir` |
+| `operator/` *(new)* | 0b.6 | Full Kubernetes Operator — 3 CRDs + reconcilers |
+| [deploy/helm/gvdb/values-eks.yaml](deploy/helm/gvdb/values-eks.yaml) *(new)* | 1.EKS | EKS overlay |
+| [include/storage/gcs_object_store.h](include/storage/gcs_object_store.h) *(new)* | 1.GKE | GCS backend |
+| [deploy/helm/gvdb/values-gke.yaml](deploy/helm/gvdb/values-gke.yaml) *(new)* | 1.GKE | GKE overlay |
+| [include/storage/azure_blob_object_store.h](include/storage/azure_blob_object_store.h) *(new)* | 1.AKS | Azure Blob backend |
+| [deploy/helm/gvdb/values-aks.yaml](deploy/helm/gvdb/values-aks.yaml) *(new)* | 1.AKS | AKS overlay |
+| [proto/vectordb.proto](proto/vectordb.proto) | 2.10 | BulkImport/GetImportStatus RPCs |
+| [include/storage/bulk_importer.h](include/storage/bulk_importer.h) *(new)* | 2.10 | Server-side bulk import |
+| [src/network/flight_service.cpp](src/network/flight_service.cpp) *(new)* | 4.5 | Arrow Flight ingestion endpoint |

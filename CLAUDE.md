@@ -96,10 +96,18 @@ make docker-build
 # Deploy to kind (build + create cluster + helm install)
 make deploy
 
-# Helm
+# Helm (main GVDB chart)
 make helm-install
 make helm-upgrade
 make helm-uninstall
+
+# Kubernetes Operator (Tier 0b.6)
+make build-operator              # cd operator && go build ./...
+make test-operator               # unit tests (skip envtest ginkgo suite)
+make docker-build-operator       # operator/Dockerfile → gvdb-operator:latest
+make helm-install-operator       # gvdb-operator chart → gvdb-operator-system ns
+make helm-uninstall-operator
+make generate-operator-pb        # regen Go stubs for test/e2e + operator/gvdbpb
 
 # Generate compile_commands.json for tooling
 cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
@@ -139,12 +147,26 @@ distributed-vector-db/
 │       │   └── pb/            # Generated protobuf stubs
 │       ├── tests/      # pytest integration + RBAC + importer tests
 │       └── examples/   # quickstart.py
+├── operator/           # Kubernetes Operator (Go, Kubebuilder v4)
+│   ├── api/v1alpha1/         # GVDBCluster CRD types (gvdb.io/v1alpha1)
+│   ├── cmd/main.go           # Operator manager entry point
+│   ├── internal/
+│   │   ├── controller/       # Reconciler + Raft-quorum-aware rollout state machine
+│   │   ├── render/           # Go-native StatefulSet/Deployment/Service rendering
+│   │   │                     # (mirrors deploy/helm/gvdb; no Helm SDK at runtime)
+│   │   ├── gvdbclient/       # Thin facades over VectorDBService + InternalService
+│   │   └── gvdbpb/           # Generated Go stubs for proto/*.proto
+│   ├── config/               # Kubebuilder-generated CRD + RBAC manifests
+│   └── Dockerfile            # Distroless operator image
 ├── test/
 │   ├── unit/           # C++ unit tests (doctest)
 │   ├── integration/    # C++ integration tests
 │   └── e2e/            # Go end-to-end tests
 ├── proto/              # Protobuf service definitions
 ├── deploy/             # Helm charts + k8s manifests
+│   └── helm/
+│       ├── gvdb/               # Main chart (coordinator + data-node + query-node + proxy)
+│       └── gvdb-operator/      # Operator install chart (CRDs + Deployment + RBAC)
 ├── cmake/              # CMake modules
 ├── build/              # Build output (GITIGNORED - DO NOT COMMIT)
 └── CMakeLists.txt      # Root build configuration
@@ -623,6 +645,17 @@ When working on specific modules, refer to their CLAUDE.md files:
 - `src/cluster/CLAUDE.md` - Distributed coordination patterns
 - `src/network/CLAUDE.md` - gRPC service definitions
 - `src/utils/CLAUDE.md` - Thread pool, logging, and utilities
+
+### Kubernetes Operator (Tier 0b.6)
+The operator lives under `operator/` as a separate Go module (`gvdb/operator`) using Kubebuilder v4 on Go 1.25. It reconciles `GVDBCluster` CRs (`gvdb.io/v1alpha1`) into the same K8s topology `deploy/helm/gvdb` produces — two source-of-truth implementations of the same shape (drift guarded by snapshot-test follow-up).
+
+- **Go-native rendering**, no Helm SDK at runtime. Entry point: `operator/internal/render/render.go::All(cluster, opts)`. Per-workload files reuse the Helm chart's naming + port conventions.
+- **Server-Side Apply** for reconciled objects (`applyObject`, field owner `gvdb-operator`); a separate SSA field owner `gvdb-operator-rollout` exclusively writes `spec.updateStrategy.rollingUpdate.partition` on the coordinator StatefulSet. Keep these owners separate — mixing them creates write-loops (fixed in PR #77 review).
+- **Raft-quorum-aware rolling upgrade** state machine in `operator/internal/controller/rollout.go`: pure function `desiredPartition(sts, leader, observedTerm) RolloutStep`. Gates pod-by-pod advance on (a) pods-at-or-above-partition caught up, (b) leader present, (c) Raft term stable since last reconcile (recorded in `gvdb.io/rollout-observed-term` STS annotation so it survives operator restart).
+- **Status population**: `refreshCoordinatorStatus` dials coordinator pods (pod-0 → 1 → 2 fall-through) for `GetLeaderInfo` + `GetClusterHealth`. Any coordinator can answer; first successful response wins.
+- **Regenerating proto stubs**: run `make generate-operator-pb`. This covers `test/e2e/pb/` (used by Go e2e tests) and `operator/internal/gvdbpb/` (renamed to package `gvdbpb`). Keep both in sync; any new `.proto` change must rerun the target.
+- **Lockstep versioning** with GVDB core: a single entry in `release-please-config.json` bumps main chart + operator chart + main image + operator image together.
+- **Testing**: `make test-operator` runs `operator/internal/{render,controller}` unit tests (skipping the Kubebuilder `envtest` ginkgo suite). Full envtest needs `make envtest` asset install and isn't wired into CI yet.
 
 ## Future Requirements and Enhancements
 
