@@ -203,9 +203,14 @@ int main(int argc, char** argv) {
         segment_manager.get());
 
     // 5. Services
+    // Non-owning alias-shared_ptr mirror of the unique_ptr raft_node — the
+    // local variable outlives internal_service so this is safe. Same pattern
+    // we use for timestamp_oracle above.
+    std::shared_ptr<consensus::RaftNode> raft_node_ptr(
+        raft_node.get(), [](consensus::RaftNode*){});
     auto internal_service = std::make_unique<network::InternalService>(
         shard_manager, segment_manager, query_executor,
-        node_registry, timestamp_oracle, coordinator);
+        node_registry, timestamp_oracle, coordinator, raft_node_ptr);
     // Load config for auth (optional)
     utils::GVDBConfig config = utils::Config::get_default();
     if (!args.config_file.empty()) {
