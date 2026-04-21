@@ -6,6 +6,9 @@
        lint-sdk test-sdk test-sdk-kind generate-python-stubs \
        bench-metal \
        build-connectors test-connectors \
+       build-operator test-operator docker-build-operator \
+       helm-install-operator helm-uninstall-operator \
+       generate-operator-pb \
        docs-install docs-serve docs-build
 
 # ---------------------------------------------------------------------------
@@ -86,6 +89,48 @@ build-connectors:
 
 test-connectors:
 	@cd $(CONNECTORS_DIR) && ./gradlew build
+
+# ---------------------------------------------------------------------------
+# Kubernetes Operator (Tier 0b.6)
+# ---------------------------------------------------------------------------
+OPERATOR_DIR        ?= operator
+OPERATOR_IMAGE_NAME ?= gvdb-operator:latest
+HELM_OPERATOR_CHART  = deploy/helm/gvdb-operator
+HELM_OPERATOR_RELEASE ?= gvdb-operator
+HELM_OPERATOR_NAMESPACE ?= gvdb-operator-system
+
+build-operator:
+	@cd $(OPERATOR_DIR) && go build ./...
+
+# TestControllers is the envtest ginkgo suite; it needs apiserver binaries
+# (installed via `make -C $(OPERATOR_DIR) envtest`). The CI job runs that
+# separately; this target skips it so `make test-operator` works locally
+# without the asset download.
+test-operator:
+	@cd $(OPERATOR_DIR) && go test ./internal/... -skip '^TestControllers$$'
+
+docker-build-operator:
+	docker build -t $(OPERATOR_IMAGE_NAME) -f $(OPERATOR_DIR)/Dockerfile $(OPERATOR_DIR)
+
+helm-install-operator:
+	helm install $(HELM_OPERATOR_RELEASE) $(HELM_OPERATOR_CHART) \
+		-n $(HELM_OPERATOR_NAMESPACE) --create-namespace
+
+helm-uninstall-operator:
+	helm uninstall $(HELM_OPERATOR_RELEASE) -n $(HELM_OPERATOR_NAMESPACE)
+
+# Regenerate the Go protobuf stubs used by both test/e2e and the operator
+# so they never drift from proto/vectordb.proto.
+generate-operator-pb:
+	@echo "Regenerating Go protobuf stubs for test/e2e and operator..."
+	@cd proto && protoc --go_out=../test/e2e --go_opt=paths=source_relative \
+		--go-grpc_out=../test/e2e --go-grpc_opt=paths=source_relative vectordb.proto
+	@cp test/e2e/pb/vectordb.pb.go $(OPERATOR_DIR)/internal/gvdbpb/vectordb.pb.go
+	@cp test/e2e/pb/vectordb_grpc.pb.go $(OPERATOR_DIR)/internal/gvdbpb/vectordb_grpc.pb.go
+	@sed -i.bak 's|^package pb$$|package gvdbpb|' \
+		$(OPERATOR_DIR)/internal/gvdbpb/vectordb.pb.go \
+		$(OPERATOR_DIR)/internal/gvdbpb/vectordb_grpc.pb.go
+	@rm $(OPERATOR_DIR)/internal/gvdbpb/*.bak
 
 # ---------------------------------------------------------------------------
 # Docker
