@@ -6,37 +6,37 @@ Store, index, and search high-dimensional vectors — embeddings from OpenAI, Co
 
 <div class="grid cards" markdown>
 
-- :material-rocket-launch: **Install & run in 5 minutes**
+- **Install & run in 5 minutes**
 
     ---
 
     Spin up a single-node server, insert your first vectors, and run a search.
 
-    [:octicons-arrow-right-24: Quickstart](getting-started/quickstart.md)
+    [Quickstart →](getting-started/quickstart.md)
 
-- :material-server-network: **Deploy to Kubernetes**
+- **Deploy to Kubernetes**
 
     ---
 
     Production-ready Helm chart with sharding, replication, and tiered storage.
 
-    [:octicons-arrow-right-24: Distributed cluster](getting-started/distributed-cluster.md)
+    [Distributed cluster →](getting-started/distributed-cluster.md)
 
-- :material-language-python: **Use the Python SDK**
+- **Use the Python SDK**
 
     ---
 
     `pip install gvdb` and you're done. Full CRUD, hybrid search, bulk import.
 
-    [:octicons-arrow-right-24: Python SDK](python-sdk/index.md)
+    [Python SDK →](python-sdk/index.md)
 
-- :material-sync: **Stream from Spark & Flink**
+- **Stream from Spark & Flink**
 
     ---
 
     Java connectors for batch and streaming pipelines. Maven Central.
 
-    [:octicons-arrow-right-24: Connectors](connectors/spark.md)
+    [Connectors →](connectors/spark.md)
 
 </div>
 
