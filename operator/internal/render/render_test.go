@@ -187,10 +187,88 @@ func TestCoordinatorService(t *testing.T) {
 
 func TestAll_RendersAllCoreObjects(t *testing.T) {
 	c := testCluster("prod", "gvdb", 3, 3, 2)
-	objs := All(c)
-	// Expected: ConfigMap + 4 Services + 3 StatefulSets + 1 Deployment = 9.
+	objs, err := All(c)
+	if err != nil {
+		t.Fatalf("All() error: %v", err)
+	}
+	// With no hardening opt-ins: ConfigMap + 4 Services + 3 StatefulSets + 1 Deployment = 9.
 	if len(objs) != 9 {
 		t.Fatalf("All(): got %d objects, want 9", len(objs))
+	}
+}
+
+func TestAll_WithHardeningEnabled(t *testing.T) {
+	c := testCluster("prod", "gvdb", 3, 3, 2)
+	// Opt into all hardening primitives.
+	c.Spec.Coordinator.PodDisruptionBudget = gvdbv1alpha1.PodDisruptionBudgetSpec{Enabled: true, MinAvailable: 2}
+	c.Spec.DataNode.PodDisruptionBudget = gvdbv1alpha1.PodDisruptionBudgetSpec{Enabled: true, MinAvailable: 2}
+	c.Spec.Coordinator.ServiceAccount = gvdbv1alpha1.ServiceAccountSpec{Create: true}
+	c.Spec.DataNode.ServiceAccount = gvdbv1alpha1.ServiceAccountSpec{Create: true, Annotations: map[string]string{
+		"eks.amazonaws.com/role-arn": "arn:aws:iam::123:role/gvdb",
+	}}
+	c.Spec.PriorityClasses = gvdbv1alpha1.PriorityClassesSpec{Create: true}
+
+	objs, err := All(c)
+	if err != nil {
+		t.Fatalf("All() error: %v", err)
+	}
+	// Base 9 + 2 SAs + 2 PDBs + 4 PriorityClasses = 17.
+	if len(objs) != 17 {
+		t.Fatalf("All() with hardening: got %d objects, want 17", len(objs))
+	}
+}
+
+func TestPodDisruptionBudgets_FailOnMinAvailableTooHigh(t *testing.T) {
+	c := testCluster("prod", "gvdb", 3, 2, 1)
+	c.Spec.Coordinator.PodDisruptionBudget = gvdbv1alpha1.PodDisruptionBudgetSpec{
+		Enabled: true, MinAvailable: 5, // > replicas=3
+	}
+	if _, err := PodDisruptionBudgets(c); err == nil {
+		t.Fatalf("PodDisruptionBudgets must reject minAvailable > replicas, got nil error")
+	}
+}
+
+func TestPriorityClassName_EmbedsNamespace(t *testing.T) {
+	c := testCluster("prod", "team-a", 1, 1, 1)
+	got := PriorityClassName(c, CoordinatorComponent)
+	want := "prod-team-a-coordinator"
+	if got != want {
+		t.Fatalf("PriorityClassName: got %q, want %q (must embed namespace so cluster-scoped names don't collide)", got, want)
+	}
+}
+
+func TestAntiAffinity_PreferredAndRequired(t *testing.T) {
+	c := testCluster("prod", "gvdb", 3, 3, 2)
+	c.Spec.Coordinator.PodAntiAffinity = gvdbv1alpha1.AntiAffinitySpec{
+		Enabled: true, Type: "required", TopologyKey: "topology.kubernetes.io/zone",
+	}
+	sts := CoordinatorStatefulSet(c)
+	aff := sts.Spec.Template.Spec.Affinity
+	if aff == nil || aff.PodAntiAffinity == nil {
+		t.Fatalf("expected podAntiAffinity to be populated when enabled=true")
+	}
+	if len(aff.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution) != 1 {
+		t.Fatalf("required mode must produce RequiredDuringSchedulingIgnoredDuringExecution term")
+	}
+	if aff.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0].TopologyKey != "topology.kubernetes.io/zone" {
+		t.Fatalf("topologyKey not threaded through")
+	}
+
+	// Switch to preferred.
+	c.Spec.Coordinator.PodAntiAffinity.Type = "preferred"
+	sts = CoordinatorStatefulSet(c)
+	aff = sts.Spec.Template.Spec.Affinity
+	if len(aff.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution) != 1 {
+		t.Fatalf("preferred mode must produce PreferredDuringSchedulingIgnoredDuringExecution term")
+	}
+}
+
+func TestPriorityClassName_AutoWired(t *testing.T) {
+	c := testCluster("prod", "gvdb", 3, 2, 1)
+	c.Spec.PriorityClasses = gvdbv1alpha1.PriorityClassesSpec{Create: true}
+	sts := CoordinatorStatefulSet(c)
+	if got := sts.Spec.Template.Spec.PriorityClassName; got != "prod-gvdb-coordinator" {
+		t.Fatalf("priorityClassName should auto-wire to chart-managed name, got %q", got)
 	}
 }
 
