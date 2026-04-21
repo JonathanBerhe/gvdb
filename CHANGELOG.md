@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.20.1](https://github.com/JonathanBerhe/gvdb/compare/v0.20.0...v0.20.1) (2026-04-21)
+
+
+### Bug Fixes
+
+* **consensus:** enable distributed Raft leader election for HA coordinator ([bc49146](https://github.com/JonathanBerhe/gvdb/commit/bc49146b9ec7ccdd8a42c412edc0f04076dd5852))
+* **consensus:** persist Raft log+state and route log_store reads through persistent mode ([c4776c4](https://github.com/JonathanBerhe/gvdb/commit/c4776c4e3e91b086d3b7adfd1739f1220543a5a4))
+* **consensus:** start raft_server in ctor so election timer actually arms ([9f9492d](https://github.com/JonathanBerhe/gvdb/commit/9f9492d2ae9abb1ddf6c91a51bd0852448d5913f))
+
 ## [0.20.0](https://github.com/JonathanBerhe/gvdb/compare/v0.19.0...v0.20.0) (2026-04-20)
 
 
