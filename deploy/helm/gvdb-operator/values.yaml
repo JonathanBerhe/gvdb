@@ -1,0 +1,51 @@
+# Default values for gvdb-operator.
+# The operator reconciles GVDBCluster CRs into GVDB workloads (StatefulSets,
+# Deployments, Services, ConfigMaps, and opt-in PDB/SA/PriorityClass primitives)
+# equivalent to what deploy/helm/gvdb produces today.
+
+# Operator container image.
+image:
+  repository: ghcr.io/jonathanberhe/gvdb-operator
+  # Tag defaults to the chart appVersion (lockstep with GVDB core release).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Replicas for the operator Deployment. Kubebuilder's default --leader-elect
+# flag is on so >1 replicas is safe (only one active reconciler at a time).
+replicaCount: 1
+
+# Operator resource requests and limits. Keep modest — the reconciler is
+# not on the hot path.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Security context applied to the operator pod and container.
+securityContext:
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+# Optional affinity / tolerations passed through verbatim to the Deployment.
+affinity: {}
+tolerations: []
+nodeSelector: {}
+
+# Install the GVDBCluster CRD as part of this chart. Set to false when CRDs
+# are managed out-of-band (e.g. via ArgoCD) so Helm doesn't re-create them.
+crd:
+  install: true
+
+# When true, the chart creates a sample GVDBCluster after the operator is
+# ready. Useful for kind / dev clusters; leave false for production installs.
+sampleCluster:
+  enabled: false
+  namespace: ""
