@@ -5,6 +5,7 @@
 #include "network/proto_conversions.h"
 #include "cluster/node_registry.h"
 #include "cluster/coordinator.h"
+#include "consensus/raft_node.h"
 #include "consensus/timestamp_oracle.h"
 #include "utils/logger.h"
 #include "utils/timer.h"
@@ -20,17 +21,21 @@ InternalService::InternalService(
     std::shared_ptr<compute::QueryExecutor> query_executor,
     std::shared_ptr<cluster::NodeRegistry> node_registry,
     std::shared_ptr<consensus::TimestampOracle> timestamp_oracle,
-    std::shared_ptr<cluster::Coordinator> coordinator)
+    std::shared_ptr<cluster::Coordinator> coordinator,
+    std::shared_ptr<consensus::RaftNode> raft_node)
     : shard_manager_(shard_manager),
       segment_store_(segment_store),
       query_executor_(query_executor),
       node_registry_(node_registry),
       timestamp_oracle_(timestamp_oracle),
-      coordinator_(coordinator) {
-  utils::Logger::Instance().Info("InternalService initialized (node_registry={}, timestamp_oracle={}, coordinator={})",
-                                  node_registry_ != nullptr ? "yes" : "no",
-                                  timestamp_oracle_ != nullptr ? "yes" : "no",
-                                  coordinator_ != nullptr ? "yes" : "no");
+      coordinator_(coordinator),
+      raft_node_(raft_node) {
+  utils::Logger::Instance().Info(
+      "InternalService initialized (node_registry={}, timestamp_oracle={}, coordinator={}, raft_node={})",
+      node_registry_ != nullptr ? "yes" : "no",
+      timestamp_oracle_ != nullptr ? "yes" : "no",
+      coordinator_ != nullptr ? "yes" : "no",
+      raft_node_ != nullptr ? "yes" : "no");
 }
 
 InternalService::~InternalService() {
@@ -876,6 +881,28 @@ grpc::Status InternalService::GetClusterHealth(
       response->set_cluster_status("healthy");
     }
 
+    // Populate last_rebalance_unix_ms from the coordinator's tracked state
+    // so the operator can surface status.lastRebalance (roadmap 0b.6.E).
+    // Zero when no rebalance has fired on this coordinator's watch.
+    if (coordinator_) {
+      auto last = coordinator_->GetLastAutoRebalance();
+      if (last) {
+        auto since_epoch = last->completed_at.time_since_epoch();
+        // NOTE: Coordinator stores steady_clock timestamps, which are
+        // monotonic but not anchored to the wall clock. Re-anchor by
+        // computing elapsed-since-now and subtracting from system_clock::now.
+        auto now_steady = std::chrono::steady_clock::now();
+        auto now_system = std::chrono::system_clock::now();
+        auto elapsed = now_steady - last->completed_at;
+        auto system_tp = now_system - elapsed;
+        int64_t unix_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              system_tp.time_since_epoch())
+                              .count();
+        response->set_last_rebalance_unix_ms(unix_ms);
+        (void)since_epoch;  // silences unused-warning if logging removed
+      }
+    }
+
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
@@ -883,6 +910,43 @@ grpc::Status InternalService::GetClusterHealth(
     utils::Logger::Instance().Error("GetClusterHealth failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
+}
+
+grpc::Status InternalService::GetLeaderInfo(
+    grpc::ServerContext* /*context*/,
+    const proto::internal::GetLeaderInfoRequest* /*request*/,
+    proto::internal::GetLeaderInfoResponse* response) {
+  total_requests_++;
+
+  if (!raft_node_) {
+    // Single-node coordinator: no Raft, so self is the "leader" by fiat.
+    response->set_leader_id(1);
+    response->set_is_leader_self(true);
+    return grpc::Status::OK;
+  }
+
+  int leader_id = raft_node_->GetLeaderId();
+  response->set_leader_id(leader_id);
+  response->set_is_leader_self(raft_node_->IsLeader());
+
+  // Resolve leader_address via NodeRegistry when we have one. The registry
+  // only knows data / query nodes today — not coordinator pods — so most
+  // lookups will miss, and the operator falls back to pod-name inference
+  // from the leader_id (ordinal + 1 convention). Empty string is fine.
+  if (node_registry_ && leader_id > 0) {
+    cluster::RegisteredNode node;
+    if (node_registry_->GetNode(static_cast<uint32_t>(leader_id), &node) &&
+        !node.info.grpc_address().empty()) {
+      response->set_leader_address(node.info.grpc_address());
+    }
+  }
+
+  // current_term is not currently exposed on RaftNode; leave zero. Operator
+  // doesn't need it for the rollout state machine (leader_id + is_leader
+  // are sufficient) — future follow-up can surface the term if needed.
+  response->set_current_term(0);
+
+  return grpc::Status::OK;
 }
 
 // =============================================================================
