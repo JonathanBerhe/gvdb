@@ -883,23 +883,14 @@ grpc::Status InternalService::GetClusterHealth(
 
     // Populate last_rebalance_unix_ms from the coordinator's tracked state
     // so the operator can surface status.lastRebalance (roadmap 0b.6.E).
-    // Zero when no rebalance has fired on this coordinator's watch.
+    // Zero when no rebalance has fired on this coordinator's watch. The
+    // value is captured at rebalance completion (wall-clock) rather than
+    // reconstructed from a monotonic clock here — that reconstruction was
+    // the old approach and broke under NTP steps and process restarts.
     if (coordinator_) {
       auto last = coordinator_->GetLastAutoRebalance();
-      if (last) {
-        auto since_epoch = last->completed_at.time_since_epoch();
-        // NOTE: Coordinator stores steady_clock timestamps, which are
-        // monotonic but not anchored to the wall clock. Re-anchor by
-        // computing elapsed-since-now and subtracting from system_clock::now.
-        auto now_steady = std::chrono::steady_clock::now();
-        auto now_system = std::chrono::system_clock::now();
-        auto elapsed = now_steady - last->completed_at;
-        auto system_tp = now_system - elapsed;
-        int64_t unix_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                              system_tp.time_since_epoch())
-                              .count();
-        response->set_last_rebalance_unix_ms(unix_ms);
-        (void)since_epoch;  // silences unused-warning if logging removed
+      if (last && last->completed_unix_ms > 0) {
+        response->set_last_rebalance_unix_ms(last->completed_unix_ms);
       }
     }
 
@@ -918,33 +909,31 @@ grpc::Status InternalService::GetLeaderInfo(
     proto::internal::GetLeaderInfoResponse* response) {
   total_requests_++;
 
+  // SECURITY NOTE: InternalService is unauthenticated today — any in-cluster
+  // client that can reach :50051 can read leader identity and term. The
+  // network path is restricted to the gvdb namespace by default (and to
+  // NetworkPolicy-ed pods in a hardened install), but this surface should
+  // gain a token or mTLS check before Tier 1.Full ships (roadmap).
+
   if (!raft_node_) {
     // Single-node coordinator: no Raft, so self is the "leader" by fiat.
     response->set_leader_id(1);
     response->set_is_leader_self(true);
+    response->set_current_term(0);
     return grpc::Status::OK;
   }
 
   int leader_id = raft_node_->GetLeaderId();
   response->set_leader_id(leader_id);
   response->set_is_leader_self(raft_node_->IsLeader());
+  response->set_current_term(raft_node_->GetCurrentTerm());
 
-  // Resolve leader_address via NodeRegistry when we have one. The registry
-  // only knows data / query nodes today — not coordinator pods — so most
-  // lookups will miss, and the operator falls back to pod-name inference
-  // from the leader_id (ordinal + 1 convention). Empty string is fine.
-  if (node_registry_ && leader_id > 0) {
-    cluster::RegisteredNode node;
-    if (node_registry_->GetNode(static_cast<uint32_t>(leader_id), &node) &&
-        !node.info.grpc_address().empty()) {
-      response->set_leader_address(node.info.grpc_address());
-    }
-  }
-
-  // current_term is not currently exposed on RaftNode; leave zero. Operator
-  // doesn't need it for the rollout state machine (leader_id + is_leader
-  // are sufficient) — future follow-up can surface the term if needed.
-  response->set_current_term(0);
+  // leader_address is left empty by design: NodeRegistry tracks data-node
+  // and query-node endpoints (IDs 101+ / 201+), not coordinator pods
+  // (IDs 1..N). The operator reconstructs the coordinator pod name from
+  // leader_id via the ordinal convention. Blindly looking up NodeRegistry
+  // here was dead code for coordinator IDs and a latent ID-collision
+  // hazard for any future scheme that overlapped the ranges.
 
   return grpc::Status::OK;
 }

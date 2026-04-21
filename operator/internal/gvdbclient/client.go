@@ -90,6 +90,32 @@ func (p *Pool) Close() {
 	p.coordinators = map[string]*CoordinatorClient{}
 }
 
+// CloseTarget tears down the cached connections (proxy + coordinator) for
+// a single target. Called by the reconciler on CR deletion so renamed /
+// re-created clusters don't leak connections from the old identity.
+func (p *Pool) CloseTarget(target string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if c, ok := p.clients[target]; ok {
+		_ = c.Close()
+		delete(p.clients, target)
+	}
+	if c, ok := p.coordinators[target]; ok {
+		_ = c.Close()
+		delete(p.coordinators, target)
+	}
+}
+
+// CloseClusterTargets tears down every pooled connection whose target matches
+// any of the given candidate addresses. Used by the reconciler's deletion
+// path: we feed in the proxy address and all coordinator pod addresses so
+// the pool loses its handle on a cluster that's going away.
+func (p *Pool) CloseClusterTargets(targets []string) {
+	for _, t := range targets {
+		p.CloseTarget(t)
+	}
+}
+
 // Client is a thin facade over the generated VectorDBService gRPC client.
 // Used for proxy-fronted calls (GetStats / ListCollections). For internal
 // RPCs (GetLeaderInfo / GetClusterHealth) dialed against a coordinator pod
@@ -185,6 +211,13 @@ type LeaderInfo struct {
 	// IsLeaderSelf is true when the coordinator that answered is itself the
 	// current leader (useful for debugging, not used by the state machine).
 	IsLeaderSelf bool
+	// CurrentTerm is the Raft term the responding coordinator believes is
+	// current. 0 when the coordinator hasn't exposed it (single-node mode
+	// or pre-start). The rollout state machine records this in a STS
+	// annotation and refuses to advance partition when the term has
+	// changed since the previous reconcile — the belt-and-braces check
+	// that complements the mere "leader present" gate.
+	CurrentTerm uint64
 }
 
 // HasLeader reports whether the response names a live leader. The rollout
@@ -205,6 +238,7 @@ func (c *CoordinatorClient) FetchLeaderInfo(ctx context.Context) (LeaderInfo, er
 		LeaderID:      resp.GetLeaderId(),
 		LeaderAddress: resp.GetLeaderAddress(),
 		IsLeaderSelf:  resp.GetIsLeaderSelf(),
+		CurrentTerm:   resp.GetCurrentTerm(),
 	}, nil
 }
 

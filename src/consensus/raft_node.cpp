@@ -241,6 +241,16 @@ int RaftNode::GetLeaderId() const {
   return leader_id;  // Returns -1 if no leader
 }
 
+uint64_t RaftNode::GetCurrentTerm() const {
+  // NuRaft's raft_server exposes get_term() returning ulong; single-node
+  // has no term concept — return 0 so the operator treats the field as
+  // "don't know" rather than a spurious stable value.
+  if (config_.single_node_mode || !raft_server_) {
+    return 0;
+  }
+  return static_cast<uint64_t>(raft_server_->get_term());
+}
+
 core::StatusOr<core::CollectionId> RaftNode::CreateCollection(
     const std::string& name,
     core::Dimension dimension,
