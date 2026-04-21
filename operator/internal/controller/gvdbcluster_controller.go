@@ -130,6 +130,13 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+	// Manage coordinator rolling upgrade: partition-gated pod-by-pod drain
+	// that waits for Raft re-election between pods (roadmap 0b.6.C).
+	rolloutRequeue, err := r.reconcileCoordinatorRollout(ctx, &cluster)
+	if err != nil {
+		log.Error(err, "coordinator rollout failed")
+	}
+
 	// Collect status.
 	nodeCounts := r.collectNodeCounts(ctx, &cluster)
 	cluster.Status.NodeCounts = nodeCounts
@@ -148,9 +155,98 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	// Requeue so status reflects ongoing convergence without waiting for a
-	// spec-change event.
-	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	// During an active rollout requeue fast so the reconciler can advance
+	// the partition without waiting 30s between decisions.
+	requeue := 30 * time.Second
+	if rolloutRequeue > 0 && rolloutRequeue < requeue {
+		requeue = rolloutRequeue
+	}
+	return ctrl.Result{RequeueAfter: requeue}, nil
+}
+
+// reconcileCoordinatorRollout enforces a pod-by-pod, Raft-quorum-aware
+// rolling update of the coordinator StatefulSet.
+//
+// Returns a hint for how soon to requeue; 0 means "use the default". A
+// non-zero value is returned during an active rollout so the reconciler
+// advances the partition quickly (typically every 5s) rather than waiting
+// for the 30s idle tick.
+func (r *GVDBClusterReconciler) reconcileCoordinatorRollout(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
+) (time.Duration, error) {
+	log := logf.FromContext(ctx)
+
+	// Fetch the live STS — we can't rely on our in-memory render because
+	// the K8s StatefulSet controller has been updating .status.
+	var sts appsv1.StatefulSet
+	key := types.NamespacedName{
+		Namespace: cluster.Namespace,
+		Name:      render.WorkloadName(cluster, render.CoordinatorComponent),
+	}
+	if err := r.Get(ctx, key, &sts); err != nil {
+		// Likely the first reconcile; we'll pick it up next time.
+		return 0, client.IgnoreNotFound(err)
+	}
+
+	// Leader info was refreshed into status moments earlier; re-read it
+	// here for the gate. LeaderID tracking is "best effort" — when status
+	// is empty the rollout gate treats the cluster as without a leader and
+	// simply waits.
+	var leader gvdbclient.LeaderInfo
+	if cluster.Status.CoordinatorLeader != "" {
+		// We know a leader is present — exact id not needed for the gate.
+		leader = gvdbclient.LeaderInfo{LeaderID: 1}
+	}
+
+	step := desiredPartition(&sts, leader)
+
+	// Mirror the step onto the condition set.
+	condStatus := metav1.ConditionFalse
+	msg := "coordinator rollout in progress"
+	if step.Done {
+		condStatus = metav1.ConditionTrue
+		msg = "coordinator StatefulSet is stable"
+	}
+	meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+		Type:    gvdbv1alpha1.ConditionCoordinatorRolloutReady,
+		Status:  condStatus,
+		Reason:  step.Reason,
+		Message: msg,
+	})
+
+	// Apply the partition change if different from current.
+	currentPartition := int32(0)
+	if rs := sts.Spec.UpdateStrategy.RollingUpdate; rs != nil && rs.Partition != nil {
+		currentPartition = *rs.Partition
+	}
+	desired := int32(0)
+	if step.Partition != nil {
+		desired = *step.Partition
+	}
+
+	// Only write when the value differs OR when transitioning from
+	// "has partition" to "nil partition" (Done path).
+	needsWrite := (step.Partition == nil && sts.Spec.UpdateStrategy.RollingUpdate != nil &&
+		sts.Spec.UpdateStrategy.RollingUpdate.Partition != nil) ||
+		(step.Partition != nil && desired != currentPartition)
+
+	if needsWrite {
+		if sts.Spec.UpdateStrategy.RollingUpdate == nil {
+			sts.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateStatefulSetStrategy{}
+		}
+		sts.Spec.UpdateStrategy.RollingUpdate.Partition = step.Partition
+		if err := r.Update(ctx, &sts); err != nil {
+			return 0, fmt.Errorf("update coordinator sts partition: %w", err)
+		}
+		log.Info("coordinator rollout partition advanced",
+			"partition", step.Partition, "reason", step.Reason)
+	}
+
+	if step.Done {
+		return 0, nil
+	}
+	// Active rollout: requeue fast.
+	return 5 * time.Second, nil
 }
 
 // applyObject Server-Side-Applies the rendered object. SSA is idempotent

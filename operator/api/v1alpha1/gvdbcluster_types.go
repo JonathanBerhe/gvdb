@@ -429,6 +429,11 @@ const (
 	ConditionProgressing = "Progressing"
 	// ConditionDegraded: true when one or more workloads are unhealthy.
 	ConditionDegraded = "Degraded"
+	// ConditionCoordinatorRolloutReady: true when the coordinator
+	// StatefulSet is stable (no rollout in progress). False while the
+	// reconciler is managing a pod-by-pod, quorum-aware rollout
+	// (roadmap 0b.6.C).
+	ConditionCoordinatorRolloutReady = "CoordinatorRolloutReady"
 )
 
 // WorkloadStatus reports desired vs ready replicas for one workload.
