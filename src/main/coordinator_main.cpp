@@ -34,6 +34,10 @@ struct CoordinatorArgs {
   std::string bind_address = "0.0.0.0:50051";
   std::string advertise_address;
   std::string raft_address = "0.0.0.0:8300";
+  // Peer-facing Raft endpoint. Optional — when empty, raft_address is
+  // used. Set to the pod FQDN in K8s so other Raft replicas can reach
+  // us regardless of pod IP churn (roadmap 0b.4).
+  std::string raft_advertise_address;
   std::vector<std::string> raft_peers;
   std::string data_dir = "/tmp/gvdb/coordinator";
   std::string config_file;
@@ -46,8 +50,14 @@ void PrintUsage(const char* program_name) {
             << "  --node-id ID             Node ID (default: 1)\n"
             << "  --bind-address ADDR      gRPC bind address (default: 0.0.0.0:50051)\n"
             << "  --advertise-address ADDR Address advertised to peers (default: bind-address)\n"
-            << "  --raft-address ADDR      Raft listen address (default: 0.0.0.0:8300)\n"
-            << "  --raft-peers PEERS       Comma-separated Raft peer addresses\n"
+            << "  --raft-address ADDR      Raft BIND address (default: 0.0.0.0:8300).\n"
+            << "                           Only the port is used; NuRaft binds 0.0.0.0.\n"
+            << "  --raft-advertise-address ADDR  Peer-facing Raft endpoint (host:port).\n"
+            << "                           Set to the pod FQDN in K8s. Falls back to\n"
+            << "                           --raft-address when empty (roadmap 0b.4).\n"
+            << "  --raft-peers PEERS       Comma-separated Raft peers in 'id:host:port' format\n"
+            << "                           (e.g. '1:host1:8300,2:host2:8300,3:host3:8300').\n"
+            << "                           Passing this flag implies --multi-node.\n"
             << "  --data-dir PATH          Data directory (default: /tmp/gvdb/coordinator)\n"
             << "  --config FILE            YAML configuration file\n"
             << "  --single-node            Run in single-node mode\n"
@@ -68,6 +78,8 @@ bool ParseArgs(int argc, char** argv, CoordinatorArgs& args) {
       args.advertise_address = argv[++i];
     } else if (arg == "--raft-address" && i + 1 < argc) {
       args.raft_address = argv[++i];
+    } else if (arg == "--raft-advertise-address" && i + 1 < argc) {
+      args.raft_advertise_address = argv[++i];
     } else if (arg == "--raft-peers" && i + 1 < argc) {
       std::string peers_str = argv[++i];
       size_t start = 0;
@@ -105,6 +117,8 @@ int main(int argc, char** argv) {
   args.advertise_address = utils::ResolveFlag("GVDB_ADVERTISE_ADDRESS", args.advertise_address);
   args.data_dir = utils::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
   args.raft_address = utils::ResolveFlag("GVDB_RAFT_ADDRESS", args.raft_address);
+  args.raft_advertise_address = utils::ResolveFlag(
+      "GVDB_RAFT_ADVERTISE_ADDRESS", args.raft_advertise_address);
   utils::ServerBootstrap::InstallSignalHandlers();
 
   auto log_status = utils::ServerBootstrap::InitializeLogger(
@@ -126,6 +140,7 @@ int main(int argc, char** argv) {
     raft_config.node_id = args.node_id;
     raft_config.single_node_mode = args.single_node_mode;
     raft_config.listen_address = args.raft_address;
+    raft_config.advertise_address = args.raft_advertise_address;
     raft_config.peers = args.raft_peers;
     raft_config.data_dir = args.data_dir + "/raft";
 
@@ -137,13 +152,28 @@ int main(int argc, char** argv) {
     }
 
     if (!args.single_node_mode) {
-      utils::Logger::Instance().Info("Waiting for leader election...");
+      // Bootstrap-tolerant leader-election wait (roadmap 0b.4). During a
+      // cold start of an HA cluster, peer pods may take tens of seconds
+      // to become reachable (DNS propagation, scheduling, image pulls) —
+      // a short hard timeout would cause every coordinator pod to
+      // crashloop forever. Wait up to kElectionWaitSeconds; if no leader
+      // by then, log a warning and continue so the gRPC server comes up.
+      // Readiness/health reporting reflects the not-leader state, and
+      // Raft can still converge after the election wait elapses.
+      constexpr int kElectionWaitSeconds = 60;
+      utils::Logger::Instance().Info(
+          "Waiting up to {}s for leader election...", kElectionWaitSeconds);
       auto start_time = std::chrono::steady_clock::now();
       while (!raft_node->IsLeader() && raft_node->GetLeaderId() < 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        if (std::chrono::steady_clock::now() - start_time > std::chrono::seconds(10)) {
-          std::cerr << "Leader election timeout." << std::endl;
-          return 1;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        if (utils::ServerBootstrap::ShutdownFlag().load()) break;
+        if (std::chrono::steady_clock::now() - start_time >
+            std::chrono::seconds(kElectionWaitSeconds)) {
+          utils::Logger::Instance().Warn(
+              "No Raft leader elected after {}s — continuing startup; "
+              "election will complete when enough peers are reachable",
+              kElectionWaitSeconds);
+          break;
         }
       }
     }

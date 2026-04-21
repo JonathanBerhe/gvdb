@@ -61,6 +61,25 @@ ulong GvdbLogStore::start_index() const {
 ptr<log_entry> GvdbLogStore::last_entry() const {
   std::lock_guard<std::mutex> lock(mutex_);
 
+  if (persistent_mode_) {
+    ulong next = next_idx_.load(std::memory_order_acquire);
+    ulong start = start_idx_.load(std::memory_order_acquire);
+    if (next <= start) {
+      // Empty log — return dummy entry with term 0
+      return nuraft::cs_new<log_entry>(0, nuraft::buffer::alloc(0));
+    }
+    auto entry = read_entry_from_db(next - 1);
+    if (!entry) {
+      // DB claims this index exists (next > start) but read returned null —
+      // log an error so corruption isn't silently masked as "empty log".
+      utils::Logger::Instance().Error(
+          "last_entry: read_entry_from_db({}) returned null (start={}, next={})",
+          next - 1, start, next);
+      return nuraft::cs_new<log_entry>(0, nuraft::buffer::alloc(0));
+    }
+    return entry;
+  }
+
   if (logs_.empty()) {
     // Return dummy entry with term 0 and null value
     return nuraft::cs_new<log_entry>(0, nuraft::buffer::alloc(0));
@@ -137,14 +156,14 @@ ptr<std::vector<ptr<log_entry>>> GvdbLogStore::log_entries(ulong start, ulong en
   result->reserve(end - start);
 
   for (ulong i = start; i < end; ++i) {
-    auto it = logs_.find(i);
-    if (it == logs_.end()) {
+    auto entry = get_entry_internal(i);
+    if (!entry) {
       // Entry not found - log has been compacted or doesn't exist
       utils::Logger::Instance().Error(
           "Log entry at index {} not found (start={}, end={})", i, start, end);
       return nullptr;  // Indicate error
     }
-    result->push_back(it->second);
+    result->push_back(entry);
   }
 
   return result;
@@ -223,7 +242,25 @@ void GvdbLogStore::apply_pack(ulong index, buffer& pack) {
 
     // Deserialize and store
     ptr<log_entry> entry = log_entry::deserialize(*entry_buf);
-    logs_[current_index++] = entry;
+    if (persistent_mode_) {
+      if (!write_entry_to_db(current_index, entry)) {
+        // Partial-state on failure: entries N..current_index-1 remain in
+        // RocksDB with next_idx_ already advanced, matching append()'s
+        // throw-on-IO-error contract. NuRaft's snapshot-install path is
+        // expected to retry from scratch on restart.
+        utils::Logger::Instance().Error(
+            "apply_pack: failed to persist entry at index {}", current_index);
+        throw std::runtime_error("Failed to persist entry during apply_pack");
+      }
+      // next_slot() must point one past the highest index we hold, so advance
+      // next_idx_ to current_index + 1 whenever this entry extends the log.
+      if (current_index + 1 > next_idx_.load(std::memory_order_acquire)) {
+        next_idx_.store(current_index + 1, std::memory_order_release);
+      }
+    } else {
+      logs_[current_index] = entry;
+    }
+    current_index++;
   }
 }
 
