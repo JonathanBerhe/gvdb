@@ -1,4 +1,4 @@
-apiVersion: gvdb.gvdb.io/v1alpha1
+apiVersion: gvdb.io/v1alpha1
 kind: GVDBCluster
 metadata:
   labels:
