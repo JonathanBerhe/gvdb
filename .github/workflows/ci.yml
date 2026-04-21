@@ -194,3 +194,53 @@ jobs:
       - name: Skip notice
         if: steps.filter.outputs.java == 'false'
         run: echo "No Java connector changes — skipping"
+
+  test-operator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for operator changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            operator:
+              - 'operator/**'
+              - 'deploy/helm/gvdb-operator/**'
+              - 'proto/vectordb.proto'
+
+      - name: Set up Go
+        if: steps.filter.outputs.operator == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: operator/go.sum
+
+      - name: Vet
+        if: steps.filter.outputs.operator == 'true'
+        run: cd operator && go vet ./...
+
+      - name: Unit tests (render + controller pure logic)
+        if: steps.filter.outputs.operator == 'true'
+        run: make test-operator
+
+      - name: envtest (reconciler against fake apiserver)
+        if: steps.filter.outputs.operator == 'true'
+        run: cd operator && make test
+
+      - name: Build operator binary
+        if: steps.filter.outputs.operator == 'true'
+        run: make build-operator
+
+      - name: Lint Helm chart
+        if: steps.filter.outputs.operator == 'true'
+        run: helm lint deploy/helm/gvdb-operator
+
+      - name: Skip notice
+        if: steps.filter.outputs.operator == 'false'
+        run: echo "No operator changes — skipping"
