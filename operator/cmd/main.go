@@ -43,6 +43,12 @@ import (
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
+
+	// operatorVersion is the GVDB image tag the reconciler falls back to when
+	// a GVDBCluster leaves spec.image.tag unset. Set via -ldflags at build
+	// time to stay in lockstep with GVDB core:
+	//   go build -ldflags '-X main.operatorVersion=$(VERSION)' ./cmd
+	operatorVersion = ""
 )
 
 func init() {
@@ -181,6 +187,10 @@ func main() {
 	if err := (&controller.GVDBClusterReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		// DefaultImageTag is overridden at build time via -ldflags
+		// '-X gvdb/operator/cmd/main.operatorVersion=<ver>' in CI.
+		// Unset here so `go run` falls through to "latest" in ImageRef.
+		DefaultImageTag: operatorVersion,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "GVDBCluster")
 		os.Exit(1)

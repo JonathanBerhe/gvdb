@@ -11,13 +11,16 @@ You may obtain a copy of the License at
 package render
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	gvdbv1alpha1 "gvdb/operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func testCluster(name, ns string, coordReplicas, dataReplicas, queryReplicas int32) *gvdbv1alpha1.GVDBCluster {
@@ -46,7 +49,7 @@ func TestNames(t *testing.T) {
 	if got := ConfigMapName(c); got != "prod-config" {
 		t.Fatalf("ConfigMapName: got %q", got)
 	}
-	if got := ImageRef(c); got != "gvdb:test" {
+	if got := ImageRef(c, Options{}); got != "gvdb:test" {
 		t.Fatalf("ImageRef: got %q", got)
 	}
 }
@@ -88,7 +91,7 @@ func TestDataAndQueryNodeAddresses(t *testing.T) {
 
 func TestCoordinatorStatefulSet_ParallelAndPeersFlag(t *testing.T) {
 	c := testCluster("prod", "gvdb", 3, 2, 1)
-	sts := CoordinatorStatefulSet(c)
+	sts := CoordinatorStatefulSet(c, Options{})
 	if sts.Spec.PodManagementPolicy != appsv1.ParallelPodManagement {
 		t.Fatalf("coordinator must use Parallel pod management (roadmap 0b.4), got %q", sts.Spec.PodManagementPolicy)
 	}
@@ -106,7 +109,7 @@ func TestCoordinatorStatefulSet_ParallelAndPeersFlag(t *testing.T) {
 
 func TestCoordinatorStatefulSet_SingleNodeFlag(t *testing.T) {
 	c := testCluster("dev", "gvdb", 1, 1, 1)
-	sts := CoordinatorStatefulSet(c)
+	sts := CoordinatorStatefulSet(c, Options{})
 	args := sts.Spec.Template.Spec.Containers[0].Args[0]
 	if !strings.Contains(args, "--single-node") {
 		t.Fatalf("single-node coordinator must receive --single-node, args=%q", args)
@@ -118,7 +121,7 @@ func TestCoordinatorStatefulSet_SingleNodeFlag(t *testing.T) {
 
 func TestDataNodeStatefulSet(t *testing.T) {
 	c := testCluster("prod", "gvdb", 1, 3, 1)
-	sts := DataNodeStatefulSet(c)
+	sts := DataNodeStatefulSet(c, Options{})
 	if got := *sts.Spec.Replicas; got != 3 {
 		t.Fatalf("replicas: got %d, want 3", got)
 	}
@@ -135,7 +138,7 @@ func TestDataNodeStatefulSet(t *testing.T) {
 
 func TestQueryNodeStatefulSet(t *testing.T) {
 	c := testCluster("prod", "gvdb", 1, 2, 2)
-	sts := QueryNodeStatefulSet(c)
+	sts := QueryNodeStatefulSet(c, Options{})
 	if got := *sts.Spec.Replicas; got != 2 {
 		t.Fatalf("replicas: got %d, want 2", got)
 	}
@@ -147,7 +150,7 @@ func TestQueryNodeStatefulSet(t *testing.T) {
 
 func TestProxyDeployment(t *testing.T) {
 	c := testCluster("prod", "gvdb", 3, 2, 1)
-	dep := ProxyDeployment(c)
+	dep := ProxyDeployment(c, Options{})
 	if got := *dep.Spec.Replicas; got != 1 {
 		t.Fatalf("replicas: got %d, want 1", got)
 	}
@@ -187,7 +190,7 @@ func TestCoordinatorService(t *testing.T) {
 
 func TestAll_RendersAllCoreObjects(t *testing.T) {
 	c := testCluster("prod", "gvdb", 3, 3, 2)
-	objs, err := All(c)
+	objs, err := All(c, Options{})
 	if err != nil {
 		t.Fatalf("All() error: %v", err)
 	}
@@ -208,7 +211,7 @@ func TestAll_WithHardeningEnabled(t *testing.T) {
 	}}
 	c.Spec.PriorityClasses = gvdbv1alpha1.PriorityClassesSpec{Create: true}
 
-	objs, err := All(c)
+	objs, err := All(c, Options{})
 	if err != nil {
 		t.Fatalf("All() error: %v", err)
 	}
@@ -242,7 +245,7 @@ func TestAntiAffinity_PreferredAndRequired(t *testing.T) {
 	c.Spec.Coordinator.PodAntiAffinity = gvdbv1alpha1.AntiAffinitySpec{
 		Enabled: true, Type: "required", TopologyKey: "topology.kubernetes.io/zone",
 	}
-	sts := CoordinatorStatefulSet(c)
+	sts := CoordinatorStatefulSet(c, Options{})
 	aff := sts.Spec.Template.Spec.Affinity
 	if aff == nil || aff.PodAntiAffinity == nil {
 		t.Fatalf("expected podAntiAffinity to be populated when enabled=true")
@@ -256,7 +259,7 @@ func TestAntiAffinity_PreferredAndRequired(t *testing.T) {
 
 	// Switch to preferred.
 	c.Spec.Coordinator.PodAntiAffinity.Type = "preferred"
-	sts = CoordinatorStatefulSet(c)
+	sts = CoordinatorStatefulSet(c, Options{})
 	aff = sts.Spec.Template.Spec.Affinity
 	if len(aff.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution) != 1 {
 		t.Fatalf("preferred mode must produce PreferredDuringSchedulingIgnoredDuringExecution term")
@@ -266,9 +269,128 @@ func TestAntiAffinity_PreferredAndRequired(t *testing.T) {
 func TestPriorityClassName_AutoWired(t *testing.T) {
 	c := testCluster("prod", "gvdb", 3, 2, 1)
 	c.Spec.PriorityClasses = gvdbv1alpha1.PriorityClassesSpec{Create: true}
-	sts := CoordinatorStatefulSet(c)
+	sts := CoordinatorStatefulSet(c, Options{})
 	if got := sts.Spec.Template.Spec.PriorityClassName; got != "prod-gvdb-coordinator" {
 		t.Fatalf("priorityClassName should auto-wire to chart-managed name, got %q", got)
+	}
+}
+
+func TestRaftPeers_SevenReplicaHA(t *testing.T) {
+	c := testCluster("prod", "gvdb", 7, 2, 1)
+	got := CoordinatorRaftPeers(c)
+	// Each peer must appear with id = ordinal+1 (NuRaft > 0 requirement).
+	for i := 0; i < 7; i++ {
+		want := fmt.Sprintf("%d:prod-coordinator-%d.prod-coordinator.gvdb.svc.cluster.local:8300", i+1, i)
+		if !strings.Contains(got, want) {
+			t.Fatalf("7-replica raftPeers missing %q in %q", want, got)
+		}
+	}
+}
+
+func TestStorageClassName_ThreadsToPVC(t *testing.T) {
+	c := testCluster("prod", "gvdb", 1, 2, 1)
+	c.Spec.DataNode.Storage = gvdbv1alpha1.StorageSpec{
+		Size:             resource.MustParse("10Gi"),
+		StorageClassName: "fast-ssd",
+	}
+	sts := DataNodeStatefulSet(c, Options{})
+	if len(sts.Spec.VolumeClaimTemplates) != 1 {
+		t.Fatalf("expected 1 volumeClaimTemplate, got %d", len(sts.Spec.VolumeClaimTemplates))
+	}
+	pvc := sts.Spec.VolumeClaimTemplates[0]
+	if pvc.Spec.StorageClassName == nil || *pvc.Spec.StorageClassName != "fast-ssd" {
+		t.Fatalf("storageClassName not threaded to PVC, got %v", pvc.Spec.StorageClassName)
+	}
+	gotSize := pvc.Spec.Resources.Requests["storage"]
+	if gotSize.String() != "10Gi" {
+		t.Fatalf("pvc size: got %q, want 10Gi", gotSize.String())
+	}
+}
+
+func TestConfigHashAnnotation_StampedOnAllWorkloads(t *testing.T) {
+	c := testCluster("prod", "gvdb", 1, 2, 1)
+	objs, err := All(c, Options{})
+	if err != nil {
+		t.Fatalf("All(): %v", err)
+	}
+	// Extract the hash from the coordinator and verify everyone shares it.
+	var hash string
+	for _, obj := range objs {
+		if sts, ok := obj.(*appsv1.StatefulSet); ok && sts.Name == "prod-coordinator" {
+			hash = sts.Spec.Template.Annotations[ConfigHashAnnotation]
+			break
+		}
+	}
+	if hash == "" {
+		t.Fatalf("coordinator StatefulSet missing %s annotation", ConfigHashAnnotation)
+	}
+	for _, obj := range objs {
+		switch o := obj.(type) {
+		case *appsv1.StatefulSet:
+			if got := o.Spec.Template.Annotations[ConfigHashAnnotation]; got != hash {
+				t.Fatalf("%s config-hash mismatch: got %q want %q", o.Name, got, hash)
+			}
+		case *appsv1.Deployment:
+			if got := o.Spec.Template.Annotations[ConfigHashAnnotation]; got != hash {
+				t.Fatalf("%s config-hash mismatch: got %q want %q", o.Name, got, hash)
+			}
+		}
+	}
+}
+
+func TestConfigHashAnnotation_ChangesWhenConfigChanges(t *testing.T) {
+	c1 := testCluster("prod", "gvdb", 1, 1, 1)
+	objs1, _ := All(c1, Options{})
+	c2 := testCluster("prod", "gvdb", 1, 1, 1)
+	c2.Spec.Config.Logging.Level = "debug" // diverge from default "info"
+	objs2, _ := All(c2, Options{})
+
+	hash := func(objs []client.Object) string {
+		for _, o := range objs {
+			if sts, ok := o.(*appsv1.StatefulSet); ok && sts.Name == "prod-coordinator" {
+				return sts.Spec.Template.Annotations[ConfigHashAnnotation]
+			}
+		}
+		return ""
+	}
+	if hash(objs1) == hash(objs2) {
+		t.Fatalf("config change must produce a different config-hash so pods roll; both were %q", hash(objs1))
+	}
+}
+
+func TestPriorityClasses_CarryClusterSelectorLabels(t *testing.T) {
+	c := testCluster("prod", "gvdb", 3, 2, 1)
+	c.Spec.PriorityClasses = gvdbv1alpha1.PriorityClassesSpec{Create: true}
+	pcs := PriorityClasses(c)
+	if len(pcs) != 4 {
+		t.Fatalf("expected 4 PriorityClasses, got %d", len(pcs))
+	}
+	// All four must carry the cluster-identity labels so the reconciler's
+	// finalizer can delete them via List(MatchingLabels) on CR teardown.
+	for _, pc := range pcs {
+		if pc.Labels[ClusterNameLabel] != "prod" {
+			t.Fatalf("%s missing/wrong %s label: %q", pc.Name, ClusterNameLabel, pc.Labels[ClusterNameLabel])
+		}
+		if pc.Labels[ClusterNamespaceLabel] != "gvdb" {
+			t.Fatalf("%s missing/wrong %s label: %q", pc.Name, ClusterNamespaceLabel, pc.Labels[ClusterNamespaceLabel])
+		}
+	}
+}
+
+func TestImageRef_FallbackLadder(t *testing.T) {
+	c := testCluster("prod", "gvdb", 1, 1, 1)
+	// spec.image.tag wins.
+	if got := ImageRef(c, Options{DefaultImageTag: "0.99.0"}); got != "gvdb:test" {
+		t.Fatalf("tag override: got %q", got)
+	}
+	// Empty spec.image.tag → opts.DefaultImageTag.
+	c.Spec.Image.Tag = ""
+	if got := ImageRef(c, Options{DefaultImageTag: "0.21.0"}); got != "gvdb:0.21.0" {
+		t.Fatalf("opts fallback: got %q", got)
+	}
+	// Both empty → "latest" sentinel (test-only path).
+	if got := ImageRef(c, Options{}); got != "gvdb:latest" {
+		t.Fatalf("final fallback: got %q", got)
 	}
 }
 

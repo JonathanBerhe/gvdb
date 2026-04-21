@@ -16,7 +16,8 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	schedv1 "k8s.io/api/scheduling/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,15 +33,29 @@ import (
 
 // finalizerName is attached to GVDBCluster so the operator gets a chance to
 // run teardown logic before garbage collection removes the owned resources.
-// v1alpha1's teardown is minimal (ownerReferences handle cascade delete);
-// the finalizer exists so future logic (e.g. 0b.6.C quorum-aware drain) can
-// hook in without a v1beta1 schema bump.
+// v1alpha1 teardown: delete cluster-scoped PriorityClasses (which cannot be
+// cascade-deleted via namespaced OwnerReferences). Namespaced resources
+// cascade via OwnerReferences alone.
 const finalizerName = "gvdb.io/finalizer"
+
+// fieldManager identifies the operator as the Server-Side-Apply field owner.
+// Using a stable value keeps SSA ownership tracking predictable across
+// reconciles and across operator-pod restarts.
+const fieldManager = "gvdb-operator"
 
 // GVDBClusterReconciler reconciles a GVDBCluster object.
 type GVDBClusterReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// DefaultImageTag is the GVDB core image tag used when a CR doesn't set
+	// spec.image.tag. Set once at startup from the operator's own release
+	// version (lockstep); not mutated afterwards.
+	DefaultImageTag string
+
+	// StatsPool caches long-lived gRPC clients so reconciler passes don't
+	// re-dial every 30s.
+	StatsPool *gvdbclient.Pool
 }
 
 // +kubebuilder:rbac:groups=gvdb.io,resources=gvdbclusters,verbs=get;list;watch;create;update;patch;delete
@@ -60,10 +75,13 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Deletion path: ownerReferences handle cascade-delete; we just release
-	// the finalizer. Future hooks (drain, backup-before-delete) plug in here.
+	// Deletion: clean up cluster-scoped PriorityClasses that can't ride the
+	// namespaced OwnerReferences cascade. Everything else cleans up for free.
 	if !cluster.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&cluster, finalizerName) {
+			if err := r.cleanupClusterScoped(ctx, &cluster); err != nil {
+				return ctrl.Result{}, fmt.Errorf("cleanup cluster-scoped: %w", err)
+			}
 			controllerutil.RemoveFinalizer(&cluster, finalizerName)
 			if err := r.Update(ctx, &cluster); err != nil {
 				return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", err)
@@ -72,8 +90,8 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	// Ensure finalizer is set before we create any owned resources, so the
-	// user can't delete-and-lose the SA / PDB cleanup hook window.
+	// Ensure finalizer is set before we create any owned cluster-scoped
+	// resources, so the user can't delete-and-lose the cleanup window.
 	if !controllerutil.ContainsFinalizer(&cluster, finalizerName) {
 		controllerutil.AddFinalizer(&cluster, finalizerName)
 		if err := r.Update(ctx, &cluster); err != nil {
@@ -83,88 +101,97 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// Render desired state.
-	objs, err := render.All(&cluster)
+	opts := render.Options{DefaultImageTag: r.DefaultImageTag}
+	objs, err := render.All(&cluster, opts)
 	if err != nil {
 		// Render-time errors are configuration problems — surface as Failed.
-		r.markCondition(&cluster, gvdbv1alpha1.ConditionAvailable, metav1.ConditionFalse, "RenderFailed", err.Error())
+		meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+			Type: gvdbv1alpha1.ConditionAvailable, Status: metav1.ConditionFalse,
+			Reason: "RenderFailed", Message: err.Error(),
+		})
 		cluster.Status.Phase = gvdbv1alpha1.PhaseFailed
-		return ctrl.Result{}, r.writeStatus(ctx, &cluster)
+		return ctrl.Result{}, r.Status().Update(ctx, &cluster)
 	}
 
-	// Apply every rendered object. OwnerReferences make `kubectl delete
-	// gvdbcluster` cascade to the managed resources.
+	// Apply every rendered object via Server-Side Apply. SSA preserves
+	// server-assigned fields (Service ClusterIP, default GCs, etc.) that a
+	// naive GET-then-UPDATE would clobber.
 	for _, obj := range objs {
 		if err := r.applyObject(ctx, &cluster, obj); err != nil {
 			log.Error(err, "apply object failed",
 				"kind", obj.GetObjectKind().GroupVersionKind().Kind,
 				"name", obj.GetName(),
 			)
-			r.markCondition(&cluster, gvdbv1alpha1.ConditionAvailable, metav1.ConditionFalse, "ApplyFailed", err.Error())
-			return ctrl.Result{}, r.writeStatus(ctx, &cluster)
+			meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+				Type: gvdbv1alpha1.ConditionAvailable, Status: metav1.ConditionFalse,
+				Reason: "ApplyFailed", Message: err.Error(),
+			})
+			return ctrl.Result{}, r.Status().Update(ctx, &cluster)
 		}
 	}
 
-	// Collect status from K8s + GVDB gRPC.
+	// Collect status.
 	nodeCounts := r.collectNodeCounts(ctx, &cluster)
 	cluster.Status.NodeCounts = nodeCounts
 
-	stats, statsErr := r.fetchGVDBStats(ctx, &cluster)
-	if statsErr == nil {
-		cluster.Status.CollectionCount = stats.CollectionCount
-		cluster.Status.TotalVectors = stats.TotalVectors
-	} else {
-		// gRPC failures during startup are expected; don't flag the cluster
-		// as degraded just because status polling transiently failed.
-		log.V(1).Info("fetch GVDB stats failed; will retry", "err", statsErr)
-	}
+	r.refreshStats(ctx, &cluster)
 
-	phase, conditions := computePhase(&cluster, nodeCounts)
+	phase, conditions := computePhase(nodeCounts)
 	cluster.Status.Phase = phase
 	for _, cond := range conditions {
-		r.markConditionObj(&cluster, cond)
+		meta.SetStatusCondition(&cluster.Status.Conditions, cond)
 	}
 	cluster.Status.ObservedGeneration = cluster.Generation
 
-	if err := r.writeStatus(ctx, &cluster); err != nil {
+	if err := r.Status().Update(ctx, &cluster); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Requeue so status reflects ongoing convergence (replica count churn,
-	// RPC-derived totals) without waiting for a spec-change event.
+	// Requeue so status reflects ongoing convergence without waiting for a
+	// spec-change event.
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
-// applyObject stamps the cluster as owner and creates-or-updates the object.
-// We use CreateOrUpdate because Server-Side Apply requires field-manager
-// tuning that isn't worth the complexity for v1alpha1.
+// applyObject Server-Side-Applies the rendered object. SSA is idempotent
+// and handles the immutable-field preservation footguns of GET-then-UPDATE
+// (e.g. Service.spec.clusterIP) for free.
+//
+// Namespaced objects get a controller-reference OwnerReference so that
+// `kubectl delete gvdbcluster` cascades. Cluster-scoped PriorityClasses are
+// labeled with the cluster identity and torn down explicitly in the
+// finalizer path.
 func (r *GVDBClusterReconciler) applyObject(
 	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster, obj client.Object,
 ) error {
-	// Cluster-scoped objects (PriorityClass) cannot carry namespaced
-	// OwnerReferences. Apply them directly; cleanup on delete happens via
-	// a separate finalizer pass (future work — 0b.6.C).
-	isClusterScoped := obj.GetNamespace() == ""
-
-	if !isClusterScoped {
+	if obj.GetNamespace() != "" {
 		if err := controllerutil.SetControllerReference(cluster, obj, r.Scheme); err != nil {
 			return fmt.Errorf("set owner ref: %w", err)
 		}
 	}
+	return r.Patch(ctx, obj, client.Apply,
+		client.FieldOwner(fieldManager),
+		client.ForceOwnership,
+	)
+}
 
-	desired := obj.DeepCopyObject().(client.Object)
-	key := types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()}
-	current := obj.DeepCopyObject().(client.Object)
-	err := r.Get(ctx, key, current)
-	if apierrors.IsNotFound(err) {
-		return r.Create(ctx, desired)
+// cleanupClusterScoped deletes the cluster-scoped objects that can't ride
+// the OwnerReference cascade. Today: PriorityClasses labeled with this CR's
+// identity. List-by-label is idempotent and survives operator crashes
+// mid-delete (stragglers get swept on the next reconcile).
+func (r *GVDBClusterReconciler) cleanupClusterScoped(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
+) error {
+	var pcs schedv1.PriorityClassList
+	if err := r.List(ctx, &pcs, client.MatchingLabels(render.ClusterSelectorLabels(cluster))); err != nil {
+		return fmt.Errorf("list PriorityClasses: %w", err)
 	}
-	if err != nil {
-		return err
+	for i := range pcs.Items {
+		pc := &pcs.Items[i]
+		if err := r.Delete(ctx, pc); err != nil && client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("delete PriorityClass %s: %w", pc.Name, err)
+		}
 	}
-	// Preserve server-assigned fields (resourceVersion) on the desired object
-	// before update — without this the update races.
-	desired.SetResourceVersion(current.GetResourceVersion())
-	return r.Update(ctx, desired)
+	return nil
 }
 
 // collectNodeCounts reads ready-replica counts from the owned StatefulSets /
@@ -173,17 +200,24 @@ func (r *GVDBClusterReconciler) applyObject(
 func (r *GVDBClusterReconciler) collectNodeCounts(
 	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
 ) gvdbv1alpha1.NodeCountStatus {
-	nc := gvdbv1alpha1.NodeCountStatus{
-		Coordinator: gvdbv1alpha1.WorkloadStatus{Desired: coordinatorReplicas(cluster)},
-		DataNode:    gvdbv1alpha1.WorkloadStatus{Desired: dataNodeReplicas(cluster)},
-		QueryNode:   gvdbv1alpha1.WorkloadStatus{Desired: queryNodeReplicas(cluster)},
-		Proxy:       gvdbv1alpha1.WorkloadStatus{Desired: proxyReplicas(cluster)},
+	return gvdbv1alpha1.NodeCountStatus{
+		Coordinator: gvdbv1alpha1.WorkloadStatus{
+			Desired: render.EffectiveReplicas(cluster, render.CoordinatorComponent),
+			Ready:   r.readyReplicasSTS(ctx, cluster, render.CoordinatorComponent),
+		},
+		DataNode: gvdbv1alpha1.WorkloadStatus{
+			Desired: render.EffectiveReplicas(cluster, render.DataNodeComponent),
+			Ready:   r.readyReplicasSTS(ctx, cluster, render.DataNodeComponent),
+		},
+		QueryNode: gvdbv1alpha1.WorkloadStatus{
+			Desired: render.EffectiveReplicas(cluster, render.QueryNodeComponent),
+			Ready:   r.readyReplicasSTS(ctx, cluster, render.QueryNodeComponent),
+		},
+		Proxy: gvdbv1alpha1.WorkloadStatus{
+			Desired: render.EffectiveReplicas(cluster, render.ProxyComponent),
+			Ready:   r.readyReplicasDeployment(ctx, cluster, render.ProxyComponent),
+		},
 	}
-	nc.Coordinator.Ready = r.readyReplicasSTS(ctx, cluster, render.CoordinatorComponent)
-	nc.DataNode.Ready = r.readyReplicasSTS(ctx, cluster, render.DataNodeComponent)
-	nc.QueryNode.Ready = r.readyReplicasSTS(ctx, cluster, render.QueryNodeComponent)
-	nc.Proxy.Ready = r.readyReplicasDeployment(ctx, cluster, render.ProxyComponent)
-	return nc
 }
 
 func (r *GVDBClusterReconciler) readyReplicasSTS(
@@ -212,12 +246,16 @@ func (r *GVDBClusterReconciler) readyReplicasDeployment(
 	return dep.Status.ReadyReplicas
 }
 
-// fetchGVDBStats connects to the proxy Service (stateless gateway) and asks
-// for cluster-wide totals. Using the proxy instead of a coordinator pod
-// avoids Raft-leader redirection logic in the operator.
-func (r *GVDBClusterReconciler) fetchGVDBStats(
+// refreshStats pulls collectionCount + totalVectors from the proxy (stateless
+// gateway, no leader-redirect gymnastics). Populates cluster.Status on
+// success; on failure, keeps the last-known-good values and records a
+// StatsAvailable=False condition so callers can distinguish "current" from
+// "stale" without reading the reconciler's logs.
+func (r *GVDBClusterReconciler) refreshStats(
 	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
-) (gvdbclient.Stats, error) {
+) {
+	log := logf.FromContext(ctx)
+
 	port := cluster.Spec.Proxy.Service.Port
 	if port == 0 {
 		port = render.ProxyGRPCPort
@@ -228,53 +266,38 @@ func (r *GVDBClusterReconciler) fetchGVDBStats(
 		render.ClusterDomain(cluster),
 		port,
 	)
-	c, err := gvdbclient.Dial(ctx, target)
+
+	c, err := r.StatsPool.Get(target)
 	if err != nil {
-		return gvdbclient.Stats{}, err
+		log.V(1).Info("gvdbclient pool get failed", "err", err)
+		meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+			Type: "StatsAvailable", Status: metav1.ConditionFalse,
+			Reason: "DialFailed", Message: err.Error(),
+		})
+		return
 	}
-	defer c.Close()
-	return c.FetchStats(ctx)
-}
-
-// writeStatus PATCHes the status subresource only.
-func (r *GVDBClusterReconciler) writeStatus(ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster) error {
-	return r.Status().Update(ctx, cluster)
-}
-
-// markCondition updates one status condition by type.
-func (r *GVDBClusterReconciler) markCondition(
-	cluster *gvdbv1alpha1.GVDBCluster, condType string, status metav1.ConditionStatus, reason, msg string,
-) {
-	r.markConditionObj(cluster, metav1.Condition{
-		Type:    condType,
-		Status:  status,
-		Reason:  reason,
-		Message: msg,
+	stats, err := c.FetchStats(ctx)
+	if err != nil {
+		log.V(1).Info("FetchStats failed; preserving last-known stats", "err", err)
+		meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+			Type: "StatsAvailable", Status: metav1.ConditionFalse,
+			Reason: "RPCFailed", Message: err.Error(),
+		})
+		return
+	}
+	cluster.Status.CollectionCount = stats.CollectionCount
+	cluster.Status.TotalVectors = stats.TotalVectors
+	meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+		Type: "StatsAvailable", Status: metav1.ConditionTrue,
+		Reason: "Fresh", Message: "last GetStats RPC succeeded",
 	})
 }
 
-func (r *GVDBClusterReconciler) markConditionObj(
-	cluster *gvdbv1alpha1.GVDBCluster, cond metav1.Condition,
-) {
-	if cond.LastTransitionTime.IsZero() {
-		cond.LastTransitionTime = metav1.Now()
-	}
-	// Replace by type.
-	for i := range cluster.Status.Conditions {
-		if cluster.Status.Conditions[i].Type == cond.Type {
-			cluster.Status.Conditions[i] = cond
-			return
-		}
-	}
-	cluster.Status.Conditions = append(cluster.Status.Conditions, cond)
-}
-
-// computePhase derives .status.phase and the standard condition set from the
-// nodeCounts view. Returns conditions with empty LastTransitionTime so the
-// caller can stamp a consistent timestamp.
-func computePhase(
-	cluster *gvdbv1alpha1.GVDBCluster, nc gvdbv1alpha1.NodeCountStatus,
-) (gvdbv1alpha1.GVDBClusterPhase, []metav1.Condition) {
+// computePhase derives .status.phase and the standard condition set from
+// the nodeCounts view. Returns conditions with empty LastTransitionTime so
+// meta.SetStatusCondition stamps it only when the condition actually
+// transitions.
+func computePhase(nc gvdbv1alpha1.NodeCountStatus) (gvdbv1alpha1.GVDBClusterPhase, []metav1.Condition) {
 	allReady := nc.Coordinator.Ready >= nc.Coordinator.Desired &&
 		nc.DataNode.Ready >= nc.DataNode.Desired &&
 		nc.QueryNode.Ready >= nc.QueryNode.Desired &&
@@ -297,7 +320,6 @@ func computePhase(
 			{Type: gvdbv1alpha1.ConditionDegraded, Status: metav1.ConditionTrue, Reason: "UnderReplicated", Message: "at least one workload has fewer ready replicas than desired"},
 		}
 	}
-	_ = cluster
 	return gvdbv1alpha1.PhasePending, []metav1.Condition{
 		{Type: gvdbv1alpha1.ConditionAvailable, Status: metav1.ConditionFalse, Reason: "NotReady", Message: "no workload replicas are ready yet"},
 		{Type: gvdbv1alpha1.ConditionProgressing, Status: metav1.ConditionTrue, Reason: "Creating", Message: "workloads are being created"},
@@ -305,40 +327,13 @@ func computePhase(
 	}
 }
 
-// replica-with-default helpers — mirror the render-layer defaults so status
-// shows the effective desired count even when the CR leaves fields blank.
-func coordinatorReplicas(c *gvdbv1alpha1.GVDBCluster) int32 {
-	if c.Spec.Coordinator.Replicas == 0 {
-		return 1
-	}
-	return c.Spec.Coordinator.Replicas
-}
-
-func dataNodeReplicas(c *gvdbv1alpha1.GVDBCluster) int32 {
-	if c.Spec.DataNode.Replicas == 0 {
-		return 2
-	}
-	return c.Spec.DataNode.Replicas
-}
-
-func queryNodeReplicas(c *gvdbv1alpha1.GVDBCluster) int32 {
-	if c.Spec.QueryNode.Replicas == 0 {
-		return 1
-	}
-	return c.Spec.QueryNode.Replicas
-}
-
-func proxyReplicas(c *gvdbv1alpha1.GVDBCluster) int32 {
-	if c.Spec.Proxy.Replicas == 0 {
-		return 1
-	}
-	return c.Spec.Proxy.Replicas
-}
-
 // SetupWithManager wires the controller into the manager. We watch the
 // managed resource kinds so external changes (e.g. a user scaling a
 // StatefulSet directly) trigger a reconcile to re-enforce the spec.
 func (r *GVDBClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.StatsPool == nil {
+		r.StatsPool = gvdbclient.NewPool()
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&gvdbv1alpha1.GVDBCluster{}).
 		Owns(&appsv1.StatefulSet{}).

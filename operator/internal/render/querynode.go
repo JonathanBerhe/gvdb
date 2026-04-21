@@ -45,12 +45,9 @@ exec /usr/local/bin/gvdb-query-node \
 }
 
 // QueryNodeStatefulSet renders the query-node StatefulSet.
-func QueryNodeStatefulSet(cluster *gvdbv1alpha1.GVDBCluster) *appsv1.StatefulSet {
+func QueryNodeStatefulSet(cluster *gvdbv1alpha1.GVDBCluster, opts Options) *appsv1.StatefulSet {
 	spec := &cluster.Spec.QueryNode
-	replicas := spec.Replicas
-	if replicas == 0 {
-		replicas = 1
-	}
+	replicas := EffectiveReplicas(cluster, QueryNodeComponent)
 	grace := spec.TerminationGracePeriodSeconds
 	if grace == 0 {
 		grace = 30
@@ -59,10 +56,10 @@ func QueryNodeStatefulSet(cluster *gvdbv1alpha1.GVDBCluster) *appsv1.StatefulSet
 	podSpec := corev1.PodSpec{
 		TerminationGracePeriodSeconds: &grace,
 		SecurityContext:               cluster.Spec.Security.PodSecurityContext,
-		InitContainers:                []corev1.Container{waitForCoordinator(cluster)},
+		InitContainers:                []corev1.Container{waitForCoordinator(cluster, opts)},
 		Containers: []corev1.Container{{
 			Name:            "query-node",
-			Image:           ImageRef(cluster),
+			Image:           ImageRef(cluster, opts),
 			ImagePullPolicy: imagePullPolicy(cluster),
 			SecurityContext: cluster.Spec.Security.ContainerSecurityContext,
 			Command:         []string{"sh", "-c"},
@@ -94,8 +91,11 @@ func QueryNodeStatefulSet(cluster *gvdbv1alpha1.GVDBCluster) *appsv1.StatefulSet
 			Replicas:    &replicas,
 			Selector:    &metav1.LabelSelector{MatchLabels: SelectorLabels(cluster, QueryNodeComponent)},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: SelectorLabels(cluster, QueryNodeComponent)},
-				Spec:       podSpec,
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      SelectorLabels(cluster, QueryNodeComponent),
+					Annotations: podTemplateAnnotations(opts),
+				},
+				Spec: podSpec,
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{dataPVC(spec.Storage, "2Gi")},
 		},

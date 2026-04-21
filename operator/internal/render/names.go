@@ -21,6 +21,20 @@ import (
 	gvdbv1alpha1 "gvdb/operator/api/v1alpha1"
 )
 
+// Options configure how rendering produces objects. The reconciler fills this
+// in once per reconcile pass so package-level mutable state isn't needed.
+type Options struct {
+	// DefaultImageTag is used when spec.image.tag is empty. The reconciler
+	// sets this from its build-time version (lockstep with GVDB core).
+	DefaultImageTag string
+
+	// ConfigHash is a deterministic hash of the rendered ConfigMap contents.
+	// It's stamped onto workload pod templates as an annotation so a change
+	// to spec.config rolls pods — otherwise ConfigMap edits silently don't
+	// take effect until pods happen to restart.
+	ConfigHash string
+}
+
 // Component is a stable identifier for each workload type used in names,
 // labels, and port lookups. String value matches the Helm `app:` label suffix.
 type Component string
@@ -43,6 +57,51 @@ const (
 	ProxyMetricsPort       = 9050
 )
 
+// Annotation key set on pod templates so a ConfigMap content change triggers
+// a rolling restart of the dependent workload.
+const ConfigHashAnnotation = "gvdb.io/config-hash"
+
+// Default replica counts mirror deploy/helm/gvdb/values.yaml. They kick in
+// when the CR leaves the field unset (CRD Minimum=1 + default:=N guard the
+// K8s API path; these guard the Go call path used by tests and the
+// reconciler's status computation).
+const (
+	defaultCoordinatorReplicas = 1
+	defaultDataNodeReplicas    = 2
+	defaultQueryNodeReplicas   = 1
+	defaultProxyReplicas       = 1
+)
+
+// EffectiveReplicas returns the replica count the operator will actually
+// render for the workload — spec value if set, else the default. Using this
+// from both the render layer and the reconciler's status computation keeps
+// the two views consistent.
+func EffectiveReplicas(cluster *gvdbv1alpha1.GVDBCluster, c Component) int32 {
+	switch c {
+	case CoordinatorComponent:
+		if v := cluster.Spec.Coordinator.Replicas; v > 0 {
+			return v
+		}
+		return defaultCoordinatorReplicas
+	case DataNodeComponent:
+		if v := cluster.Spec.DataNode.Replicas; v > 0 {
+			return v
+		}
+		return defaultDataNodeReplicas
+	case QueryNodeComponent:
+		if v := cluster.Spec.QueryNode.Replicas; v > 0 {
+			return v
+		}
+		return defaultQueryNodeReplicas
+	case ProxyComponent:
+		if v := cluster.Spec.Proxy.Replicas; v > 0 {
+			return v
+		}
+		return defaultProxyReplicas
+	}
+	return 0
+}
+
 // FullName truncates the CR name to 63 chars, matching the Helm fullname helper.
 func FullName(cluster *gvdbv1alpha1.GVDBCluster) string {
 	n := cluster.Name
@@ -62,19 +121,20 @@ func ConfigMapName(cluster *gvdbv1alpha1.GVDBCluster) string {
 	return FullName(cluster) + "-config"
 }
 
-// ImageRef builds "<repo>:<tag>". Tag falls back to the operator release
-// version when the spec doesn't set one.
-func ImageRef(cluster *gvdbv1alpha1.GVDBCluster) string {
+// ImageRef builds "<repo>:<tag>". Tag falls back to opts.DefaultImageTag
+// (the operator's own release version — lockstep with GVDB core).
+func ImageRef(cluster *gvdbv1alpha1.GVDBCluster, opts Options) string {
 	repo := cluster.Spec.Image.Repository
 	if repo == "" {
 		repo = "gvdb"
 	}
 	tag := cluster.Spec.Image.Tag
 	if tag == "" {
-		// Lockstep: tag defaults to the operator's own version when unset.
-		// The operator binary receives this via an env var / build flag;
-		// tests pass an explicit tag to stay deterministic.
-		tag = OperatorVersion()
+		tag = opts.DefaultImageTag
+	}
+	if tag == "" {
+		// Last-resort sentinel for tests that don't set opts.
+		tag = "latest"
 	}
 	return repo + ":" + tag
 }
@@ -109,10 +169,7 @@ func CoordinatorAddress(cluster *gvdbv1alpha1.GVDBCluster) string {
 // the multi-node cluster config on every coordinator pod. Matches the
 // gvdb.coordinator.raftPeers Helm helper (see roadmap 0b.4).
 func CoordinatorRaftPeers(cluster *gvdbv1alpha1.GVDBCluster) string {
-	replicas := cluster.Spec.Coordinator.Replicas
-	if replicas < 1 {
-		replicas = 1
-	}
+	replicas := EffectiveReplicas(cluster, CoordinatorComponent)
 	parts := make([]string, 0, replicas)
 	for i := int32(0); i < replicas; i++ {
 		parts = append(parts, fmt.Sprintf("%d:%s:%d",
@@ -127,19 +184,16 @@ func CoordinatorRaftPeers(cluster *gvdbv1alpha1.GVDBCluster) string {
 // DataNodeAddresses returns a comma-separated list of data-node pod addresses
 // for the proxy --data-nodes flag. Mirrors gvdb.dataNode.addresses.
 func DataNodeAddresses(cluster *gvdbv1alpha1.GVDBCluster) string {
-	return workloadAddresses(cluster, DataNodeComponent, cluster.Spec.DataNode.Replicas, DataNodeGRPCPort)
+	return workloadAddresses(cluster, DataNodeComponent, EffectiveReplicas(cluster, DataNodeComponent), DataNodeGRPCPort)
 }
 
 // QueryNodeAddresses returns a comma-separated list of query-node pod addresses
 // for the proxy --query-nodes flag. Mirrors gvdb.queryNode.addresses.
 func QueryNodeAddresses(cluster *gvdbv1alpha1.GVDBCluster) string {
-	return workloadAddresses(cluster, QueryNodeComponent, cluster.Spec.QueryNode.Replicas, QueryNodeGRPCPort)
+	return workloadAddresses(cluster, QueryNodeComponent, EffectiveReplicas(cluster, QueryNodeComponent), QueryNodeGRPCPort)
 }
 
 func workloadAddresses(cluster *gvdbv1alpha1.GVDBCluster, c Component, replicas int32, port int) string {
-	if replicas < 1 {
-		replicas = 1
-	}
 	parts := make([]string, 0, replicas)
 	for i := int32(0); i < replicas; i++ {
 		parts = append(parts, fmt.Sprintf("%s:%d", podFQDN(cluster, c, i), port))
@@ -163,21 +217,5 @@ func Labels(cluster *gvdbv1alpha1.GVDBCluster, c Component) map[string]string {
 func SelectorLabels(cluster *gvdbv1alpha1.GVDBCluster, c Component) map[string]string {
 	return map[string]string{
 		"app": WorkloadName(cluster, c),
-	}
-}
-
-// operatorVersion is the fallback image tag. Set by cmd/main.go via
-// SetOperatorVersion; tests override directly.
-var operatorVersion = "latest"
-
-// OperatorVersion reports the current release tag the operator defaults to.
-func OperatorVersion() string {
-	return operatorVersion
-}
-
-// SetOperatorVersion is used by cmd/main.go to pin the default image tag.
-func SetOperatorVersion(v string) {
-	if v != "" {
-		operatorVersion = v
 	}
 }

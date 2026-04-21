@@ -36,6 +36,25 @@ func PriorityClassName(cluster *gvdbv1alpha1.GVDBCluster, c Component) string {
 	return fmt.Sprintf("%s-%s-%s", FullName(cluster), cluster.Namespace, c)
 }
 
+// Cluster-identity labels stamped on PriorityClasses so the reconciler can
+// list + delete them on CR teardown. PriorityClass is cluster-scoped, so it
+// can't carry a namespaced OwnerReference; a label-selector cleanup is the
+// standard workaround.
+const (
+	ClusterNameLabel      = "gvdb.io/cluster-name"
+	ClusterNamespaceLabel = "gvdb.io/cluster-namespace"
+)
+
+// ClusterSelectorLabels returns the label set that identifies cluster-scoped
+// objects owned by this CR. The reconciler's finalizer uses these as a list
+// selector to find and delete orphaned PriorityClasses at teardown.
+func ClusterSelectorLabels(cluster *gvdbv1alpha1.GVDBCluster) map[string]string {
+	return map[string]string{
+		ClusterNameLabel:      cluster.Name,
+		ClusterNamespaceLabel: cluster.Namespace,
+	}
+}
+
 // PriorityClasses renders the cluster-scoped PriorityClass set when the CR
 // opts in (roadmap 0b.5). Returns nil when priorityClasses.create is false.
 func PriorityClasses(cluster *gvdbv1alpha1.GVDBCluster) []*schedv1.PriorityClass {
@@ -59,11 +78,15 @@ func PriorityClasses(cluster *gvdbv1alpha1.GVDBCluster) []*schedv1.PriorityClass
 	}
 	out := make([]*schedv1.PriorityClass, 0, len(entries))
 	for _, e := range entries {
+		labels := Labels(cluster, e.component)
+		for k, v := range ClusterSelectorLabels(cluster) {
+			labels[k] = v
+		}
 		out = append(out, &schedv1.PriorityClass{
 			TypeMeta: metav1.TypeMeta{APIVersion: "scheduling.k8s.io/v1", Kind: "PriorityClass"},
 			ObjectMeta: metav1.ObjectMeta{
 				Name:   PriorityClassName(cluster, e.component),
-				Labels: Labels(cluster, e.component),
+				Labels: labels,
 			},
 			Value:         e.value,
 			GlobalDefault: false,

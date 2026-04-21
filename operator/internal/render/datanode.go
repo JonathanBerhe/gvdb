@@ -48,12 +48,9 @@ exec /usr/local/bin/gvdb-data-node \
 }
 
 // DataNodeStatefulSet renders the data-node StatefulSet.
-func DataNodeStatefulSet(cluster *gvdbv1alpha1.GVDBCluster) *appsv1.StatefulSet {
+func DataNodeStatefulSet(cluster *gvdbv1alpha1.GVDBCluster, opts Options) *appsv1.StatefulSet {
 	spec := &cluster.Spec.DataNode
-	replicas := spec.Replicas
-	if replicas == 0 {
-		replicas = 2
-	}
+	replicas := EffectiveReplicas(cluster, DataNodeComponent)
 	grace := spec.TerminationGracePeriodSeconds
 	if grace == 0 {
 		grace = 60
@@ -63,11 +60,11 @@ func DataNodeStatefulSet(cluster *gvdbv1alpha1.GVDBCluster) *appsv1.StatefulSet 
 		TerminationGracePeriodSeconds: &grace,
 		SecurityContext:               cluster.Spec.Security.PodSecurityContext,
 		InitContainers: []corev1.Container{
-			waitForCoordinator(cluster),
+			waitForCoordinator(cluster, opts),
 		},
 		Containers: []corev1.Container{{
 			Name:            "data-node",
-			Image:           ImageRef(cluster),
+			Image:           ImageRef(cluster, opts),
 			ImagePullPolicy: imagePullPolicy(cluster),
 			SecurityContext: cluster.Spec.Security.ContainerSecurityContext,
 			Command:         []string{"sh", "-c"},
@@ -99,8 +96,11 @@ func DataNodeStatefulSet(cluster *gvdbv1alpha1.GVDBCluster) *appsv1.StatefulSet 
 			Replicas:    &replicas,
 			Selector:    &metav1.LabelSelector{MatchLabels: SelectorLabels(cluster, DataNodeComponent)},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: SelectorLabels(cluster, DataNodeComponent)},
-				Spec:       podSpec,
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      SelectorLabels(cluster, DataNodeComponent),
+					Annotations: podTemplateAnnotations(opts),
+				},
+				Spec: podSpec,
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{dataPVC(spec.Storage, "5Gi")},
 		},
@@ -109,13 +109,13 @@ func DataNodeStatefulSet(cluster *gvdbv1alpha1.GVDBCluster) *appsv1.StatefulSet 
 
 // waitForCoordinator is the init container used by data-node, query-node, and
 // proxy pods. Matches the Helm chart init container.
-func waitForCoordinator(cluster *gvdbv1alpha1.GVDBCluster) corev1.Container {
+func waitForCoordinator(cluster *gvdbv1alpha1.GVDBCluster, opts Options) corev1.Container {
 	svcName := WorkloadName(cluster, CoordinatorComponent)
 	host := fmt.Sprintf("%s-0.%s.%s.svc.%s",
 		WorkloadName(cluster, CoordinatorComponent), svcName, cluster.Namespace, ClusterDomain(cluster))
 	return corev1.Container{
 		Name:            "wait-for-coordinator",
-		Image:           ImageRef(cluster),
+		Image:           ImageRef(cluster, opts),
 		ImagePullPolicy: imagePullPolicy(cluster),
 		Command:         []string{"sh", "-c"},
 		Args: []string{fmt.Sprintf(`echo "Waiting for coordinator..."
