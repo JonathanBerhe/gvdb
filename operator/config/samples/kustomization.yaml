@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- gvdb_v1alpha1_gvdbcluster.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
