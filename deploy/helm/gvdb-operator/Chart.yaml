@@ -1,0 +1,17 @@
+apiVersion: v2
+name: gvdb-operator
+description: Kubernetes Operator for the GVDB distributed vector database.
+type: application
+# x-release-please-version
+version: 0.20.0
+# x-release-please-appVersion
+appVersion: "0.20.0"
+kubeVersion: ">=1.25.0-0"
+keywords:
+  - operator
+  - kubernetes
+  - vector-database
+  - gvdb
+home: https://github.com/JonathanBerhe/gvdb
+sources:
+  - https://github.com/JonathanBerhe/gvdb

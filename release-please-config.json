@@ -45,6 +45,10 @@
         {
           "type": "generic",
           "path": "docs/connectors/java-client.md"
+        },
+        {
+          "type": "generic",
+          "path": "deploy/helm/gvdb-operator/Chart.yaml"
         }
       ]
     }

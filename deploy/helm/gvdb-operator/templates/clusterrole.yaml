@@ -1,0 +1,51 @@
+{{/*
+ClusterRole mirrors the permissions the reconciler needs, derived from the
++kubebuilder:rbac markers in operator/internal/controller/*.go. Must stay
+in sync with operator/config/rbac/role.yaml (the controller-gen output).
+
+If you add a +kubebuilder:rbac marker, do BOTH:
+  1. `make -C operator manifests` — regenerates operator/config/rbac/role.yaml
+  2. Update the `rules:` block below by hand to match
+
+A CI drift check is tracked as a follow-up.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "gvdb-operator.fullname" . }}-manager
+  labels:
+    {{- include "gvdb-operator.labels" . | nindent 4 }}
+rules:
+  # GVDBCluster CR + status + finalizers
+  - apiGroups: ["gvdb.io"]
+    resources: ["gvdbclusters"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gvdb.io"]
+    resources: ["gvdbclusters/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["gvdb.io"]
+    resources: ["gvdbclusters/finalizers"]
+    verbs: ["update"]
+  # Workloads
+  - apiGroups: ["apps"]
+    resources: ["statefulsets", "deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Core
+  - apiGroups: [""]
+    resources: ["services", "configmaps", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Hardening primitives
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["scheduling.k8s.io"]
+    resources: ["priorityclasses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Lease-based leader election for the operator Deployment itself
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Event emission for user-visible reconciliation errors
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
