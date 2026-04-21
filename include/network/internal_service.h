@@ -20,6 +20,7 @@ class Coordinator;
 
 namespace consensus {
 class TimestampOracle;
+class RaftNode;
 }
 
 namespace network {
@@ -33,7 +34,8 @@ class InternalService final : public proto::internal::InternalService::Service {
       std::shared_ptr<compute::QueryExecutor> query_executor,
       std::shared_ptr<cluster::NodeRegistry> node_registry = nullptr,
       std::shared_ptr<consensus::TimestampOracle> timestamp_oracle = nullptr,
-      std::shared_ptr<cluster::Coordinator> coordinator = nullptr);
+      std::shared_ptr<cluster::Coordinator> coordinator = nullptr,
+      std::shared_ptr<consensus::RaftNode> raft_node = nullptr);
 
   ~InternalService();
 
@@ -136,6 +138,11 @@ class InternalService final : public proto::internal::InternalService::Service {
       const proto::internal::GetClusterHealthRequest* request,
       proto::internal::GetClusterHealthResponse* response) override;
 
+  grpc::Status GetLeaderInfo(
+      grpc::ServerContext* context,
+      const proto::internal::GetLeaderInfoRequest* request,
+      proto::internal::GetLeaderInfoResponse* response) override;
+
   // =========================================================================
   // Timestamp Oracle (All Nodes → Coordinator)
   // =========================================================================
@@ -152,6 +159,7 @@ class InternalService final : public proto::internal::InternalService::Service {
   std::shared_ptr<cluster::NodeRegistry> node_registry_;
   std::shared_ptr<consensus::TimestampOracle> timestamp_oracle_;
   std::shared_ptr<cluster::Coordinator> coordinator_;
+  std::shared_ptr<consensus::RaftNode> raft_node_;
 
   // Statistics
   std::atomic<uint64_t> total_requests_{0};

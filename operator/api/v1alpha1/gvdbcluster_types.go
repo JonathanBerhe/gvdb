@@ -429,6 +429,11 @@ const (
 	ConditionProgressing = "Progressing"
 	// ConditionDegraded: true when one or more workloads are unhealthy.
 	ConditionDegraded = "Degraded"
+	// ConditionCoordinatorRolloutReady: true when the coordinator
+	// StatefulSet is stable (no rollout in progress). False while the
+	// reconciler is managing a pod-by-pod, quorum-aware rollout
+	// (roadmap 0b.6.C).
+	ConditionCoordinatorRolloutReady = "CoordinatorRolloutReady"
 )
 
 // WorkloadStatus reports desired vs ready replicas for one workload.
@@ -484,14 +489,19 @@ type GVDBClusterStatus struct {
 	// +optional
 	TotalVectors int64 `json:"totalVectors,omitempty"`
 
-	// coordinatorLeader names the pod currently holding the Raft leader role.
-	// Not populated in v1alpha1; tracked as roadmap 0b.6.D (public GetLeaderInfo
-	// RPC). The field is reserved so future enrichment is non-breaking.
+	// coordinatorLeader names the pod currently holding the Raft leader role,
+	// queried from the coordinator via GetLeaderInfo. Empty while no leader
+	// is elected (e.g. during bootstrap or mid-rollout re-election). Format
+	// is the pod name under the ordinal-based convention (e.g.
+	// "prod-coordinator-1"); may fall back to an IP if NodeRegistry can
+	// resolve it server-side.
 	// +optional
 	CoordinatorLeader string `json:"coordinatorLeader,omitempty"`
 
-	// lastRebalance is the timestamp of the most recent shard rebalance.
-	// Not populated in v1alpha1; tracked as roadmap 0b.6.E.
+	// lastRebalance is the timestamp of the most recent shard rebalance on
+	// this coordinator's watch. Populated from
+	// GetClusterHealthResponse.last_rebalance_unix_ms; nil when no rebalance
+	// has fired since coordinator startup.
 	// +optional
 	LastRebalance *metav1.Time `json:"lastRebalance,omitempty"`
 }

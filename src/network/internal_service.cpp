@@ -5,6 +5,7 @@
 #include "network/proto_conversions.h"
 #include "cluster/node_registry.h"
 #include "cluster/coordinator.h"
+#include "consensus/raft_node.h"
 #include "consensus/timestamp_oracle.h"
 #include "utils/logger.h"
 #include "utils/timer.h"
@@ -20,17 +21,21 @@ InternalService::InternalService(
     std::shared_ptr<compute::QueryExecutor> query_executor,
     std::shared_ptr<cluster::NodeRegistry> node_registry,
     std::shared_ptr<consensus::TimestampOracle> timestamp_oracle,
-    std::shared_ptr<cluster::Coordinator> coordinator)
+    std::shared_ptr<cluster::Coordinator> coordinator,
+    std::shared_ptr<consensus::RaftNode> raft_node)
     : shard_manager_(shard_manager),
       segment_store_(segment_store),
       query_executor_(query_executor),
       node_registry_(node_registry),
       timestamp_oracle_(timestamp_oracle),
-      coordinator_(coordinator) {
-  utils::Logger::Instance().Info("InternalService initialized (node_registry={}, timestamp_oracle={}, coordinator={})",
-                                  node_registry_ != nullptr ? "yes" : "no",
-                                  timestamp_oracle_ != nullptr ? "yes" : "no",
-                                  coordinator_ != nullptr ? "yes" : "no");
+      coordinator_(coordinator),
+      raft_node_(raft_node) {
+  utils::Logger::Instance().Info(
+      "InternalService initialized (node_registry={}, timestamp_oracle={}, coordinator={}, raft_node={})",
+      node_registry_ != nullptr ? "yes" : "no",
+      timestamp_oracle_ != nullptr ? "yes" : "no",
+      coordinator_ != nullptr ? "yes" : "no",
+      raft_node_ != nullptr ? "yes" : "no");
 }
 
 InternalService::~InternalService() {
@@ -876,6 +881,19 @@ grpc::Status InternalService::GetClusterHealth(
       response->set_cluster_status("healthy");
     }
 
+    // Populate last_rebalance_unix_ms from the coordinator's tracked state
+    // so the operator can surface status.lastRebalance (roadmap 0b.6.E).
+    // Zero when no rebalance has fired on this coordinator's watch. The
+    // value is captured at rebalance completion (wall-clock) rather than
+    // reconstructed from a monotonic clock here — that reconstruction was
+    // the old approach and broke under NTP steps and process restarts.
+    if (coordinator_) {
+      auto last = coordinator_->GetLastAutoRebalance();
+      if (last && last->completed_unix_ms > 0) {
+        response->set_last_rebalance_unix_ms(last->completed_unix_ms);
+      }
+    }
+
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
@@ -883,6 +901,41 @@ grpc::Status InternalService::GetClusterHealth(
     utils::Logger::Instance().Error("GetClusterHealth failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
+}
+
+grpc::Status InternalService::GetLeaderInfo(
+    grpc::ServerContext* /*context*/,
+    const proto::internal::GetLeaderInfoRequest* /*request*/,
+    proto::internal::GetLeaderInfoResponse* response) {
+  total_requests_++;
+
+  // SECURITY NOTE: InternalService is unauthenticated today — any in-cluster
+  // client that can reach :50051 can read leader identity and term. The
+  // network path is restricted to the gvdb namespace by default (and to
+  // NetworkPolicy-ed pods in a hardened install), but this surface should
+  // gain a token or mTLS check before Tier 1.Full ships (roadmap).
+
+  if (!raft_node_) {
+    // Single-node coordinator: no Raft, so self is the "leader" by fiat.
+    response->set_leader_id(1);
+    response->set_is_leader_self(true);
+    response->set_current_term(0);
+    return grpc::Status::OK;
+  }
+
+  int leader_id = raft_node_->GetLeaderId();
+  response->set_leader_id(leader_id);
+  response->set_is_leader_self(raft_node_->IsLeader());
+  response->set_current_term(raft_node_->GetCurrentTerm());
+
+  // leader_address is left empty by design: NodeRegistry tracks data-node
+  // and query-node endpoints (IDs 101+ / 201+), not coordinator pods
+  // (IDs 1..N). The operator reconstructs the coordinator pod name from
+  // leader_id via the ordinal convention. Blindly looking up NodeRegistry
+  // here was dead code for coordinator IDs and a latent ID-collision
+  // hazard for any future scheme that overlapped the ranges.
+
+  return grpc::Status::OK;
 }
 
 // =============================================================================

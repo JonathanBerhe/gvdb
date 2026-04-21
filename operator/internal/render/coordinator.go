@@ -105,6 +105,12 @@ func CoordinatorStatefulSet(cluster *gvdbv1alpha1.GVDBCluster, opts Options) *ap
 	}
 	applyWorkloadCommon(&podSpec, spec.WorkloadCommon, SelectorLabels(cluster, CoordinatorComponent), cluster, CoordinatorComponent)
 
+	// Partition is intentionally NOT set here. The reconciler's rollout
+	// state machine (internal/controller/rollout.go) is the sole owner of
+	// spec.updateStrategy.rollingUpdate.partition — it pins to replicas-1
+	// the moment it detects a new revision and decrements pod-by-pod as
+	// leader election confirms quorum (roadmap 0b.6.C). Setting partition
+	// from both render + state machine creates a write loop via SSA.
 	return &appsv1.StatefulSet{
 		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
 		ObjectMeta: metav1.ObjectMeta{
