@@ -21,22 +21,19 @@ import (
 )
 
 // ProxyDeployment renders the stateless proxy Deployment.
-func ProxyDeployment(cluster *gvdbv1alpha1.GVDBCluster) *appsv1.Deployment {
+func ProxyDeployment(cluster *gvdbv1alpha1.GVDBCluster, opts Options) *appsv1.Deployment {
 	spec := &cluster.Spec.Proxy
-	replicas := spec.Replicas
-	if replicas == 0 {
-		replicas = 1
-	}
+	replicas := EffectiveReplicas(cluster, ProxyComponent)
 
 	podSpec := corev1.PodSpec{
 		SecurityContext: cluster.Spec.Security.PodSecurityContext,
 		InitContainers: []corev1.Container{
-			waitForCoordinator(cluster),
-			waitForDataNode(cluster),
+			waitForCoordinator(cluster, opts),
+			waitForDataNode(cluster, opts),
 		},
 		Containers: []corev1.Container{{
 			Name:            "proxy",
-			Image:           ImageRef(cluster),
+			Image:           ImageRef(cluster, opts),
 			ImagePullPolicy: imagePullPolicy(cluster),
 			SecurityContext: cluster.Spec.Security.ContainerSecurityContext,
 			Command:         []string{"/usr/local/bin/gvdb-proxy"},
@@ -70,8 +67,11 @@ func ProxyDeployment(cluster *gvdbv1alpha1.GVDBCluster) *appsv1.Deployment {
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{MatchLabels: SelectorLabels(cluster, ProxyComponent)},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: SelectorLabels(cluster, ProxyComponent)},
-				Spec:       podSpec,
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      SelectorLabels(cluster, ProxyComponent),
+					Annotations: podTemplateAnnotations(opts),
+				},
+				Spec: podSpec,
 			},
 		},
 	}
@@ -79,13 +79,13 @@ func ProxyDeployment(cluster *gvdbv1alpha1.GVDBCluster) *appsv1.Deployment {
 
 // waitForDataNode blocks proxy startup until data-node-0 is reachable, matching
 // the Helm chart's proxy init container.
-func waitForDataNode(cluster *gvdbv1alpha1.GVDBCluster) corev1.Container {
+func waitForDataNode(cluster *gvdbv1alpha1.GVDBCluster, opts Options) corev1.Container {
 	svcName := WorkloadName(cluster, DataNodeComponent)
 	host := fmt.Sprintf("%s-0.%s.%s.svc.%s",
 		WorkloadName(cluster, DataNodeComponent), svcName, cluster.Namespace, ClusterDomain(cluster))
 	return corev1.Container{
 		Name:            "wait-for-data-node",
-		Image:           ImageRef(cluster),
+		Image:           ImageRef(cluster, opts),
 		ImagePullPolicy: imagePullPolicy(cluster),
 		Command:         []string{"sh", "-c"},
 		Args: []string{fmt.Sprintf(`echo "Waiting for data node..."

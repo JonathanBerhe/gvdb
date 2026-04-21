@@ -31,10 +31,13 @@ func PodDisruptionBudgets(cluster *gvdbv1alpha1.GVDBCluster) ([]*policyv1.PodDis
 		pdb       gvdbv1alpha1.PodDisruptionBudgetSpec
 		replicas  int32
 	}{
-		{CoordinatorComponent, cluster.Spec.Coordinator.PodDisruptionBudget, cluster.Spec.Coordinator.Replicas},
-		{DataNodeComponent, cluster.Spec.DataNode.PodDisruptionBudget, cluster.Spec.DataNode.Replicas},
-		{QueryNodeComponent, cluster.Spec.QueryNode.PodDisruptionBudget, cluster.Spec.QueryNode.Replicas},
-		{ProxyComponent, cluster.Spec.Proxy.PodDisruptionBudget, cluster.Spec.Proxy.Replicas},
+		// Compare against effective (defaulted) replicas so a CR that enables
+		// PDB and leaves replicas unset doesn't trigger a spurious validation
+		// error on the zero value.
+		{CoordinatorComponent, cluster.Spec.Coordinator.PodDisruptionBudget, EffectiveReplicas(cluster, CoordinatorComponent)},
+		{DataNodeComponent, cluster.Spec.DataNode.PodDisruptionBudget, EffectiveReplicas(cluster, DataNodeComponent)},
+		{QueryNodeComponent, cluster.Spec.QueryNode.PodDisruptionBudget, EffectiveReplicas(cluster, QueryNodeComponent)},
+		{ProxyComponent, cluster.Spec.Proxy.PodDisruptionBudget, EffectiveReplicas(cluster, ProxyComponent)},
 	}
 	for _, e := range entries {
 		if !e.pdb.Enabled {

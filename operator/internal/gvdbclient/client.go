@@ -17,6 +17,7 @@ package gvdbclient
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	pb "gvdb/operator/internal/gvdbpb"
@@ -24,6 +25,44 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// Pool caches long-lived gRPC clients keyed by target so reconciler passes
+// don't re-dial every 30s.
+type Pool struct {
+	mu      sync.Mutex
+	clients map[string]*Client
+}
+
+// NewPool returns an empty client pool. Call Close to release all underlying
+// connections (typically from the operator's shutdown path).
+func NewPool() *Pool {
+	return &Pool{clients: map[string]*Client{}}
+}
+
+// Get returns a cached client for the target, dialing lazily on first use.
+func (p *Pool) Get(target string) (*Client, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if c, ok := p.clients[target]; ok {
+		return c, nil
+	}
+	c, err := Dial(target)
+	if err != nil {
+		return nil, err
+	}
+	p.clients[target] = c
+	return c, nil
+}
+
+// Close tears down every pooled connection.
+func (p *Pool) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, c := range p.clients {
+		_ = c.Close()
+	}
+	p.clients = map[string]*Client{}
+}
 
 // Client is a thin facade over the generated VectorDBService gRPC client.
 type Client struct {
@@ -42,8 +81,11 @@ type Stats struct {
 // insecure transport. In-cluster traffic between the operator pod and GVDB
 // coordinator/proxy flows over the cluster pod network — TLS for that path
 // is a follow-up (roadmap Tier 1.Full).
-func Dial(ctx context.Context, target string) (*Client, error) {
-	// Use DialContext so the reconciler can impose its own timeout via ctx.
+//
+// Dial itself is non-blocking (grpc.NewClient establishes the connection
+// lazily on first RPC); callers apply their own context timeout on the
+// per-RPC call instead.
+func Dial(target string) (*Client, error) {
 	conn, err := grpc.NewClient(target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
@@ -51,6 +93,15 @@ func Dial(ctx context.Context, target string) (*Client, error) {
 		return nil, fmt.Errorf("grpc dial %s: %w", target, err)
 	}
 	return &Client{conn: conn, stub: pb.NewVectorDBServiceClient(conn), target: target}, nil
+}
+
+// Target returns the "host:port" the client was dialed for. The reconciler
+// uses this to cache clients by target across reconciles.
+func (c *Client) Target() string {
+	if c == nil {
+		return ""
+	}
+	return c.target
 }
 
 // Close releases the underlying gRPC connection.

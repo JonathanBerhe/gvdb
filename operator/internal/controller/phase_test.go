@@ -20,7 +20,6 @@ import (
 // TestComputePhase covers the three phase transitions: Pending (nothing
 // ready), Degraded (partial), Ready (all workloads at desired count).
 func TestComputePhase(t *testing.T) {
-	cluster := &gvdbv1alpha1.GVDBCluster{}
 
 	cases := []struct {
 		name  string
@@ -64,7 +63,7 @@ func TestComputePhase(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			phase, conds := computePhase(cluster, tc.nc)
+			phase, conds := computePhase(tc.nc)
 			if phase != tc.want {
 				t.Fatalf("phase: got %q, want %q", phase, tc.want)
 			}

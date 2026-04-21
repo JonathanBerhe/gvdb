@@ -66,18 +66,15 @@ exec /usr/local/bin/gvdb-coordinator \
 // CoordinatorStatefulSet renders the coordinator StatefulSet. Matches
 // deploy/helm/gvdb/templates/coordinator-statefulset.yaml. Uses
 // podManagementPolicy: Parallel for HA bootstrap (roadmap 0b.4).
-func CoordinatorStatefulSet(cluster *gvdbv1alpha1.GVDBCluster) *appsv1.StatefulSet {
+func CoordinatorStatefulSet(cluster *gvdbv1alpha1.GVDBCluster, opts Options) *appsv1.StatefulSet {
 	spec := &cluster.Spec.Coordinator
-	replicas := spec.Replicas
-	if replicas == 0 {
-		replicas = 1
-	}
+	replicas := EffectiveReplicas(cluster, CoordinatorComponent)
 
 	podSpec := corev1.PodSpec{
 		SecurityContext: cluster.Spec.Security.PodSecurityContext,
 		Containers: []corev1.Container{{
 			Name:            "coordinator",
-			Image:           ImageRef(cluster),
+			Image:           ImageRef(cluster, opts),
 			ImagePullPolicy: imagePullPolicy(cluster),
 			SecurityContext: cluster.Spec.Security.ContainerSecurityContext,
 			Command:         []string{"sh", "-c"},
@@ -121,12 +118,25 @@ func CoordinatorStatefulSet(cluster *gvdbv1alpha1.GVDBCluster) *appsv1.StatefulS
 			PodManagementPolicy: appsv1.ParallelPodManagement,
 			Selector:            &metav1.LabelSelector{MatchLabels: SelectorLabels(cluster, CoordinatorComponent)},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: SelectorLabels(cluster, CoordinatorComponent)},
-				Spec:       podSpec,
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      SelectorLabels(cluster, CoordinatorComponent),
+					Annotations: podTemplateAnnotations(opts),
+				},
+				Spec: podSpec,
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{dataPVC(spec.Storage, "1Gi")},
 		},
 	}
+}
+
+// podTemplateAnnotations returns the stable annotation map stamped onto every
+// workload pod template. Today only the config-hash lives here; callers pass
+// an empty map when opts.ConfigHash is unset (tests).
+func podTemplateAnnotations(opts Options) map[string]string {
+	if opts.ConfigHash == "" {
+		return nil
+	}
+	return map[string]string{ConfigHashAnnotation: opts.ConfigHash}
 }
 
 // imagePullPolicy returns the spec's pull policy, defaulting to IfNotPresent.
