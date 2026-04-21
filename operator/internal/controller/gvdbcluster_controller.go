@@ -13,6 +13,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -82,6 +83,16 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			if err := r.cleanupClusterScoped(ctx, &cluster); err != nil {
 				return ctrl.Result{}, fmt.Errorf("cleanup cluster-scoped: %w", err)
 			}
+			// Drop pooled gRPC connections for this cluster so a renamed or
+			// recreated CR doesn't inherit stale dial state.
+			targets := append(render.CoordinatorPodAddresses(&cluster),
+				fmt.Sprintf("%s.%s.svc.%s:%d",
+					render.WorkloadName(&cluster, render.ProxyComponent),
+					cluster.Namespace,
+					render.ClusterDomain(&cluster),
+					render.ProxyGRPCPort,
+				))
+			r.StatsPool.CloseClusterTargets(targets)
 			controllerutil.RemoveFinalizer(&cluster, finalizerName)
 			if err := r.Update(ctx, &cluster); err != nil {
 				return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", err)
@@ -130,11 +141,22 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+
 	// Collect status.
 	nodeCounts := r.collectNodeCounts(ctx, &cluster)
 	cluster.Status.NodeCounts = nodeCounts
 
 	r.refreshStats(ctx, &cluster)
+	leader := r.refreshCoordinatorStatus(ctx, &cluster)
+
+	// Manage coordinator rolling upgrade: partition-gated pod-by-pod drain
+	// that waits for Raft re-election AND term stability between pods
+	// (roadmap 0b.6.C). Runs after status refresh so we have the freshest
+	// leader view to gate on.
+	rolloutRequeue, rErr := r.reconcileCoordinatorRollout(ctx, &cluster, leader)
+	if rErr != nil {
+		log.Error(rErr, "coordinator rollout failed")
+	}
 
 	phase, conditions := computePhase(nodeCounts)
 	cluster.Status.Phase = phase
@@ -147,9 +169,156 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	// Requeue so status reflects ongoing convergence without waiting for a
-	// spec-change event.
-	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	// During an active rollout requeue fast so the reconciler can advance
+	// the partition without waiting 30s between decisions.
+	requeue := 30 * time.Second
+	if rolloutRequeue > 0 && rolloutRequeue < requeue {
+		requeue = rolloutRequeue
+	}
+	return ctrl.Result{RequeueAfter: requeue}, nil
+}
+
+// rolloutFieldManager is a distinct SSA field owner for the coordinator
+// StatefulSet's rollout-only fields (partition + observed-term annotation).
+// Keeping this separate from the main `gvdb-operator` owner makes the
+// ownership boundary explicit: applyObject SSA cannot accidentally stomp
+// the partition, and this path cannot touch template/spec fields.
+const rolloutFieldManager = "gvdb-operator-rollout"
+
+// reconcileCoordinatorRollout enforces a pod-by-pod, Raft-quorum-aware
+// rolling update of the coordinator StatefulSet.
+//
+// Returns a hint for how soon to requeue; 0 means "use the default". A
+// non-zero value is returned during an active rollout so the reconciler
+// advances the partition quickly (typically every 5s) rather than waiting
+// for the 30s idle tick.
+func (r *GVDBClusterReconciler) reconcileCoordinatorRollout(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
+	leader gvdbclient.LeaderInfo,
+) (time.Duration, error) {
+	log := logf.FromContext(ctx)
+
+	// Fetch the live STS — we can't rely on our in-memory render because
+	// the K8s StatefulSet controller has been updating .status.
+	var sts appsv1.StatefulSet
+	key := types.NamespacedName{
+		Namespace: cluster.Namespace,
+		Name:      render.WorkloadName(cluster, render.CoordinatorComponent),
+	}
+	if err := r.Get(ctx, key, &sts); err != nil {
+		// Likely the first reconcile; we'll pick it up next time.
+		return 0, client.IgnoreNotFound(err)
+	}
+
+	// observedTerm is the term we wrote on the last reconcile pass. It
+	// lives in an STS annotation so the rollout invariant survives an
+	// operator-pod restart — we don't need durable operator-side state.
+	observedTerm := readObservedTerm(&sts)
+
+	step := desiredPartition(&sts, leader, observedTerm)
+
+	// Mirror the step onto the condition set.
+	condStatus := metav1.ConditionFalse
+	msg := "coordinator rollout in progress"
+	if step.Done {
+		condStatus = metav1.ConditionTrue
+		msg = "coordinator StatefulSet is stable"
+	}
+	meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+		Type:    gvdbv1alpha1.ConditionCoordinatorRolloutReady,
+		Status:  condStatus,
+		Reason:  step.Reason,
+		Message: msg,
+	})
+
+	// Write partition + observed-term together via SSA under a distinct
+	// field owner. Using SSA here (a) keeps field ownership explicit so
+	// applyObject can't accidentally stomp the partition, and (b) is safe
+	// against concurrent partial edits from a user kubectl-patching the
+	// STS by hand — SSA resolves per-field.
+	needsWrite := r.rolloutNeedsWrite(&sts, step, leader.CurrentTerm, observedTerm)
+	if needsWrite {
+		patch := rolloutPatch(&sts, step.Partition, leader.CurrentTerm)
+		if err := r.Patch(ctx, patch, client.Apply,
+			client.FieldOwner(rolloutFieldManager),
+			client.ForceOwnership,
+		); err != nil {
+			return 0, fmt.Errorf("SSA apply rollout fragment: %w", err)
+		}
+		log.Info("coordinator rollout partition advanced",
+			"partition", step.Partition, "term", leader.CurrentTerm, "reason", step.Reason)
+	}
+
+	if step.Done {
+		return 0, nil
+	}
+	// Active rollout: requeue fast.
+	return 5 * time.Second, nil
+}
+
+// readObservedTerm reads the operator-observed Raft term from the STS
+// annotation, zero if absent or malformed.
+func readObservedTerm(sts *appsv1.StatefulSet) uint64 {
+	if sts.Annotations == nil {
+		return 0
+	}
+	raw := sts.Annotations[RolloutObservedTermAnnotation]
+	if raw == "" {
+		return 0
+	}
+	v, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// rolloutNeedsWrite decides whether an SSA apply of partition+term is
+// required this reconcile. Avoids a no-op Patch round-trip in the common
+// stable case.
+func (r *GVDBClusterReconciler) rolloutNeedsWrite(
+	sts *appsv1.StatefulSet, step RolloutStep, newTerm, observedTerm uint64,
+) bool {
+	currentPartition := int32(-1) // -1 = "no partition field set"
+	if rs := sts.Spec.UpdateStrategy.RollingUpdate; rs != nil && rs.Partition != nil {
+		currentPartition = *rs.Partition
+	}
+	desiredPartitionVal := int32(-1)
+	if step.Partition != nil {
+		desiredPartitionVal = *step.Partition
+	}
+	if desiredPartitionVal != currentPartition {
+		return true
+	}
+	// Only record the term when we have one (skip zero).
+	return newTerm != 0 && newTerm != observedTerm
+}
+
+// rolloutPatch builds the minimal SSA fragment the rollout owns.
+func rolloutPatch(
+	sts *appsv1.StatefulSet, partition *int32, term uint64,
+) *appsv1.StatefulSet {
+	p := &appsv1.StatefulSet{
+		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sts.Name,
+			Namespace: sts.Namespace,
+		},
+	}
+	if partition != nil {
+		p.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{
+			Type: appsv1.RollingUpdateStatefulSetStrategyType,
+			RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{
+				Partition: partition,
+			},
+		}
+	}
+	if term != 0 {
+		p.Annotations = map[string]string{
+			RolloutObservedTermAnnotation: strconv.FormatUint(term, 10),
+		}
+	}
+	return p
 }
 
 // applyObject Server-Side-Applies the rendered object. SSA is idempotent
@@ -291,6 +460,66 @@ func (r *GVDBClusterReconciler) refreshStats(
 		Type: "StatsAvailable", Status: metav1.ConditionTrue,
 		Reason: "Fresh", Message: "last GetStats RPC succeeded",
 	})
+}
+
+// refreshCoordinatorStatus asks any live coordinator pod for leader info
+// + last-rebalance timestamp and populates the corresponding CR status
+// fields. Fall-through dial across pod-0, pod-1, ... so the reconciler
+// keeps working while an individual coordinator pod is being rolled
+// (roadmap 0b.6.D + 0b.6.E).
+//
+// Returns the LeaderInfo observed from whichever coordinator answered
+// first (zero value if no pod responded). Callers — specifically the
+// rollout state machine — use this for the quorum-aware advance gate.
+//
+// Note: we trust the first-responding coordinator's view of the leader.
+// Under a fresh partition, coordinators could disagree; Raft guarantees
+// convergence but not within one reconcile. For diagnostic reads a
+// majority quorum query would be more rigorous — kept simple here
+// because the rollout gate is belt-and-braces, not the only safety net.
+func (r *GVDBClusterReconciler) refreshCoordinatorStatus(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
+) gvdbclient.LeaderInfo {
+	log := logf.FromContext(ctx)
+
+	for _, target := range render.CoordinatorPodAddresses(cluster) {
+		cc, err := r.StatsPool.GetCoordinator(target)
+		if err != nil {
+			log.V(1).Info("coordinator dial failed; trying next", "target", target, "err", err)
+			continue
+		}
+
+		// Leader info is the must-have; we surface it even if health fails.
+		leader, lErr := cc.FetchLeaderInfo(ctx)
+		if lErr == nil {
+			if leader.HasLeader() {
+				// Prefer server-resolved name; fall back to ordinal convention.
+				name := leader.LeaderAddress
+				if name == "" {
+					name = render.CoordinatorPodName(cluster, leader.LeaderID)
+				}
+				cluster.Status.CoordinatorLeader = name
+			} else {
+				cluster.Status.CoordinatorLeader = ""
+			}
+		}
+
+		// Cluster health carries the last-rebalance timestamp.
+		if health, hErr := cc.FetchClusterHealth(ctx); hErr == nil {
+			if health.LastRebalanceUnixMs > 0 {
+				t := metav1.NewTime(time.UnixMilli(health.LastRebalanceUnixMs))
+				cluster.Status.LastRebalance = &t
+			}
+		}
+
+		// Stop on first pod that answered leader info successfully — any
+		// one coordinator knows the current leader.
+		if lErr == nil {
+			return leader
+		}
+	}
+	log.V(1).Info("all coordinator pods unreachable; leader status unchanged")
+	return gvdbclient.LeaderInfo{}
 }
 
 // computePhase derives .status.phase and the standard condition set from

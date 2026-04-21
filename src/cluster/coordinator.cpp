@@ -836,6 +836,14 @@ void Coordinator::DetectNewDataNodes() {
       auto result = ExecuteRebalancePlan(core::CollectionId(0));
       LastAutoRebalance snapshot;
       snapshot.completed_at = std::chrono::steady_clock::now();
+      // Capture wall time at completion so downstream readers (the
+      // operator's GVDBCluster.status.lastRebalance) don't have to
+      // reconstruct it from a monotonic clock — a conversion that breaks
+      // under NTP steps and silently drops data across process restarts.
+      snapshot.completed_unix_ms =
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::system_clock::now().time_since_epoch())
+              .count();
       if (result.ok()) {
         snapshot.status = absl::OkStatus();
         snapshot.moves = *result;

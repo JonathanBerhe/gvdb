@@ -83,6 +83,10 @@ class RaftNode {
   // Leadership (in single-node mode, always true after Start())
   bool IsLeader() const;
   int GetLeaderId() const;
+  // Current Raft term as observed by this server. Returns 0 before NuRaft
+  // has started or in single-node mode. Exposed so operators can detect
+  // term stability across reconciles (roadmap 0b.6.C-hardening follow-up).
+  uint64_t GetCurrentTerm() const;
   int GetNodeId() const { return config_.node_id; }
 
   // Metadata operations (go through consensus)
