@@ -215,7 +215,17 @@ class Coordinator {
   // a rebalance actually fired without racing on the detached worker.
   struct LastAutoRebalance {
     absl::Status status;
+    // Monotonic timestamp — stable across small wall-clock jumps but reset
+    // per-process. Use `completed_unix_ms` for anything that needs a wall
+    // time or needs to survive (not really; still process-local) an
+    // exporter restart.
     std::chrono::steady_clock::time_point completed_at;
+    // Wall-clock Unix-ms captured at rebalance completion. Stable against
+    // NTP adjustments AFTER the fact but of course reflects whatever time
+    // the coordinator believed it was at capture. Zero when unset.
+    // Exposed to operators via InternalService.GetClusterHealth so they
+    // don't have to reconstruct wall time from steady_clock at read.
+    int64_t completed_unix_ms = 0;
     uint32_t moves = 0;
   };
   std::optional<LastAutoRebalance> GetLastAutoRebalance() const;
