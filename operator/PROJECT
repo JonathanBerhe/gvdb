@@ -3,7 +3,7 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 cliVersion: 4.13.1
-domain: gvdb.io
+domain: io
 layout:
 - go.kubebuilder.io/v4
 projectName: gvdb-operator
@@ -13,7 +13,7 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: gvdb.io
+  domain: io
   group: gvdb
   kind: GVDBCluster
   path: gvdb/operator/api/v1alpha1
