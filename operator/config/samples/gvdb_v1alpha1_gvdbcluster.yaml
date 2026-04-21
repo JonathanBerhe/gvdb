@@ -4,6 +4,31 @@ metadata:
   labels:
     app.kubernetes.io/name: gvdb-operator
     app.kubernetes.io/managed-by: kustomize
-  name: gvdbcluster-sample
+  name: sample
 spec:
-  # TODO(user): Add fields here
+  image:
+    repository: gvdb
+    # Tag is optional — falls back to the operator's release version.
+    tag: "0.20.0"
+    pullPolicy: IfNotPresent
+  coordinator:
+    # 1 for dev / single-node; 3 for Raft HA.
+    replicas: 1
+    storage:
+      size: 1Gi
+  dataNode:
+    replicas: 2
+    memoryLimitGb: 4
+    terminationGracePeriodSeconds: 60
+    storage:
+      size: 5Gi
+  queryNode:
+    replicas: 1
+    memoryLimitGb: 4
+    storage:
+      size: 2Gi
+  proxy:
+    replicas: 1
+    service:
+      type: ClusterIP
+      port: 50050
