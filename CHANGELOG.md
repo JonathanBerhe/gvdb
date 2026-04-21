@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.21.0](https://github.com/JonathanBerhe/gvdb/compare/v0.20.1...v0.21.0) (2026-04-21)
+
+
+### Features
+
+* **operator:** Go-native renderer for coordinator/data-node/query-node/proxy + services + ConfigMap ([0c85714](https://github.com/JonathanBerhe/gvdb/commit/0c8571467ec522b86d367d6cea2591348303005e))
+* **operator:** GVDBCluster CRD + reconciler for Tier 0b.6 (first slice) ([a0858eb](https://github.com/JonathanBerhe/gvdb/commit/a0858ebec3891a469daa2142350c4d8f42c780ad))
+* **operator:** GVDBCluster reconciler + status from VectorDBService gRPC ([60281a4](https://github.com/JonathanBerhe/gvdb/commit/60281a49069be4d4e38d9b98dd0f7e2ae2142f98))
+* **operator:** GVDBCluster v1alpha1 type and CRD manifest ([49bf324](https://github.com/JonathanBerhe/gvdb/commit/49bf324e3cb39d79c4d472bdcf9c34c1a4942ceb))
+* **operator:** hardening renderers (PDB, ServiceAccount, PriorityClass, anti-affinity) ([28cd447](https://github.com/JonathanBerhe/gvdb/commit/28cd44726812ab42c65e75f5f94bb47cfb5e361f))
+
+
+### Bug Fixes
+
+* **operator:** SSA + PriorityClass cleanup + stable conditions + render consolidation ([3f4ad7d](https://github.com/JonathanBerhe/gvdb/commit/3f4ad7d3f596230b5f5aaeb83576c8c9adbc9f96))
+
 ## [0.20.1](https://github.com/JonathanBerhe/gvdb/compare/v0.20.0...v0.20.1) (2026-04-21)
 
 
