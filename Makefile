@@ -120,17 +120,33 @@ helm-uninstall-operator:
 	helm uninstall $(HELM_OPERATOR_RELEASE) -n $(HELM_OPERATOR_NAMESPACE)
 
 # Regenerate the Go protobuf stubs used by both test/e2e and the operator
-# so they never drift from proto/vectordb.proto.
+# so they never drift from proto/*.proto. Covers vectordb.proto (public
+# VectorDBService) and internal.proto (InternalService for operator's
+# GetLeaderInfo + GetClusterHealth calls — roadmap 0b.6.C/D/E).
 generate-operator-pb:
 	@echo "Regenerating Go protobuf stubs for test/e2e and operator..."
+	@mkdir -p /tmp/gvdb-pbgen
 	@cd proto && protoc --go_out=../test/e2e --go_opt=paths=source_relative \
 		--go-grpc_out=../test/e2e --go-grpc_opt=paths=source_relative vectordb.proto
+	@cd proto && protoc \
+		--go_out=/tmp/gvdb-pbgen --go_opt=paths=source_relative \
+		--go-grpc_out=/tmp/gvdb-pbgen --go-grpc_opt=paths=source_relative \
+		--go_opt=Minternal.proto=gvdb/operator/internal/gvdbpb \
+		--go_opt=Mvectordb.proto=gvdb/operator/internal/gvdbpb \
+		--go-grpc_opt=Minternal.proto=gvdb/operator/internal/gvdbpb \
+		--go-grpc_opt=Mvectordb.proto=gvdb/operator/internal/gvdbpb \
+		internal.proto
 	@cp test/e2e/pb/vectordb.pb.go $(OPERATOR_DIR)/internal/gvdbpb/vectordb.pb.go
 	@cp test/e2e/pb/vectordb_grpc.pb.go $(OPERATOR_DIR)/internal/gvdbpb/vectordb_grpc.pb.go
+	@cp /tmp/gvdb-pbgen/internal.pb.go $(OPERATOR_DIR)/internal/gvdbpb/internal.pb.go
+	@cp /tmp/gvdb-pbgen/internal_grpc.pb.go $(OPERATOR_DIR)/internal/gvdbpb/internal_grpc.pb.go
 	@sed -i.bak 's|^package pb$$|package gvdbpb|' \
 		$(OPERATOR_DIR)/internal/gvdbpb/vectordb.pb.go \
-		$(OPERATOR_DIR)/internal/gvdbpb/vectordb_grpc.pb.go
+		$(OPERATOR_DIR)/internal/gvdbpb/vectordb_grpc.pb.go \
+		$(OPERATOR_DIR)/internal/gvdbpb/internal.pb.go \
+		$(OPERATOR_DIR)/internal/gvdbpb/internal_grpc.pb.go
 	@rm $(OPERATOR_DIR)/internal/gvdbpb/*.bak
+	@rm -rf /tmp/gvdb-pbgen
 
 # ---------------------------------------------------------------------------
 # Docker
