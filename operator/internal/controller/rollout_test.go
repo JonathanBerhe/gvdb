@@ -40,15 +40,15 @@ func mkSTS(replicas int32, partition *int32, current, update string, updatedRepl
 
 func TestDesiredPartition_Stable(t *testing.T) {
 	// updateRevision == currentRevision → rollout is done/not in progress.
-	// Partition should be cleared (nil) so the StatefulSet goes back to its
-	// natural state.
+	// Partition is parked at replicas-1 so the NEXT rollout pins safely
+	// before K8s can roll multiple pods in parallel.
 	sts := mkSTS(3, ptrI32(2), "r1", "r1", 3)
 	step := desiredPartition(sts, gvdbclient.LeaderInfo{LeaderID: 1})
 	if !step.Done {
 		t.Fatalf("stable STS: expected Done=true")
 	}
-	if step.Partition != nil {
-		t.Fatalf("stable STS: expected partition=nil (unpin), got %v", *step.Partition)
+	if step.Partition == nil || *step.Partition != 2 {
+		t.Fatalf("stable STS: expected partition=replicas-1=2 (parked), got %v", step.Partition)
 	}
 	if step.Reason != ReasonStable {
 		t.Fatalf("stable STS: reason %q", step.Reason)
@@ -143,13 +143,16 @@ func TestDesiredPartition_NoRollingUpdateStrategy(t *testing.T) {
 	}
 }
 
-func TestDesiredPartition_SingleReplicaRollout(t *testing.T) {
-	// 1 replica, updateRevision differs: pinning to replicas-1=0 means
-	// "update the only pod". No quorum to preserve; we don't try to gate.
+func TestDesiredPartition_SingleReplicaNotManaged(t *testing.T) {
+	// 1 replica: no quorum to preserve, so the state machine leaves
+	// partition untouched (Done=true, Partition=nil).
 	sts := mkSTS(1, nil, "r1", "r2", 0)
 	step := desiredPartition(sts, gvdbclient.LeaderInfo{LeaderID: 1})
-	if step.Partition == nil || *step.Partition != 0 {
-		t.Fatalf("expected partition=0 for 1-replica, got %v", step.Partition)
+	if !step.Done {
+		t.Fatalf("1-replica: expected Done=true")
+	}
+	if step.Partition != nil {
+		t.Fatalf("1-replica: expected partition=nil (unmanaged), got %v", *step.Partition)
 	}
 }
 
@@ -193,10 +196,11 @@ func TestDesiredPartition_WalkThroughThreeReplicaRollout(t *testing.T) {
 		t.Fatalf("step 5: %v done=%v", st5.Partition, st5.Done)
 	}
 
-	// 6. Pod-0 done (updatedReplicas=3), revisions match → clear partition.
+	// 6. Pod-0 done (updatedReplicas=3), revisions match → park partition
+	// back at replicas-1 so the NEXT rollout starts safely.
 	s6 := mkSTS(replicas, ptrI32(0), "r2", "r2", 3)
 	st6 := desiredPartition(s6, gvdbclient.LeaderInfo{LeaderID: 1})
-	if !st6.Done || st6.Partition != nil {
-		t.Fatalf("step 6: want done+unpin, got partition=%v done=%v", st6.Partition, st6.Done)
+	if !st6.Done || st6.Partition == nil || *st6.Partition != 2 {
+		t.Fatalf("step 6: want done+parked-at-2, got partition=%v done=%v", st6.Partition, st6.Done)
 	}
 }

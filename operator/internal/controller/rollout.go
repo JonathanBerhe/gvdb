@@ -47,31 +47,40 @@ const (
 //
 // Strategy (roadmap 0b.6.C):
 //
-//  1. If updateRevision == currentRevision, the StatefulSet is stable →
-//     clear partition.
-//  2. Otherwise a rollout is in flight. If partition is unset (or 0) at
-//     the START of a rollout, clamp it to replicas-1 so only the
-//     highest-ordinal pod updates first.
-//  3. Wait until updatedReplicas reaches what the current partition
-//     permits (replicas - partition).
-//  4. Once enough pods have caught up, gate on leader: don't decrement
-//     partition unless a Raft leader is currently elected.
-//  5. When ready to advance, decrement partition by 1. At partition==0,
-//     the final pod starts updating; once updateRevision==currentRevision
-//     we unpin.
+//  1. The render layer pre-pins partition to replicas-1 on every apply so
+//     K8s never rolls multiple pods concurrently when a new revision ships
+//     — we just need to decrement it pod-by-pod, each time verifying a
+//     Raft leader is present.
+//  2. If updateRevision == currentRevision, the StatefulSet is stable →
+//     ensure partition is parked at replicas-1, ready for the next
+//     rollout.
+//  3. Otherwise wait until updatedReplicas reaches what the current
+//     partition permits (replicas - partition), then gate on leader
+//     before decrementing.
+//  4. When ready to advance, decrement partition by 1. At partition==0,
+//     the final pod starts updating; we keep partition at 0 until
+//     updateRevision==currentRevision, then snap it back up to
+//     replicas-1 for the next rollout.
 //
 // The function takes pointers for testability (tests can construct a
 // StatefulSet literal without reaching for the Scheme or deep-copies).
 func desiredPartition(sts *appsv1.StatefulSet, leader gvdbclient.LeaderInfo) RolloutStep {
-	// No rollout in progress — clear any partition we left behind.
-	if sts.Status.UpdateRevision == "" ||
-		sts.Status.UpdateRevision == sts.Status.CurrentRevision {
-		return RolloutStep{Partition: nil, Done: true, Reason: ReasonStable}
-	}
-
 	replicas := int32(1)
 	if sts.Spec.Replicas != nil {
 		replicas = *sts.Spec.Replicas
+	}
+
+	// For single-replica there's no quorum to preserve; the render layer
+	// leaves partition unset and we don't manage it.
+	if replicas <= 1 {
+		return RolloutStep{Partition: nil, Done: true, Reason: ReasonStable}
+	}
+
+	// Stable: park partition at replicas-1 so the next rollout is safe.
+	if sts.Status.UpdateRevision == "" ||
+		sts.Status.UpdateRevision == sts.Status.CurrentRevision {
+		parked := replicas - 1
+		return RolloutStep{Partition: &parked, Done: true, Reason: ReasonStable}
 	}
 
 	currentPartition := int32(0)
@@ -79,15 +88,10 @@ func desiredPartition(sts *appsv1.StatefulSet, leader gvdbclient.LeaderInfo) Rol
 		currentPartition = *rs.Partition
 	}
 
-	// Start-of-rollout: default partition is 0, meaning "update all pods".
-	// Pin to replicas-1 so only the highest-ordinal pod rolls first.
-	// We detect this by: rollout is in flight (passed check 1) but no pods
-	// are yet on the new revision AND partition is at its default.
+	// Recover from a misconfigured STS (partition missing or 0 at the very
+	// start of a rollout). Pin to replicas-1 so only the top pod rolls.
 	if currentPartition == 0 && sts.Status.UpdatedReplicas == 0 {
 		p := replicas - 1
-		if p < 0 {
-			p = 0
-		}
 		return RolloutStep{Partition: &p, Done: false, Reason: ReasonPinningForRollout}
 	}
 
