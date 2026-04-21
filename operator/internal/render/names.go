@@ -165,6 +165,31 @@ func CoordinatorAddress(cluster *gvdbv1alpha1.GVDBCluster) string {
 	return fmt.Sprintf("%s:%d", podFQDN(cluster, CoordinatorComponent, 0), CoordinatorGRPCPort)
 }
 
+// CoordinatorPodAddresses returns every coordinator pod's gRPC address
+// indexed by ordinal. The reconciler falls through the list when asking a
+// single coordinator for leader info: pod-0 may be the one being rolled,
+// so we need a way to try pod-1, pod-2, ... without giving up.
+func CoordinatorPodAddresses(cluster *gvdbv1alpha1.GVDBCluster) []string {
+	replicas := EffectiveReplicas(cluster, CoordinatorComponent)
+	out := make([]string, 0, replicas)
+	for i := int32(0); i < replicas; i++ {
+		out = append(out, fmt.Sprintf("%s:%d",
+			podFQDN(cluster, CoordinatorComponent, i), CoordinatorGRPCPort))
+	}
+	return out
+}
+
+// CoordinatorPodName returns the K8s pod name for a Raft leader id under
+// our ordinal-based convention (pod ordinal = leader_id - 1). Used to
+// render status.coordinatorLeader when the server-side RPC can't resolve
+// the address itself.
+func CoordinatorPodName(cluster *gvdbv1alpha1.GVDBCluster, leaderID int32) string {
+	if leaderID <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s-%d", WorkloadName(cluster, CoordinatorComponent), leaderID-1)
+}
+
 // CoordinatorRaftPeers builds the "id:host:port" Raft peer list that seeds
 // the multi-node cluster config on every coordinator pod. Matches the
 // gvdb.coordinator.raftPeers Helm helper (see roadmap 0b.4).

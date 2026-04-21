@@ -27,16 +27,21 @@ import (
 )
 
 // Pool caches long-lived gRPC clients keyed by target so reconciler passes
-// don't re-dial every 30s.
+// don't re-dial every 30s. Holds both proxy-fronted VectorDBService clients
+// and coordinator-targeted InternalService clients.
 type Pool struct {
-	mu      sync.Mutex
-	clients map[string]*Client
+	mu           sync.Mutex
+	clients      map[string]*Client
+	coordinators map[string]*CoordinatorClient
 }
 
 // NewPool returns an empty client pool. Call Close to release all underlying
 // connections (typically from the operator's shutdown path).
 func NewPool() *Pool {
-	return &Pool{clients: map[string]*Client{}}
+	return &Pool{
+		clients:      map[string]*Client{},
+		coordinators: map[string]*CoordinatorClient{},
+	}
 }
 
 // Get returns a cached client for the target, dialing lazily on first use.
@@ -54,6 +59,23 @@ func (p *Pool) Get(target string) (*Client, error) {
 	return c, nil
 }
 
+// GetCoordinator returns a cached InternalService client for the target,
+// dialing lazily on first use. Callers pass a coordinator pod FQDN like
+// "prod-coordinator-0.prod-coordinator.gvdb.svc.cluster.local:50051".
+func (p *Pool) GetCoordinator(target string) (*CoordinatorClient, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if c, ok := p.coordinators[target]; ok {
+		return c, nil
+	}
+	c, err := DialCoordinator(target)
+	if err != nil {
+		return nil, err
+	}
+	p.coordinators[target] = c
+	return c, nil
+}
+
 // Close tears down every pooled connection.
 func (p *Pool) Close() {
 	p.mu.Lock()
@@ -61,13 +83,31 @@ func (p *Pool) Close() {
 	for _, c := range p.clients {
 		_ = c.Close()
 	}
+	for _, c := range p.coordinators {
+		_ = c.Close()
+	}
 	p.clients = map[string]*Client{}
+	p.coordinators = map[string]*CoordinatorClient{}
 }
 
 // Client is a thin facade over the generated VectorDBService gRPC client.
+// Used for proxy-fronted calls (GetStats / ListCollections). For internal
+// RPCs (GetLeaderInfo / GetClusterHealth) dialed against a coordinator pod
+// directly, use CoordinatorClient.
 type Client struct {
 	conn   *grpc.ClientConn
 	stub   pb.VectorDBServiceClient
+	target string
+}
+
+// CoordinatorClient wraps InternalService against a specific coordinator
+// endpoint. The operator's rolling-upgrade state machine needs to keep
+// asking "is there a leader?" even while the coordinator it asks first is
+// being rolled — callers should cycle through CoordinatorClients dialed to
+// different pods via Pool.GetCoordinator.
+type CoordinatorClient struct {
+	conn   *grpc.ClientConn
+	stub   pb.InternalServiceClient
 	target string
 }
 
@@ -102,6 +142,91 @@ func (c *Client) Target() string {
 		return ""
 	}
 	return c.target
+}
+
+// DialCoordinator opens an InternalService connection to a coordinator pod.
+func DialCoordinator(target string) (*CoordinatorClient, error) {
+	conn, err := grpc.NewClient(target,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("grpc dial %s: %w", target, err)
+	}
+	return &CoordinatorClient{
+		conn:   conn,
+		stub:   pb.NewInternalServiceClient(conn),
+		target: target,
+	}, nil
+}
+
+// Close releases the underlying gRPC connection.
+func (c *CoordinatorClient) Close() error {
+	if c == nil || c.conn == nil {
+		return nil
+	}
+	return c.conn.Close()
+}
+
+// Target returns the "host:port" this coordinator client was dialed for.
+func (c *CoordinatorClient) Target() string {
+	if c == nil {
+		return ""
+	}
+	return c.target
+}
+
+// LeaderInfo is the reconciler-relevant subset of GetLeaderInfoResponse.
+type LeaderInfo struct {
+	// LeaderID is the Raft node id of the current leader. <= 0 when unknown.
+	LeaderID int32
+	// LeaderAddress is a best-effort resolved pod-name or endpoint. Empty
+	// when the coordinator couldn't resolve it.
+	LeaderAddress string
+	// IsLeaderSelf is true when the coordinator that answered is itself the
+	// current leader (useful for debugging, not used by the state machine).
+	IsLeaderSelf bool
+}
+
+// HasLeader reports whether the response names a live leader. The rollout
+// gate uses this: "safe to drain the next pod" iff HasLeader.
+func (l LeaderInfo) HasLeader() bool { return l.LeaderID > 0 }
+
+// FetchLeaderInfo asks the coordinator who the current Raft leader is.
+// Bounded timeout keeps a reconcile pass from blocking on a pod that's
+// mid-rollout.
+func (c *CoordinatorClient) FetchLeaderInfo(ctx context.Context) (LeaderInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	resp, err := c.stub.GetLeaderInfo(ctx, &pb.GetLeaderInfoRequest{})
+	if err != nil {
+		return LeaderInfo{}, fmt.Errorf("get leader info: %w", err)
+	}
+	return LeaderInfo{
+		LeaderID:      resp.GetLeaderId(),
+		LeaderAddress: resp.GetLeaderAddress(),
+		IsLeaderSelf:  resp.GetIsLeaderSelf(),
+	}, nil
+}
+
+// ClusterHealth is the reconciler-relevant subset of GetClusterHealthResponse.
+type ClusterHealth struct {
+	ClusterStatus       string
+	LastRebalanceUnixMs int64
+}
+
+// FetchClusterHealth returns coordinator-reported cluster health, including
+// the last-rebalance timestamp used to populate status.lastRebalance.
+func (c *CoordinatorClient) FetchClusterHealth(ctx context.Context) (ClusterHealth, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	resp, err := c.stub.GetClusterHealth(ctx, &pb.GetClusterHealthRequest{})
+	if err != nil {
+		return ClusterHealth{}, fmt.Errorf("get cluster health: %w", err)
+	}
+	return ClusterHealth{
+		ClusterStatus:       resp.GetClusterStatus(),
+		LastRebalanceUnixMs: resp.GetLastRebalanceUnixMs(),
+	}, nil
 }
 
 // Close releases the underlying gRPC connection.

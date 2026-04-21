@@ -135,6 +135,7 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	cluster.Status.NodeCounts = nodeCounts
 
 	r.refreshStats(ctx, &cluster)
+	r.refreshCoordinatorStatus(ctx, &cluster)
 
 	phase, conditions := computePhase(nodeCounts)
 	cluster.Status.Phase = phase
@@ -291,6 +292,55 @@ func (r *GVDBClusterReconciler) refreshStats(
 		Type: "StatsAvailable", Status: metav1.ConditionTrue,
 		Reason: "Fresh", Message: "last GetStats RPC succeeded",
 	})
+}
+
+// refreshCoordinatorStatus asks any live coordinator pod for leader info
+// + last-rebalance timestamp and populates the corresponding CR status
+// fields. Fall-through dial across pod-0, pod-1, ... so the reconciler
+// keeps working while an individual coordinator pod is being rolled
+// (roadmap 0b.6.D + 0b.6.E).
+func (r *GVDBClusterReconciler) refreshCoordinatorStatus(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
+) {
+	log := logf.FromContext(ctx)
+
+	for _, target := range render.CoordinatorPodAddresses(cluster) {
+		cc, err := r.StatsPool.GetCoordinator(target)
+		if err != nil {
+			log.V(1).Info("coordinator dial failed; trying next", "target", target, "err", err)
+			continue
+		}
+
+		// Leader info is the must-have; we surface it even if health fails.
+		leader, lErr := cc.FetchLeaderInfo(ctx)
+		if lErr == nil {
+			if leader.HasLeader() {
+				// Prefer server-resolved name; fall back to ordinal convention.
+				name := leader.LeaderAddress
+				if name == "" {
+					name = render.CoordinatorPodName(cluster, leader.LeaderID)
+				}
+				cluster.Status.CoordinatorLeader = name
+			} else {
+				cluster.Status.CoordinatorLeader = ""
+			}
+		}
+
+		// Cluster health carries the last-rebalance timestamp.
+		if health, hErr := cc.FetchClusterHealth(ctx); hErr == nil {
+			if health.LastRebalanceUnixMs > 0 {
+				t := metav1.NewTime(time.UnixMilli(health.LastRebalanceUnixMs))
+				cluster.Status.LastRebalance = &t
+			}
+		}
+
+		// Stop on first pod that answered leader info successfully — any
+		// one coordinator knows the current leader.
+		if lErr == nil {
+			return
+		}
+	}
+	log.V(1).Info("all coordinator pods unreachable; leader status unchanged")
 }
 
 // computePhase derives .status.phase and the standard condition set from
