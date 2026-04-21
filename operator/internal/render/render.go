@@ -17,11 +17,10 @@ import (
 
 // All renders every Kubernetes object for the given GVDBCluster. The
 // reconciler takes this slice, stamps OwnerReferences on each object, and
-// applies them via Server-Side Apply. Hardening primitives (PDB, SA,
-// PriorityClass) are not yet wired — they land in the next commit alongside
-// the full anti-affinity builder.
-func All(cluster *gvdbv1alpha1.GVDBCluster) []client.Object {
-	return []client.Object{
+// applies them via Server-Side Apply. Returns an error only when a CR
+// configuration is internally inconsistent (e.g. PDB minAvailable > replicas).
+func All(cluster *gvdbv1alpha1.GVDBCluster) ([]client.Object, error) {
+	objs := []client.Object{
 		ConfigMap(cluster),
 		CoordinatorService(cluster),
 		DataNodeService(cluster),
@@ -32,4 +31,18 @@ func All(cluster *gvdbv1alpha1.GVDBCluster) []client.Object {
 		QueryNodeStatefulSet(cluster),
 		ProxyDeployment(cluster),
 	}
+	for _, sa := range ServiceAccounts(cluster) {
+		objs = append(objs, sa)
+	}
+	pdbs, err := PodDisruptionBudgets(cluster)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range pdbs {
+		objs = append(objs, p)
+	}
+	for _, pc := range PriorityClasses(cluster) {
+		objs = append(objs, pc)
+	}
+	return objs, nil
 }
