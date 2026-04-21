@@ -292,6 +292,39 @@ message GetClusterHealthResponse {
   uint32 healthy_shards = 3;
   uint32 degraded_shards = 4;
   string cluster_status = 5;  // "healthy", "degraded", "critical"
+
+  // Unix-ms timestamp of the most recently completed auto-rebalance. Zero
+  // when no rebalance has happened on this coordinator's watch (roadmap
+  // 0b.6.E). Sourced from Coordinator::GetLastAutoRebalance().
+  int64 last_rebalance_unix_ms = 6;
+}
+
+// ============================================================================
+// Leader info (All Nodes → Coordinator; operator → Coordinator)
+// ============================================================================
+//
+// Populates GVDBCluster.status.coordinatorLeader and gates the operator's
+// Raft-quorum-aware rolling-upgrade state machine (roadmap 0b.6.D + 0b.6.C).
+// Any coordinator pod can answer this — they all track the current leader
+// via Raft — so the operator can fall through to a live pod if the one it
+// asks first is being rolled.
+
+message GetLeaderInfoRequest {}
+
+message GetLeaderInfoResponse {
+  // Raft node id of the current leader. -1 or 0 when unknown / no leader.
+  int32 leader_id = 1;
+
+  // Best-effort resolved "pod-name" (or endpoint) for the leader. Empty when
+  // the coordinator cannot resolve the id to a known address (e.g. during
+  // startup before NodeRegistry has seen the leader pod).
+  string leader_address = 2;
+
+  // Current Raft term seen by the responding coordinator.
+  uint64 current_term = 3;
+
+  // True when the responding coordinator is itself the leader.
+  bool is_leader_self = 4;
 }
 
 // ============================================================================
@@ -340,6 +373,9 @@ service InternalService {
   // Health monitoring (All Nodes → Coordinator)
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
   rpc GetClusterHealth(GetClusterHealthRequest) returns (GetClusterHealthResponse);
+
+  // Leader info (Operator → Coordinator; roadmap 0b.6.D)
+  rpc GetLeaderInfo(GetLeaderInfoRequest) returns (GetLeaderInfoResponse);
 
   // Timestamp oracle (All Nodes → Coordinator)
   rpc GetTimestamp(GetTimestampRequest) returns (GetTimestampResponse);
