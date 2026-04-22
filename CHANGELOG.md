@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.22.0](https://github.com/JonathanBerhe/gvdb/compare/v0.21.0...v0.22.0) (2026-04-21)
+
+
+### Features
+
+* **consensus+cluster:** expose leader info and last-rebalance timestamp ([39c3fd2](https://github.com/JonathanBerhe/gvdb/commit/39c3fd2a60e71b7305129912b7e33663c201320e))
+* **operator:** populate status.coordinatorLeader and status.lastRebalance ([19256ac](https://github.com/JonathanBerhe/gvdb/commit/19256ac2819a8fa7c5ed16f386e58bb5e6e48aa8))
+* **operator:** production-safe rollout + leader/rebalance status ([14a18d3](https://github.com/JonathanBerhe/gvdb/commit/14a18d3cef975f19ece2c7f1f2a5f430f3ae50b8))
+* **operator:** Raft-quorum-aware coordinator rolling upgrade via partition ([efa3528](https://github.com/JonathanBerhe/gvdb/commit/efa3528454fd90442ab38adc24639cd5cbc53847))
+* **proto:** GetLeaderInfo RPC + lastRebalance field on cluster health ([73fb9ca](https://github.com/JonathanBerhe/gvdb/commit/73fb9ca98aab5ac47bea551f62fa9a1a59d3b543))
+
+
+### Bug Fixes
+
+* **operator:** review fixups — durable lastRebalance, leader-guard, current_term, SSA partition, term-stability gate ([64ca350](https://github.com/JonathanBerhe/gvdb/commit/64ca35023ebb75ef346aca9bb6697d59d317d3d4))
+
 ## [0.21.0](https://github.com/JonathanBerhe/gvdb/compare/v0.20.1...v0.21.0) (2026-04-21)
 
 
