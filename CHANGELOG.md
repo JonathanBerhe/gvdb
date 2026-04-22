@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.23.0](https://github.com/JonathanBerhe/gvdb/compare/v0.22.0...v0.23.0) (2026-04-22)
+
+
+### Features
+
+* **operator:** drain-aware data-node rolling upgrade via partition ([b3a0f11](https://github.com/JonathanBerhe/gvdb/commit/b3a0f11147a5f5f5627d8c06f2cc444b8333ddf1))
+* **operator:** drain-aware data-node rolling upgrade via partition ([62d3075](https://github.com/JonathanBerhe/gvdb/commit/62d3075303b1b115a281a00961b01e22dd6e7158))
+
+
+### Bug Fixes
+
+* **operator:** data-node rollout review fixes — health ordering, primary-node safety, data-node filter ([7ec2fe7](https://github.com/JonathanBerhe/gvdb/commit/7ec2fe7d830229f7c1d5bf1c9cd0e4158028b777))
+
 ## [0.22.0](https://github.com/JonathanBerhe/gvdb/compare/v0.21.0...v0.22.0) (2026-04-21)
 
 
