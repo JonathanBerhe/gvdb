@@ -177,6 +177,23 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(dnErr, "data-node rollout failed")
 	}
 
+	// Manage query-node rolling upgrade: pod-by-pod partition walking with
+	// no safety gates (query-nodes are stateless, no shard assignments).
+	// Sequencing-only: holds the partition while coordinator OR data-node
+	// rollouts are in flight, for single-phase rollout UX.
+	qnRolloutRequeue, qnErr := r.reconcileQueryNodeRollout(ctx, &cluster)
+	if qnErr != nil {
+		log.Error(qnErr, "query-node rollout failed")
+	}
+
+	// Observe proxy rollout state reflectively. The K8s Deployment controller
+	// drives the actual rolling update; the operator just surfaces progress
+	// as a condition so users see a uniform per-component rollout status.
+	pxRolloutRequeue, pxErr := r.reconcileProxyRolloutStatus(ctx, &cluster)
+	if pxErr != nil {
+		log.Error(pxErr, "proxy rollout status refresh failed")
+	}
+
 	phase, conditions := computePhase(nodeCounts)
 	cluster.Status.Phase = phase
 	for _, cond := range conditions {
@@ -190,13 +207,19 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// During an active rollout requeue fast so the reconciler can advance
 	// the partition without waiting 30s between decisions. Take the minimum
-	// of both rollout hints so whichever is active drives the cadence.
+	// across all four rollout hints so whichever is active drives cadence.
 	requeue := 30 * time.Second
 	if rolloutRequeue > 0 && rolloutRequeue < requeue {
 		requeue = rolloutRequeue
 	}
 	if dnRolloutRequeue > 0 && dnRolloutRequeue < requeue {
 		requeue = dnRolloutRequeue
+	}
+	if qnRolloutRequeue > 0 && qnRolloutRequeue < requeue {
+		requeue = qnRolloutRequeue
+	}
+	if pxRolloutRequeue > 0 && pxRolloutRequeue < requeue {
+		requeue = pxRolloutRequeue
 	}
 	return ctrl.Result{RequeueAfter: requeue}, nil
 }
@@ -507,6 +530,184 @@ func datanodeRolloutPatch(
 		}
 	}
 	return p
+}
+
+// querynodeRolloutFieldManager is the SSA field owner for the query-node
+// StatefulSet's partition field. Distinct from the three other rollout
+// field managers so ownership boundaries remain explicit.
+const querynodeRolloutFieldManager = "gvdb-operator-querynode-rollout"
+
+// reconcileQueryNodeRollout enforces a pod-by-pod rolling update of the
+// query-node StatefulSet. No safety gates beyond single-phase sequencing:
+// query-nodes are stateless, the coordinator doesn't assign them shards,
+// and reads already fail over to Ready replicas via prefer_routable_replica.
+// See desiredQueryNodePartition for the full rationale.
+func (r *GVDBClusterReconciler) reconcileQueryNodeRollout(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
+) (time.Duration, error) {
+	log := logf.FromContext(ctx)
+
+	var sts appsv1.StatefulSet
+	key := types.NamespacedName{
+		Namespace: cluster.Namespace,
+		Name:      render.WorkloadName(cluster, render.QueryNodeComponent),
+	}
+	if err := r.Get(ctx, key, &sts); err != nil {
+		return 0, client.IgnoreNotFound(err)
+	}
+
+	priorReady := meta.IsStatusConditionTrue(
+		cluster.Status.Conditions, gvdbv1alpha1.ConditionCoordinatorRolloutReady,
+	) && meta.IsStatusConditionTrue(
+		cluster.Status.Conditions, gvdbv1alpha1.ConditionDataNodeRolloutReady,
+	)
+
+	step := desiredQueryNodePartition(&sts, priorReady)
+
+	condStatus := metav1.ConditionFalse
+	msg := "query-node rollout in progress"
+	if step.Done {
+		condStatus = metav1.ConditionTrue
+		msg = "query-node StatefulSet is stable"
+	}
+	meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+		Type:    gvdbv1alpha1.ConditionQueryNodeRolloutReady,
+		Status:  condStatus,
+		Reason:  step.Reason,
+		Message: msg,
+	})
+
+	if querynodeRolloutNeedsWrite(&sts, step) {
+		patch := querynodeRolloutPatch(&sts, step.Partition)
+		if err := r.Patch(ctx, patch, client.Apply,
+			client.FieldOwner(querynodeRolloutFieldManager),
+			client.ForceOwnership,
+		); err != nil {
+			return 0, fmt.Errorf("SSA apply query-node rollout fragment: %w", err)
+		}
+		log.Info("query-node rollout partition advanced",
+			"partition", step.Partition, "reason", step.Reason)
+	}
+
+	if step.Done {
+		return 0, nil
+	}
+	return 5 * time.Second, nil
+}
+
+// querynodeRolloutNeedsWrite decides whether an SSA apply is required
+// this reconcile — avoids a no-op Patch in the common stable case.
+func querynodeRolloutNeedsWrite(sts *appsv1.StatefulSet, step QueryNodeRolloutStep) bool {
+	currentPartition := int32(-1)
+	if rs := sts.Spec.UpdateStrategy.RollingUpdate; rs != nil && rs.Partition != nil {
+		currentPartition = *rs.Partition
+	}
+	desiredPartitionVal := int32(-1)
+	if step.Partition != nil {
+		desiredPartitionVal = *step.Partition
+	}
+	return desiredPartitionVal != currentPartition
+}
+
+// querynodeRolloutPatch builds the minimal SSA fragment the query-node
+// rollout owns (partition only — no annotation state to persist because
+// the state machine has no ratcheted gates).
+func querynodeRolloutPatch(sts *appsv1.StatefulSet, partition *int32) *appsv1.StatefulSet {
+	p := &appsv1.StatefulSet{
+		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sts.Name,
+			Namespace: sts.Namespace,
+		},
+	}
+	if partition != nil {
+		p.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{
+			Type: appsv1.RollingUpdateStatefulSetStrategyType,
+			RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{
+				Partition: partition,
+			},
+		}
+	}
+	return p
+}
+
+// Reason constants for ConditionProxyRolloutReady.
+const (
+	ReasonProxyRolloutProgressing = "Progressing"
+	ReasonProxyRolloutStalled     = "Stalled"
+	ReasonProxyRolloutMissing     = "DeploymentNotFound"
+)
+
+// reconcileProxyRolloutStatus is a read-only observer. The K8s Deployment
+// controller drives the actual rolling update via maxSurge/maxUnavailable;
+// the operator only reports progress as a CR condition so users have a
+// uniform per-component rollout status surface. No SSA writes, no strategy
+// override — the proxy is stateless, default Deployment semantics are safe.
+func (r *GVDBClusterReconciler) reconcileProxyRolloutStatus(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
+) (time.Duration, error) {
+	var dep appsv1.Deployment
+	key := types.NamespacedName{
+		Namespace: cluster.Namespace,
+		Name:      render.WorkloadName(cluster, render.ProxyComponent),
+	}
+	if err := r.Get(ctx, key, &dep); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return 0, err
+		}
+		meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+			Type:    gvdbv1alpha1.ConditionProxyRolloutReady,
+			Status:  metav1.ConditionFalse,
+			Reason:  ReasonProxyRolloutMissing,
+			Message: "proxy Deployment not found yet",
+		})
+		return 5 * time.Second, nil
+	}
+
+	// Stalled: Deployment controller has given up (progress deadline exceeded).
+	for _, c := range dep.Status.Conditions {
+		if c.Type == appsv1.DeploymentProgressing && c.Status == corev1.ConditionFalse {
+			meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+				Type:    gvdbv1alpha1.ConditionProxyRolloutReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  ReasonProxyRolloutStalled,
+				Message: c.Message,
+			})
+			return 0, nil
+		}
+	}
+
+	// Ready: observedGeneration caught up AND every replica is updated AND
+	// ready AND none are unavailable. All four conditions matter — checking
+	// UpdatedReplicas alone misses rollbacks where new pods failed to Ready.
+	specReplicas := int32(1)
+	if dep.Spec.Replicas != nil {
+		specReplicas = *dep.Spec.Replicas
+	}
+	stable := dep.Status.ObservedGeneration >= dep.Generation &&
+		dep.Status.UpdatedReplicas == specReplicas &&
+		dep.Status.ReadyReplicas == specReplicas &&
+		dep.Status.UnavailableReplicas == 0
+	if stable {
+		meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+			Type:    gvdbv1alpha1.ConditionProxyRolloutReady,
+			Status:  metav1.ConditionTrue,
+			Reason:  ReasonStable,
+			Message: "proxy Deployment is stable",
+		})
+		return 0, nil
+	}
+
+	meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+		Type:   gvdbv1alpha1.ConditionProxyRolloutReady,
+		Status: metav1.ConditionFalse,
+		Reason: ReasonProxyRolloutProgressing,
+		Message: fmt.Sprintf("updated=%d/%d ready=%d/%d unavailable=%d",
+			dep.Status.UpdatedReplicas, specReplicas,
+			dep.Status.ReadyReplicas, specReplicas,
+			dep.Status.UnavailableReplicas),
+	})
+	return 5 * time.Second, nil
 }
 
 // applyObject Server-Side-Applies the rendered object. SSA is idempotent
