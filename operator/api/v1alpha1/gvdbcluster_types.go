@@ -439,6 +439,19 @@ const (
 	// drain-aware rollout gated on cluster health, rebalance quiescence,
 	// and per-shard replica safety.
 	ConditionDataNodeRolloutReady = "DataNodeRolloutReady"
+	// ConditionQueryNodeRolloutReady: true when the query-node StatefulSet
+	// is stable. False while the reconciler is managing a pod-by-pod
+	// rollout. Query-nodes are stateless (no shard assignments, on-demand
+	// segment cache) so the state machine walks mechanically; it gates only
+	// on coordinator + data-node rollouts being ready, for single-phase
+	// rollout UX.
+	ConditionQueryNodeRolloutReady = "QueryNodeRolloutReady"
+	// ConditionProxyRolloutReady: true when the proxy Deployment's native
+	// rolling update has converged (ObservedGeneration caught up AND all
+	// Replicas are Updated AND Ready AND UnavailableReplicas == 0). Purely
+	// reflective — the operator does not drive the proxy rollout (K8s
+	// Deployment controller handles it).
+	ConditionProxyRolloutReady = "ProxyRolloutReady"
 )
 
 // WorkloadStatus reports desired vs ready replicas for one workload.
