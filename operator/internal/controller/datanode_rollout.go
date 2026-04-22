@@ -179,8 +179,21 @@ func desiredDataNodePartition(
 		}
 	}
 
-	// Gate A: cluster health. total_shards==0 is "bootstrap / no data" — we
-	// advance without the safety gates because there's nothing to lose.
+	// Gate A: cluster health. Order matters — ClusterStatus is checked FIRST
+	// because a zero-valued ClusterHealth (empty string status) means "we
+	// couldn't reach any coordinator", NOT "empty cluster". Taking the
+	// TotalShards==0 shortcut before this check would let the rollout
+	// advance blind whenever the operator loses coordinator visibility.
+	if clusterHealth.ClusterStatus != "healthy" {
+		p := currentPartition
+		return DataNodeRolloutStep{
+			Partition: &p, Done: false, Reason: ReasonWaitingForClusterHealth,
+			Message: fmt.Sprintf("cluster_status=%q healthy_shards=%d/%d",
+				clusterHealth.ClusterStatus,
+				clusterHealth.HealthyShards, clusterHealth.TotalShards),
+		}
+	}
+	// Genuinely healthy + no shards: bootstrap, nothing to lose.
 	if clusterHealth.TotalShards == 0 {
 		next := currentPartition - 1
 		if next < 0 {
@@ -189,8 +202,7 @@ func desiredDataNodePartition(
 		}
 		return DataNodeRolloutStep{Partition: &next, Done: false, Reason: ReasonNoShards}
 	}
-	if clusterHealth.ClusterStatus != "healthy" ||
-		clusterHealth.HealthyShards != clusterHealth.TotalShards {
+	if clusterHealth.HealthyShards != clusterHealth.TotalShards {
 		p := currentPartition
 		return DataNodeRolloutStep{
 			Partition: &p, Done: false, Reason: ReasonWaitingForClusterHealth,
@@ -221,23 +233,42 @@ func desiredDataNodePartition(
 	}
 
 	// Gate C: replica safety. The drain target is the pod whose ordinal is
-	// currentPartition-1 — advancing partition eligibilises it to roll. If
-	// scale-down shrank replicas mid-rollout, the target ordinal may now be
-	// out of range; the STS controller will delete that pod regardless, so
-	// skip the check rather than block on a pod we can't protect.
+	// currentPartition-1 — advancing partition eligibilises it to roll.
+	// The clamp at the top of the function guarantees currentPartition
+	// <= replicas-1, so targetOrdinal can only be negative (when partition
+	// already sits at 0 on the final pod); the >= 0 guard handles that.
 	targetOrdinal := currentPartition - 1
-	if targetOrdinal >= 0 && targetOrdinal < replicas {
+	if targetOrdinal >= 0 {
 		targetNodeID := uint32(DataNodeBaseNodeID + targetOrdinal)
+		// Build the "ready failover candidates" set from DATA nodes only.
+		// GetClusterHealth returns every node type (coordinator, query,
+		// proxy, data) — filtering by IsDataNode avoids any implicit
+		// coupling to the node-id range convention in render/datanode.go.
 		ready := make(map[uint32]bool, len(clusterHealth.Nodes))
 		for _, n := range clusterHealth.Nodes {
-			if n.Ready {
+			if n.Ready && n.IsDataNode {
 				ready[n.NodeID] = true
 			}
 		}
 		for _, sa := range shardAssignments {
+			// internal_service.cpp:108-111 populates primary_node_id from
+			// shard_info.primary_node and node_ids[] from replica_nodes —
+			// they are DISJOINT. The effective node set for availability
+			// reasoning is {primary} ∪ replicas; the RF=1 case is when
+			// that effective set has a single member and it is the target.
 			healthyOther := 0
 			containsTarget := false
+			effectiveSize := 0
+			if sa.PrimaryNodeID != 0 {
+				effectiveSize++
+				if sa.PrimaryNodeID == targetNodeID {
+					containsTarget = true
+				} else if ready[sa.PrimaryNodeID] {
+					healthyOther++
+				}
+			}
 			for _, nid := range sa.NodeIDs {
+				effectiveSize++
 				if nid == targetNodeID {
 					containsTarget = true
 					continue
@@ -249,7 +280,7 @@ func desiredDataNodePartition(
 			if healthyOther >= 1 {
 				continue
 			}
-			if containsTarget && len(sa.NodeIDs) == 1 {
+			if containsTarget && effectiveSize == 1 {
 				p := currentPartition
 				return DataNodeRolloutStep{
 					Partition: &p, Done: false, Reason: ReasonRF1Blocked,

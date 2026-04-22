@@ -18,14 +18,16 @@ import (
 )
 
 // healthyCluster builds a ClusterHealth claiming full shard health and the
-// given data-node ordinals as NODE_STATUS_READY. Gate A passes trivially.
-// Pass zero shards to exercise the bootstrap short-circuit.
+// given data-node ordinals as NODE_STATUS_READY + NODE_TYPE_DATA_NODE.
+// Gate A passes trivially. Pass zero shards to exercise the bootstrap
+// short-circuit.
 func healthyCluster(totalShards uint32, dataNodeOrdinals ...int32) gvdbclient.ClusterHealth {
 	nodes := make([]gvdbclient.NodeHealth, 0, len(dataNodeOrdinals))
 	for _, o := range dataNodeOrdinals {
 		nodes = append(nodes, gvdbclient.NodeHealth{
-			NodeID: uint32(DataNodeBaseNodeID + o),
-			Ready:  true,
+			NodeID:     uint32(DataNodeBaseNodeID + o),
+			Ready:      true,
+			IsDataNode: true,
 		})
 	}
 	return gvdbclient.ClusterHealth{
@@ -36,20 +38,20 @@ func healthyCluster(totalShards uint32, dataNodeOrdinals ...int32) gvdbclient.Cl
 	}
 }
 
-// shardOnOrdinals builds a ShardAssignment whose replicas are the given
-// data-node ordinals (mapped to node_ids via DataNodeBaseNodeID).
-func shardOnOrdinals(shardID uint32, ordinals ...int32) gvdbclient.ShardAssignment {
-	ids := make([]uint32, len(ordinals))
-	for i, o := range ordinals {
+// shardPrimaryReplicas builds a ShardAssignment matching the real proto
+// semantics (internal_service.cpp:108-111): primary_node_id is populated
+// from shard_info.primary_node and node_ids[] from shard_info.replica_nodes
+// — they are DISJOINT sets. The primary is the node at ordinal
+// primaryOrdinal; replicas are at the given replicaOrdinals (exclusive of
+// the primary).
+func shardPrimaryReplicas(shardID uint32, primaryOrdinal int32, replicaOrdinals ...int32) gvdbclient.ShardAssignment {
+	ids := make([]uint32, len(replicaOrdinals))
+	for i, o := range replicaOrdinals {
 		ids[i] = uint32(DataNodeBaseNodeID + o)
-	}
-	primary := uint32(0)
-	if len(ids) > 0 {
-		primary = ids[0]
 	}
 	return gvdbclient.ShardAssignment{
 		ShardID:       shardID,
-		PrimaryNodeID: primary,
+		PrimaryNodeID: uint32(DataNodeBaseNodeID + primaryOrdinal),
 		NodeIDs:       ids,
 	}
 }
@@ -184,8 +186,8 @@ func TestDataNodeDesiredPartition_WaitingForRebalanceQuiescence(t *testing.T) {
 	health := healthyCluster(2, 0, 1, 2)
 	// 2 shards each living on all 3 nodes so Gate C would pass.
 	shards := []gvdbclient.ShardAssignment{
-		shardOnOrdinals(1, 0, 1, 2),
-		shardOnOrdinals(2, 0, 1, 2),
+		shardPrimaryReplicas(1, 0, 1, 2),
+		shardPrimaryReplicas(2, 0, 1, 2),
 	}
 	health.LastRebalanceUnixMs = now.Add(-2 * time.Second).UnixMilli()
 	step := desiredDataNodePartition(sts, health, shards, 0, now, true)
@@ -204,7 +206,7 @@ func TestDataNodeDesiredPartition_QuiescenceRatchetFromAnnotation(t *testing.T) 
 	now := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
 	sts := mkSTS(3, ptrI32(2), "r1", "r2", 1)
 	health := healthyCluster(2, 0, 1, 2)
-	shards := []gvdbclient.ShardAssignment{shardOnOrdinals(1, 0, 1, 2), shardOnOrdinals(2, 0, 1, 2)}
+	shards := []gvdbclient.ShardAssignment{shardPrimaryReplicas(1, 0, 1, 2), shardPrimaryReplicas(2, 0, 1, 2)}
 	observed := now.Add(-5 * time.Second).UnixMilli()
 	step := desiredDataNodePartition(sts, health, shards, observed, now, true)
 	if step.Reason != ReasonWaitingForRebalanceQuiescence {
@@ -217,7 +219,7 @@ func TestDataNodeDesiredPartition_FirstObservationNoRebalance(t *testing.T) {
 	now := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
 	sts := mkSTS(3, ptrI32(2), "r1", "r2", 1)
 	health := healthyCluster(2, 0, 1, 2)
-	shards := []gvdbclient.ShardAssignment{shardOnOrdinals(1, 0, 1, 2), shardOnOrdinals(2, 0, 1, 2)}
+	shards := []gvdbclient.ShardAssignment{shardPrimaryReplicas(1, 0, 1, 2), shardPrimaryReplicas(2, 0, 1, 2)}
 	step := desiredDataNodePartition(sts, health, shards, 0, now, true)
 	if step.Partition == nil || *step.Partition != 1 || step.Reason != ReasonAdvancing {
 		t.Fatalf("expected advance to 1, got %+v", step)
@@ -226,12 +228,12 @@ func TestDataNodeDesiredPartition_FirstObservationNoRebalance(t *testing.T) {
 
 func TestDataNodeDesiredPartition_WaitingForReplicaSafety(t *testing.T) {
 	// Target ordinal is currentPartition-1 = 1 → target_node_id=102.
-	// Shard 1 has replicas on [102, 103]; node 103 is DOWN. Dropping 102
-	// would leave no Ready replica. Block.
+	// Shard primary=102, replica on node 103; node 103 is DOWN. Dropping
+	// 102 would leave no Ready node to serve the shard. Block.
 	now := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
 	sts := mkSTS(3, ptrI32(2), "r1", "r2", 1)
 	health := healthyCluster(1, 0, 1) // only ordinals 0,1 ready; 2 (node 103) absent
-	shards := []gvdbclient.ShardAssignment{shardOnOrdinals(1, 1, 2)}
+	shards := []gvdbclient.ShardAssignment{shardPrimaryReplicas(1, 1, 2)}
 	step := desiredDataNodePartition(sts, health, shards, 0, now, true)
 	if step.Partition == nil || *step.Partition != 2 {
 		t.Fatalf("expected hold, got %v", step.Partition)
@@ -242,12 +244,13 @@ func TestDataNodeDesiredPartition_WaitingForReplicaSafety(t *testing.T) {
 }
 
 func TestDataNodeDesiredPartition_RF1Blocked(t *testing.T) {
-	// Target ordinal 1 → target_node_id=102. Shard 1 has RF=1 with only
-	// replica on node 102. Rollout is stuck; distinguishable reason.
+	// Target ordinal 1 → target_node_id=102. Shard 1 has RF=1 as its
+	// primary-only copy on node 102 (no replicas). Rollout is stuck;
+	// distinguishable reason with shard id in the message.
 	now := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
 	sts := mkSTS(3, ptrI32(2), "r1", "r2", 1)
 	health := healthyCluster(1, 0, 1, 2)
-	shards := []gvdbclient.ShardAssignment{shardOnOrdinals(1, 1)}
+	shards := []gvdbclient.ShardAssignment{shardPrimaryReplicas(1, 1)}
 	step := desiredDataNodePartition(sts, health, shards, 0, now, true)
 	if step.Partition == nil || *step.Partition != 2 {
 		t.Fatalf("expected hold, got %v", step.Partition)
@@ -267,8 +270,8 @@ func TestDataNodeDesiredPartition_AdvanceWhenAllGatesPass(t *testing.T) {
 	sts := mkSTS(3, ptrI32(2), "r1", "r2", 1)
 	health := healthyCluster(2, 0, 1, 2)
 	shards := []gvdbclient.ShardAssignment{
-		shardOnOrdinals(1, 0, 1, 2),
-		shardOnOrdinals(2, 0, 1, 2),
+		shardPrimaryReplicas(1, 0, 1, 2),
+		shardPrimaryReplicas(2, 0, 1, 2),
 	}
 	step := desiredDataNodePartition(sts, health, shards, 0, now, true)
 	if step.Partition == nil || *step.Partition != 1 || step.Reason != ReasonAdvancing {
@@ -278,15 +281,73 @@ func TestDataNodeDesiredPartition_AdvanceWhenAllGatesPass(t *testing.T) {
 
 func TestDataNodeDesiredPartition_ReplicaSafetyIgnoresNonReadyNonTargetReplica(t *testing.T) {
 	// Defends against counting a replica on a DOWN node as a healthy
-	// failover. shard has replicas [102, 103]; 103 is DOWN; target is 102.
-	// Even though len(NodeIDs)==2, healthyOther==0 → block.
+	// failover. shard primary=102 (target), replica=[103]; 103 is DOWN.
+	// Even though effectiveSize==2 (not RF=1), healthyOther==0 → block.
 	now := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
 	sts := mkSTS(3, ptrI32(2), "r1", "r2", 1)
 	health := healthyCluster(1, 0, 1) // 2 (node 103) is not in Ready set
-	shards := []gvdbclient.ShardAssignment{shardOnOrdinals(1, 1, 2)}
+	shards := []gvdbclient.ShardAssignment{shardPrimaryReplicas(1, 1, 2)}
 	step := desiredDataNodePartition(sts, health, shards, 0, now, true)
 	if step.Reason != ReasonWaitingForReplicaSafety {
 		t.Fatalf("reason %q: expected WaitingForReplicaSafety (DOWN replica must not count as failover)", step.Reason)
+	}
+}
+
+func TestDataNodeDesiredPartition_UnreachableCoordinatorBlocks(t *testing.T) {
+	// Operator couldn't reach any coordinator → refreshCoordinatorStatus
+	// returns zero-valued ClusterHealth{} (ClusterStatus==""). This must
+	// NOT be interpreted as "empty cluster, safe to advance" — Gate A
+	// is ordered to catch this first.
+	now := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
+	sts := mkSTS(3, ptrI32(2), "r1", "r2", 1)
+	empty := gvdbclient.ClusterHealth{} // simulates total RPC failure
+	step := desiredDataNodePartition(sts, empty, nil, 0, now, true)
+	if step.Partition == nil || *step.Partition != 2 {
+		t.Fatalf("expected hold at 2, got %v", step.Partition)
+	}
+	if step.Reason != ReasonWaitingForClusterHealth {
+		t.Fatalf("reason %q: must not advance when ClusterStatus is empty", step.Reason)
+	}
+}
+
+func TestDataNodeDesiredPartition_PrimaryIsTargetWithHealthyReplica(t *testing.T) {
+	// Drain target (ordinal 1, node 102) is the shard's PRIMARY. A replica
+	// exists on node 103 and is Ready — HandleDrainingNode will promote it.
+	// Safe to advance.
+	now := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
+	sts := mkSTS(3, ptrI32(2), "r1", "r2", 1)
+	health := healthyCluster(1, 0, 1, 2)
+	shards := []gvdbclient.ShardAssignment{shardPrimaryReplicas(1, 1, 2)}
+	step := desiredDataNodePartition(sts, health, shards, 0, now, true)
+	if step.Partition == nil || *step.Partition != 1 || step.Reason != ReasonAdvancing {
+		t.Fatalf("expected advance to 1, got %+v", step)
+	}
+}
+
+func TestDataNodeDesiredPartition_NonDataNodeReadyIgnored(t *testing.T) {
+	// A coordinator pod happens to have the same numeric node_id as a
+	// drain-target data node (unlikely today given 101+ convention, but
+	// defensive). Gate C filters by IsDataNode, so the coordinator's
+	// Ready status must NOT count as a healthy failover replica.
+	now := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
+	sts := mkSTS(3, ptrI32(2), "r1", "r2", 1)
+	// Data node at ordinal 0 is Ready; data node at ordinal 2 is absent.
+	// But a coordinator with node_id 103 IS Ready — should not count.
+	health := gvdbclient.ClusterHealth{
+		ClusterStatus: "healthy",
+		TotalShards:   1,
+		HealthyShards: 1,
+		Nodes: []gvdbclient.NodeHealth{
+			{NodeID: 101, Ready: true, IsDataNode: true},  // data ordinal 0
+			{NodeID: 102, Ready: true, IsDataNode: true},  // data ordinal 1 (target)
+			{NodeID: 103, Ready: true, IsDataNode: false}, // coordinator/query, NOT data
+		},
+	}
+	// Shard primary=102 (target), replica=[103] (coordinator id, not data).
+	shards := []gvdbclient.ShardAssignment{shardPrimaryReplicas(1, 1, 2)}
+	step := desiredDataNodePartition(sts, health, shards, 0, now, true)
+	if step.Reason != ReasonWaitingForReplicaSafety {
+		t.Fatalf("reason %q: non-data-node Ready entries must not count as failover", step.Reason)
 	}
 }
 
@@ -294,7 +355,7 @@ func TestDataNodeDesiredPartition_WalkThroughThreeReplicaRollout(t *testing.T) {
 	// End-to-end walk: new image → detect → pin → advance → advance → park.
 	now := time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)
 	health := healthyCluster(1, 0, 1, 2)
-	shards := []gvdbclient.ShardAssignment{shardOnOrdinals(1, 0, 1, 2)}
+	shards := []gvdbclient.ShardAssignment{shardPrimaryReplicas(1, 0, 1, 2)}
 
 	// Step 1: rollout just detected, partition missing, updatedReplicas=0.
 	sts := mkSTS(3, nil, "r1", "r2", 0)

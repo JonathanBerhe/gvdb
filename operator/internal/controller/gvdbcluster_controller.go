@@ -168,10 +168,11 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Manage data-node rolling upgrade: partition-gated pod-by-pod drain
 	// guarded by cluster health, rebalance quiescence, and per-shard replica
 	// safety. Runs AFTER the coordinator rollout and gates on its condition
-	// — never two rollouts in flight because GetShardAssignments goes to the
-	// coordinator leader.
-	shardAssignments := r.fetchShardAssignments(ctx, &cluster)
-	dnRolloutRequeue, dnErr := r.reconcileDataNodeRollout(ctx, &cluster, clusterHealth, shardAssignments)
+	// — never two rollouts in flight because GetShardAssignments goes to
+	// the coordinator leader. fetchShardAssignments is invoked lazily
+	// inside the reconciler only when the STS is actually in a rolling
+	// state, avoiding a wasted RPC every 30s when the cluster is stable.
+	dnRolloutRequeue, dnErr := r.reconcileDataNodeRollout(ctx, &cluster, clusterHealth)
 	if dnErr != nil {
 		log.Error(dnErr, "data-node rollout failed")
 	}
@@ -352,10 +353,14 @@ const datanodeRolloutFieldManager = "gvdb-operator-datanode-rollout"
 // reconcileDataNodeRollout enforces a pod-by-pod, drain-aware rolling update
 // of the data-node StatefulSet. Gated on cluster health, rebalance
 // quiescence, and per-shard replica safety — see desiredDataNodePartition.
+//
+// Shard assignments are fetched lazily — only when the STS is actually
+// rolling (UpdateRevision != CurrentRevision). In the stable case
+// (majority of reconciles) the pure state machine returns ReasonStable
+// without needing the shard layout, so the extra RPC is skipped.
 func (r *GVDBClusterReconciler) reconcileDataNodeRollout(
 	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
 	clusterHealth gvdbclient.ClusterHealth,
-	shardAssignments []gvdbclient.ShardAssignment,
 ) (time.Duration, error) {
 	log := logf.FromContext(ctx)
 
@@ -372,6 +377,15 @@ func (r *GVDBClusterReconciler) reconcileDataNodeRollout(
 	coordRolloutReady := meta.IsStatusConditionTrue(
 		cluster.Status.Conditions, gvdbv1alpha1.ConditionCoordinatorRolloutReady,
 	)
+
+	// Only fetch shard assignments when the STS is rolling — the pure
+	// function ignores them in the stable case, so the RPC would be wasted.
+	var shardAssignments []gvdbclient.ShardAssignment
+	rolling := sts.Status.UpdateRevision != "" &&
+		sts.Status.UpdateRevision != sts.Status.CurrentRevision
+	if rolling {
+		shardAssignments = r.fetchShardAssignments(ctx, cluster)
+	}
 
 	step := desiredDataNodePartition(
 		&sts, clusterHealth, shardAssignments,

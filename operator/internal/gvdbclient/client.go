@@ -252,6 +252,12 @@ type NodeHealth struct {
 	// NODE_STATUS_READY. Other statuses (STARTING, BUSY, DEGRADED, DOWN,
 	// DRAINING) are all "not safe to treat as a failover replica."
 	Ready bool
+	// IsDataNode is true when NodeInfo.node_type == NODE_TYPE_DATA_NODE.
+	// Callers that reason about data-node-specific invariants (e.g. the
+	// rollout's replica-safety gate) filter on this rather than on node-id
+	// ranges — node-id conventions are coupled to the render layer and
+	// could drift, but node_type is authoritative.
+	IsDataNode bool
 }
 
 // ClusterHealth is the reconciler-relevant subset of GetClusterHealthResponse.
@@ -284,8 +290,9 @@ func (c *CoordinatorClient) FetchClusterHealth(ctx context.Context) (ClusterHeal
 	nodes := make([]NodeHealth, 0, len(resp.GetNodes()))
 	for _, n := range resp.GetNodes() {
 		nodes = append(nodes, NodeHealth{
-			NodeID: n.GetNodeId(),
-			Ready:  n.GetStatus() == pb.NodeStatus_NODE_STATUS_READY,
+			NodeID:     n.GetNodeId(),
+			Ready:      n.GetStatus() == pb.NodeStatus_NODE_STATUS_READY,
+			IsDataNode: n.GetNodeType() == pb.NodeType_NODE_TYPE_DATA_NODE,
 		})
 	}
 	return ClusterHealth{
