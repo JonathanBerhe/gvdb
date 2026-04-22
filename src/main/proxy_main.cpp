@@ -21,8 +21,12 @@ struct ProxyArgs {
   std::string data_dir = "/tmp/gvdb/proxy";
   std::string config_file;
   std::vector<std::string> coordinator_addresses;
-  std::vector<std::string> query_node_addresses;
-  std::vector<std::string> data_node_addresses;
+  // Single URI pointing at the query-node headless service. Use a dns:///
+  // prefix (e.g. dns:///prod-query-node.gvdb.svc.cluster.local:50070) in
+  // K8s so gRPC round-robins across all A records and picks up scale-up
+  // pods without a proxy restart. Bare host:port is accepted for single-
+  // node / non-K8s deployments.
+  std::string query_node_uri;
 };
 
 void PrintUsage(const char* program_name) {
@@ -33,8 +37,7 @@ void PrintUsage(const char* program_name) {
             << "  --data-dir PATH             Data directory (default: /tmp/gvdb/proxy)\n"
             << "  --config FILE               YAML config file (optional, for auth)\n"
             << "  --coordinators ADDRS        Coordinator addresses (comma-separated)\n"
-            << "  --query-nodes ADDRS         Query node addresses (comma-separated)\n"
-            << "  --data-nodes ADDRS          Data node addresses (comma-separated)\n"
+            << "  --query-nodes URI           Query node target URI (dns:///svc:port or host:port)\n"
             << "  --help                      Show this help message\n";
 }
 
@@ -68,9 +71,11 @@ bool ParseArgs(int argc, char** argv, ProxyArgs& args) {
     } else if (arg == "--coordinators" && i + 1 < argc) {
       args.coordinator_addresses = ParseAddresses(argv[++i]);
     } else if (arg == "--query-nodes" && i + 1 < argc) {
-      args.query_node_addresses = ParseAddresses(argv[++i]);
-    } else if (arg == "--data-nodes" && i + 1 < argc) {
-      args.data_node_addresses = ParseAddresses(argv[++i]);
+      // Accepts a single URI (dns:///host:port or bare host:port). Not
+      // comma-split: a dns:/// URI has no commas, and we no longer need
+      // static multi-address fanout — gRPC's built-in round_robin on the
+      // dns resolver handles per-request load balancing.
+      args.query_node_uri = argv[++i];
     } else {
       std::cerr << "Unknown argument: " << arg << std::endl;
       PrintUsage(argv[0]);
@@ -137,8 +142,7 @@ int main(int argc, char** argv) {
 
     auto proxy_service = std::make_unique<network::ProxyService>(
         args.coordinator_addresses,
-        args.query_node_addresses,
-        args.data_node_addresses);
+        args.query_node_uri);
 
     auto credentials = utils::ServerBootstrap::MakeServerCredentials(config.server.tls);
     auto grpc_server = utils::ServerBootstrap::StartGrpcServer(
@@ -154,11 +158,8 @@ int main(int argc, char** argv) {
         "Metrics: http://0.0.0.0:" + std::to_string(metrics_port) + "/metrics",
         "Coordinators: " + std::to_string(args.coordinator_addresses.size()) + " node(s)",
     };
-    if (!args.query_node_addresses.empty()) {
-      banner_lines.push_back("Query Nodes: " + std::to_string(args.query_node_addresses.size()) + " node(s)");
-    }
-    if (!args.data_node_addresses.empty()) {
-      banner_lines.push_back("Data Nodes: " + std::to_string(args.data_node_addresses.size()) + " node(s)");
+    if (!args.query_node_uri.empty()) {
+      banner_lines.push_back("Query Nodes URI: " + args.query_node_uri);
     }
     utils::ServerBootstrap::PrintBanner("GVDB Proxy", banner_lines);
 

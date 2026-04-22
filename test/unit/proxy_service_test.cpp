@@ -6,6 +6,7 @@
 
 #include "network/proxy_service.h"
 #include "vectordb.grpc.pb.h"
+#include "internal.grpc.pb.h"
 
 using namespace gvdb;
 
@@ -60,6 +61,27 @@ class MockCoordinatorService : public proto::VectorDBService::Service {
     get_stats_calls++;
     response->set_total_collections(1);
     response->set_total_vectors(100);
+    return grpc::Status::OK;
+  }
+};
+
+// Mock internal service on the coordinator. The proxy calls RouteQuery
+// before dispatching writes/reads to a data node; we answer with a single
+// pre-configured data-node address so the test verifies routing actually
+// lands on the right backend. Pre-1.7 the tests relied on the --data-nodes
+// static-list fallback when RouteQuery was absent; that fallback is gone,
+// so the mock must now implement it.
+class MockCoordinatorInternalService : public proto::internal::InternalService::Service {
+ public:
+  std::atomic<int> route_query_calls{0};
+  std::string data_node_address;
+
+  grpc::Status RouteQuery(
+      grpc::ServerContext* context,
+      const proto::internal::RouteQueryRequest* request,
+      proto::internal::RouteQueryResponse* response) override {
+    route_query_calls++;
+    response->add_target_node_addresses(data_node_address);
     return grpc::Status::OK;
   }
 };
@@ -142,13 +164,26 @@ struct ProxyServiceTest {
   ProxyServiceTest() {
     // Create mock services
     mock_coordinator_ = std::make_unique<MockCoordinatorService>();
+    mock_coordinator_internal_ = std::make_unique<MockCoordinatorInternalService>();
     mock_query_node_1_ = std::make_unique<MockQueryNodeService>(1);
     mock_query_node_2_ = std::make_unique<MockQueryNodeService>(2);
     mock_data_node_ = std::make_unique<MockDataNodeService>();
 
-    // Start coordinator server
+    // Data-node first so we can tell the coordinator where to route.
+    data_node_address_ = "localhost:50061";
+    StartServer(data_node_address_, mock_data_node_.get(), data_node_server_);
+    mock_coordinator_internal_->data_node_address = data_node_address_;
+
+    // Coordinator server registers BOTH the public VectorDBService (for
+    // metadata ops) AND the internal InternalService (for RouteQuery).
     coordinator_address_ = "localhost:50051";
-    StartServer(coordinator_address_, mock_coordinator_.get(), coordinator_server_);
+    {
+      grpc::ServerBuilder builder;
+      builder.AddListeningPort(coordinator_address_, grpc::InsecureServerCredentials());
+      builder.RegisterService(mock_coordinator_.get());
+      builder.RegisterService(mock_coordinator_internal_.get());
+      coordinator_server_ = builder.BuildAndStart();
+    }
 
     // Start query node servers
     query_node_1_address_ = "localhost:50071";
@@ -156,18 +191,17 @@ struct ProxyServiceTest {
     StartServer(query_node_1_address_, mock_query_node_1_.get(), query_node_1_server_);
     StartServer(query_node_2_address_, mock_query_node_2_.get(), query_node_2_server_);
 
-    // Start data node server
-    data_node_address_ = "localhost:50061";
-    StartServer(data_node_address_, mock_data_node_.get(), data_node_server_);
-
     // Give servers time to start
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    // Create ProxyService
+    // Create ProxyService. Post-1.7 the proxy takes a single query-node
+    // URI (not a list); gRPC's dns:/// resolver does round_robin over DNS
+    // A records at the channel layer. We point at query_node_1 here; the
+    // "2 query-nodes" fan-out is now tested in the DNS integration tests,
+    // which fake a headless service with multiple A records.
     proxy_service_ = std::make_unique<network::ProxyService>(
         std::vector<std::string>{coordinator_address_},
-        std::vector<std::string>{query_node_1_address_, query_node_2_address_},
-        std::vector<std::string>{data_node_address_});
+        query_node_1_address_);
   }
 
   ~ProxyServiceTest() {
@@ -200,6 +234,7 @@ struct ProxyServiceTest {
 
   // Mock services
   std::unique_ptr<MockCoordinatorService> mock_coordinator_;
+  std::unique_ptr<MockCoordinatorInternalService> mock_coordinator_internal_;
   std::unique_ptr<MockQueryNodeService> mock_query_node_1_;
   std::unique_ptr<MockQueryNodeService> mock_query_node_2_;
   std::unique_ptr<MockDataNodeService> mock_data_node_;
@@ -317,39 +352,19 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "SearchRoutesToQueryNode") {
   CHECK(status.ok());
   CHECK_EQ(response.results().size(), 1);
 
-  // Verify at least one query node received the request
-  int total_search_calls =
-      mock_query_node_1_->search_calls.load() +
-      mock_query_node_2_->search_calls.load();
-  CHECK_EQ(total_search_calls, 1);
+  // Post-1.7: proxy uses a single query-node channel (fixture points at
+  // mock_query_node_1_), so this call must land there.
+  CHECK_EQ(mock_query_node_1_->search_calls.load(), 1);
 }
 
-TEST_CASE_FIXTURE(ProxyServiceTest, "SearchRoundRobinLoadBalancing") {
-  // Make 4 search requests
-  for (int i = 0; i < 4; ++i) {
-    grpc::ServerContext context;
-    proto::SearchRequest request;
-    request.set_collection_name("test_collection");
-    auto* query = request.mutable_query_vector();
-    query->set_dimension(128);
-    for (int j = 0; j < 128; ++j) {
-      query->add_values(1.0f);
-    }
-    request.set_top_k(10);
-    proto::SearchResponse response;
-
-    auto status = proxy_service_->Search(&context, &request, &response);
-    CHECK(status.ok());
-  }
-
-  // Verify round-robin distribution (should be 2 calls to each node)
-  int node_1_calls = mock_query_node_1_->search_calls.load();
-  int node_2_calls = mock_query_node_2_->search_calls.load();
-
-  CHECK_EQ(node_1_calls + node_2_calls, 4);
-  CHECK_EQ(node_1_calls, 2);
-  CHECK_EQ(node_2_calls, 2);
-}
+// Post-1.7 the proxy dials a single query-node channel (dns:///<headless>
+// with round_robin LB policy) rather than a vector of addresses —
+// application-level round-robin across 2+ backends is no longer exercised
+// at this layer. The dns:/// fan-out is covered in the DNS integration
+// test (test/integration/proxy_dns_test.cpp, new in 1.7), which fakes a
+// headless service with multiple A records and asserts round_robin
+// distribution + failover. Leaving that responsibility to gRPC's built-in
+// resolver keeps the proxy's in-process code minimal.
 
 // ============================================================================
 // Data Node Routing Tests
@@ -432,8 +447,7 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "NoCoordinatorAvailable") {
   // Create new proxy with invalid coordinator address
   auto proxy = std::make_unique<network::ProxyService>(
       std::vector<std::string>{"localhost:9999"},  // Invalid address
-      std::vector<std::string>{query_node_1_address_},
-      std::vector<std::string>{data_node_address_});
+      query_node_1_address_);
 
   grpc::ServerContext context;
   proto::CreateCollectionRequest request;
@@ -450,12 +464,15 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "NoCoordinatorAvailable") {
   CHECK((!status.ok() || response.collection_id() == 0));
 }
 
-TEST_CASE_FIXTURE(ProxyServiceTest, "NoQueryNodeFallsBackToDataNode") {
-  // Create proxy with no query nodes — should fall back to data nodes for search
+TEST_CASE_FIXTURE(ProxyServiceTest, "NoQueryNodeReturnsUnavailable") {
+  // Post-1.7: the pre-existing --data-nodes static fallback was removed in
+  // favor of DNS-based discovery. A proxy configured with an empty
+  // query-node URI fails Search cleanly rather than silently fanning out
+  // to a random data-node. Users deploying without query-nodes are an
+  // unsupported configuration; failure here is the correct surface.
   auto proxy = std::make_unique<network::ProxyService>(
       std::vector<std::string>{coordinator_address_},
-      std::vector<std::string>{},  // No query nodes
-      std::vector<std::string>{data_node_address_});
+      std::string{});  // empty URI = no query-node target
 
   grpc::ServerContext context;
   proto::SearchRequest request;
@@ -465,28 +482,16 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "NoQueryNodeFallsBackToDataNode") {
   request.set_top_k(10);
   proto::SearchResponse response;
 
-  // Should attempt data node instead of returning UNAVAILABLE
   auto status = proxy->Search(&context, &request, &response);
-  CHECK_NE(status.error_code(), grpc::StatusCode::UNAVAILABLE);
-}
-
-TEST_CASE_FIXTURE(ProxyServiceTest, "NoDataNodeAvailable") {
-  // Create proxy with no data nodes
-  auto proxy = std::make_unique<network::ProxyService>(
-      std::vector<std::string>{coordinator_address_},
-      std::vector<std::string>{query_node_1_address_},
-      std::vector<std::string>{});  // No data nodes
-
-  grpc::ServerContext context;
-  proto::InsertRequest request;
-  request.set_collection_name("test_collection");
-  proto::InsertResponse response;
-
-  auto status = proxy->Insert(&context, &request, &response);
-
   CHECK_FALSE(status.ok());
   CHECK_EQ(status.error_code(), grpc::StatusCode::UNAVAILABLE);
 }
+
+// Previously this slot held a test named "NoDataNodeAvailable" which
+// exercised the --data-nodes static-list fallback when coordinator routing
+// returned nothing. Post-1.7 that fallback is removed entirely; UNAVAILABLE
+// coverage now lives in NoCoordinatorAvailable (which simulates the broader
+// "coordinator can't route" case). No dedicated test needed.
 
 // ============================================================================
 // Lazy Client Initialization Tests
@@ -496,8 +501,7 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "LazyClientInitialization") {
   // Create new proxy (clients not initialized yet)
   auto proxy = std::make_unique<network::ProxyService>(
       std::vector<std::string>{coordinator_address_},
-      std::vector<std::string>{query_node_1_address_},
-      std::vector<std::string>{data_node_address_});
+      query_node_1_address_);
 
   // Clients should be lazily initialized on first use
   grpc::ServerContext context;
@@ -546,9 +550,8 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "ConcurrentRequests") {
 
   CHECK_EQ(success_count.load(), 10);
 
-  // Verify total calls distributed across query nodes
-  int total_calls =
-      mock_query_node_1_->search_calls.load() +
-      mock_query_node_2_->search_calls.load();
-  CHECK_EQ(total_calls, 10);
+  // All 10 requests land on the single configured query-node (the proxy's
+  // channel points at query_node_1_address_ in the fixture). Multi-backend
+  // distribution is covered in the DNS integration test.
+  CHECK_EQ(mock_query_node_1_->search_calls.load(), 10);
 }
