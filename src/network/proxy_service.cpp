@@ -16,18 +16,32 @@ ProxyService::ProxyService(
       query_node_uri_(query_node_uri) {}
 
 proto::VectorDBService::Stub* ProxyService::GetCoordinatorClient() {
-  std::lock_guard<std::mutex> lock(clients_mutex_);
-  if (!coordinator_client_ && !coordinator_addrs_.empty()) {
-    auto channel = grpc::CreateChannel(coordinator_addrs_[0],
-                                      grpc::InsecureChannelCredentials());
-    coordinator_client_ = proto::VectorDBService::NewStub(channel);
+  // Hot-path: lock-free load. clients_mutex_ is only taken for first-time
+  // init; afterwards the stub is immutable and gRPC guarantees concurrent-
+  // invocation safety on it.
+  if (coordinator_client_ready_.load(std::memory_order_acquire)) {
+    return coordinator_client_.get();
   }
+  std::lock_guard<std::mutex> lock(clients_mutex_);
+  if (coordinator_client_ready_.load(std::memory_order_relaxed)) {
+    return coordinator_client_.get();
+  }
+  if (coordinator_addrs_.empty()) {
+    return nullptr;
+  }
+  auto channel = grpc::CreateChannel(coordinator_addrs_[0],
+                                    grpc::InsecureChannelCredentials());
+  coordinator_client_ = proto::VectorDBService::NewStub(channel);
+  coordinator_client_ready_.store(true, std::memory_order_release);
   return coordinator_client_.get();
 }
 
 proto::VectorDBService::Stub* ProxyService::GetQueryNodeClient() {
+  if (query_node_client_ready_.load(std::memory_order_acquire)) {
+    return query_node_client_.get();
+  }
   std::lock_guard<std::mutex> lock(clients_mutex_);
-  if (query_node_client_) {
+  if (query_node_client_ready_.load(std::memory_order_relaxed)) {
     return query_node_client_.get();
   }
   if (query_node_uri_.empty()) {
@@ -49,16 +63,25 @@ proto::VectorDBService::Stub* ProxyService::GetQueryNodeClient() {
         query_node_uri_, grpc::InsecureChannelCredentials());
   }
   query_node_client_ = proto::VectorDBService::NewStub(channel);
+  query_node_client_ready_.store(true, std::memory_order_release);
   return query_node_client_.get();
 }
 
 proto::internal::InternalService::Stub* ProxyService::GetCoordinatorInternalClient() {
-  std::lock_guard<std::mutex> lock(clients_mutex_);
-  if (!coordinator_internal_client_ && !coordinator_addrs_.empty()) {
-    auto channel = grpc::CreateChannel(coordinator_addrs_[0],
-                                      grpc::InsecureChannelCredentials());
-    coordinator_internal_client_ = proto::internal::InternalService::NewStub(channel);
+  if (coordinator_internal_client_ready_.load(std::memory_order_acquire)) {
+    return coordinator_internal_client_.get();
   }
+  std::lock_guard<std::mutex> lock(clients_mutex_);
+  if (coordinator_internal_client_ready_.load(std::memory_order_relaxed)) {
+    return coordinator_internal_client_.get();
+  }
+  if (coordinator_addrs_.empty()) {
+    return nullptr;
+  }
+  auto channel = grpc::CreateChannel(coordinator_addrs_[0],
+                                    grpc::InsecureChannelCredentials());
+  coordinator_internal_client_ = proto::internal::InternalService::NewStub(channel);
+  coordinator_internal_client_ready_.store(true, std::memory_order_release);
   return coordinator_internal_client_.get();
 }
 

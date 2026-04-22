@@ -35,6 +35,12 @@ grpc::ChannelArguments BuildDnsChannelArgs();
 // (the format gRPC's built-in DNS resolver expects). Used by the proxy to
 // decide whether to apply BuildDnsChannelArgs — legacy unit tests or local
 // runs may still pass a bare host:port.
+//
+// If you add support for another resolver-tuning scheme (e.g. xds:// for
+// xDS-based load balancing per gRFC A27, or unix:/ for in-cluster sidecars),
+// extend this predicate so those callers also receive the reconnect/backoff
+// tuning in BuildDnsChannelArgs. A rename to NeedsResolverTuning() would
+// also be reasonable at that point.
 bool IsDnsUri(const std::string& target);
 
 }  // namespace network
