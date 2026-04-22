@@ -434,6 +434,11 @@ const (
 	// reconciler is managing a pod-by-pod, quorum-aware rollout
 	// (roadmap 0b.6.C).
 	ConditionCoordinatorRolloutReady = "CoordinatorRolloutReady"
+	// ConditionDataNodeRolloutReady: true when the data-node StatefulSet is
+	// stable. False while the reconciler is managing a pod-by-pod,
+	// drain-aware rollout gated on cluster health, rebalance quiescence,
+	// and per-shard replica safety.
+	ConditionDataNodeRolloutReady = "DataNodeRolloutReady"
 )
 
 // WorkloadStatus reports desired vs ready replicas for one workload.

@@ -35,12 +35,12 @@ type RolloutStep struct {
 
 // Reason constants mirrored on the CoordinatorRolloutReady condition.
 const (
-	ReasonStable             = "Stable"
-	ReasonPinningForRollout  = "PinningForRollout"
-	ReasonWaitingForPod      = "WaitingForPod"
-	ReasonWaitingForLeader   = "WaitingForLeader"
-	ReasonWaitingForTerm     = "WaitingForStableTerm"
-	ReasonAdvancing          = "Advancing"
+	ReasonStable            = "Stable"
+	ReasonPinningForRollout = "PinningForRollout"
+	ReasonWaitingForPod     = "WaitingForPod"
+	ReasonWaitingForLeader  = "WaitingForLeader"
+	ReasonWaitingForTerm    = "WaitingForStableTerm"
+	ReasonAdvancing         = "Advancing"
 )
 
 // RolloutObservedTermAnnotation stores the Raft term the operator saw on

@@ -17,11 +17,13 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	schedv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -57,6 +59,11 @@ type GVDBClusterReconciler struct {
 	// StatsPool caches long-lived gRPC clients so reconciler passes don't
 	// re-dial every 30s.
 	StatsPool *gvdbclient.Pool
+
+	// Recorder emits Kubernetes Events on the GVDBCluster CR. Used to surface
+	// rollout decisions that a user needs to see without tailing operator
+	// logs (e.g. RF=1 deadlock blocking data-node rollout).
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=gvdb.io,resources=gvdbclusters,verbs=get;list;watch;create;update;patch;delete
@@ -64,6 +71,7 @@ type GVDBClusterReconciler struct {
 // +kubebuilder:rbac:groups=gvdb.io,resources=gvdbclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=statefulsets;deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services;configmaps;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=policy,resources=poddisruptionbudgets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=get;list;watch;create;update;patch;delete
 
@@ -141,13 +149,12 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-
 	// Collect status.
 	nodeCounts := r.collectNodeCounts(ctx, &cluster)
 	cluster.Status.NodeCounts = nodeCounts
 
 	r.refreshStats(ctx, &cluster)
-	leader := r.refreshCoordinatorStatus(ctx, &cluster)
+	leader, clusterHealth := r.refreshCoordinatorStatus(ctx, &cluster)
 
 	// Manage coordinator rolling upgrade: partition-gated pod-by-pod drain
 	// that waits for Raft re-election AND term stability between pods
@@ -156,6 +163,17 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	rolloutRequeue, rErr := r.reconcileCoordinatorRollout(ctx, &cluster, leader)
 	if rErr != nil {
 		log.Error(rErr, "coordinator rollout failed")
+	}
+
+	// Manage data-node rolling upgrade: partition-gated pod-by-pod drain
+	// guarded by cluster health, rebalance quiescence, and per-shard replica
+	// safety. Runs AFTER the coordinator rollout and gates on its condition
+	// — never two rollouts in flight because GetShardAssignments goes to the
+	// coordinator leader.
+	shardAssignments := r.fetchShardAssignments(ctx, &cluster)
+	dnRolloutRequeue, dnErr := r.reconcileDataNodeRollout(ctx, &cluster, clusterHealth, shardAssignments)
+	if dnErr != nil {
+		log.Error(dnErr, "data-node rollout failed")
 	}
 
 	phase, conditions := computePhase(nodeCounts)
@@ -170,10 +188,14 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// During an active rollout requeue fast so the reconciler can advance
-	// the partition without waiting 30s between decisions.
+	// the partition without waiting 30s between decisions. Take the minimum
+	// of both rollout hints so whichever is active drives the cadence.
 	requeue := 30 * time.Second
 	if rolloutRequeue > 0 && rolloutRequeue < requeue {
 		requeue = rolloutRequeue
+	}
+	if dnRolloutRequeue > 0 && dnRolloutRequeue < requeue {
+		requeue = dnRolloutRequeue
 	}
 	return ctrl.Result{RequeueAfter: requeue}, nil
 }
@@ -316,6 +338,158 @@ func rolloutPatch(
 	if term != 0 {
 		p.Annotations = map[string]string{
 			RolloutObservedTermAnnotation: strconv.FormatUint(term, 10),
+		}
+	}
+	return p
+}
+
+// datanodeRolloutFieldManager is the SSA field owner for the data-node
+// StatefulSet's rollout-only fields (partition + observed-rebalance
+// annotation). Kept distinct from both the main `gvdb-operator` owner AND
+// the coordinator rollout owner so ownership boundaries remain explicit.
+const datanodeRolloutFieldManager = "gvdb-operator-datanode-rollout"
+
+// reconcileDataNodeRollout enforces a pod-by-pod, drain-aware rolling update
+// of the data-node StatefulSet. Gated on cluster health, rebalance
+// quiescence, and per-shard replica safety — see desiredDataNodePartition.
+func (r *GVDBClusterReconciler) reconcileDataNodeRollout(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
+	clusterHealth gvdbclient.ClusterHealth,
+	shardAssignments []gvdbclient.ShardAssignment,
+) (time.Duration, error) {
+	log := logf.FromContext(ctx)
+
+	var sts appsv1.StatefulSet
+	key := types.NamespacedName{
+		Namespace: cluster.Namespace,
+		Name:      render.WorkloadName(cluster, render.DataNodeComponent),
+	}
+	if err := r.Get(ctx, key, &sts); err != nil {
+		return 0, client.IgnoreNotFound(err)
+	}
+
+	observedRebalance := readObservedRebalance(&sts)
+	coordRolloutReady := meta.IsStatusConditionTrue(
+		cluster.Status.Conditions, gvdbv1alpha1.ConditionCoordinatorRolloutReady,
+	)
+
+	step := desiredDataNodePartition(
+		&sts, clusterHealth, shardAssignments,
+		observedRebalance, time.Now(), coordRolloutReady,
+	)
+
+	// Mirror the step onto the condition set. The Message carries shard-
+	// level detail when one of the safety gates blocks.
+	condStatus := metav1.ConditionFalse
+	msg := "data-node rollout in progress"
+	if step.Done {
+		condStatus = metav1.ConditionTrue
+		msg = "data-node StatefulSet is stable"
+	}
+	if step.Message != "" {
+		msg = step.Message
+	}
+	meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+		Type:    gvdbv1alpha1.ConditionDataNodeRolloutReady,
+		Status:  condStatus,
+		Reason:  step.Reason,
+		Message: msg,
+	})
+
+	// RF=1 deadlock is a user-facing stuck state; surface it as a warning
+	// Event so `kubectl describe gvdbcluster` shows why without requiring
+	// operator logs. The condition reason already carries the signal too.
+	if step.Reason == ReasonRF1Blocked && r.Recorder != nil {
+		r.Recorder.Event(cluster, corev1.EventTypeWarning, ReasonRF1Blocked, msg)
+	}
+
+	// Ratchet the observed-rebalance forward. Coordinator's clusterLast can
+	// briefly report a stale value after a coordinator restart; keep the
+	// max so Gate B doesn't silently relax its window.
+	newObserved := observedRebalance
+	if clusterHealth.LastRebalanceUnixMs > newObserved {
+		newObserved = clusterHealth.LastRebalanceUnixMs
+	}
+
+	needsWrite := datanodeRolloutNeedsWrite(&sts, step, newObserved, observedRebalance)
+	if needsWrite {
+		patch := datanodeRolloutPatch(&sts, step.Partition, newObserved)
+		if err := r.Patch(ctx, patch, client.Apply,
+			client.FieldOwner(datanodeRolloutFieldManager),
+			client.ForceOwnership,
+		); err != nil {
+			return 0, fmt.Errorf("SSA apply data-node rollout fragment: %w", err)
+		}
+		log.Info("data-node rollout partition advanced",
+			"partition", step.Partition, "observedRebalance", newObserved, "reason", step.Reason)
+	}
+
+	if step.Done {
+		return 0, nil
+	}
+	return 5 * time.Second, nil
+}
+
+// readObservedRebalance reads the operator-persisted last-rebalance Unix-ms
+// timestamp from the data-node STS annotation. Zero if absent / malformed.
+func readObservedRebalance(sts *appsv1.StatefulSet) int64 {
+	if sts.Annotations == nil {
+		return 0
+	}
+	raw := sts.Annotations[DataNodeRolloutObservedRebalanceAnnotation]
+	if raw == "" {
+		return 0
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || v < 0 {
+		return 0
+	}
+	return v
+}
+
+// datanodeRolloutNeedsWrite decides whether an SSA apply is required this
+// reconcile — avoids a no-op Patch round-trip in the common stable case.
+func datanodeRolloutNeedsWrite(
+	sts *appsv1.StatefulSet, step DataNodeRolloutStep,
+	newObservedRebalance, prevObservedRebalance int64,
+) bool {
+	currentPartition := int32(-1)
+	if rs := sts.Spec.UpdateStrategy.RollingUpdate; rs != nil && rs.Partition != nil {
+		currentPartition = *rs.Partition
+	}
+	desiredPartitionVal := int32(-1)
+	if step.Partition != nil {
+		desiredPartitionVal = *step.Partition
+	}
+	if desiredPartitionVal != currentPartition {
+		return true
+	}
+	return newObservedRebalance > 0 && newObservedRebalance != prevObservedRebalance
+}
+
+// datanodeRolloutPatch builds the minimal SSA fragment the data-node
+// rollout owns (partition + observed-rebalance annotation).
+func datanodeRolloutPatch(
+	sts *appsv1.StatefulSet, partition *int32, observedRebalance int64,
+) *appsv1.StatefulSet {
+	p := &appsv1.StatefulSet{
+		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sts.Name,
+			Namespace: sts.Namespace,
+		},
+	}
+	if partition != nil {
+		p.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{
+			Type: appsv1.RollingUpdateStatefulSetStrategyType,
+			RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{
+				Partition: partition,
+			},
+		}
+	}
+	if observedRebalance > 0 {
+		p.Annotations = map[string]string{
+			DataNodeRolloutObservedRebalanceAnnotation: strconv.FormatInt(observedRebalance, 10),
 		}
 	}
 	return p
@@ -479,7 +653,7 @@ func (r *GVDBClusterReconciler) refreshStats(
 // because the rollout gate is belt-and-braces, not the only safety net.
 func (r *GVDBClusterReconciler) refreshCoordinatorStatus(
 	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
-) gvdbclient.LeaderInfo {
+) (gvdbclient.LeaderInfo, gvdbclient.ClusterHealth) {
 	log := logf.FromContext(ctx)
 
 	for _, target := range render.CoordinatorPodAddresses(cluster) {
@@ -504,10 +678,15 @@ func (r *GVDBClusterReconciler) refreshCoordinatorStatus(
 			}
 		}
 
-		// Cluster health carries the last-rebalance timestamp.
-		if health, hErr := cc.FetchClusterHealth(ctx); hErr == nil {
-			if health.LastRebalanceUnixMs > 0 {
-				t := metav1.NewTime(time.UnixMilli(health.LastRebalanceUnixMs))
+		// Cluster health carries the last-rebalance timestamp PLUS the
+		// per-node status used by the data-node rollout's replica-safety
+		// gate. Return it alongside the leader so the caller doesn't need
+		// to re-dial.
+		var health gvdbclient.ClusterHealth
+		if h, hErr := cc.FetchClusterHealth(ctx); hErr == nil {
+			health = h
+			if h.LastRebalanceUnixMs > 0 {
+				t := metav1.NewTime(time.UnixMilli(h.LastRebalanceUnixMs))
 				cluster.Status.LastRebalance = &t
 			}
 		}
@@ -515,11 +694,35 @@ func (r *GVDBClusterReconciler) refreshCoordinatorStatus(
 		// Stop on first pod that answered leader info successfully — any
 		// one coordinator knows the current leader.
 		if lErr == nil {
-			return leader
+			return leader, health
 		}
 	}
 	log.V(1).Info("all coordinator pods unreachable; leader status unchanged")
-	return gvdbclient.LeaderInfo{}
+	return gvdbclient.LeaderInfo{}, gvdbclient.ClusterHealth{}
+}
+
+// fetchShardAssignments dials coordinator pods in ordinal order until one
+// answers GetShardAssignments. Returns nil on total failure — callers
+// (specifically reconcileDataNodeRollout) interpret an empty slice as "no
+// data to reason about" and refuse to advance the replica-safety gate.
+func (r *GVDBClusterReconciler) fetchShardAssignments(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
+) []gvdbclient.ShardAssignment {
+	log := logf.FromContext(ctx)
+	for _, target := range render.CoordinatorPodAddresses(cluster) {
+		cc, err := r.StatsPool.GetCoordinator(target)
+		if err != nil {
+			continue
+		}
+		sa, err := cc.FetchShardAssignments(ctx)
+		if err != nil {
+			log.V(1).Info("FetchShardAssignments failed; trying next coordinator",
+				"target", target, "err", err)
+			continue
+		}
+		return sa
+	}
+	return nil
 }
 
 // computePhase derives .status.phase and the standard condition set from
