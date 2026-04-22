@@ -132,3 +132,5 @@ ui/gateway/gvdb-ui*
 test/e2e/repair_test_bin
 test/e2e/sparse_search_test
 test/e2e/TTL_test
+CLAUDE.md
+ROADMAP.md
