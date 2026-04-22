@@ -191,6 +191,7 @@ func main() {
 		// '-X gvdb/operator/cmd/main.operatorVersion=<ver>' in CI.
 		// Unset here so `go run` falls through to "latest" in ImageRef.
 		DefaultImageTag: operatorVersion,
+		Recorder:        mgr.GetEventRecorderFor("gvdbcluster-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "GVDBCluster")
 		os.Exit(1)
