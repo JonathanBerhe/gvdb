@@ -231,6 +231,16 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // the partition, and this path cannot touch template/spec fields.
 const rolloutFieldManager = "gvdb-operator-rollout"
 
+// fmtPartition renders a *int32 partition value as a decimal for logs,
+// returning "unset" for nil. logr formats pointer-typed int32 as a memory
+// address ("0x140000ab4d8"), which is useless for operators reading logs.
+func fmtPartition(p *int32) string {
+	if p == nil {
+		return "unset"
+	}
+	return strconv.FormatInt(int64(*p), 10)
+}
+
 // reconcileCoordinatorRollout enforces a pod-by-pod, Raft-quorum-aware
 // rolling update of the coordinator StatefulSet.
 //
@@ -292,7 +302,7 @@ func (r *GVDBClusterReconciler) reconcileCoordinatorRollout(
 			return 0, fmt.Errorf("SSA apply rollout fragment: %w", err)
 		}
 		log.Info("coordinator rollout partition advanced",
-			"partition", step.Partition, "term", leader.CurrentTerm, "reason", step.Reason)
+			"partition", fmtPartition(step.Partition), "term", leader.CurrentTerm, "reason", step.Reason)
 	}
 
 	if step.Done {
@@ -458,7 +468,7 @@ func (r *GVDBClusterReconciler) reconcileDataNodeRollout(
 			return 0, fmt.Errorf("SSA apply data-node rollout fragment: %w", err)
 		}
 		log.Info("data-node rollout partition advanced",
-			"partition", step.Partition, "observedRebalance", newObserved, "reason", step.Reason)
+			"partition", fmtPartition(step.Partition), "observedRebalance", newObserved, "reason", step.Reason)
 	}
 
 	if step.Done {
@@ -556,6 +566,15 @@ func (r *GVDBClusterReconciler) reconcileQueryNodeRollout(
 		return 0, client.IgnoreNotFound(err)
 	}
 
+	// Both prior rollout conditions must be True before we advance the
+	// query-node partition. Absent conditions (first reconcile after CR
+	// creation, before the coordinator/data-node reconcilers have run on
+	// an actual STS) count as "not ready" — this is intentional: the
+	// query-node STS doesn't exist yet in that window either, so the Get
+	// above returns NotFound and we short-circuit. Do NOT refactor to
+	// `IsStatusConditionPresentAndEqual(...True)` — that semantically
+	// matches False-when-absent, but makes the bootstrap coupling less
+	// obvious.
 	priorReady := meta.IsStatusConditionTrue(
 		cluster.Status.Conditions, gvdbv1alpha1.ConditionCoordinatorRolloutReady,
 	) && meta.IsStatusConditionTrue(
@@ -586,7 +605,7 @@ func (r *GVDBClusterReconciler) reconcileQueryNodeRollout(
 			return 0, fmt.Errorf("SSA apply query-node rollout fragment: %w", err)
 		}
 		log.Info("query-node rollout partition advanced",
-			"partition", step.Partition, "reason", step.Reason)
+			"partition", fmtPartition(step.Partition), "reason", step.Reason)
 	}
 
 	if step.Done {
@@ -664,26 +683,23 @@ func (r *GVDBClusterReconciler) reconcileProxyRolloutStatus(
 		return 5 * time.Second, nil
 	}
 
-	// Stalled: Deployment controller has given up (progress deadline exceeded).
-	for _, c := range dep.Status.Conditions {
-		if c.Type == appsv1.DeploymentProgressing && c.Status == corev1.ConditionFalse {
-			meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
-				Type:    gvdbv1alpha1.ConditionProxyRolloutReady,
-				Status:  metav1.ConditionFalse,
-				Reason:  ReasonProxyRolloutStalled,
-				Message: c.Message,
-			})
-			return 0, nil
-		}
-	}
-
-	// Ready: observedGeneration caught up AND every replica is updated AND
-	// ready AND none are unavailable. All four conditions matter — checking
-	// UpdatedReplicas alone misses rollbacks where new pods failed to Ready.
+	// Check stability FIRST, before Stalled. The K8s Deployment controller
+	// lags Progressing condition updates behind actual state: during a
+	// rollback after a stall, pods become Ready before Progressing flips
+	// back to True, so a stability-wins-over-stalled ordering gives the
+	// correct verdict as soon as the Deployment is genuinely healthy.
+	//
+	// specReplicas defaults to 1 only defensively — our render layer always
+	// sets Spec.Replicas explicitly (EffectiveReplicas in render/names.go).
+	// Readers should trust the spec; fallback handles manually-crafted
+	// Deployments that bypass the operator.
 	specReplicas := int32(1)
 	if dep.Spec.Replicas != nil {
 		specReplicas = *dep.Spec.Replicas
 	}
+	// All four checks matter — UpdatedReplicas alone misses rollbacks where
+	// new pods failed to reach Ready; UnavailableReplicas catches pods that
+	// crashed post-Ready.
 	stable := dep.Status.ObservedGeneration >= dep.Generation &&
 		dep.Status.UpdatedReplicas == specReplicas &&
 		dep.Status.ReadyReplicas == specReplicas &&
@@ -696,6 +712,20 @@ func (r *GVDBClusterReconciler) reconcileProxyRolloutStatus(
 			Message: "proxy Deployment is stable",
 		})
 		return 0, nil
+	}
+
+	// Stalled: Deployment controller has given up (progressDeadlineSeconds
+	// exceeded). Only report this if we're not already stable.
+	for _, c := range dep.Status.Conditions {
+		if c.Type == appsv1.DeploymentProgressing && c.Status == corev1.ConditionFalse {
+			meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+				Type:    gvdbv1alpha1.ConditionProxyRolloutReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  ReasonProxyRolloutStalled,
+				Message: c.Message,
+			})
+			return 0, nil
+		}
 	}
 
 	meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
