@@ -78,10 +78,11 @@ spec:
             - "/tmp/gvdb/proxy"
             - "--coordinators"
             - {{ include "gvdb.coordinator.address" . | quote }}
-            - "--data-nodes"
-            - {{ include "gvdb.dataNode.addresses" . | quote }}
+            # Single dns:/// URI for the query-node headless service;
+            # gRPC's round_robin LB fans out across all Ready pods and
+            # picks up scale-up without a helm upgrade (roadmap 1.7).
             - "--query-nodes"
-            - {{ include "gvdb.queryNode.addresses" . | quote }}
+            - {{ include "gvdb.queryNode.dnsUri" . | quote }}
           ports:
             - containerPort: 50050
               name: grpc

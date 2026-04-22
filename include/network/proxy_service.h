@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <string>
@@ -110,8 +111,14 @@ class ProxyService final : public proto::VectorDBService::Service {
   // fail with UNAVAILABLE.
   std::string query_node_uri_;
 
-  // gRPC clients (lazy initialized)
+  // gRPC clients (lazy initialized). The three stubs below are written
+  // exactly once under clients_mutex_, then hot-path reads are lock-free via
+  // acquire loads on the atomic "ready" flags — stubs are thread-safe for
+  // concurrent invocations once constructed (gRPC guarantee).
   std::mutex clients_mutex_;
+  std::atomic<bool> coordinator_client_ready_{false};
+  std::atomic<bool> coordinator_internal_client_ready_{false};
+  std::atomic<bool> query_node_client_ready_{false};
   std::unique_ptr<proto::VectorDBService::Stub> coordinator_client_;
   std::unique_ptr<proto::internal::InternalService::Stub> coordinator_internal_client_;
   // Single round_robin channel for the query-node headless service — gRPC

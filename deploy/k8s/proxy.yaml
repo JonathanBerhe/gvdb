@@ -51,10 +51,13 @@ spec:
             - "/tmp/gvdb/proxy"
             - "--coordinators"
             - "gvdb-coordinator-0.coordinator.gvdb.svc.cluster.local:50051"
-            - "--data-nodes"
-            - "gvdb-data-node-0.data-node.gvdb.svc.cluster.local:50060,gvdb-data-node-1.data-node.gvdb.svc.cluster.local:50060"
+            # Single dns:/// URI for the query-node headless service;
+            # gRPC's round_robin LB fans out across all Ready pods and
+            # re-resolves on scale / restart (roadmap 1.7). The old
+            # `--data-nodes` flag was removed — data-node routing goes
+            # through the coordinator's RouteQuery RPC.
             - "--query-nodes"
-            - "gvdb-query-node-0.query-node.gvdb.svc.cluster.local:50070"
+            - "dns:///query-node.gvdb.svc.cluster.local:50070"
           ports:
             - containerPort: 50050
               name: grpc
