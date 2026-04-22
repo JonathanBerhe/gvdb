@@ -206,24 +206,22 @@ func CoordinatorRaftPeers(cluster *gvdbv1alpha1.GVDBCluster) string {
 	return strings.Join(parts, ",")
 }
 
-// DataNodeAddresses returns a comma-separated list of data-node pod addresses
-// for the proxy --data-nodes flag. Mirrors gvdb.dataNode.addresses.
-func DataNodeAddresses(cluster *gvdbv1alpha1.GVDBCluster) string {
-	return workloadAddresses(cluster, DataNodeComponent, EffectiveReplicas(cluster, DataNodeComponent), DataNodeGRPCPort)
-}
-
-// QueryNodeAddresses returns a comma-separated list of query-node pod addresses
-// for the proxy --query-nodes flag. Mirrors gvdb.queryNode.addresses.
-func QueryNodeAddresses(cluster *gvdbv1alpha1.GVDBCluster) string {
-	return workloadAddresses(cluster, QueryNodeComponent, EffectiveReplicas(cluster, QueryNodeComponent), QueryNodeGRPCPort)
-}
-
-func workloadAddresses(cluster *gvdbv1alpha1.GVDBCluster, c Component, replicas int32, port int) string {
-	parts := make([]string, 0, replicas)
-	for i := int32(0); i < replicas; i++ {
-		parts = append(parts, fmt.Sprintf("%s:%d", podFQDN(cluster, c, i), port))
-	}
-	return strings.Join(parts, ",")
+// QueryNodeDNSURI returns a gRPC dns:/// URI pointing at the query-node
+// headless service. The proxy dials this single target and gRPC resolves
+// all live pod A records, round-robining requests and re-resolving on
+// failures — so `kubectl scale query-node` is picked up without operator
+// intervention (roadmap 1.7).
+//
+// FQDN pattern: <release>-query-node.<namespace>.svc.<cluster-domain>:<port>
+// (headless service name mirrors the StatefulSet name; A records point at
+// all Ready pods).
+func QueryNodeDNSURI(cluster *gvdbv1alpha1.GVDBCluster) string {
+	return fmt.Sprintf("dns:///%s.%s.svc.%s:%d",
+		WorkloadName(cluster, QueryNodeComponent),
+		cluster.Namespace,
+		ClusterDomain(cluster),
+		QueryNodeGRPCPort,
+	)
 }
 
 // Labels returns the standard label set for a workload.

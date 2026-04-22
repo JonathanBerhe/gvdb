@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <map>
 #include <memory>
 #include <string>
@@ -12,26 +11,29 @@
 
 #include "vectordb.grpc.pb.h"
 #include "internal.grpc.pb.h"
-#include "cluster/load_balancer.h"
 #include <grpcpp/grpcpp.h>
 
 namespace gvdb {
 namespace network {
 
-// Node information for load balancing
-struct QueryNode {
-  core::NodeId id;
-  std::string address;
-  std::unique_ptr<proto::VectorDBService::Stub> client;
-};
-
-// Proxy service that routes client requests to backend nodes
+// Proxy service that routes client requests to backend nodes.
+//
+// Query-node discovery is DNS-based: callers pass a single dns:/// URI
+// pointing at the query-node headless service. gRPC resolves all A records
+// and round-robins across them via the round_robin LB policy, re-resolving
+// on failures. This replaces the pre-1.7 static comma-separated FQDN list
+// so `kubectl scale query-node` works without operator intervention.
+//
+// Data-node discovery is dynamic per-request via the coordinator's
+// RouteQuery RPC; the proxy dials specific pod FQDNs on demand. No
+// --data-nodes flag is needed today (there is no read-only fallback — if
+// the coordinator is unreachable, the proxy returns UNAVAILABLE rather
+// than fanning out to a random data node).
 class ProxyService final : public proto::VectorDBService::Service {
  public:
   ProxyService(
       const std::vector<std::string>& coordinator_addrs,
-      const std::vector<std::string>& query_node_addrs,
-      const std::vector<std::string>& data_node_addrs);
+      const std::string& query_node_uri);
 
   ~ProxyService() override = default;
 
@@ -101,32 +103,29 @@ class ProxyService final : public proto::VectorDBService::Service {
                        proto::GetStatsResponse* response) override;
 
  private:
-  // Backend node addresses
+  // Backend targets
   std::vector<std::string> coordinator_addrs_;
-  std::vector<std::string> query_node_addrs_;
-  std::vector<std::string> data_node_addrs_;
+  // Single dns:///<headless-svc>:<port> URI (or a bare host:port for
+  // single-node / non-K8s deployments). Empty means query-node ops should
+  // fail with UNAVAILABLE.
+  std::string query_node_uri_;
 
   // gRPC clients (lazy initialized)
   std::mutex clients_mutex_;
   std::unique_ptr<proto::VectorDBService::Stub> coordinator_client_;
   std::unique_ptr<proto::internal::InternalService::Stub> coordinator_internal_client_;
-  std::vector<QueryNode> query_nodes_;  // Query nodes with load balancing
-  std::vector<std::unique_ptr<proto::VectorDBService::Stub>> data_clients_;
+  // Single round_robin channel for the query-node headless service — gRPC
+  // handles fan-out across all resolved A records.
+  std::unique_ptr<proto::VectorDBService::Stub> query_node_client_;
 
-  // Dynamic data node clients (by address, for shard-aware routing)
+  // Dynamic data node clients (by address, for shard-aware routing).
+  // Populated on-demand from coordinator RouteQuery responses.
   std::map<std::string, std::unique_ptr<proto::VectorDBService::Stub>> data_client_by_addr_;
-
-  // Load balancer for query nodes
-  std::unique_ptr<cluster::LoadBalancer> load_balancer_;
-
-  // Round-robin counter for data node routing (fallback)
-  std::atomic<uint32_t> data_node_counter_{0};
 
   // Helper methods
   proto::VectorDBService::Stub* GetCoordinatorClient();
   proto::internal::InternalService::Stub* GetCoordinatorInternalClient();
   proto::VectorDBService::Stub* GetQueryNodeClient();
-  proto::VectorDBService::Stub* GetDataNodeClient(int shard_id);
   // Resolve a collection to one of its data nodes via the coordinator's
   // RouteQuery RPC. Set `read_only=true` for read operations so the
   // coordinator may return a routable replica when the primary is draining
