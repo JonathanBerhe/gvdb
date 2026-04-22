@@ -20,6 +20,8 @@
 #include "index/index_factory.h"
 #include "network/internal_service.h"
 #include "network/vectordb_service.h"
+#include "internal.grpc.pb.h"
+#include <grpcpp/grpcpp.h>
 #include "network/collection_resolver.h"
 #include "network/auth_processor.h"
 #include "network/audit_interceptor.h"
@@ -39,6 +41,12 @@ struct CoordinatorArgs {
   // us regardless of pod IP churn (roadmap 0b.4).
   std::string raft_advertise_address;
   std::vector<std::string> raft_peers;
+  // Coordinator gRPC InternalService endpoints (host:50051) for the 1.7b
+  // startup peer probe and self-remove RPC on shutdown. Rendered by the
+  // operator alongside --raft-peers. Comma-separated; empty or single-
+  // entry list disables auto-join (falls back to the initial-bootstrap
+  // seed path; single-node clusters don't need peer probing anyway).
+  std::vector<std::string> coordinator_grpc_peers;
   std::string data_dir = "/tmp/gvdb/coordinator";
   std::string config_file;
   bool single_node_mode = true;
@@ -58,6 +66,10 @@ void PrintUsage(const char* program_name) {
             << "  --raft-peers PEERS       Comma-separated Raft peers in 'id:host:port' format\n"
             << "                           (e.g. '1:host1:8300,2:host2:8300,3:host3:8300').\n"
             << "                           Passing this flag implies --multi-node.\n"
+            << "  --coordinator-grpc-peers PEERS  Comma-separated coordinator gRPC endpoints\n"
+            << "                           ('host1:50051,host2:50051,host3:50051') used for\n"
+            << "                           the 1.7b startup peer-probe and self-remove RPC.\n"
+            << "                           Order must match --raft-peers (node_id=ordinal+1).\n"
             << "  --data-dir PATH          Data directory (default: /tmp/gvdb/coordinator)\n"
             << "  --config FILE            YAML configuration file\n"
             << "  --single-node            Run in single-node mode\n"
@@ -91,6 +103,16 @@ bool ParseArgs(int argc, char** argv, CoordinatorArgs& args) {
       }
       args.raft_peers.push_back(peers_str.substr(start));
       args.single_node_mode = false;
+    } else if (arg == "--coordinator-grpc-peers" && i + 1 < argc) {
+      std::string peers_str = argv[++i];
+      size_t start = 0;
+      size_t end = peers_str.find(',');
+      while (end != std::string::npos) {
+        args.coordinator_grpc_peers.push_back(peers_str.substr(start, end - start));
+        start = end + 1;
+        end = peers_str.find(',', start);
+      }
+      args.coordinator_grpc_peers.push_back(peers_str.substr(start));
     } else if (arg == "--data-dir" && i + 1 < argc) {
       args.data_dir = argv[++i];
     } else if (arg == "--config" && i + 1 < argc) {
@@ -142,6 +164,7 @@ int main(int argc, char** argv) {
     raft_config.listen_address = args.raft_address;
     raft_config.advertise_address = args.raft_advertise_address;
     raft_config.peers = args.raft_peers;
+    raft_config.coordinator_grpc_peers = args.coordinator_grpc_peers;
     raft_config.data_dir = args.data_dir + "/raft";
 
     auto raft_node = std::make_unique<consensus::RaftNode>(raft_config);
@@ -279,6 +302,47 @@ int main(int argc, char** argv) {
 
     // Graceful shutdown
     std::cout << "\nShutting down gracefully..." << std::endl;
+
+    // Self-remove from Raft membership BEFORE shutting down the gRPC
+    // server (roadmap 1.7b). Only relevant in multi-node mode and only
+    // if we're a follower — NuRaft refuses to remove the current leader
+    // (CANNOT_REMOVE_LEADER) and letting the cluster re-elect after we
+    // exit is the clean path. Failures here are non-fatal: a lingering
+    // peer in cluster_config is a degraded state that recovers on the
+    // next reconcile or follow-up operator RemovePeer call.
+    if (!args.single_node_mode && !args.coordinator_grpc_peers.empty() &&
+        !raft_node->IsLeader()) {
+      int leader_id = raft_node->GetLeaderId();
+      if (leader_id > 0 &&
+          static_cast<size_t>(leader_id - 1) <
+              args.coordinator_grpc_peers.size()) {
+        const std::string& leader_target =
+            args.coordinator_grpc_peers[leader_id - 1];
+        utils::Logger::Instance().Info(
+            "Self-removing node_id={} via leader {} before shutdown",
+            args.node_id, leader_target);
+        auto channel = grpc::CreateChannel(
+            leader_target, grpc::InsecureChannelCredentials());
+        auto stub = proto::internal::InternalService::NewStub(channel);
+        proto::internal::RemovePeerRequest req;
+        req.set_node_id(static_cast<uint32_t>(args.node_id));
+        proto::internal::RemovePeerResponse resp;
+        grpc::ClientContext ctx;
+        ctx.set_deadline(std::chrono::system_clock::now() +
+                         std::chrono::seconds(3));
+        auto st = stub->RemovePeer(&ctx, req, &resp);
+        if (!st.ok()) {
+          utils::Logger::Instance().Warn(
+              "Self-remove RPC failed: {}", st.error_message());
+        } else if (!resp.success()) {
+          utils::Logger::Instance().Warn(
+              "Self-remove denied: {}", resp.message());
+        } else {
+          utils::Logger::Instance().Info("Self-remove succeeded");
+        }
+      }
+    }
+
     grpc_server->Shutdown();
     utils::ServerBootstrap::StopMetricsServer();
     (void)raft_node->Shutdown();

@@ -114,6 +114,23 @@ class RaftNode {
   core::StatusOr<cluster::NodeInfo> GetNodeInfo(core::NodeId id) const;
   std::vector<cluster::NodeInfo> ListNodes() const;
 
+  // Raft membership changes (roadmap 1.7b). Both methods are leader-only;
+  // they return FailedPreconditionError when called on a follower, carrying
+  // the current leader id in the status message so callers can retry.
+  //
+  // AddPeer wraps NuRaft raft_server::add_srv. Used by the leader handler
+  // of the JoinCluster RPC when a new coordinator pod announces itself.
+  // On success, NuRaft replicates the cluster_config change via Raft log
+  // and the joining pod is caught up via snapshot transfer.
+  core::Status AddPeer(int32_t node_id, const std::string& raft_endpoint);
+
+  // RemovePeer wraps NuRaft raft_server::remove_srv. Used by the leader
+  // handler of the RemovePeer RPC, typically invoked by a coordinator pod
+  // self-removing during graceful shutdown. Cannot remove the current
+  // leader (NuRaft rejects with CANNOT_REMOVE_LEADER); caller must either
+  // transfer leadership first or let NuRaft re-elect after the pod exits.
+  core::Status RemovePeer(int32_t node_id);
+
   // Timestamp oracle access
   TimestampOracle* GetTimestampOracle() { return &tso_; }
   const TimestampOracle* GetTimestampOracle() const { return &tso_; }
@@ -146,9 +163,19 @@ class RaftNode {
   // Statistics
   std::atomic<size_t> committed_ops_{0};
 
+  // Set by InitializeNuRaft when the peer probe found a live leader on
+  // startup. Non-empty value triggers a JoinCluster RPC after NuRaft is
+  // up (roadmap 1.7b). Cleared once the join has been announced.
+  std::string joining_peer_;
+
   // Helpers
   core::Status ProposeOperation(const MetadataOp& op);
   core::Status InitializeNuRaft();
+  // Announce our join to the Raft leader via JoinCluster RPC. Called from
+  // Start() after InitializeNuRaft returns when joining_peer_ is set.
+  // Retries on NOT_LEADER by following the current_leader_id. Bounded
+  // retry budget; returns error if no leader accepts our join.
+  core::Status AnnounceJoinToCluster();
 };
 
 } // namespace consensus
