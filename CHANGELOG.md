@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.24.0](https://github.com/JonathanBerhe/gvdb/compare/v0.23.0...v0.24.0) (2026-04-22)
+
+
+### Features
+
+* **operator:** query-node pod-by-pod rollout + proxy rollout condition ([bbb679f](https://github.com/JonathanBerhe/gvdb/commit/bbb679f7430df2c33e8c1147ca2ab3f5bb0cced5))
+* **operator:** query-node pod-by-pod rollout + proxy rollout condition ([80c141f](https://github.com/JonathanBerhe/gvdb/commit/80c141f6ca773b52d131d03140b619b4cb13f51a))
+
+
+### Bug Fixes
+
+* **operator:** query-node + proxy rollout review fixes — stability ordering, partition log format, proxy tests ([49f6571](https://github.com/JonathanBerhe/gvdb/commit/49f6571a607cc2fcea9e8cd3a24ef88639f87cf7))
+
 ## [0.23.0](https://github.com/JonathanBerhe/gvdb/compare/v0.22.0...v0.23.0) (2026-04-22)
 
 
