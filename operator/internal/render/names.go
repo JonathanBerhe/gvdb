@@ -206,6 +206,23 @@ func CoordinatorRaftPeers(cluster *gvdbv1alpha1.GVDBCluster) string {
 	return strings.Join(parts, ",")
 }
 
+// CoordinatorGRPCPeers builds the comma-separated list of coordinator
+// InternalService gRPC endpoints used by the 1.7b startup peer-probe and
+// SIGTERM self-remove RPC. Order mirrors CoordinatorRaftPeers — entry i
+// corresponds to Raft node_id (i+1) — so the binary can index into this
+// list by (leader_id - 1) when following a NOT_LEADER redirect.
+func CoordinatorGRPCPeers(cluster *gvdbv1alpha1.GVDBCluster) string {
+	replicas := EffectiveReplicas(cluster, CoordinatorComponent)
+	parts := make([]string, 0, replicas)
+	for i := int32(0); i < replicas; i++ {
+		parts = append(parts, fmt.Sprintf("%s:%d",
+			podFQDN(cluster, CoordinatorComponent, i),
+			CoordinatorGRPCPort,
+		))
+	}
+	return strings.Join(parts, ",")
+}
+
 // QueryNodeDNSURI returns a gRPC dns:/// URI pointing at the query-node
 // headless service. The proxy dials this single target and gRPC resolves
 // all live pod A records, round-robining requests and re-resolving on

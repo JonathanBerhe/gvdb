@@ -144,6 +144,20 @@ class InternalService final : public proto::internal::InternalService::Service {
       proto::internal::GetLeaderInfoResponse* response) override;
 
   // =========================================================================
+  // Raft Membership (Coordinator → Coordinator; roadmap 1.7b)
+  // =========================================================================
+
+  grpc::Status JoinCluster(
+      grpc::ServerContext* context,
+      const proto::internal::JoinClusterRequest* request,
+      proto::internal::JoinClusterResponse* response) override;
+
+  grpc::Status RemovePeer(
+      grpc::ServerContext* context,
+      const proto::internal::RemovePeerRequest* request,
+      proto::internal::RemovePeerResponse* response) override;
+
+  // =========================================================================
   // Timestamp Oracle (All Nodes → Coordinator)
   // =========================================================================
 

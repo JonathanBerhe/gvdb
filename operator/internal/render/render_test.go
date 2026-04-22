@@ -98,8 +98,35 @@ func TestCoordinatorStatefulSet_ParallelAndPeersFlag(t *testing.T) {
 	if !strings.Contains(args, "--raft-peers") {
 		t.Fatalf("multi-node coordinator must receive --raft-peers, args=%q", args)
 	}
+	if !strings.Contains(args, "--coordinator-grpc-peers") {
+		t.Fatalf("multi-node coordinator must receive --coordinator-grpc-peers for 1.7b auto-join, args=%q", args)
+	}
 	if !strings.Contains(args, "NODE_ID=$((ORDINAL + 1))") {
 		t.Fatalf("coordinator must derive NODE_ID from ordinal, args=%q", args)
+	}
+}
+
+func TestCoordinatorGRPCPeers_HA(t *testing.T) {
+	// Post-1.7b: the binary probes these endpoints on startup for a live
+	// leader and uses index (leader_id-1) to follow NOT_LEADER redirects.
+	// Order must mirror CoordinatorRaftPeers exactly.
+	c := testCluster("prod", "gvdb", 3, 2, 1)
+	want := "prod-coordinator-0.prod-coordinator.gvdb.svc.cluster.local:50051," +
+		"prod-coordinator-1.prod-coordinator.gvdb.svc.cluster.local:50051," +
+		"prod-coordinator-2.prod-coordinator.gvdb.svc.cluster.local:50051"
+	if got := CoordinatorGRPCPeers(c); got != want {
+		t.Fatalf("coordinatorGRPCPeers mismatch\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestCoordinatorStatefulSet_SingleNodeSkipsGRPCPeers(t *testing.T) {
+	// Single-node coordinator takes --single-node; no peer list and no
+	// 1.7b auto-join logic applies.
+	c := testCluster("prod", "gvdb", 1, 2, 1)
+	sts := CoordinatorStatefulSet(c, Options{})
+	args := sts.Spec.Template.Spec.Containers[0].Args[0]
+	if strings.Contains(args, "--coordinator-grpc-peers") {
+		t.Fatalf("single-node coordinator must not receive --coordinator-grpc-peers, args=%q", args)
 	}
 }
 

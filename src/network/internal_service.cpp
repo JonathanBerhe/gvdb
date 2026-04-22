@@ -939,6 +939,80 @@ grpc::Status InternalService::GetLeaderInfo(
 }
 
 // =============================================================================
+// Raft Membership (roadmap 1.7b)
+// =============================================================================
+//
+// These two RPCs let coordinator pods add/remove themselves from Raft
+// membership at runtime. They are leader-only; a non-leader response
+// populates current_leader_id so the caller retries against the leader.
+// Single-node coordinators respond with success=false because there is
+// no Raft cluster to join.
+
+grpc::Status InternalService::JoinCluster(
+    grpc::ServerContext* /*context*/,
+    const proto::internal::JoinClusterRequest* request,
+    proto::internal::JoinClusterResponse* response) {
+  total_requests_++;
+
+  if (!raft_node_) {
+    response->set_success(false);
+    response->set_message("single-node mode; no Raft cluster to join");
+    return grpc::Status::OK;
+  }
+
+  if (!raft_node_->IsLeader()) {
+    response->set_success(false);
+    response->set_current_leader_id(raft_node_->GetLeaderId());
+    response->set_message("not leader; retry on leader");
+    return grpc::Status::OK;
+  }
+
+  auto st = raft_node_->AddPeer(
+      static_cast<int32_t>(request->node_id()),
+      request->raft_advertise_address());
+  response->set_success(st.ok());
+  if (st.ok()) {
+    response->set_message("peer added");
+  } else {
+    response->set_message(std::string(st.message()));
+    response->set_current_leader_id(raft_node_->GetLeaderId());
+    total_errors_++;
+  }
+  return grpc::Status::OK;
+}
+
+grpc::Status InternalService::RemovePeer(
+    grpc::ServerContext* /*context*/,
+    const proto::internal::RemovePeerRequest* request,
+    proto::internal::RemovePeerResponse* response) {
+  total_requests_++;
+
+  if (!raft_node_) {
+    response->set_success(false);
+    response->set_message("single-node mode; no Raft cluster to modify");
+    return grpc::Status::OK;
+  }
+
+  if (!raft_node_->IsLeader()) {
+    response->set_success(false);
+    response->set_current_leader_id(raft_node_->GetLeaderId());
+    response->set_message("not leader; retry on leader");
+    return grpc::Status::OK;
+  }
+
+  auto st = raft_node_->RemovePeer(static_cast<int32_t>(request->node_id()));
+  response->set_success(st.ok());
+  if (st.ok()) {
+    response->set_message("peer removed");
+  } else {
+    response->set_message(std::string(st.message()));
+    response->set_current_leader_id(raft_node_->GetLeaderId());
+    total_errors_++;
+  }
+  return grpc::Status::OK;
+}
+
+// =============================================================================
 // Timestamp Oracle
 // =============================================================================
 
