@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.25.0](https://github.com/JonathanBerhe/gvdb/compare/v0.24.0...v0.25.0) (2026-04-22)
+
+
+### Features
+
+* **network:** proxy query-node discovery via dns:/// headless service ([879bcd5](https://github.com/JonathanBerhe/gvdb/commit/879bcd52253cb07608ff9312589dd522699e46fc))
+* **network:** proxy query-node discovery via dns:/// headless service ([09e9295](https://github.com/JonathanBerhe/gvdb/commit/09e9295263c672cab10c7b70c0f6eb869783ac18))
+
+
+### Bug Fixes
+
+* **deploy:** restore Helm + k8s proxy args after --data-nodes removal; lock-free client getters ([0d7e049](https://github.com/JonathanBerhe/gvdb/commit/0d7e049a6104beb2bb4256971ca16f7b7b4c8a0d))
+
 ## [0.24.0](https://github.com/JonathanBerhe/gvdb/compare/v0.23.0...v0.24.0) (2026-04-22)
 
 
