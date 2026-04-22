@@ -42,8 +42,10 @@ func ProxyDeployment(cluster *gvdbv1alpha1.GVDBCluster, opts Options) *appsv1.De
 				"--bind-address", "0.0.0.0:" + strconv.Itoa(ProxyGRPCPort),
 				"--data-dir", "/tmp/gvdb/proxy",
 				"--coordinators", CoordinatorAddress(cluster),
-				"--data-nodes", DataNodeAddresses(cluster),
-				"--query-nodes", QueryNodeAddresses(cluster),
+				// Single dns:/// URI for the query-node headless service;
+				// gRPC's built-in round_robin LB fans out across all live
+				// pods and re-resolves on scale / restart (roadmap 1.7).
+				"--query-nodes", QueryNodeDNSURI(cluster),
 			},
 			Ports: []corev1.ContainerPort{
 				{Name: "grpc", ContainerPort: ProxyGRPCPort},

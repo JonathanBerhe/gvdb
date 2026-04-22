@@ -374,6 +374,21 @@ set_tests_properties(ProxyServiceTests PROPERTIES
   TIMEOUT 120
 )
 
+# DNS channel args tests (roadmap 1.7)
+add_executable(dns_channel_args_tests
+  dns_channel_args_test.cpp
+)
+
+target_link_libraries(dns_channel_args_tests
+  PRIVATE
+    gvdb_network
+    ${_GRPC_GRPCPP}
+    doctest::doctest_with_main
+)
+
+add_test(NAME DnsChannelArgsTests COMMAND dns_channel_args_tests)
+set_tests_properties(DnsChannelArgsTests PROPERTIES TIMEOUT 30)
+
 # VectorDBService DISTRIBUTED mode tests
 add_executable(vectordb_service_distributed_tests
   vectordb_service_distributed_test.cpp

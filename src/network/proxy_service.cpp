@@ -3,6 +3,7 @@
 
 #include "network/proxy_service.h"
 #include "network/audit_context.h"
+#include "network/dns_channel_args.h"
 #include "utils/logger.h"
 
 namespace gvdb {
@@ -10,91 +11,77 @@ namespace network {
 
 ProxyService::ProxyService(
     const std::vector<std::string>& coordinator_addrs,
-    const std::vector<std::string>& query_node_addrs,
-    const std::vector<std::string>& data_node_addrs)
+    const std::string& query_node_uri)
     : coordinator_addrs_(coordinator_addrs),
-      query_node_addrs_(query_node_addrs),
-      data_node_addrs_(data_node_addrs) {
-
-  // Initialize load balancer and query nodes
-  if (!query_node_addrs_.empty()) {
-    load_balancer_ = std::make_unique<cluster::LoadBalancer>(
-        cluster::LoadBalancingStrategy::ROUND_ROBIN);
-
-    // Create QueryNode structs with incremental NodeIds
-    uint32_t node_id_counter = 1;
-    for (const auto& addr : query_node_addrs_) {
-      QueryNode node;
-      node.id = static_cast<core::NodeId>(node_id_counter++);
-      node.address = addr;
-      // Client will be lazily initialized
-      query_nodes_.push_back(std::move(node));
-    }
-  }
-}
+      query_node_uri_(query_node_uri) {}
 
 proto::VectorDBService::Stub* ProxyService::GetCoordinatorClient() {
-  std::lock_guard<std::mutex> lock(clients_mutex_);
-  if (!coordinator_client_ && !coordinator_addrs_.empty()) {
-    auto channel = grpc::CreateChannel(coordinator_addrs_[0],
-                                      grpc::InsecureChannelCredentials());
-    coordinator_client_ = proto::VectorDBService::NewStub(channel);
+  // Hot-path: lock-free load. clients_mutex_ is only taken for first-time
+  // init; afterwards the stub is immutable and gRPC guarantees concurrent-
+  // invocation safety on it.
+  if (coordinator_client_ready_.load(std::memory_order_acquire)) {
+    return coordinator_client_.get();
   }
+  std::lock_guard<std::mutex> lock(clients_mutex_);
+  if (coordinator_client_ready_.load(std::memory_order_relaxed)) {
+    return coordinator_client_.get();
+  }
+  if (coordinator_addrs_.empty()) {
+    return nullptr;
+  }
+  auto channel = grpc::CreateChannel(coordinator_addrs_[0],
+                                    grpc::InsecureChannelCredentials());
+  coordinator_client_ = proto::VectorDBService::NewStub(channel);
+  coordinator_client_ready_.store(true, std::memory_order_release);
   return coordinator_client_.get();
 }
 
 proto::VectorDBService::Stub* ProxyService::GetQueryNodeClient() {
+  if (query_node_client_ready_.load(std::memory_order_acquire)) {
+    return query_node_client_.get();
+  }
   std::lock_guard<std::mutex> lock(clients_mutex_);
-
-  // Lazy initialize query node clients
-  for (auto& node : query_nodes_) {
-    if (!node.client) {
-      auto channel = grpc::CreateChannel(node.address, grpc::InsecureChannelCredentials());
-      node.client = proto::VectorDBService::NewStub(channel);
-    }
+  if (query_node_client_ready_.load(std::memory_order_relaxed)) {
+    return query_node_client_.get();
   }
-
-  if (query_nodes_.empty() || !load_balancer_) {
-    utils::Logger::Instance().Error(
-        "No query nodes available (nodes_empty={}, load_balancer_null={})",
-        query_nodes_.empty(), !load_balancer_);
+  if (query_node_uri_.empty()) {
+    utils::Logger::Instance().Error("No query-node URI configured");
     return nullptr;
   }
-
-  // Collect available NodeIds for LoadBalancer
-  std::vector<core::NodeId> available_nodes;
-  for (const auto& node : query_nodes_) {
-    available_nodes.push_back(node.id);
+  // Single channel, DNS-resolved headless service, round_robin LB across all
+  // live pods. gRPC re-resolves DNS every ~5s (see BuildDnsChannelArgs) so
+  // `kubectl scale query-node` is picked up without proxy restart.
+  // Non-dns targets (single-node / legacy) still work via a bare insecure
+  // channel without the extra args.
+  std::shared_ptr<grpc::Channel> channel;
+  if (IsDnsUri(query_node_uri_)) {
+    channel = grpc::CreateCustomChannel(
+        query_node_uri_, grpc::InsecureChannelCredentials(),
+        BuildDnsChannelArgs());
+  } else {
+    channel = grpc::CreateChannel(
+        query_node_uri_, grpc::InsecureChannelCredentials());
   }
-
-  // Use LoadBalancer to select a query node (round-robin)
-  auto selected = load_balancer_->SelectNode(available_nodes);
-  if (!selected.ok()) {
-    utils::Logger::Instance().Error("LoadBalancer failed to select node: {}",
-                                    selected.status().message());
-    return nullptr;
-  }
-
-  // Find the QueryNode with the selected NodeId
-  core::NodeId selected_node_id = selected.value();
-  for (auto& node : query_nodes_) {
-    if (node.id == selected_node_id) {
-      return node.client.get();
-    }
-  }
-
-  utils::Logger::Instance().Error("Selected node ID not found: {}",
-                                  static_cast<uint32_t>(selected_node_id));
-  return nullptr;
+  query_node_client_ = proto::VectorDBService::NewStub(channel);
+  query_node_client_ready_.store(true, std::memory_order_release);
+  return query_node_client_.get();
 }
 
 proto::internal::InternalService::Stub* ProxyService::GetCoordinatorInternalClient() {
-  std::lock_guard<std::mutex> lock(clients_mutex_);
-  if (!coordinator_internal_client_ && !coordinator_addrs_.empty()) {
-    auto channel = grpc::CreateChannel(coordinator_addrs_[0],
-                                      grpc::InsecureChannelCredentials());
-    coordinator_internal_client_ = proto::internal::InternalService::NewStub(channel);
+  if (coordinator_internal_client_ready_.load(std::memory_order_acquire)) {
+    return coordinator_internal_client_.get();
   }
+  std::lock_guard<std::mutex> lock(clients_mutex_);
+  if (coordinator_internal_client_ready_.load(std::memory_order_relaxed)) {
+    return coordinator_internal_client_.get();
+  }
+  if (coordinator_addrs_.empty()) {
+    return nullptr;
+  }
+  auto channel = grpc::CreateChannel(coordinator_addrs_[0],
+                                    grpc::InsecureChannelCredentials());
+  coordinator_internal_client_ = proto::internal::InternalService::NewStub(channel);
+  coordinator_internal_client_ready_.store(true, std::memory_order_release);
   return coordinator_internal_client_.get();
 }
 
@@ -136,19 +123,6 @@ proto::VectorDBService::Stub* ProxyService::GetOrCreateDataClient(
     return data_client_by_addr_[address].get();
   }
   return it->second.get();
-}
-
-proto::VectorDBService::Stub* ProxyService::GetDataNodeClient(int shard_id) {
-  std::lock_guard<std::mutex> lock(clients_mutex_);
-  if (data_clients_.empty() && !data_node_addrs_.empty()) {
-    for (const auto& addr : data_node_addrs_) {
-      auto channel = grpc::CreateChannel(addr, grpc::InsecureChannelCredentials());
-      data_clients_.push_back(proto::VectorDBService::NewStub(channel));
-    }
-  }
-  // Simple round-robin for now
-  int index = shard_id % std::max(1, static_cast<int>(data_clients_.size()));
-  return data_clients_.empty() ? nullptr : data_clients_[index].get();
 }
 
 grpc::Status ProxyService::HealthCheck(
@@ -234,12 +208,13 @@ grpc::Status ProxyService::Insert(
   auto route_status = internal_client->RouteQuery(&route_ctx, route_req, &route_resp);
 
   if (!route_status.ok() || route_resp.target_node_addresses_size() == 0) {
-    // Fallback: single node
+    // Fallback: ask RouteQuery per-collection (different code path — the
+    // coordinator may answer for single-shard collections even when the
+    // general RouteQuery call above failed). If still no route, the proxy
+    // returns UNAVAILABLE; there is no "random data-node" fan-out because
+    // the --data-nodes static list was removed when the proxy switched to
+    // DNS-based discovery (roadmap 1.7).
     auto* client = GetDataNodeClientForCollection(request->collection_name());
-    if (!client) {
-      int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-      client = GetDataNodeClient(shard);
-    }
     if (!client) {
       return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
     }
@@ -333,10 +308,6 @@ grpc::Status ProxyService::StreamInsert(
 
   auto* client = GetDataNodeClientForCollection(first_chunk.collection_name());
   if (!client) {
-    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-    client = GetDataNodeClient(shard);
-  }
-  if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
   }
 
@@ -374,10 +345,6 @@ grpc::Status ProxyService::Get(
   auto* client = GetDataNodeClientForCollection(
       request->collection_name(), /*read_only=*/true);
   if (!client) {
-    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-    client = GetDataNodeClient(shard);
-  }
-  if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
   }
 
@@ -395,10 +362,6 @@ grpc::Status ProxyService::Delete(
 
   auto* client = GetDataNodeClientForCollection(request->collection_name());
   if (!client) {
-    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-    client = GetDataNodeClient(shard);
-  }
-  if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
   }
 
@@ -414,10 +377,6 @@ grpc::Status ProxyService::UpdateMetadata(
   AuditContext::SetCollection(request->collection_name());
 
   auto* client = GetDataNodeClientForCollection(request->collection_name());
-  if (!client) {
-    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-    client = GetDataNodeClient(shard);
-  }
   if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
   }
@@ -436,10 +395,6 @@ grpc::Status ProxyService::Upsert(
 
   auto* client = GetDataNodeClientForCollection(request->collection_name());
   if (!client) {
-    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-    client = GetDataNodeClient(shard);
-  }
-  if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
   }
 
@@ -456,10 +411,6 @@ grpc::Status ProxyService::ListVectors(
   // Read path — replica fallback OK when primary is draining (0b.1).
   auto* client = GetDataNodeClientForCollection(
       request->collection_name(), /*read_only=*/true);
-  if (!client) {
-    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-    client = GetDataNodeClient(shard);
-  }
   if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
   }
@@ -479,10 +430,6 @@ grpc::Status ProxyService::HybridSearch(
   auto* client = GetDataNodeClientForCollection(
       request->collection_name(), /*read_only=*/true);
   if (!client) {
-    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-    client = GetDataNodeClient(shard);
-  }
-  if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
   }
 
@@ -499,10 +446,6 @@ grpc::Status ProxyService::Search(
   // Prefer query nodes; fall back to data nodes if none configured
   proto::VectorDBService::Stub* client = GetQueryNodeClient();
   if (!client) {
-    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-    client = GetDataNodeClient(shard);
-  }
-  if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE,
         "No query node or data node available");
   }
@@ -518,10 +461,6 @@ grpc::Status ProxyService::RangeSearch(
     proto::RangeSearchResponse* response) {
 
   proto::VectorDBService::Stub* client = GetQueryNodeClient();
-  if (!client) {
-    int shard = data_node_counter_.fetch_add(1, std::memory_order_relaxed);
-    client = GetDataNodeClient(shard);
-  }
   if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE,
         "No query node or data node available");

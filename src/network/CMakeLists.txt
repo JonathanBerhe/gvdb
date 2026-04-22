@@ -10,6 +10,7 @@ add_library(gvdb_network
   auth_processor.cpp
   audit_interceptor.cpp
   audit_context.cpp
+  dns_channel_args.cpp
 )
 
 target_link_libraries(gvdb_network
