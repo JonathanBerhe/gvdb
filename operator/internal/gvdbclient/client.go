@@ -242,10 +242,40 @@ func (c *CoordinatorClient) FetchLeaderInfo(ctx context.Context) (LeaderInfo, er
 	}, nil
 }
 
+// NodeHealth is the reconciler-relevant subset of NodeInfo. The data-node
+// rollout state machine cross-references this against ShardAssignment.node_ids
+// to decide whether a remaining replica is actually a safe failover target —
+// coordinator.cpp:903 only promotes replicas that are NODE_STATUS_READY.
+type NodeHealth struct {
+	NodeID uint32
+	// Ready is true when the coordinator last heartbeat-observed this node as
+	// NODE_STATUS_READY. Other statuses (STARTING, BUSY, DEGRADED, DOWN,
+	// DRAINING) are all "not safe to treat as a failover replica."
+	Ready bool
+	// IsDataNode is true when NodeInfo.node_type == NODE_TYPE_DATA_NODE.
+	// Callers that reason about data-node-specific invariants (e.g. the
+	// rollout's replica-safety gate) filter on this rather than on node-id
+	// ranges — node-id conventions are coupled to the render layer and
+	// could drift, but node_type is authoritative.
+	IsDataNode bool
+}
+
 // ClusterHealth is the reconciler-relevant subset of GetClusterHealthResponse.
 type ClusterHealth struct {
 	ClusterStatus       string
 	LastRebalanceUnixMs int64
+	// TotalShards is the number of shards the coordinator is tracking across
+	// all collections. Zero means "cluster has no data yet" — the data-node
+	// rollout gate short-circuits in that case to avoid bootstrap deadlock.
+	TotalShards uint32
+	// HealthyShards counts shards with primary + all replicas reachable. When
+	// HealthyShards < TotalShards the rollout gate holds: a migration is
+	// either in flight or a replica is down.
+	HealthyShards uint32
+	// Nodes is the per-node health snapshot used by the Gate C replica-safety
+	// check. Every entry keys by NodeID; a replica whose NodeID is missing or
+	// not Ready is ignored when counting healthy failover candidates.
+	Nodes []NodeHealth
 }
 
 // FetchClusterHealth returns coordinator-reported cluster health, including
@@ -257,10 +287,53 @@ func (c *CoordinatorClient) FetchClusterHealth(ctx context.Context) (ClusterHeal
 	if err != nil {
 		return ClusterHealth{}, fmt.Errorf("get cluster health: %w", err)
 	}
+	nodes := make([]NodeHealth, 0, len(resp.GetNodes()))
+	for _, n := range resp.GetNodes() {
+		nodes = append(nodes, NodeHealth{
+			NodeID:     n.GetNodeId(),
+			Ready:      n.GetStatus() == pb.NodeStatus_NODE_STATUS_READY,
+			IsDataNode: n.GetNodeType() == pb.NodeType_NODE_TYPE_DATA_NODE,
+		})
+	}
 	return ClusterHealth{
 		ClusterStatus:       resp.GetClusterStatus(),
 		LastRebalanceUnixMs: resp.GetLastRebalanceUnixMs(),
+		TotalShards:         resp.GetTotalShards(),
+		HealthyShards:       resp.GetHealthyShards(),
+		Nodes:               nodes,
 	}, nil
+}
+
+// ShardAssignment is the reconciler-relevant subset of proto.ShardAssignment.
+// The data-node rollout's Gate C reads this to verify that dropping the next
+// pod to be drained still leaves every shard with a healthy replica elsewhere.
+type ShardAssignment struct {
+	ShardID       uint32
+	PrimaryNodeID uint32
+	NodeIDs       []uint32
+}
+
+// FetchShardAssignments returns the cluster-wide shard layout (collection_id=0
+// means "all collections" per proto/internal.proto:84). Safety check for the
+// data-node rollout gate: len(node_ids \ {target, non-ready}) >= 1 per shard.
+func (c *CoordinatorClient) FetchShardAssignments(ctx context.Context) ([]ShardAssignment, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	resp, err := c.stub.GetShardAssignments(ctx, &pb.GetShardAssignmentsRequest{CollectionId: 0})
+	if err != nil {
+		return nil, fmt.Errorf("get shard assignments: %w", err)
+	}
+	assignments := make([]ShardAssignment, 0, len(resp.GetAssignments()))
+	for _, a := range resp.GetAssignments() {
+		nodeIDs := make([]uint32, len(a.GetNodeIds()))
+		copy(nodeIDs, a.GetNodeIds())
+		assignments = append(assignments, ShardAssignment{
+			ShardID:       a.GetShardId(),
+			PrimaryNodeID: a.GetPrimaryNodeId(),
+			NodeIDs:       nodeIDs,
+		})
+	}
+	return assignments, nil
 }
 
 // Close releases the underlying gRPC connection.
