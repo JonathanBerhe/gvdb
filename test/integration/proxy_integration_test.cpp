@@ -131,10 +131,18 @@ class ProxyIntegrationTest {
     }
 
     // --- Step 4: Start proxy ---
+    // Post-1.7: proxy takes a single query-node URI (no more static
+    // --data-nodes fallback list). In production this is a dns:///
+    // headless-service URI; here we substitute the data-node address as
+    // the query-node target because the data-node's VectorDBService
+    // happens to implement Search locally, which keeps this test
+    // exercising the same code paths without spinning up a separate
+    // query-node binary. Do NOT take this as "data-nodes serve Search in
+    // production" — they don't; a real deployment always has query-node
+    // pods.
     proxy_service_ = std::make_unique<network::ProxyService>(
         std::vector<std::string>{coord_address_},
-        std::vector<std::string>{},  // no query nodes -- falls back to data nodes
-        std::vector<std::string>{dn_address_});
+        dn_address_);
 
     {
       grpc::ServerBuilder builder;

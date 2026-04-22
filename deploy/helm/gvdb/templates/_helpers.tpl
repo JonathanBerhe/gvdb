@@ -259,31 +259,20 @@ to enable HA Raft quorum (roadmap 0b.4).
 {{- end }}
 
 {{/*
-Generate comma-separated data node addresses from replica count
-*/}}
-{{- define "gvdb.dataNode.addresses" -}}
-{{- $fullname := include "gvdb.fullname" . -}}
-{{- $serviceName := include "gvdb.dataNode.serviceName" . -}}
-{{- $namespace := .Release.Namespace -}}
-{{- $clusterDomain := include "gvdb.clusterDomain" . -}}
-{{- $replicas := int .Values.dataNode.replicas -}}
-{{- range $i := until $replicas -}}
-{{- if $i }},{{ end -}}
-{{ $fullname }}-data-node-{{ $i }}.{{ $serviceName }}.{{ $namespace }}.svc.{{ $clusterDomain }}:50060
-{{- end -}}
-{{- end }}
+Generate a gRPC dns:/// URI for the query-node headless service. The proxy
+dials this single target and gRPC's built-in round_robin LB distributes
+requests across all Ready pods, re-resolving DNS on failures — so
+`kubectl scale query-node` is picked up without helm upgrade (roadmap 1.7).
 
-{{/*
-Generate comma-separated query node addresses from replica count
+Note: the previous `gvdb.dataNode.addresses` / `gvdb.queryNode.addresses`
+helpers (comma-separated static pod-FQDN lists) were removed when the
+proxy switched to DNS-based discovery. The `--data-nodes` flag no longer
+exists; data-node routing goes entirely through the coordinator's
+RouteQuery RPC.
 */}}
-{{- define "gvdb.queryNode.addresses" -}}
-{{- $fullname := include "gvdb.fullname" . -}}
+{{- define "gvdb.queryNode.dnsUri" -}}
 {{- $serviceName := include "gvdb.queryNode.serviceName" . -}}
 {{- $namespace := .Release.Namespace -}}
 {{- $clusterDomain := include "gvdb.clusterDomain" . -}}
-{{- $replicas := int .Values.queryNode.replicas -}}
-{{- range $i := until $replicas -}}
-{{- if $i }},{{ end -}}
-{{ $fullname }}-query-node-{{ $i }}.{{ $serviceName }}.{{ $namespace }}.svc.{{ $clusterDomain }}:50070
-{{- end -}}
+dns:///{{ $serviceName }}.{{ $namespace }}.svc.{{ $clusterDomain }}:50070
 {{- end }}

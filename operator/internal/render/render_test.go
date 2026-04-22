@@ -74,18 +74,14 @@ func TestRaftPeers_SingleNode(t *testing.T) {
 	}
 }
 
-func TestDataAndQueryNodeAddresses(t *testing.T) {
+func TestQueryNodeDNSURI(t *testing.T) {
+	// Post-1.7: proxy takes a single dns:/// URI for the query-node headless
+	// service. gRPC resolves all Ready pod A records at request time, so
+	// `kubectl scale query-node` is picked up without a helm-upgrade.
 	c := testCluster("prod", "gvdb", 3, 3, 2)
-	wantData := "prod-data-node-0.prod-data-node.gvdb.svc.cluster.local:50060," +
-		"prod-data-node-1.prod-data-node.gvdb.svc.cluster.local:50060," +
-		"prod-data-node-2.prod-data-node.gvdb.svc.cluster.local:50060"
-	if got := DataNodeAddresses(c); got != wantData {
-		t.Fatalf("dataNodeAddresses: got %q", got)
-	}
-	wantQuery := "prod-query-node-0.prod-query-node.gvdb.svc.cluster.local:50070," +
-		"prod-query-node-1.prod-query-node.gvdb.svc.cluster.local:50070"
-	if got := QueryNodeAddresses(c); got != wantQuery {
-		t.Fatalf("queryNodeAddresses: got %q", got)
+	want := "dns:///prod-query-node.gvdb.svc.cluster.local:50070"
+	if got := QueryNodeDNSURI(c); got != want {
+		t.Fatalf("queryNodeDNSURI: got %q, want %q", got, want)
 	}
 }
 
