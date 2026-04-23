@@ -141,6 +141,23 @@ int main(int argc, char** argv) {
   args.raft_address = utils::ResolveFlag("GVDB_RAFT_ADDRESS", args.raft_address);
   args.raft_advertise_address = utils::ResolveFlag(
       "GVDB_RAFT_ADVERTISE_ADDRESS", args.raft_advertise_address);
+  // GVDB_COORDINATOR_GRPC_PEERS overrides --coordinator-grpc-peers (parity
+  // with the other peer-list flags). Comma-separated host:port list.
+  {
+    std::string override_peers = utils::ResolveFlag(
+        "GVDB_COORDINATOR_GRPC_PEERS", std::string{});
+    if (!override_peers.empty()) {
+      args.coordinator_grpc_peers.clear();
+      size_t start = 0;
+      size_t end = override_peers.find(',');
+      while (end != std::string::npos) {
+        args.coordinator_grpc_peers.push_back(override_peers.substr(start, end - start));
+        start = end + 1;
+        end = override_peers.find(',', start);
+      }
+      args.coordinator_grpc_peers.push_back(override_peers.substr(start));
+    }
+  }
   utils::ServerBootstrap::InstallSignalHandlers();
 
   auto log_status = utils::ServerBootstrap::InitializeLogger(
@@ -310,17 +327,26 @@ int main(int argc, char** argv) {
     // exit is the clean path. Failures here are non-fatal: a lingering
     // peer in cluster_config is a degraded state that recovers on the
     // next reconcile or follow-up operator RemovePeer call.
+    //
+    // One retry on denial: leadership can flip between our GetLeaderId()
+    // snapshot and the RemovePeer RPC. If the first call returns a
+    // current_leader_id pointing at a different pod, retry against that
+    // target once. Bounded by K8s terminationGracePeriodSeconds — two
+    // attempts × 3s deadline is well within a 30s grace window.
     if (!args.single_node_mode && !args.coordinator_grpc_peers.empty() &&
         !raft_node->IsLeader()) {
+      auto resolve_target = [&](int id) -> std::string {
+        if (id <= 0) return "";
+        size_t idx = static_cast<size_t>(id - 1);
+        if (idx >= args.coordinator_grpc_peers.size()) return "";
+        return args.coordinator_grpc_peers[idx];
+      };
       int leader_id = raft_node->GetLeaderId();
-      if (leader_id > 0 &&
-          static_cast<size_t>(leader_id - 1) <
-              args.coordinator_grpc_peers.size()) {
-        const std::string& leader_target =
-            args.coordinator_grpc_peers[leader_id - 1];
+      std::string leader_target = resolve_target(leader_id);
+      for (int attempt = 0; attempt < 2 && !leader_target.empty(); ++attempt) {
         utils::Logger::Instance().Info(
-            "Self-removing node_id={} via leader {} before shutdown",
-            args.node_id, leader_target);
+            "Self-removing node_id={} via leader {} (attempt {})",
+            args.node_id, leader_target, attempt);
         auto channel = grpc::CreateChannel(
             leader_target, grpc::InsecureChannelCredentials());
         auto stub = proto::internal::InternalService::NewStub(channel);
@@ -334,12 +360,20 @@ int main(int argc, char** argv) {
         if (!st.ok()) {
           utils::Logger::Instance().Warn(
               "Self-remove RPC failed: {}", st.error_message());
-        } else if (!resp.success()) {
-          utils::Logger::Instance().Warn(
-              "Self-remove denied: {}", resp.message());
-        } else {
-          utils::Logger::Instance().Info("Self-remove succeeded");
+          break;  // transport failure; no point retrying same target
         }
+        if (resp.success()) {
+          utils::Logger::Instance().Info("Self-remove succeeded");
+          break;
+        }
+        utils::Logger::Instance().Warn(
+            "Self-remove denied: {} (leader_id={})",
+            resp.message(), resp.current_leader_id());
+        // Leadership flipped between snapshot and RPC — follow the redirect
+        // for one retry.
+        std::string new_target = resolve_target(resp.current_leader_id());
+        if (new_target.empty() || new_target == leader_target) break;
+        leader_target = new_target;
       }
     }
 

@@ -166,7 +166,21 @@ core::Status RaftNode::Start() {
     is_leader_.store(true, std::memory_order_release);
     utils::Logger::Instance().Info("RaftNode is leader (single-node mode)");
   } else {
-    // Multi-node mode: Initialize NuRaft
+    // Multi-node mode: Initialize NuRaft.
+    //
+    // Invariant check: coordinator_grpc_peers must match --raft-peers in
+    // size and ordinal order (render layer guarantees this; the binary's
+    // leader-redirect uses node_id-1 as the index into grpc_peers). When
+    // coordinator_grpc_peers is empty, auto-join is disabled and we fall
+    // back to initial-bootstrap semantics only — don't enforce.
+    if (!config_.coordinator_grpc_peers.empty() &&
+        config_.coordinator_grpc_peers.size() != config_.peers.size()) {
+      return core::InvalidArgumentError(absl::StrCat(
+          "coordinator_grpc_peers size (", config_.coordinator_grpc_peers.size(),
+          ") must match --raft-peers size (", config_.peers.size(),
+          ") for correct leader-redirect indexing (roadmap 1.7b)"));
+    }
+
     auto status = InitializeNuRaft();
     if (!status.ok()) {
       return status;
@@ -288,8 +302,14 @@ struct LeaderProbeResult {
 // own cluster_config (roadmap 1.7b).
 //
 // Each RPC is bounded at 1.5s (matches the operator's existing pattern
-// in operator/internal/gvdbclient/client.go:230-243). Overall budget is
-// the sum across peers; typically 3 peers × 1.5s = 4.5s worst case.
+// in operator/internal/gvdbclient/client.go:230-243). The probe is
+// INTENTIONALLY serial: on runtime scale-up the first peer (lowest
+// ordinal) is almost always the leader or a live follower that knows the
+// leader, so the common-case latency is one round-trip. The pathological
+// bootstrap case (N peers × 1.5s, all timing out because no leader has
+// been elected yet) is acceptable because it only happens once per pod
+// lifetime. Parallel probes would cut that to 1.5s flat but at the cost
+// of more connections + complexity for a rarely-hit path.
 std::optional<LeaderProbeResult> ProbePeersForLeader(
     const std::vector<std::string>& grpc_peers) {
   for (const auto& target : grpc_peers) {
@@ -337,10 +357,16 @@ core::Status MapNuRaftCode(nuraft::cmd_result_code code, const char* op) {
           absl::StrCat(op, " rejected: not leader"));
     case cmd_result_code::SERVER_ALREADY_EXISTS:
       // Idempotent outcome — the peer was already a member. Surface as OK
-      // so re-entrancy on a retry doesn't break the caller.
+      // so re-entrancy on a retry doesn't break the caller, but log so
+      // the swallow is observable (useful diagnostic when operators chase
+      // "why did JoinCluster return success but the peer never joined?").
+      utils::Logger::Instance().Info(
+          "{} idempotent: peer already present in cluster_config", op);
       return core::OkStatus();
     case cmd_result_code::SERVER_NOT_FOUND:
       // Same logic: removing a peer that's not there is a no-op, treat OK.
+      utils::Logger::Instance().Info(
+          "{} idempotent: peer not present in cluster_config", op);
       return core::OkStatus();
     case cmd_result_code::CONFIG_CHANGING:
       return core::UnavailableError(
@@ -435,6 +461,14 @@ core::Status RaftNode::AnnounceJoinToCluster() {
   // joining_peer_ was set by the peer probe. Calls JoinCluster on the
   // responding peer; if that peer is a follower, it returns NOT_LEADER
   // with current_leader_id, and we retry against the leader (roadmap 1.7b).
+  //
+  // Retry strategy: exponential backoff (250ms → 500ms → 1s → 2s → 4s,
+  // capped) bounded by an absolute wall-clock deadline of kTotalBudget.
+  // Concurrent scale-up (two pods joining simultaneously) is the dominant
+  // hard case: the leader serializes via NuRaft's CONFIG_CHANGING gate,
+  // so the second pod sees Unavailable until the first commits. add_srv
+  // typically commits in 100-300ms; snapshot-install for log catch-up
+  // can extend that to seconds. 20s total budget accommodates both.
   if (joining_peer_.empty() || config_.coordinator_grpc_peers.empty()) {
     return core::FailedPreconditionError(
         "AnnounceJoinToCluster called without joining_peer_ set");
@@ -444,12 +478,11 @@ core::Status RaftNode::AnnounceJoinToCluster() {
       ? config_.listen_address
       : config_.advertise_address;
 
-  // Build a per-node-id → gRPC endpoint map from the configured peer list.
-  // Relies on the stable ordering + size of coordinator_grpc_peers matching
-  // the declared --raft-peers list (both rendered from the same
-  // CoordinatorRaftPeers helper in the operator).
+  // Relies on the render-layer invariant that coordinator_grpc_peers
+  // iterates ordinals 0..N-1 in the same order as --raft-peers. Validated
+  // at coordinator startup (ValidatePeerListLengths in raft_node.cpp).
+  // Index by (node_id - 1) since node_ids start at 1.
   auto resolve_leader_target = [&](int32_t leader_id) -> std::string {
-    // coordinator_grpc_peers is 0-indexed; node_ids start at 1 (ORDINAL+1).
     size_t idx = static_cast<size_t>(leader_id - 1);
     if (idx < config_.coordinator_grpc_peers.size()) {
       return config_.coordinator_grpc_peers[idx];
@@ -457,9 +490,16 @@ core::Status RaftNode::AnnounceJoinToCluster() {
     return "";
   };
 
+  constexpr auto kTotalBudget = std::chrono::seconds(20);
+  constexpr auto kInitialBackoff = std::chrono::milliseconds(250);
+  constexpr auto kMaxBackoff = std::chrono::seconds(4);
+  const auto deadline = std::chrono::steady_clock::now() + kTotalBudget;
+
   std::string target = joining_peer_;
-  constexpr int kMaxAttempts = 5;
-  for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+  auto backoff = kInitialBackoff;
+  int attempt = 0;
+  while (std::chrono::steady_clock::now() < deadline) {
+    ++attempt;
     auto channel = grpc::CreateChannel(target,
                                       grpc::InsecureChannelCredentials());
     auto stub = proto::internal::InternalService::NewStub(channel);
@@ -476,43 +516,55 @@ core::Status RaftNode::AnnounceJoinToCluster() {
     auto status = stub->JoinCluster(&ctx, req, &resp);
     if (!status.ok()) {
       utils::Logger::Instance().Warn(
-          "JoinCluster attempt {} to {} failed: {}",
+          "JoinCluster attempt {} to {} transport failure: {}",
           attempt, target, status.error_message());
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
-      continue;
-    }
-
-    if (resp.success()) {
+    } else if (resp.success()) {
       utils::Logger::Instance().Info(
           "JoinCluster succeeded on attempt {} via {}: {}",
           attempt, target, resp.message());
       joining_peer_.clear();
       return core::OkStatus();
-    }
-
-    // Non-leader redirect: follow the returned leader id.
-    if (resp.current_leader_id() > 0) {
+    } else if (resp.current_leader_id() > 0) {
+      // Non-leader redirect: follow the returned leader id without
+      // consuming extra backoff (the target was simply wrong).
       std::string new_target = resolve_leader_target(resp.current_leader_id());
       if (!new_target.empty() && new_target != target) {
         utils::Logger::Instance().Info(
             "JoinCluster redirected to leader_id={} ({})",
             resp.current_leader_id(), new_target);
         target = new_target;
-        continue;  // retry immediately against leader
+        continue;
       }
+      utils::Logger::Instance().Warn(
+          "JoinCluster redirect to leader_id={} unresolvable (grpc_peers has {} entries); "
+          "will retry on same target",
+          resp.current_leader_id(), config_.coordinator_grpc_peers.size());
+    } else {
+      // Non-success without a leader hint — usually CONFIG_CHANGING from
+      // a concurrent add_srv. The message surfaces the NuRaft code for
+      // diagnosability. Back off and retry the same target (it may still
+      // be leader, just busy).
+      utils::Logger::Instance().Warn(
+          "JoinCluster attempt {} denied: {} (leader_id=0; likely concurrent config change)",
+          attempt, resp.message());
     }
 
-    // No leader id or unresolvable — back off and retry against a
-    // different probe peer.
-    utils::Logger::Instance().Warn(
-        "JoinCluster denied on attempt {}: {} (leader_id={})",
-        attempt, resp.message(), resp.current_leader_id());
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // Exponential backoff, capped at kMaxBackoff. Don't oversleep the deadline.
+    auto remaining = deadline - std::chrono::steady_clock::now();
+    if (remaining <= std::chrono::milliseconds(0)) break;
+    auto remaining_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(remaining);
+    auto sleep_for = std::min(backoff, remaining_ms);
+    std::this_thread::sleep_for(sleep_for);
+    // kMaxBackoff is seconds; cast to milliseconds for comparison.
+    auto max_backoff_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(kMaxBackoff);
+    backoff = std::min(backoff * 2, max_backoff_ms);
   }
 
   return core::UnavailableError(absl::StrCat(
       "AnnounceJoinToCluster: no coordinator accepted the join after ",
-      kMaxAttempts, " attempts"));
+      attempt, " attempts within ", kTotalBudget.count(), "s"));
 }
 
 core::StatusOr<core::CollectionId> RaftNode::CreateCollection(
@@ -714,7 +766,10 @@ core::Status RaftNode::InitializeNuRaft() {
       auto probe = ProbePeersForLeader(config_.coordinator_grpc_peers);
       if (probe.has_value()) {
         joining_peer_ = probe->responding_peer;
-        state_mgr_->save_config(*existing);
+        // Deliberately NOT calling save_config here — `existing` is
+        // unmodified so there is nothing new to persist. The leader's
+        // add_srv will replicate the real cluster_config to us via Raft
+        // log once AnnounceJoinToCluster succeeds.
         utils::Logger::Instance().Info(
             "Peer probe found leader_id={} on {}; will AnnounceJoin after "
             "NuRaft init (cluster_config stays self-only pre-join)",
