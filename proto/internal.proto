@@ -341,6 +341,51 @@ message GetTimestampResponse {
 }
 
 // ============================================================================
+// Raft Membership (Coordinator → Coordinator; roadmap 1.7b)
+// ============================================================================
+//
+// Runtime Raft membership changes for coordinator scale-up and scale-down.
+// Before 1.7b, scaling coordinators via `kubectl scale` caused split-brain:
+// fresh pods loaded persisted_cluster_size==0, seeded their own cluster_config
+// from the declared --raft-peers list, and elected themselves as a parallel
+// Raft quorum. These RPCs let new pods probe existing peers for a live leader
+// and call JoinCluster to be added via NuRaft's add_srv, and let departing
+// pods self-remove via RemovePeer on graceful shutdown.
+//
+// Both RPCs are LEADER-ONLY. A non-leader response populates
+// current_leader_id so the caller can retry against the leader.
+
+message JoinClusterRequest {
+  // Joining pod's Raft node id (derived from StatefulSet ordinal in the
+  // coordinator startup script: NODE_ID = ORDINAL + 1).
+  uint32 node_id = 1;
+
+  // Joining pod's Raft advertise address, e.g.
+  // "release-coordinator-3.release-coordinator.gvdb.svc.cluster.local:8300".
+  string raft_advertise_address = 2;
+}
+
+message JoinClusterResponse {
+  bool success = 1;
+  string message = 2;
+  // Populated when success==false because the recipient wasn't the leader.
+  // Caller uses this to retry on the correct pod. Zero if no leader known.
+  int32 current_leader_id = 3;
+}
+
+message RemovePeerRequest {
+  // Peer to drop from Raft membership. Typically the caller's own node_id
+  // when self-removing during graceful shutdown.
+  uint32 node_id = 1;
+}
+
+message RemovePeerResponse {
+  bool success = 1;
+  string message = 2;
+  int32 current_leader_id = 3;
+}
+
+// ============================================================================
 // InternalService - Node-to-Node Communication
 // ============================================================================
 
@@ -376,6 +421,10 @@ service InternalService {
 
   // Leader info (Operator → Coordinator; roadmap 0b.6.D)
   rpc GetLeaderInfo(GetLeaderInfoRequest) returns (GetLeaderInfoResponse);
+
+  // Raft membership changes (Coordinator → Coordinator; roadmap 1.7b)
+  rpc JoinCluster(JoinClusterRequest) returns (JoinClusterResponse);
+  rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse);
 
   // Timestamp oracle (All Nodes → Coordinator)
   rpc GetTimestamp(GetTimestampRequest) returns (GetTimestampResponse);

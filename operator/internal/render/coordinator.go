@@ -33,7 +33,18 @@ func coordinatorStartupScript(cluster *gvdbv1alpha1.GVDBCluster) string {
 
 	peerFlag := "--single-node"
 	if !singleNode {
-		peerFlag = fmt.Sprintf("--raft-peers %q", CoordinatorRaftPeers(cluster))
+		// Two flags required for roadmap 1.7b Raft auto-join:
+		//   --raft-peers              seeds NuRaft's initial cluster_config
+		//                             on first boot (legacy + cold-start)
+		//   --coordinator-grpc-peers  used by the startup peer-probe to
+		//                             detect an existing leader, and by
+		//                             the SIGTERM self-remove RPC
+		// Order of entries is significant — the binary uses (node_id - 1)
+		// as the index into coordinator_grpc_peers when resolving a leader
+		// redirect, so both flags must iterate ordinals in the same order.
+		peerFlag = fmt.Sprintf("--raft-peers %q --coordinator-grpc-peers %q",
+			CoordinatorRaftPeers(cluster),
+			CoordinatorGRPCPeers(cluster))
 	}
 	return fmt.Sprintf(`set -eu
 ORDINAL=${HOSTNAME##*-}
