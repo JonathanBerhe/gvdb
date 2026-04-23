@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.26.0](https://github.com/JonathanBerhe/gvdb/compare/v0.25.0...v0.26.0) (2026-04-23)
+
+
+### Features
+
+* **consensus:** coordinator Raft auto-join via JoinCluster / RemovePeer RPCs ([9227a64](https://github.com/JonathanBerhe/gvdb/commit/9227a642e29bce739ea06126e6c706830cf5eb4f))
+* **consensus:** coordinator Raft auto-join via JoinCluster / RemovePeer RPCs ([c0913c5](https://github.com/JonathanBerhe/gvdb/commit/c0913c57971fcb731058c3e1f7f4498a2625ec85))
+
+
+### Bug Fixes
+
+* **consensus:** 1.7b review fixes — exponential backoff, consistency check, idempotent logging, 3-node integration test ([c537538](https://github.com/JonathanBerhe/gvdb/commit/c537538b080abe7497aa9e6ad67ee251059b682c))
+
 ## [0.25.0](https://github.com/JonathanBerhe/gvdb/compare/v0.24.0...v0.25.0) (2026-04-22)
 
 
