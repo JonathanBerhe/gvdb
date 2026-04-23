@@ -24,6 +24,15 @@ struct RaftConfig {
   // back to listen_address for backward compatibility (roadmap 0b.4).
   std::string advertise_address;
 
+  // Comma-separated list of coordinator gRPC InternalService endpoints
+  // (host:50051 by default) used by the bootstrap-vs-join peer probe on
+  // startup (roadmap 1.7b). When a new pod starts with empty persisted
+  // state, it probes these endpoints for a live Raft leader; if one is
+  // found, it skips self-seeding and calls JoinCluster instead. Empty or
+  // single-entry lists fall back to the legacy seed-from-peers path
+  // (preserves initial-bootstrap semantics for fresh 3-node deploys).
+  std::vector<std::string> coordinator_grpc_peers;
+
   // Data directory
   std::string data_dir = "/tmp/gvdb/raft";  // Directory for Raft logs and snapshots
 

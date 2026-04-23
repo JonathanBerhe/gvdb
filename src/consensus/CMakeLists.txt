@@ -26,6 +26,10 @@ target_link_libraries(gvdb_consensus
     rocksdb
   PRIVATE
     gvdb_utils
+    # gRPC + proto for the 1.7b startup peer-probe / AnnounceJoinToCluster
+    # calls (see ProbePeersForLeader in raft_node.cpp).
+    proto_lib
+    ${_GRPC_GRPCPP}
 )
 
 # C++ standard

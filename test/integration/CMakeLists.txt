@@ -22,6 +22,30 @@ set_tests_properties(ConsensusIntegrationTests PROPERTIES
   LABELS "integration"
 )
 
+# Raft auto-join integration tests (roadmap 1.7b)
+add_executable(raft_auto_join_tests
+  raft_auto_join_test.cpp
+)
+
+target_link_libraries(raft_auto_join_tests
+  PRIVATE
+    gvdb_consensus
+    gvdb_network
+    gvdb_cluster
+    gvdb_core
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    doctest::doctest_with_main
+)
+
+add_test(NAME RaftAutoJoinTests COMMAND raft_auto_join_tests)
+
+set_tests_properties(RaftAutoJoinTests PROPERTIES
+  TIMEOUT 180
+  LABELS "integration"
+)
+
 # Metadata synchronization integration tests
 add_executable(metadata_sync_integration_tests
   metadata_sync_integration_test.cpp
