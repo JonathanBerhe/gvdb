@@ -194,6 +194,17 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(pxErr, "proxy rollout status refresh failed")
 	}
 
+	// Reconcile coordinator Raft membership against spec.coordinator.replicas
+	// (roadmap 1.8). The SIGTERM self-remove in 1.7b handles graceful
+	// scale-down; this reconciler cleans up ghost peers left when K8s
+	// SIGKILLs a coordinator pod (OOM, terminationGracePeriod exceeded).
+	// Gated on coordinator rollout stability to avoid racing TransferLeadership
+	// against a partition walk.
+	scaleRequeue, scaleErr := r.reconcileCoordinatorScale(ctx, &cluster)
+	if scaleErr != nil {
+		log.Error(scaleErr, "coordinator scale reconciliation failed")
+	}
+
 	phase, conditions := computePhase(nodeCounts)
 	cluster.Status.Phase = phase
 	for _, cond := range conditions {
@@ -220,6 +231,9 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	if pxRolloutRequeue > 0 && pxRolloutRequeue < requeue {
 		requeue = pxRolloutRequeue
+	}
+	if scaleRequeue > 0 && scaleRequeue < requeue {
+		requeue = scaleRequeue
 	}
 	return ctrl.Result{RequeueAfter: requeue}, nil
 }
@@ -738,6 +752,157 @@ func (r *GVDBClusterReconciler) reconcileProxyRolloutStatus(
 			dep.Status.UnavailableReplicas),
 	})
 	return 5 * time.Second, nil
+}
+
+// reconcileCoordinatorScale observes Raft cluster_config via any live
+// coordinator pod and drives it back in sync with spec.coordinator.replicas
+// by calling RemovePeer / TransferLeadership RPCs on the leader. Handles
+// the ghost-peer case that 1.7b's SIGTERM self-remove misses when K8s
+// SIGKILLs a pod. Roadmap 1.8.
+//
+// Returns a requeue hint: 2s during an active scale-down (fast enough
+// that TransferLeadership → RemovePeer → Stable converges in <10s), 5s
+// while waiting for a rollout to finish, 0 (default idle) when stable.
+func (r *GVDBClusterReconciler) reconcileCoordinatorScale(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
+) (time.Duration, error) {
+	log := logf.FromContext(ctx)
+
+	// Read spec.coordinator.replicas via render's helper so the default
+	// (2) and the nil-pointer edge case are handled consistently with
+	// the rest of the reconciler.
+	specReplicas := render.EffectiveReplicas(cluster, render.CoordinatorComponent)
+
+	// Fetch membership: fall through each coordinator pod until one
+	// answers (some may be mid-restart).
+	var membership gvdbclient.RaftMembership
+	var gotMembership bool
+	for _, target := range render.CoordinatorPodAddresses(cluster) {
+		cc, err := r.StatsPool.GetCoordinator(target)
+		if err != nil {
+			log.V(1).Info("coordinator dial failed; trying next", "target", target, "err", err)
+			continue
+		}
+		m, err := cc.FetchRaftMembership(ctx)
+		if err != nil {
+			log.V(1).Info("FetchRaftMembership failed; trying next", "target", target, "err", err)
+			continue
+		}
+		membership = m
+		gotMembership = true
+		break
+	}
+	if !gotMembership {
+		// No pod answered — leave condition unchanged and requeue soon.
+		// (Intentionally do NOT set ScaleReady=False here: a transient
+		// coordinator outage shouldn't flip the condition and trigger
+		// downstream alarms; the Condition stays at its last-known state.)
+		return 5 * time.Second, nil
+	}
+
+	coordRolloutReady := meta.IsStatusConditionTrue(
+		cluster.Status.Conditions, gvdbv1alpha1.ConditionCoordinatorRolloutReady,
+	)
+
+	step := desiredCoordinatorScaleStep(specReplicas, membership, coordRolloutReady)
+
+	condStatus := metav1.ConditionFalse
+	msg := "coordinator scale reconciliation in progress"
+	if step.Done {
+		condStatus = metav1.ConditionTrue
+		msg = "Raft membership matches spec.coordinator.replicas"
+	}
+	if step.Message != "" {
+		msg = step.Message
+	}
+	meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+		Type:    gvdbv1alpha1.ConditionCoordinatorScaleReady,
+		Status:  condStatus,
+		Reason:  step.Reason,
+		Message: msg,
+	})
+
+	switch step.Action {
+	case CoordinatorScaleStable, CoordinatorScaleWaitingForRollout,
+		CoordinatorScaleWaitingForSuccessor, CoordinatorScaleWaitingForMembership:
+		// No RPC this reconcile. Requeue fast when waiting (so we pick
+		// up the rollout completion / successor-ready quickly); idle
+		// cadence when stable.
+		if step.Done {
+			return 0, nil
+		}
+		return 5 * time.Second, nil
+
+	case CoordinatorScaleRemovePeer:
+		if err := r.callRemovePeerOnLeader(ctx, cluster, uint32(step.TargetNodeID)); err != nil {
+			log.Error(err, "RemovePeer failed", "target_node_id", step.TargetNodeID)
+			// Non-fatal: retry next reconcile.
+			return 2 * time.Second, nil
+		}
+		log.Info("RemovePeer succeeded", "target_node_id", step.TargetNodeID)
+		return 2 * time.Second, nil
+
+	case CoordinatorScaleTransferLeadership:
+		if err := r.callTransferLeadershipOnLeader(ctx, cluster, uint32(step.TargetNodeID)); err != nil {
+			log.Error(err, "TransferLeadership failed", "target_node_id", step.TargetNodeID)
+			return 2 * time.Second, nil
+		}
+		log.Info("TransferLeadership succeeded", "target_node_id", step.TargetNodeID)
+		return 2 * time.Second, nil
+	}
+
+	return 5 * time.Second, nil
+}
+
+// callRemovePeerOnLeader dials coordinator pods in ordinal order and
+// calls RemovePeer on the one that claims to be leader. On a NOT_LEADER
+// response (success=false with current_leader_id hint) the err is
+// returned; the caller treats it as transient and retries next
+// reconcile after the leader reelection settles.
+func (r *GVDBClusterReconciler) callRemovePeerOnLeader(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster, nodeID uint32,
+) error {
+	var lastErr error
+	for _, target := range render.CoordinatorPodAddresses(cluster) {
+		cc, err := r.StatsPool.GetCoordinator(target)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		_, err = cc.RemovePeer(ctx, nodeID)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		return fmt.Errorf("no coordinator available for RemovePeer(%d)", nodeID)
+	}
+	return lastErr
+}
+
+// callTransferLeadershipOnLeader — same fall-through pattern as
+// callRemovePeerOnLeader for the TransferLeadership RPC.
+func (r *GVDBClusterReconciler) callTransferLeadershipOnLeader(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster, targetNodeID uint32,
+) error {
+	var lastErr error
+	for _, target := range render.CoordinatorPodAddresses(cluster) {
+		cc, err := r.StatsPool.GetCoordinator(target)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		_, err = cc.TransferLeadership(ctx, targetNodeID)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		return fmt.Errorf("no coordinator available for TransferLeadership(%d)", targetNodeID)
+	}
+	return lastErr
 }
 
 // applyObject Server-Side-Applies the rendered object. SSA is idempotent

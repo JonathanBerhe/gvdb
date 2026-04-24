@@ -452,6 +452,11 @@ const (
 	// reflective — the operator does not drive the proxy rollout (K8s
 	// Deployment controller handles it).
 	ConditionProxyRolloutReady = "ProxyRolloutReady"
+	// ConditionCoordinatorScaleReady: true when Raft cluster_config matches
+	// spec.coordinator.replicas. False while the operator is reconciling a
+	// ghost peer left by a SIGKILLed pod, or transferring leadership off a
+	// pod being scaled away before calling RemovePeer. Roadmap 1.8.
+	ConditionCoordinatorScaleReady = "CoordinatorScaleReady"
 )
 
 // WorkloadStatus reports desired vs ready replicas for one workload.

@@ -131,6 +131,31 @@ class RaftNode {
   // transfer leadership first or let NuRaft re-elect after the pod exits.
   core::Status RemovePeer(int32_t node_id);
 
+  // Raft scale reconciliation (roadmap 1.8). Unlike Add/Remove above,
+  // these two methods support the operator's scale-down safety net
+  // when a coordinator pod was SIGKILLed without running its self-remove
+  // handler, leaving a ghost peer in cluster_config.
+  //
+  // One entry per current cluster_config member (including self).
+  struct RaftMemberInfo {
+    int32_t node_id;
+    std::string endpoint;
+    bool is_learner;
+  };
+  // Read-only; safe on any member (leader or follower). Returns this
+  // server's current view of cluster_config. Thread-safe: NuRaft's
+  // get_config() returns an immutable snapshot.
+  std::vector<RaftMemberInfo> GetClusterMembership() const;
+
+  // Leader-only. Wraps NuRaft raft_server::yield_leadership with a
+  // specific successor. Unlike add_srv/remove_srv, yield_leadership
+  // returns void — we synthesize a result by polling GetLeaderId()
+  // every 100ms up to 3s. Returns Ok when the target_node_id is
+  // observed as leader; DeadlineExceeded on timeout. NuRaft aborts the
+  // transfer if quorum is lost mid-flight; the caller treats that as
+  // transient and retries next reconcile.
+  core::Status YieldLeadership(int32_t target_node_id);
+
   // Timestamp oracle access
   TimestampOracle* GetTimestampOracle() { return &tso_; }
   const TimestampOracle* GetTimestampOracle() const { return &tso_; }

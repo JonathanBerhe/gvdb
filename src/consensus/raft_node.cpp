@@ -456,6 +456,78 @@ core::Status RaftNode::RemovePeer(int32_t node_id) {
   return MapNuRaftCode(result->get_result_code(), "RemovePeer");
 }
 
+std::vector<RaftNode::RaftMemberInfo> RaftNode::GetClusterMembership() const {
+  std::vector<RaftMemberInfo> out;
+  if (config_.single_node_mode) {
+    out.push_back({config_.node_id,
+                   config_.advertise_address.empty()
+                       ? config_.listen_address
+                       : config_.advertise_address,
+                   /*is_learner=*/false});
+    return out;
+  }
+  if (!raft_server_) return out;
+
+  auto cfg = raft_server_->get_config();
+  if (!cfg) return out;
+
+  for (const auto& srv : cfg->get_servers()) {
+    if (!srv) continue;
+    out.push_back({static_cast<int32_t>(srv->get_id()),
+                   srv->get_endpoint(),
+                   srv->is_learner()});
+  }
+  return out;
+}
+
+core::Status RaftNode::YieldLeadership(int32_t target_node_id) {
+  if (config_.single_node_mode) {
+    return core::FailedPreconditionError(
+        "YieldLeadership not supported in single-node mode");
+  }
+  if (!raft_server_) {
+    return core::FailedPreconditionError("RaftNode not initialized");
+  }
+  if (!raft_server_->is_leader()) {
+    return core::FailedPreconditionError(
+        absl::StrCat("YieldLeadership rejected: not leader (current leader=",
+                     raft_server_->get_leader(), ")"));
+  }
+  if (target_node_id == config_.node_id) {
+    // No-op: we're already the leader. NuRaft would silently ignore a
+    // self-target; return OK so the caller's success-predicate
+    // (GetLeaderId() == target) holds immediately.
+    return core::OkStatus();
+  }
+
+  utils::Logger::Instance().Info(
+      "RaftNode::YieldLeadership target_node_id={} (current leader={})",
+      target_node_id, raft_server_->get_leader());
+
+  // Kick off the transfer. NuRaft's yield_leadership returns void; we
+  // synthesize success by polling get_leader() with a bounded deadline.
+  raft_server_->yield_leadership(/*immediate_yield=*/false, target_node_id);
+
+  // Poll every 100ms up to 3s. Typical transfer commits in 200-500ms
+  // on localhost; 3s covers NuRaft's election timeout window
+  // (election_timeout_upper_bound_ = 400ms in raft_node.cpp:664).
+  constexpr auto kTransferTimeout = std::chrono::seconds(3);
+  constexpr auto kPollInterval = std::chrono::milliseconds(100);
+  const auto deadline = std::chrono::steady_clock::now() + kTransferTimeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (raft_server_->get_leader() == target_node_id) {
+      utils::Logger::Instance().Info(
+          "YieldLeadership: target {} is now leader", target_node_id);
+      return core::OkStatus();
+    }
+    std::this_thread::sleep_for(kPollInterval);
+  }
+  return core::DeadlineExceededError(absl::StrCat(
+      "YieldLeadership: target ", target_node_id,
+      " did not become leader within ", kTransferTimeout.count(),
+      "s (current leader=", raft_server_->get_leader(), ")"));
+}
+
 core::Status RaftNode::AnnounceJoinToCluster() {
   // Called from Start() after InitializeNuRaft returns, only when
   // joining_peer_ was set by the peer probe. Calls JoinCluster on the
