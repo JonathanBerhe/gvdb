@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.26.1](https://github.com/JonathanBerhe/gvdb/compare/v0.26.0...v0.26.1) (2026-04-24)
+
+
+### Bug Fixes
+
+* **release-please:** inline x-release-please-version markers on operator Chart.yaml so release-please bumps it in sync with the root chart ([b55b111](https://github.com/JonathanBerhe/gvdb/commit/b55b1116caba60bbdcac2dfdd0a2ed94f6fa0c93))
+* **release-please:** sync gvdb-operator Chart.yaml with root chart version ([a795d5b](https://github.com/JonathanBerhe/gvdb/commit/a795d5bfb840cd3bca1abe8e72fc9a31e2c3c1aa))
+
 ## [0.26.0](https://github.com/JonathanBerhe/gvdb/compare/v0.25.0...v0.26.0) (2026-04-23)
 
 
