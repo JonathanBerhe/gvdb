@@ -145,8 +145,11 @@ func TestCoordinatorStatefulSet_SingleNodeFlag(t *testing.T) {
 func TestDataNodeStatefulSet(t *testing.T) {
 	c := testCluster("prod", "gvdb", 1, 3, 1)
 	sts := DataNodeStatefulSet(c, Options{})
-	if got := *sts.Spec.Replicas; got != 3 {
-		t.Fatalf("replicas: got %d, want 3", got)
+	// Roadmap 1.8.c: Spec.Replicas is owned by the scale reconciler, NOT
+	// this render. Render must leave it unset so the two SSA field managers
+	// never fight over the value.
+	if sts.Spec.Replicas != nil {
+		t.Fatalf("data-node render must not set Spec.Replicas (owned by scale reconciler); got %d", *sts.Spec.Replicas)
 	}
 	if sts.Spec.Template.Spec.TerminationGracePeriodSeconds == nil ||
 		*sts.Spec.Template.Spec.TerminationGracePeriodSeconds != 60 {

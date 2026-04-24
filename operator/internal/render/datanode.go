@@ -48,9 +48,17 @@ exec /usr/local/bin/gvdb-data-node \
 }
 
 // DataNodeStatefulSet renders the data-node StatefulSet.
+//
+// Ownership note: this render does NOT set Spec.Replicas. The data-node
+// scale reconciler (operator/internal/controller/datanode_scale.go, roadmap
+// 1.8.c) is the sole SSA owner of Replicas under the
+// "gvdb-operator-datanode-scale" field manager — letting render write it
+// here would flap the field against the scale reconciler's safety-gated
+// writes. The reconciler always runs before this render so on first
+// create Replicas is already set to the target count. See
+// controller/gvdbcluster_controller.go reconcileDataNodeScale.
 func DataNodeStatefulSet(cluster *gvdbv1alpha1.GVDBCluster, opts Options) *appsv1.StatefulSet {
 	spec := &cluster.Spec.DataNode
-	replicas := EffectiveReplicas(cluster, DataNodeComponent)
 	grace := spec.TerminationGracePeriodSeconds
 	if grace == 0 {
 		grace = 60
@@ -93,8 +101,10 @@ func DataNodeStatefulSet(cluster *gvdbv1alpha1.GVDBCluster, opts Options) *appsv
 		},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: WorkloadName(cluster, DataNodeComponent),
-			Replicas:    &replicas,
-			Selector:    &metav1.LabelSelector{MatchLabels: SelectorLabels(cluster, DataNodeComponent)},
+			// Replicas is intentionally unset — owned by the scale
+			// reconciler's SSA field manager, not this render. See the
+			// ownership note on DataNodeStatefulSet above.
+			Selector: &metav1.LabelSelector{MatchLabels: SelectorLabels(cluster, DataNodeComponent)},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      SelectorLabels(cluster, DataNodeComponent),
