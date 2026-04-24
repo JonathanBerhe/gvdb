@@ -336,6 +336,86 @@ func (c *CoordinatorClient) FetchShardAssignments(ctx context.Context) ([]ShardA
 	return assignments, nil
 }
 
+// RaftMember is the reconciler-relevant subset of proto.RaftMember.
+// Used by the coordinator scale reconciler (roadmap 1.8) to detect ghost
+// peers after a hard-killed pod never ran its SIGTERM self-remove handler.
+type RaftMember struct {
+	NodeID       uint32
+	RaftEndpoint string
+	IsLearner    bool
+}
+
+// RaftMembership is the reconciler-relevant subset of
+// GetRaftMembershipResponse. The CurrentLeaderID field mirrors the leader
+// GetLeaderInfo returns, saving an extra round-trip when the scale
+// reconciler needs both pieces of state.
+type RaftMembership struct {
+	Members         []RaftMember
+	CurrentLeaderID int32
+}
+
+// FetchRaftMembership reports the responding coordinator's view of Raft
+// cluster_config. Safe on any pod (leader or follower); all members
+// observe config changes via Raft log replication.
+func (c *CoordinatorClient) FetchRaftMembership(ctx context.Context) (RaftMembership, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	resp, err := c.stub.GetRaftMembership(ctx, &pb.GetRaftMembershipRequest{})
+	if err != nil {
+		return RaftMembership{}, fmt.Errorf("get raft membership: %w", err)
+	}
+	out := RaftMembership{
+		CurrentLeaderID: resp.GetCurrentLeaderId(),
+		Members:         make([]RaftMember, 0, len(resp.GetMembers())),
+	}
+	for _, m := range resp.GetMembers() {
+		out.Members = append(out.Members, RaftMember{
+			NodeID:       m.GetNodeId(),
+			RaftEndpoint: m.GetRaftEndpoint(),
+			IsLearner:    m.GetIsLearner(),
+		})
+	}
+	return out, nil
+}
+
+// TransferLeadership asks the coordinator to yield leader role to a
+// specific successor. Leader-only: when called on a follower, returns
+// (currentLeaderID, nil) so the caller can retry against the leader.
+// On transport failure returns (0, err). On acceptance-but-timeout
+// (NuRaft transfer didn't commit within 3s) returns (leaderID, error)
+// where leaderID is whoever answered.
+func (c *CoordinatorClient) TransferLeadership(ctx context.Context, targetNodeID uint32) (int32, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	resp, err := c.stub.TransferLeadership(ctx, &pb.TransferLeadershipRequest{
+		TargetNodeId: targetNodeID,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("transfer leadership: %w", err)
+	}
+	if !resp.GetSuccess() {
+		return resp.GetCurrentLeaderId(), fmt.Errorf("transfer leadership denied: %s", resp.GetMessage())
+	}
+	return resp.GetCurrentLeaderId(), nil
+}
+
+// RemovePeer asks the coordinator to drop a node from Raft membership.
+// Leader-only; non-leader returns (currentLeaderID, error). Idempotent
+// per 1.7b MapNuRaftCode: SERVER_NOT_FOUND and SERVER_IS_LEAVING both
+// surface as success=true with a distinguishing message.
+func (c *CoordinatorClient) RemovePeer(ctx context.Context, nodeID uint32) (int32, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	resp, err := c.stub.RemovePeer(ctx, &pb.RemovePeerRequest{NodeId: nodeID})
+	if err != nil {
+		return 0, fmt.Errorf("remove peer: %w", err)
+	}
+	if !resp.GetSuccess() {
+		return resp.GetCurrentLeaderId(), fmt.Errorf("remove peer denied: %s", resp.GetMessage())
+	}
+	return resp.GetCurrentLeaderId(), nil
+}
+
 // Close releases the underlying gRPC connection.
 func (c *Client) Close() error {
 	if c == nil || c.conn == nil {

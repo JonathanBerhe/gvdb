@@ -1013,6 +1013,75 @@ grpc::Status InternalService::RemovePeer(
 }
 
 // =============================================================================
+// Raft Scale Reconciliation (roadmap 1.8)
+// =============================================================================
+//
+// Observes and mutates Raft membership on behalf of the operator's scale
+// reconciler. GetRaftMembership is read-only and safe on any pod;
+// TransferLeadership is leader-only and returns current_leader_id for
+// non-leader redirects (same pattern as RemovePeer above).
+
+grpc::Status InternalService::GetRaftMembership(
+    grpc::ServerContext* /*context*/,
+    const proto::internal::GetRaftMembershipRequest* /*request*/,
+    proto::internal::GetRaftMembershipResponse* response) {
+  total_requests_++;
+
+  if (!raft_node_) {
+    // Single-node mode: the "cluster" is just self. Report node_id=1
+    // (coordinator convention) so the operator's scale logic treats this
+    // as a single-member cluster rather than an empty one.
+    auto* m = response->add_members();
+    m->set_node_id(1);
+    m->set_raft_endpoint("");
+    m->set_is_learner(false);
+    response->set_current_leader_id(1);
+    return grpc::Status::OK;
+  }
+
+  for (const auto& m : raft_node_->GetClusterMembership()) {
+    auto* out = response->add_members();
+    out->set_node_id(static_cast<uint32_t>(m.node_id));
+    out->set_raft_endpoint(m.endpoint);
+    out->set_is_learner(m.is_learner);
+  }
+  response->set_current_leader_id(raft_node_->GetLeaderId());
+  return grpc::Status::OK;
+}
+
+grpc::Status InternalService::TransferLeadership(
+    grpc::ServerContext* /*context*/,
+    const proto::internal::TransferLeadershipRequest* request,
+    proto::internal::TransferLeadershipResponse* response) {
+  total_requests_++;
+
+  if (!raft_node_) {
+    response->set_success(false);
+    response->set_message("single-node mode; no Raft leader to transfer");
+    return grpc::Status::OK;
+  }
+  if (!raft_node_->IsLeader()) {
+    response->set_success(false);
+    response->set_current_leader_id(raft_node_->GetLeaderId());
+    response->set_message("not leader; retry on leader");
+    return grpc::Status::OK;
+  }
+
+  auto st = raft_node_->YieldLeadership(
+      static_cast<int32_t>(request->target_node_id()));
+  response->set_success(st.ok());
+  if (st.ok()) {
+    response->set_message("leadership transferred");
+    response->set_current_leader_id(raft_node_->GetLeaderId());
+  } else {
+    response->set_message(std::string(st.message()));
+    response->set_current_leader_id(raft_node_->GetLeaderId());
+    total_errors_++;
+  }
+  return grpc::Status::OK;
+}
+
+// =============================================================================
 // Timestamp Oracle
 // =============================================================================
 
