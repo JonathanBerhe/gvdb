@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.27.0](https://github.com/JonathanBerhe/gvdb/compare/v0.26.1...v0.27.0) (2026-04-24)
+
+
+### Features
+
+* **operator:** coordinator scale reconciler — ghost peer cleanup + leadership transfer (1.8) ([2fd61f0](https://github.com/JonathanBerhe/gvdb/commit/2fd61f011483285a6a1a0b72da007470392028b1))
+* **operator:** coordinator scale reconciler — ghost peer cleanup + leadership transfer (1.8) ([50d14f7](https://github.com/JonathanBerhe/gvdb/commit/50d14f7dd91404bed57f7d22bef7122ec4a36147))
+
 ## [0.26.1](https://github.com/JonathanBerhe/gvdb/compare/v0.26.0...v0.26.1) (2026-04-24)
 
 
