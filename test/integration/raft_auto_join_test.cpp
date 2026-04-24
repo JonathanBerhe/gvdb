@@ -171,6 +171,57 @@ TestCoordinator* FindLeader(const std::vector<std::unique_ptr<TestCoordinator>>&
   return nullptr;
 }
 
+// RemovePeer with bounded retry. NuRaft's remove_srv can transiently
+// return CONFIG_CHANGING when called immediately after leader election
+// (the bootstrap-era membership log entry is still being committed).
+// Matches the behavior real operator reconcilers exhibit — each reconcile
+// retries idempotently — so the test mirrors the production retry loop.
+bool RemovePeerWithRetry(const std::string& leader_target, uint32_t node_id,
+                         std::chrono::milliseconds budget = std::chrono::seconds(5)) {
+  auto channel = grpc::CreateChannel(leader_target,
+                                    grpc::InsecureChannelCredentials());
+  auto stub = proto::internal::InternalService::NewStub(channel);
+  auto deadline = std::chrono::steady_clock::now() + budget;
+  auto backoff = std::chrono::milliseconds(200);
+  while (std::chrono::steady_clock::now() < deadline) {
+    proto::internal::RemovePeerRequest req;
+    req.set_node_id(node_id);
+    proto::internal::RemovePeerResponse resp;
+    grpc::ClientContext ctx;
+    ctx.set_deadline(std::chrono::system_clock::now() +
+                     std::chrono::seconds(3));
+    auto st = stub->RemovePeer(&ctx, req, &resp);
+    if (st.ok() && resp.success()) return true;
+    std::this_thread::sleep_for(backoff);
+    backoff = std::min(backoff * 2, std::chrono::milliseconds(1000));
+  }
+  return false;
+}
+
+// Same retry wrapper for TransferLeadership.
+bool TransferLeadershipWithRetry(const std::string& leader_target,
+                                 uint32_t target_node_id,
+                                 std::chrono::milliseconds budget = std::chrono::seconds(8)) {
+  auto channel = grpc::CreateChannel(leader_target,
+                                    grpc::InsecureChannelCredentials());
+  auto stub = proto::internal::InternalService::NewStub(channel);
+  auto deadline = std::chrono::steady_clock::now() + budget;
+  auto backoff = std::chrono::milliseconds(200);
+  while (std::chrono::steady_clock::now() < deadline) {
+    proto::internal::TransferLeadershipRequest req;
+    req.set_target_node_id(target_node_id);
+    proto::internal::TransferLeadershipResponse resp;
+    grpc::ClientContext ctx;
+    ctx.set_deadline(std::chrono::system_clock::now() +
+                     std::chrono::seconds(5));
+    auto st = stub->TransferLeadership(&ctx, req, &resp);
+    if (st.ok() && resp.success()) return true;
+    std::this_thread::sleep_for(backoff);
+    backoff = std::min(backoff * 2, std::chrono::milliseconds(1000));
+  }
+  return false;
+}
+
 // Call GetLeaderInfo on a specific coordinator's gRPC port and return the
 // reported leader_id (or 0 if no leader / RPC failed).
 int32_t QueryLeader(const std::string& target) {
@@ -327,25 +378,16 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "ScaleDownRemovesPeerViaRPC") {
   REQUIRE(leader != nullptr);
 
   // Send the RemovePeer RPC to the leader (not to ourselves — a real
-  // scale-down drains the non-leader pod first).
+  // scale-down drains the non-leader pod first). Use the retry helper
+  // to tolerate NuRaft's transient CONFIG_CHANGING during bootstrap-era
+  // membership settling.
   TestCoordinator* victim = nullptr;
   for (auto& c : coords_) {
     if (c->node_id != leader->node_id) { victim = c.get(); break; }
   }
   REQUIRE(victim != nullptr);
-
-  auto channel = grpc::CreateChannel(
-      leader->grpc_endpoint(), grpc::InsecureChannelCredentials());
-  auto stub = proto::internal::InternalService::NewStub(channel);
-  proto::internal::RemovePeerRequest req;
-  req.set_node_id(static_cast<uint32_t>(victim->node_id));
-  proto::internal::RemovePeerResponse resp;
-  grpc::ClientContext ctx;
-  ctx.set_deadline(std::chrono::system_clock::now() +
-                   std::chrono::seconds(5));
-  auto rpc_st = stub->RemovePeer(&ctx, req, &resp);
-  CHECK(rpc_st.ok());
-  CHECK(resp.success());
+  CHECK(RemovePeerWithRetry(leader->grpc_endpoint(),
+                            static_cast<uint32_t>(victim->node_id)));
 
   // Tear down the removed node locally to mirror what the pod SIGTERM
   // path would do next.
@@ -363,6 +405,144 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "ScaleDownRemovesPeerViaRPC") {
     return true;
   }, std::chrono::seconds(10));
   CHECK(stable);
+}
+
+TEST_CASE_FIXTURE(RaftAutoJoinFixture, "GhostPeerCleanupAfterHardKill") {
+  // Simulates the K8s SIGKILL path (OOM, terminationGrace exceeded, or
+  // `kubectl delete pod --force`): the coordinator pod dies WITHOUT
+  // running its SIGTERM self-remove handler. The leader's cluster_config
+  // still lists the dead node as a member ("ghost peer"). This is
+  // exactly what 1.8 operator-side reconciliation fixes — we simulate
+  // the operator calling RemovePeer directly and assert membership
+  // converges back to {1,2,3}.
+  const int base_raft = UniquePortBase();
+  const int base_grpc = base_raft + 50;
+  auto layout = MakeLayout(/*count=*/4, base_raft, base_grpc);
+
+  for (int id = 1; id <= 4; ++id) {
+    auto c = StartCoordinator(id, layout, root_dir_);
+    REQUIRE(c != nullptr);
+    coords_.push_back(std::move(c));
+  }
+
+  bool elected = WaitFor([&]() {
+    return FindLeader(coords_) != nullptr;
+  }, std::chrono::seconds(15));
+  REQUIRE(elected);
+  auto* leader = FindLeader(coords_);
+  REQUIRE(leader != nullptr);
+
+  // Pick a non-leader victim (mirrors the common scale-down case where
+  // the departing ordinal isn't the current leader).
+  TestCoordinator* victim = nullptr;
+  for (auto& c : coords_) {
+    if (c->node_id != leader->node_id) { victim = c.get(); break; }
+  }
+  REQUIRE(victim != nullptr);
+  int victim_node_id = victim->node_id;
+
+  // Hard-kill: shut down the victim WITHOUT calling RemovePeer first.
+  // This mirrors K8s SIGKILL — no graceful drain, no operator-driven
+  // remove, just the process dying.
+  ShutdownCoordinator(victim);
+
+  // Confirm the leader's view still shows the ghost peer (4 members
+  // including the dead one). NuRaft doesn't auto-remove dead members;
+  // it just marks them unreachable and keeps them in config.
+  auto membership_before =
+      leader->raft->GetClusterMembership();
+  bool found_ghost = false;
+  for (const auto& m : membership_before) {
+    if (m.node_id == victim_node_id) { found_ghost = true; break; }
+  }
+  CHECK(found_ghost);
+
+  // Operator-simulated cleanup: call RemovePeer on the leader's gRPC
+  // surface exactly as reconcileCoordinatorScale would. Idempotent per
+  // 1.7b MapNuRaftCode if the pod had already left cleanly. Uses retry
+  // to absorb NuRaft's transient CONFIG_CHANGING window.
+  CHECK(RemovePeerWithRetry(leader->grpc_endpoint(),
+                            static_cast<uint32_t>(victim_node_id)));
+
+  // Assert membership converges to 3 members, excluding the ghost.
+  bool removed = WaitFor([&]() {
+    auto members = leader->raft->GetClusterMembership();
+    if (members.size() != 3) return false;
+    for (const auto& m : members) {
+      if (m.node_id == victim_node_id) return false;
+    }
+    return true;
+  }, std::chrono::seconds(10));
+  CHECK(removed);
+
+  // And the existing leader stays leader (no election churn induced).
+  CHECK(leader->raft->IsLeader());
+}
+
+TEST_CASE_FIXTURE(RaftAutoJoinFixture, "TransferLeadershipBeforeScaleDown") {
+  // When the pod being scaled away is currently the leader, the operator
+  // cannot call RemovePeer directly (NuRaft returns CANNOT_REMOVE_LEADER).
+  // It must first transfer leadership via the 1.8 YieldLeadership path.
+  // This test exercises the transfer + subsequent RemovePeer chain.
+  const int base_raft = UniquePortBase();
+  const int base_grpc = base_raft + 50;
+  auto layout = MakeLayout(/*count=*/4, base_raft, base_grpc);
+
+  for (int id = 1; id <= 4; ++id) {
+    auto c = StartCoordinator(id, layout, root_dir_);
+    REQUIRE(c != nullptr);
+    coords_.push_back(std::move(c));
+  }
+
+  bool elected = WaitFor([&]() {
+    return FindLeader(coords_) != nullptr;
+  }, std::chrono::seconds(15));
+  REQUIRE(elected);
+  auto* original_leader = FindLeader(coords_);
+  REQUIRE(original_leader != nullptr);
+
+  // Pick a target successor that is NOT the current leader.
+  TestCoordinator* successor = nullptr;
+  for (auto& c : coords_) {
+    if (c->node_id != original_leader->node_id) {
+      successor = c.get();
+      break;
+    }
+  }
+  REQUIRE(successor != nullptr);
+  int successor_node_id = successor->node_id;
+
+  // Operator-simulated call: TransferLeadership to the successor via
+  // the original leader's gRPC surface. Retry absorbs NuRaft's transient
+  // pending-config window.
+  CHECK(TransferLeadershipWithRetry(
+      original_leader->grpc_endpoint(),
+      static_cast<uint32_t>(successor_node_id)));
+
+  // The successor should now be leader.
+  bool transferred = WaitFor([&]() {
+    return successor->raft->IsLeader() &&
+           successor->raft->GetLeaderId() == successor_node_id;
+  }, std::chrono::seconds(5));
+  CHECK(transferred);
+
+  // Now RemovePeer on the ex-leader succeeds (no CANNOT_REMOVE_LEADER
+  // because it's a follower now).
+  CHECK(RemovePeerWithRetry(
+      successor->grpc_endpoint(),
+      static_cast<uint32_t>(original_leader->node_id)));
+
+  // Membership on the new leader converges to 3 members, excluding
+  // the ex-leader.
+  bool converged = WaitFor([&]() {
+    auto members = successor->raft->GetClusterMembership();
+    if (members.size() != 3) return false;
+    for (const auto& m : members) {
+      if (m.node_id == original_leader->node_id) return false;
+    }
+    return true;
+  }, std::chrono::seconds(10));
+  CHECK(converged);
 }
 
 }  // namespace integration

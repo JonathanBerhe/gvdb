@@ -2568,6 +2568,494 @@ func (x *GetTimestampResponse) GetEndTimestamp() uint64 {
 	return 0
 }
 
+type JoinClusterRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Joining pod's Raft node id (derived from StatefulSet ordinal in the
+	// coordinator startup script: NODE_ID = ORDINAL + 1).
+	NodeId uint32 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// Joining pod's Raft advertise address, e.g.
+	// "release-coordinator-3.release-coordinator.gvdb.svc.cluster.local:8300".
+	RaftAdvertiseAddress string `protobuf:"bytes,2,opt,name=raft_advertise_address,json=raftAdvertiseAddress,proto3" json:"raft_advertise_address,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *JoinClusterRequest) Reset() {
+	*x = JoinClusterRequest{}
+	mi := &file_internal_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JoinClusterRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JoinClusterRequest) ProtoMessage() {}
+
+func (x *JoinClusterRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JoinClusterRequest.ProtoReflect.Descriptor instead.
+func (*JoinClusterRequest) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *JoinClusterRequest) GetNodeId() uint32 {
+	if x != nil {
+		return x.NodeId
+	}
+	return 0
+}
+
+func (x *JoinClusterRequest) GetRaftAdvertiseAddress() string {
+	if x != nil {
+		return x.RaftAdvertiseAddress
+	}
+	return ""
+}
+
+type JoinClusterResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Success bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// Populated when success==false because the recipient wasn't the leader.
+	// Caller uses this to retry on the correct pod. Zero if no leader known.
+	CurrentLeaderId int32 `protobuf:"varint,3,opt,name=current_leader_id,json=currentLeaderId,proto3" json:"current_leader_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *JoinClusterResponse) Reset() {
+	*x = JoinClusterResponse{}
+	mi := &file_internal_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JoinClusterResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JoinClusterResponse) ProtoMessage() {}
+
+func (x *JoinClusterResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JoinClusterResponse.ProtoReflect.Descriptor instead.
+func (*JoinClusterResponse) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *JoinClusterResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *JoinClusterResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *JoinClusterResponse) GetCurrentLeaderId() int32 {
+	if x != nil {
+		return x.CurrentLeaderId
+	}
+	return 0
+}
+
+type RemovePeerRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Peer to drop from Raft membership. Typically the caller's own node_id
+	// when self-removing during graceful shutdown.
+	NodeId        uint32 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemovePeerRequest) Reset() {
+	*x = RemovePeerRequest{}
+	mi := &file_internal_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemovePeerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemovePeerRequest) ProtoMessage() {}
+
+func (x *RemovePeerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemovePeerRequest.ProtoReflect.Descriptor instead.
+func (*RemovePeerRequest) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *RemovePeerRequest) GetNodeId() uint32 {
+	if x != nil {
+		return x.NodeId
+	}
+	return 0
+}
+
+type RemovePeerResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Success         bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message         string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	CurrentLeaderId int32                  `protobuf:"varint,3,opt,name=current_leader_id,json=currentLeaderId,proto3" json:"current_leader_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RemovePeerResponse) Reset() {
+	*x = RemovePeerResponse{}
+	mi := &file_internal_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemovePeerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemovePeerResponse) ProtoMessage() {}
+
+func (x *RemovePeerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemovePeerResponse.ProtoReflect.Descriptor instead.
+func (*RemovePeerResponse) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *RemovePeerResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *RemovePeerResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *RemovePeerResponse) GetCurrentLeaderId() int32 {
+	if x != nil {
+		return x.CurrentLeaderId
+	}
+	return 0
+}
+
+type GetRaftMembershipRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetRaftMembershipRequest) Reset() {
+	*x = GetRaftMembershipRequest{}
+	mi := &file_internal_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRaftMembershipRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRaftMembershipRequest) ProtoMessage() {}
+
+func (x *GetRaftMembershipRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRaftMembershipRequest.ProtoReflect.Descriptor instead.
+func (*GetRaftMembershipRequest) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{43}
+}
+
+type RaftMember struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	NodeId uint32                 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// Peer-facing Raft advertise address from NuRaft srv_config.
+	RaftEndpoint string `protobuf:"bytes,2,opt,name=raft_endpoint,json=raftEndpoint,proto3" json:"raft_endpoint,omitempty"`
+	// True during mid-join catch-up; the operator treats learners as not-yet
+	// voting members when picking a leadership successor.
+	IsLearner     bool `protobuf:"varint,3,opt,name=is_learner,json=isLearner,proto3" json:"is_learner,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RaftMember) Reset() {
+	*x = RaftMember{}
+	mi := &file_internal_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RaftMember) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RaftMember) ProtoMessage() {}
+
+func (x *RaftMember) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RaftMember.ProtoReflect.Descriptor instead.
+func (*RaftMember) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *RaftMember) GetNodeId() uint32 {
+	if x != nil {
+		return x.NodeId
+	}
+	return 0
+}
+
+func (x *RaftMember) GetRaftEndpoint() string {
+	if x != nil {
+		return x.RaftEndpoint
+	}
+	return ""
+}
+
+func (x *RaftMember) GetIsLearner() bool {
+	if x != nil {
+		return x.IsLearner
+	}
+	return false
+}
+
+type GetRaftMembershipResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Members []*RaftMember          `protobuf:"bytes,1,rep,name=members,proto3" json:"members,omitempty"`
+	// Convenience: the responding coordinator's view of the current leader.
+	// Saves the caller an extra GetLeaderInfo round-trip when both pieces
+	// of state are needed together.
+	CurrentLeaderId int32 `protobuf:"varint,2,opt,name=current_leader_id,json=currentLeaderId,proto3" json:"current_leader_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetRaftMembershipResponse) Reset() {
+	*x = GetRaftMembershipResponse{}
+	mi := &file_internal_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRaftMembershipResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRaftMembershipResponse) ProtoMessage() {}
+
+func (x *GetRaftMembershipResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRaftMembershipResponse.ProtoReflect.Descriptor instead.
+func (*GetRaftMembershipResponse) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *GetRaftMembershipResponse) GetMembers() []*RaftMember {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+func (x *GetRaftMembershipResponse) GetCurrentLeaderId() int32 {
+	if x != nil {
+		return x.CurrentLeaderId
+	}
+	return 0
+}
+
+type TransferLeadershipRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Preferred successor. Must be a current cluster member; if not, NuRaft
+	// yields to "any" follower (best effort) rather than failing.
+	TargetNodeId  uint32 `protobuf:"varint,1,opt,name=target_node_id,json=targetNodeId,proto3" json:"target_node_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TransferLeadershipRequest) Reset() {
+	*x = TransferLeadershipRequest{}
+	mi := &file_internal_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TransferLeadershipRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TransferLeadershipRequest) ProtoMessage() {}
+
+func (x *TransferLeadershipRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TransferLeadershipRequest.ProtoReflect.Descriptor instead.
+func (*TransferLeadershipRequest) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *TransferLeadershipRequest) GetTargetNodeId() uint32 {
+	if x != nil {
+		return x.TargetNodeId
+	}
+	return 0
+}
+
+type TransferLeadershipResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// success=true only when the target_node_id is observed as the new
+	// leader within the coordinator's transfer-wait budget (3s default).
+	// Transient failures (no quorum during the transfer window) return
+	// success=false with current_leader_id populated so the operator retries.
+	Success         bool   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message         string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	CurrentLeaderId int32  `protobuf:"varint,3,opt,name=current_leader_id,json=currentLeaderId,proto3" json:"current_leader_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *TransferLeadershipResponse) Reset() {
+	*x = TransferLeadershipResponse{}
+	mi := &file_internal_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TransferLeadershipResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TransferLeadershipResponse) ProtoMessage() {}
+
+func (x *TransferLeadershipResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TransferLeadershipResponse.ProtoReflect.Descriptor instead.
+func (*TransferLeadershipResponse) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *TransferLeadershipResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *TransferLeadershipResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *TransferLeadershipResponse) GetCurrentLeaderId() int32 {
+	if x != nil {
+		return x.CurrentLeaderId
+	}
+	return 0
+}
+
 var File_internal_proto protoreflect.FileDescriptor
 
 const file_internal_proto_rawDesc = "" +
@@ -2750,7 +3238,36 @@ const file_internal_proto_rawDesc = "" +
 	"\x05count\x18\x01 \x01(\rR\x05count\"d\n" +
 	"\x14GetTimestampResponse\x12'\n" +
 	"\x0fstart_timestamp\x18\x01 \x01(\x04R\x0estartTimestamp\x12#\n" +
-	"\rend_timestamp\x18\x02 \x01(\x04R\fendTimestamp*\x84\x01\n" +
+	"\rend_timestamp\x18\x02 \x01(\x04R\fendTimestamp\"c\n" +
+	"\x12JoinClusterRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\rR\x06nodeId\x124\n" +
+	"\x16raft_advertise_address\x18\x02 \x01(\tR\x14raftAdvertiseAddress\"u\n" +
+	"\x13JoinClusterResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12*\n" +
+	"\x11current_leader_id\x18\x03 \x01(\x05R\x0fcurrentLeaderId\",\n" +
+	"\x11RemovePeerRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\rR\x06nodeId\"t\n" +
+	"\x12RemovePeerResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12*\n" +
+	"\x11current_leader_id\x18\x03 \x01(\x05R\x0fcurrentLeaderId\"\x1a\n" +
+	"\x18GetRaftMembershipRequest\"i\n" +
+	"\n" +
+	"RaftMember\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\rR\x06nodeId\x12#\n" +
+	"\rraft_endpoint\x18\x02 \x01(\tR\fraftEndpoint\x12\x1d\n" +
+	"\n" +
+	"is_learner\x18\x03 \x01(\bR\tisLearner\"\x82\x01\n" +
+	"\x19GetRaftMembershipResponse\x129\n" +
+	"\amembers\x18\x01 \x03(\v2\x1f.gvdb.proto.internal.RaftMemberR\amembers\x12*\n" +
+	"\x11current_leader_id\x18\x02 \x01(\x05R\x0fcurrentLeaderId\"A\n" +
+	"\x19TransferLeadershipRequest\x12$\n" +
+	"\x0etarget_node_id\x18\x01 \x01(\rR\ftargetNodeId\"|\n" +
+	"\x1aTransferLeadershipResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12*\n" +
+	"\x11current_leader_id\x18\x03 \x01(\x05R\x0fcurrentLeaderId*\x84\x01\n" +
 	"\bNodeType\x12\x15\n" +
 	"\x11NODE_TYPE_UNKNOWN\x10\x00\x12\x19\n" +
 	"\x15NODE_TYPE_COORDINATOR\x10\x01\x12\x17\n" +
@@ -2765,7 +3282,7 @@ const file_internal_proto_rawDesc = "" +
 	"\x10NODE_STATUS_BUSY\x10\x03\x12\x18\n" +
 	"\x14NODE_STATUS_DEGRADED\x10\x04\x12\x14\n" +
 	"\x10NODE_STATUS_DOWN\x10\x05\x12\x18\n" +
-	"\x14NODE_STATUS_DRAINING\x10\x062\x97\x0e\n" +
+	"\x14NODE_STATUS_DRAINING\x10\x062\xc3\x11\n" +
 	"\x0fInternalService\x12`\n" +
 	"\vAssignShard\x12'.gvdb.proto.internal.AssignShardRequest\x1a(.gvdb.proto.internal.AssignShardResponse\x12x\n" +
 	"\x13GetShardAssignments\x12/.gvdb.proto.internal.GetShardAssignmentsRequest\x1a0.gvdb.proto.internal.GetShardAssignmentsResponse\x12l\n" +
@@ -2784,7 +3301,12 @@ const file_internal_proto_rawDesc = "" +
 	"\fTransferData\x12(.gvdb.proto.internal.TransferDataRequest\x1a).gvdb.proto.internal.TransferDataResponse\x12Z\n" +
 	"\tHeartbeat\x12%.gvdb.proto.internal.HeartbeatRequest\x1a&.gvdb.proto.internal.HeartbeatResponse\x12o\n" +
 	"\x10GetClusterHealth\x12,.gvdb.proto.internal.GetClusterHealthRequest\x1a-.gvdb.proto.internal.GetClusterHealthResponse\x12f\n" +
-	"\rGetLeaderInfo\x12).gvdb.proto.internal.GetLeaderInfoRequest\x1a*.gvdb.proto.internal.GetLeaderInfoResponse\x12c\n" +
+	"\rGetLeaderInfo\x12).gvdb.proto.internal.GetLeaderInfoRequest\x1a*.gvdb.proto.internal.GetLeaderInfoResponse\x12`\n" +
+	"\vJoinCluster\x12'.gvdb.proto.internal.JoinClusterRequest\x1a(.gvdb.proto.internal.JoinClusterResponse\x12]\n" +
+	"\n" +
+	"RemovePeer\x12&.gvdb.proto.internal.RemovePeerRequest\x1a'.gvdb.proto.internal.RemovePeerResponse\x12r\n" +
+	"\x11GetRaftMembership\x12-.gvdb.proto.internal.GetRaftMembershipRequest\x1a..gvdb.proto.internal.GetRaftMembershipResponse\x12u\n" +
+	"\x12TransferLeadership\x12..gvdb.proto.internal.TransferLeadershipRequest\x1a/.gvdb.proto.internal.TransferLeadershipResponse\x12c\n" +
 	"\fGetTimestamp\x12(.gvdb.proto.internal.GetTimestampRequest\x1a).gvdb.proto.internal.GetTimestampResponseB\x12Z\x10gvdb/internal/pbb\x06proto3"
 
 var (
@@ -2800,7 +3322,7 @@ func file_internal_proto_rawDescGZIP() []byte {
 }
 
 var file_internal_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
+var file_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
 var file_internal_proto_goTypes = []any{
 	(NodeType)(0),                         // 0: gvdb.proto.internal.NodeType
 	(NodeStatus)(0),                       // 1: gvdb.proto.internal.NodeStatus
@@ -2843,7 +3365,16 @@ var file_internal_proto_goTypes = []any{
 	(*GetLeaderInfoResponse)(nil),         // 38: gvdb.proto.internal.GetLeaderInfoResponse
 	(*GetTimestampRequest)(nil),           // 39: gvdb.proto.internal.GetTimestampRequest
 	(*GetTimestampResponse)(nil),          // 40: gvdb.proto.internal.GetTimestampResponse
-	(*Metadata)(nil),                      // 41: gvdb.proto.Metadata
+	(*JoinClusterRequest)(nil),            // 41: gvdb.proto.internal.JoinClusterRequest
+	(*JoinClusterResponse)(nil),           // 42: gvdb.proto.internal.JoinClusterResponse
+	(*RemovePeerRequest)(nil),             // 43: gvdb.proto.internal.RemovePeerRequest
+	(*RemovePeerResponse)(nil),            // 44: gvdb.proto.internal.RemovePeerResponse
+	(*GetRaftMembershipRequest)(nil),      // 45: gvdb.proto.internal.GetRaftMembershipRequest
+	(*RaftMember)(nil),                    // 46: gvdb.proto.internal.RaftMember
+	(*GetRaftMembershipResponse)(nil),     // 47: gvdb.proto.internal.GetRaftMembershipResponse
+	(*TransferLeadershipRequest)(nil),     // 48: gvdb.proto.internal.TransferLeadershipRequest
+	(*TransferLeadershipResponse)(nil),    // 49: gvdb.proto.internal.TransferLeadershipResponse
+	(*Metadata)(nil),                      // 50: gvdb.proto.Metadata
 }
 var file_internal_proto_depIdxs = []int32{
 	0,  // 0: gvdb.proto.internal.NodeInfo.node_type:type_name -> gvdb.proto.internal.NodeType
@@ -2856,49 +3387,58 @@ var file_internal_proto_depIdxs = []int32{
 	21, // 7: gvdb.proto.internal.SyncMetadataResponse.collections:type_name -> gvdb.proto.internal.CollectionMetadata
 	3,  // 8: gvdb.proto.internal.SyncMetadataResponse.shard_assignments:type_name -> gvdb.proto.internal.ShardAssignment
 	21, // 9: gvdb.proto.internal.GetCollectionMetadataResponse.metadata:type_name -> gvdb.proto.internal.CollectionMetadata
-	41, // 10: gvdb.proto.internal.SearchResult.metadata:type_name -> gvdb.proto.Metadata
+	50, // 10: gvdb.proto.internal.SearchResult.metadata:type_name -> gvdb.proto.Metadata
 	29, // 11: gvdb.proto.internal.ExecuteShardQueryResponse.results:type_name -> gvdb.proto.internal.SearchResult
 	2,  // 12: gvdb.proto.internal.HeartbeatRequest.node_info:type_name -> gvdb.proto.internal.NodeInfo
 	2,  // 13: gvdb.proto.internal.GetClusterHealthResponse.nodes:type_name -> gvdb.proto.internal.NodeInfo
-	4,  // 14: gvdb.proto.internal.InternalService.AssignShard:input_type -> gvdb.proto.internal.AssignShardRequest
-	6,  // 15: gvdb.proto.internal.InternalService.GetShardAssignments:input_type -> gvdb.proto.internal.GetShardAssignmentsRequest
-	8,  // 16: gvdb.proto.internal.InternalService.RebalanceShards:input_type -> gvdb.proto.internal.RebalanceShardsRequest
-	11, // 17: gvdb.proto.internal.InternalService.ReplicateSegment:input_type -> gvdb.proto.internal.ReplicateSegmentRequest
-	13, // 18: gvdb.proto.internal.InternalService.GetSegment:input_type -> gvdb.proto.internal.GetSegmentRequest
-	15, // 19: gvdb.proto.internal.InternalService.ListSegments:input_type -> gvdb.proto.internal.ListSegmentsRequest
-	17, // 20: gvdb.proto.internal.InternalService.DeleteSegment:input_type -> gvdb.proto.internal.DeleteSegmentRequest
-	19, // 21: gvdb.proto.internal.InternalService.CreateSegment:input_type -> gvdb.proto.internal.CreateSegmentRequest
-	22, // 22: gvdb.proto.internal.InternalService.SyncMetadata:input_type -> gvdb.proto.internal.SyncMetadataRequest
-	24, // 23: gvdb.proto.internal.InternalService.GetCollectionMetadata:input_type -> gvdb.proto.internal.GetCollectionMetadataRequest
-	26, // 24: gvdb.proto.internal.InternalService.RouteQuery:input_type -> gvdb.proto.internal.RouteQueryRequest
-	28, // 25: gvdb.proto.internal.InternalService.ExecuteShardQuery:input_type -> gvdb.proto.internal.ExecuteShardQueryRequest
-	31, // 26: gvdb.proto.internal.InternalService.TransferData:input_type -> gvdb.proto.internal.TransferDataRequest
-	33, // 27: gvdb.proto.internal.InternalService.Heartbeat:input_type -> gvdb.proto.internal.HeartbeatRequest
-	35, // 28: gvdb.proto.internal.InternalService.GetClusterHealth:input_type -> gvdb.proto.internal.GetClusterHealthRequest
-	37, // 29: gvdb.proto.internal.InternalService.GetLeaderInfo:input_type -> gvdb.proto.internal.GetLeaderInfoRequest
-	39, // 30: gvdb.proto.internal.InternalService.GetTimestamp:input_type -> gvdb.proto.internal.GetTimestampRequest
-	5,  // 31: gvdb.proto.internal.InternalService.AssignShard:output_type -> gvdb.proto.internal.AssignShardResponse
-	7,  // 32: gvdb.proto.internal.InternalService.GetShardAssignments:output_type -> gvdb.proto.internal.GetShardAssignmentsResponse
-	9,  // 33: gvdb.proto.internal.InternalService.RebalanceShards:output_type -> gvdb.proto.internal.RebalanceShardsResponse
-	12, // 34: gvdb.proto.internal.InternalService.ReplicateSegment:output_type -> gvdb.proto.internal.ReplicateSegmentResponse
-	14, // 35: gvdb.proto.internal.InternalService.GetSegment:output_type -> gvdb.proto.internal.GetSegmentResponse
-	16, // 36: gvdb.proto.internal.InternalService.ListSegments:output_type -> gvdb.proto.internal.ListSegmentsResponse
-	18, // 37: gvdb.proto.internal.InternalService.DeleteSegment:output_type -> gvdb.proto.internal.DeleteSegmentResponse
-	20, // 38: gvdb.proto.internal.InternalService.CreateSegment:output_type -> gvdb.proto.internal.CreateSegmentResponse
-	23, // 39: gvdb.proto.internal.InternalService.SyncMetadata:output_type -> gvdb.proto.internal.SyncMetadataResponse
-	25, // 40: gvdb.proto.internal.InternalService.GetCollectionMetadata:output_type -> gvdb.proto.internal.GetCollectionMetadataResponse
-	27, // 41: gvdb.proto.internal.InternalService.RouteQuery:output_type -> gvdb.proto.internal.RouteQueryResponse
-	30, // 42: gvdb.proto.internal.InternalService.ExecuteShardQuery:output_type -> gvdb.proto.internal.ExecuteShardQueryResponse
-	32, // 43: gvdb.proto.internal.InternalService.TransferData:output_type -> gvdb.proto.internal.TransferDataResponse
-	34, // 44: gvdb.proto.internal.InternalService.Heartbeat:output_type -> gvdb.proto.internal.HeartbeatResponse
-	36, // 45: gvdb.proto.internal.InternalService.GetClusterHealth:output_type -> gvdb.proto.internal.GetClusterHealthResponse
-	38, // 46: gvdb.proto.internal.InternalService.GetLeaderInfo:output_type -> gvdb.proto.internal.GetLeaderInfoResponse
-	40, // 47: gvdb.proto.internal.InternalService.GetTimestamp:output_type -> gvdb.proto.internal.GetTimestampResponse
-	31, // [31:48] is the sub-list for method output_type
-	14, // [14:31] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	46, // 14: gvdb.proto.internal.GetRaftMembershipResponse.members:type_name -> gvdb.proto.internal.RaftMember
+	4,  // 15: gvdb.proto.internal.InternalService.AssignShard:input_type -> gvdb.proto.internal.AssignShardRequest
+	6,  // 16: gvdb.proto.internal.InternalService.GetShardAssignments:input_type -> gvdb.proto.internal.GetShardAssignmentsRequest
+	8,  // 17: gvdb.proto.internal.InternalService.RebalanceShards:input_type -> gvdb.proto.internal.RebalanceShardsRequest
+	11, // 18: gvdb.proto.internal.InternalService.ReplicateSegment:input_type -> gvdb.proto.internal.ReplicateSegmentRequest
+	13, // 19: gvdb.proto.internal.InternalService.GetSegment:input_type -> gvdb.proto.internal.GetSegmentRequest
+	15, // 20: gvdb.proto.internal.InternalService.ListSegments:input_type -> gvdb.proto.internal.ListSegmentsRequest
+	17, // 21: gvdb.proto.internal.InternalService.DeleteSegment:input_type -> gvdb.proto.internal.DeleteSegmentRequest
+	19, // 22: gvdb.proto.internal.InternalService.CreateSegment:input_type -> gvdb.proto.internal.CreateSegmentRequest
+	22, // 23: gvdb.proto.internal.InternalService.SyncMetadata:input_type -> gvdb.proto.internal.SyncMetadataRequest
+	24, // 24: gvdb.proto.internal.InternalService.GetCollectionMetadata:input_type -> gvdb.proto.internal.GetCollectionMetadataRequest
+	26, // 25: gvdb.proto.internal.InternalService.RouteQuery:input_type -> gvdb.proto.internal.RouteQueryRequest
+	28, // 26: gvdb.proto.internal.InternalService.ExecuteShardQuery:input_type -> gvdb.proto.internal.ExecuteShardQueryRequest
+	31, // 27: gvdb.proto.internal.InternalService.TransferData:input_type -> gvdb.proto.internal.TransferDataRequest
+	33, // 28: gvdb.proto.internal.InternalService.Heartbeat:input_type -> gvdb.proto.internal.HeartbeatRequest
+	35, // 29: gvdb.proto.internal.InternalService.GetClusterHealth:input_type -> gvdb.proto.internal.GetClusterHealthRequest
+	37, // 30: gvdb.proto.internal.InternalService.GetLeaderInfo:input_type -> gvdb.proto.internal.GetLeaderInfoRequest
+	41, // 31: gvdb.proto.internal.InternalService.JoinCluster:input_type -> gvdb.proto.internal.JoinClusterRequest
+	43, // 32: gvdb.proto.internal.InternalService.RemovePeer:input_type -> gvdb.proto.internal.RemovePeerRequest
+	45, // 33: gvdb.proto.internal.InternalService.GetRaftMembership:input_type -> gvdb.proto.internal.GetRaftMembershipRequest
+	48, // 34: gvdb.proto.internal.InternalService.TransferLeadership:input_type -> gvdb.proto.internal.TransferLeadershipRequest
+	39, // 35: gvdb.proto.internal.InternalService.GetTimestamp:input_type -> gvdb.proto.internal.GetTimestampRequest
+	5,  // 36: gvdb.proto.internal.InternalService.AssignShard:output_type -> gvdb.proto.internal.AssignShardResponse
+	7,  // 37: gvdb.proto.internal.InternalService.GetShardAssignments:output_type -> gvdb.proto.internal.GetShardAssignmentsResponse
+	9,  // 38: gvdb.proto.internal.InternalService.RebalanceShards:output_type -> gvdb.proto.internal.RebalanceShardsResponse
+	12, // 39: gvdb.proto.internal.InternalService.ReplicateSegment:output_type -> gvdb.proto.internal.ReplicateSegmentResponse
+	14, // 40: gvdb.proto.internal.InternalService.GetSegment:output_type -> gvdb.proto.internal.GetSegmentResponse
+	16, // 41: gvdb.proto.internal.InternalService.ListSegments:output_type -> gvdb.proto.internal.ListSegmentsResponse
+	18, // 42: gvdb.proto.internal.InternalService.DeleteSegment:output_type -> gvdb.proto.internal.DeleteSegmentResponse
+	20, // 43: gvdb.proto.internal.InternalService.CreateSegment:output_type -> gvdb.proto.internal.CreateSegmentResponse
+	23, // 44: gvdb.proto.internal.InternalService.SyncMetadata:output_type -> gvdb.proto.internal.SyncMetadataResponse
+	25, // 45: gvdb.proto.internal.InternalService.GetCollectionMetadata:output_type -> gvdb.proto.internal.GetCollectionMetadataResponse
+	27, // 46: gvdb.proto.internal.InternalService.RouteQuery:output_type -> gvdb.proto.internal.RouteQueryResponse
+	30, // 47: gvdb.proto.internal.InternalService.ExecuteShardQuery:output_type -> gvdb.proto.internal.ExecuteShardQueryResponse
+	32, // 48: gvdb.proto.internal.InternalService.TransferData:output_type -> gvdb.proto.internal.TransferDataResponse
+	34, // 49: gvdb.proto.internal.InternalService.Heartbeat:output_type -> gvdb.proto.internal.HeartbeatResponse
+	36, // 50: gvdb.proto.internal.InternalService.GetClusterHealth:output_type -> gvdb.proto.internal.GetClusterHealthResponse
+	38, // 51: gvdb.proto.internal.InternalService.GetLeaderInfo:output_type -> gvdb.proto.internal.GetLeaderInfoResponse
+	42, // 52: gvdb.proto.internal.InternalService.JoinCluster:output_type -> gvdb.proto.internal.JoinClusterResponse
+	44, // 53: gvdb.proto.internal.InternalService.RemovePeer:output_type -> gvdb.proto.internal.RemovePeerResponse
+	47, // 54: gvdb.proto.internal.InternalService.GetRaftMembership:output_type -> gvdb.proto.internal.GetRaftMembershipResponse
+	49, // 55: gvdb.proto.internal.InternalService.TransferLeadership:output_type -> gvdb.proto.internal.TransferLeadershipResponse
+	40, // 56: gvdb.proto.internal.InternalService.GetTimestamp:output_type -> gvdb.proto.internal.GetTimestampResponse
+	36, // [36:57] is the sub-list for method output_type
+	15, // [15:36] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_internal_proto_init() }
@@ -2917,7 +3457,7 @@ func file_internal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_proto_rawDesc), len(file_internal_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   39,
+			NumMessages:   48,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -386,6 +386,55 @@ message RemovePeerResponse {
 }
 
 // ============================================================================
+// Raft Scale Reconciliation (Operator → Coordinator; roadmap 1.8)
+// ============================================================================
+//
+// 1.7b wires JoinCluster + RemovePeer so the coordinator binary self-joins
+// on startup and self-removes on graceful SIGTERM. When K8s SIGKILLs a pod
+// (OOM, terminationGracePeriod exceeded, manual `kubectl delete --force`),
+// the self-remove never runs and the leader's cluster_config carries a
+// ghost peer. These two RPCs let the operator's reconcile loop observe
+// current Raft membership and orchestrate safe scale-down cleanup:
+//   - GetRaftMembership: any coordinator pod reports the current config.
+//   - TransferLeadership: move leader role off a pod before RemovePeer,
+//     avoiding NuRaft's CANNOT_REMOVE_LEADER rejection.
+
+message GetRaftMembershipRequest {}
+
+message RaftMember {
+  uint32 node_id = 1;
+  // Peer-facing Raft advertise address from NuRaft srv_config.
+  string raft_endpoint = 2;
+  // True during mid-join catch-up; the operator treats learners as not-yet
+  // voting members when picking a leadership successor.
+  bool is_learner = 3;
+}
+
+message GetRaftMembershipResponse {
+  repeated RaftMember members = 1;
+  // Convenience: the responding coordinator's view of the current leader.
+  // Saves the caller an extra GetLeaderInfo round-trip when both pieces
+  // of state are needed together.
+  int32 current_leader_id = 2;
+}
+
+message TransferLeadershipRequest {
+  // Preferred successor. Must be a current cluster member; if not, NuRaft
+  // yields to "any" follower (best effort) rather than failing.
+  uint32 target_node_id = 1;
+}
+
+message TransferLeadershipResponse {
+  // success=true only when the target_node_id is observed as the new
+  // leader within the coordinator's transfer-wait budget (3s default).
+  // Transient failures (no quorum during the transfer window) return
+  // success=false with current_leader_id populated so the operator retries.
+  bool success = 1;
+  string message = 2;
+  int32 current_leader_id = 3;
+}
+
+// ============================================================================
 // InternalService - Node-to-Node Communication
 // ============================================================================
 
@@ -425,6 +474,10 @@ service InternalService {
   // Raft membership changes (Coordinator → Coordinator; roadmap 1.7b)
   rpc JoinCluster(JoinClusterRequest) returns (JoinClusterResponse);
   rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse);
+
+  // Raft scale reconciliation (Operator → Coordinator; roadmap 1.8)
+  rpc GetRaftMembership(GetRaftMembershipRequest) returns (GetRaftMembershipResponse);
+  rpc TransferLeadership(TransferLeadershipRequest) returns (TransferLeadershipResponse);
 
   // Timestamp oracle (All Nodes → Coordinator)
   rpc GetTimestamp(GetTimestampRequest) returns (GetTimestampResponse);

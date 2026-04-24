@@ -158,6 +158,20 @@ class InternalService final : public proto::internal::InternalService::Service {
       proto::internal::RemovePeerResponse* response) override;
 
   // =========================================================================
+  // Raft Scale Reconciliation (Operator → Coordinator; roadmap 1.8)
+  // =========================================================================
+
+  grpc::Status GetRaftMembership(
+      grpc::ServerContext* context,
+      const proto::internal::GetRaftMembershipRequest* request,
+      proto::internal::GetRaftMembershipResponse* response) override;
+
+  grpc::Status TransferLeadership(
+      grpc::ServerContext* context,
+      const proto::internal::TransferLeadershipRequest* request,
+      proto::internal::TransferLeadershipResponse* response) override;
+
+  // =========================================================================
   // Timestamp Oracle (All Nodes → Coordinator)
   // =========================================================================
 

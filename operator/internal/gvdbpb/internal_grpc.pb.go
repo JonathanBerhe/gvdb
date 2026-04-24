@@ -38,6 +38,10 @@ const (
 	InternalService_Heartbeat_FullMethodName             = "/gvdb.proto.internal.InternalService/Heartbeat"
 	InternalService_GetClusterHealth_FullMethodName      = "/gvdb.proto.internal.InternalService/GetClusterHealth"
 	InternalService_GetLeaderInfo_FullMethodName         = "/gvdb.proto.internal.InternalService/GetLeaderInfo"
+	InternalService_JoinCluster_FullMethodName           = "/gvdb.proto.internal.InternalService/JoinCluster"
+	InternalService_RemovePeer_FullMethodName            = "/gvdb.proto.internal.InternalService/RemovePeer"
+	InternalService_GetRaftMembership_FullMethodName     = "/gvdb.proto.internal.InternalService/GetRaftMembership"
+	InternalService_TransferLeadership_FullMethodName    = "/gvdb.proto.internal.InternalService/TransferLeadership"
 	InternalService_GetTimestamp_FullMethodName          = "/gvdb.proto.internal.InternalService/GetTimestamp"
 )
 
@@ -69,6 +73,12 @@ type InternalServiceClient interface {
 	GetClusterHealth(ctx context.Context, in *GetClusterHealthRequest, opts ...grpc.CallOption) (*GetClusterHealthResponse, error)
 	// Leader info (Operator → Coordinator; roadmap 0b.6.D)
 	GetLeaderInfo(ctx context.Context, in *GetLeaderInfoRequest, opts ...grpc.CallOption) (*GetLeaderInfoResponse, error)
+	// Raft membership changes (Coordinator → Coordinator; roadmap 1.7b)
+	JoinCluster(ctx context.Context, in *JoinClusterRequest, opts ...grpc.CallOption) (*JoinClusterResponse, error)
+	RemovePeer(ctx context.Context, in *RemovePeerRequest, opts ...grpc.CallOption) (*RemovePeerResponse, error)
+	// Raft scale reconciliation (Operator → Coordinator; roadmap 1.8)
+	GetRaftMembership(ctx context.Context, in *GetRaftMembershipRequest, opts ...grpc.CallOption) (*GetRaftMembershipResponse, error)
+	TransferLeadership(ctx context.Context, in *TransferLeadershipRequest, opts ...grpc.CallOption) (*TransferLeadershipResponse, error)
 	// Timestamp oracle (All Nodes → Coordinator)
 	GetTimestamp(ctx context.Context, in *GetTimestampRequest, opts ...grpc.CallOption) (*GetTimestampResponse, error)
 }
@@ -241,6 +251,46 @@ func (c *internalServiceClient) GetLeaderInfo(ctx context.Context, in *GetLeader
 	return out, nil
 }
 
+func (c *internalServiceClient) JoinCluster(ctx context.Context, in *JoinClusterRequest, opts ...grpc.CallOption) (*JoinClusterResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(JoinClusterResponse)
+	err := c.cc.Invoke(ctx, InternalService_JoinCluster_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *internalServiceClient) RemovePeer(ctx context.Context, in *RemovePeerRequest, opts ...grpc.CallOption) (*RemovePeerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemovePeerResponse)
+	err := c.cc.Invoke(ctx, InternalService_RemovePeer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *internalServiceClient) GetRaftMembership(ctx context.Context, in *GetRaftMembershipRequest, opts ...grpc.CallOption) (*GetRaftMembershipResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRaftMembershipResponse)
+	err := c.cc.Invoke(ctx, InternalService_GetRaftMembership_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *internalServiceClient) TransferLeadership(ctx context.Context, in *TransferLeadershipRequest, opts ...grpc.CallOption) (*TransferLeadershipResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TransferLeadershipResponse)
+	err := c.cc.Invoke(ctx, InternalService_TransferLeadership_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *internalServiceClient) GetTimestamp(ctx context.Context, in *GetTimestampRequest, opts ...grpc.CallOption) (*GetTimestampResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetTimestampResponse)
@@ -279,6 +329,12 @@ type InternalServiceServer interface {
 	GetClusterHealth(context.Context, *GetClusterHealthRequest) (*GetClusterHealthResponse, error)
 	// Leader info (Operator → Coordinator; roadmap 0b.6.D)
 	GetLeaderInfo(context.Context, *GetLeaderInfoRequest) (*GetLeaderInfoResponse, error)
+	// Raft membership changes (Coordinator → Coordinator; roadmap 1.7b)
+	JoinCluster(context.Context, *JoinClusterRequest) (*JoinClusterResponse, error)
+	RemovePeer(context.Context, *RemovePeerRequest) (*RemovePeerResponse, error)
+	// Raft scale reconciliation (Operator → Coordinator; roadmap 1.8)
+	GetRaftMembership(context.Context, *GetRaftMembershipRequest) (*GetRaftMembershipResponse, error)
+	TransferLeadership(context.Context, *TransferLeadershipRequest) (*TransferLeadershipResponse, error)
 	// Timestamp oracle (All Nodes → Coordinator)
 	GetTimestamp(context.Context, *GetTimestampRequest) (*GetTimestampResponse, error)
 	mustEmbedUnimplementedInternalServiceServer()
@@ -338,6 +394,18 @@ func (UnimplementedInternalServiceServer) GetClusterHealth(context.Context, *Get
 }
 func (UnimplementedInternalServiceServer) GetLeaderInfo(context.Context, *GetLeaderInfoRequest) (*GetLeaderInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetLeaderInfo not implemented")
+}
+func (UnimplementedInternalServiceServer) JoinCluster(context.Context, *JoinClusterRequest) (*JoinClusterResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method JoinCluster not implemented")
+}
+func (UnimplementedInternalServiceServer) RemovePeer(context.Context, *RemovePeerRequest) (*RemovePeerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemovePeer not implemented")
+}
+func (UnimplementedInternalServiceServer) GetRaftMembership(context.Context, *GetRaftMembershipRequest) (*GetRaftMembershipResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetRaftMembership not implemented")
+}
+func (UnimplementedInternalServiceServer) TransferLeadership(context.Context, *TransferLeadershipRequest) (*TransferLeadershipResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TransferLeadership not implemented")
 }
 func (UnimplementedInternalServiceServer) GetTimestamp(context.Context, *GetTimestampRequest) (*GetTimestampResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetTimestamp not implemented")
@@ -651,6 +719,78 @@ func _InternalService_GetLeaderInfo_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InternalService_JoinCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JoinClusterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).JoinCluster(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_JoinCluster_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).JoinCluster(ctx, req.(*JoinClusterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InternalService_RemovePeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemovePeerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).RemovePeer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_RemovePeer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).RemovePeer(ctx, req.(*RemovePeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InternalService_GetRaftMembership_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRaftMembershipRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).GetRaftMembership(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_GetRaftMembership_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).GetRaftMembership(ctx, req.(*GetRaftMembershipRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InternalService_TransferLeadership_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TransferLeadershipRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).TransferLeadership(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_TransferLeadership_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).TransferLeadership(ctx, req.(*TransferLeadershipRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _InternalService_GetTimestamp_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetTimestampRequest)
 	if err := dec(in); err != nil {
@@ -739,6 +879,22 @@ var InternalService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetLeaderInfo",
 			Handler:    _InternalService_GetLeaderInfo_Handler,
+		},
+		{
+			MethodName: "JoinCluster",
+			Handler:    _InternalService_JoinCluster_Handler,
+		},
+		{
+			MethodName: "RemovePeer",
+			Handler:    _InternalService_RemovePeer_Handler,
+		},
+		{
+			MethodName: "GetRaftMembership",
+			Handler:    _InternalService_GetRaftMembership_Handler,
+		},
+		{
+			MethodName: "TransferLeadership",
+			Handler:    _InternalService_TransferLeadership_Handler,
 		},
 		{
 			MethodName: "GetTimestamp",
