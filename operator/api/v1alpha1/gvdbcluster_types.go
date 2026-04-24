@@ -457,6 +457,14 @@ const (
 	// ghost peer left by a SIGKILLed pod, or transferring leadership off a
 	// pod being scaled away before calling RemovePeer. Roadmap 1.8.
 	ConditionCoordinatorScaleReady = "CoordinatorScaleReady"
+	// ConditionDataNodeScaleReady: true when the data-node StatefulSet's
+	// spec.replicas matches spec.dataNode.replicas and every shard has a
+	// ready replica on a surviving ordinal. False while the operator is
+	// holding back a scale-down because a shrink would orphan a shard
+	// (pending rebalance) or has detected a permanent RF=1 pin to a pod
+	// being scaled away. The scale reconciler is the sole writer of
+	// spec.replicas on the data-node StatefulSet. Roadmap 1.8.c.
+	ConditionDataNodeScaleReady = "DataNodeScaleReady"
 )
 
 // WorkloadStatus reports desired vs ready replicas for one workload.
