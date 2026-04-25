@@ -346,7 +346,7 @@ grpc::Status ProxyService::Get(
   // (transient drain-window failure), try the next routable replica before
   // surfacing UNAVAILABLE to the caller.
   proto::GetRequest internal_req = *request;
-  return network::RouteAndCallWithFallback(
+  return network::RouteReadAndCallWithFallback(
       GetCoordinatorInternalClient(), request->collection_name(), "get",
       std::chrono::milliseconds(5000),
       [this](const std::string& addr) { return GetOrCreateDataClient(addr); },
@@ -412,7 +412,7 @@ grpc::Status ProxyService::ListVectors(
 
   // Read with replica fallback (see ProxyService::Get for rationale).
   proto::ListVectorsRequest internal_req = *request;
-  return network::RouteAndCallWithFallback(
+  return network::RouteReadAndCallWithFallback(
       GetCoordinatorInternalClient(), request->collection_name(), "list_vectors",
       std::chrono::milliseconds(5000),
       [this](const std::string& addr) { return GetOrCreateDataClient(addr); },
@@ -429,7 +429,7 @@ grpc::Status ProxyService::HybridSearch(
 
   // Read with replica fallback (see ProxyService::Get for rationale).
   proto::HybridSearchRequest internal_req = *request;
-  return network::RouteAndCallWithFallback(
+  return network::RouteReadAndCallWithFallback(
       GetCoordinatorInternalClient(), request->collection_name(), "hybrid_search",
       std::chrono::milliseconds(5000),
       [this](const std::string& addr) { return GetOrCreateDataClient(addr); },

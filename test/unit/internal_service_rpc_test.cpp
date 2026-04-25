@@ -731,6 +731,69 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
   CHECK(resp.target_node_ids(0) == 2u);
 }
 
+// Pathological case: prefer_routable_replica=true, primary is draining,
+// AND every replica is non-routable (heartbeat lost, never re-registered
+// in the node_registry). The contract is "always emit something so the
+// caller sees a deterministic failure, never an empty options list" —
+// the primary stays as a last-resort fallback even though it's draining.
+// The caller will dial it, see UNAVAILABLE, and surface that to the user.
+TEST_CASE_FIXTURE(InternalServiceRpcTest,
+                  "RouteQuery_OptionsListPrimaryLastResortWhenAllReplicasDown") {
+  // Step 1: register both nodes READY so CreateCollection succeeds.
+  proto::internal::NodeInfo primary;
+  primary.set_node_id(1);
+  primary.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  primary.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  primary.set_grpc_address("localhost:80081");
+  node_registry_->UpdateNode(primary);
+
+  proto::internal::NodeInfo replica;
+  replica.set_node_id(2);
+  replica.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  replica.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  replica.set_grpc_address("localhost:80082");
+  node_registry_->UpdateNode(replica);
+
+  (void)shard_manager_->RegisterNode(core::MakeNodeId(1));
+  (void)shard_manager_->RegisterNode(core::MakeNodeId(2));
+
+  auto coll = coordinator_->CreateCollection(
+      "all_replicas_down_test", 8, core::MetricType::L2,
+      core::IndexType::FLAT, 1);
+  REQUIRE(coll.ok());
+  auto metadata = coordinator_->GetCollectionMetadata("all_replicas_down_test");
+  REQUIRE(metadata.ok());
+  for (const auto& sid : metadata->shard_ids) {
+    (void)shard_manager_->SetPrimaryNode(sid, core::MakeNodeId(1));
+    (void)shard_manager_->AddReplica(sid, core::MakeNodeId(2));
+  }
+
+  // Step 2: replica goes DRAINING (i.e. not routable). Primary also
+  // goes DRAINING simultaneously — the pathological "everything is
+  // draining" state.
+  primary.set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
+  node_registry_->UpdateNode(primary);
+  replica.set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
+  node_registry_->UpdateNode(replica);
+
+  grpc::ServerContext ctx;
+  proto::internal::RouteQueryRequest req;
+  req.set_collection_name("all_replicas_down_test");
+  req.set_prefer_routable_replica(true);
+  proto::internal::RouteQueryResponse resp;
+  REQUIRE(service_->RouteQuery(&ctx, &req, &resp).ok());
+
+  REQUIRE(resp.per_shard_options_size() > 0);
+  const auto& opts = resp.per_shard_options(0).options();
+  // No routable replica found — primary kept as last-resort fallback so
+  // the options list is non-empty and the caller sees a deterministic
+  // (non-empty) routing decision.
+  REQUIRE(opts.size() == 1);
+  CHECK(opts[0].is_primary());
+  CHECK(opts[0].node_id() == 1u);
+  CHECK(opts[0].node_address() == "localhost:80081");
+}
+
 // Writes must always go to the primary; the options list must contain
 // only the primary even when replicas exist. Replica fallback would
 // silently violate write ordering.

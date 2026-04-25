@@ -290,10 +290,16 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest,
       data_vectordb_service_->Search(&context, &request, &response);
 
   // SearchDistributed must NOT silently drop a shard whose RPC failed.
-  // The exact gRPC error code depends on which layer reports the
-  // connection failure first (UNAVAILABLE for transport-level, UNKNOWN
-  // when channel-creation surfaces it generically); the contract we
-  // care about is that the failure is REPORTED, not which integer code.
+  //
+  // The exact gRPC error code is intentionally not pinned: which layer
+  // reports the dial-failure first depends on the gRPC build (we have
+  // observed both UNAVAILABLE — transport-level "connection refused" —
+  // and UNKNOWN — channel-creation surfaces the failure as a generic
+  // status). Pinning a code here would couple the test to gRPC's
+  // internal error reporting and break across vendored gRPC bumps.
+  // The CONTRACT under test is "an unreachable shard surfaces a
+  // visible non-OK with the shard id named", not which integer code
+  // gRPC chooses to report it under.
   CHECK_FALSE(status.ok());
   // Failure message names the shard so the caller can surface it.
   CHECK(status.error_message().find("shards [0]") != std::string::npos);
