@@ -10,6 +10,7 @@
 #include "utils/metrics.h"
 #include "internal.grpc.pb.h"
 #include <grpcpp/grpcpp.h>
+#include <map>
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
@@ -316,11 +317,25 @@ class CachedCoordinatorResolver : public ICollectionResolver {
     grpc::ClientContext context;
     proto::internal::RouteQueryRequest request;
     request.set_collection_name(collection_name);
+    // GetShardTargets is only invoked from read-paths today
+    // (SearchDistributed, RangeSearchDistributed), so it's safe to opt
+    // into routable-replica fallback unconditionally — the coordinator
+    // returns a richer per_shard_options list when this is set.
+    request.set_prefer_routable_replica(true);
     proto::internal::RouteQueryResponse response;
 
     auto status = stub_->RouteQuery(&context, request, &response);
     if (!status.ok()) {
       return fromGrpcStatus(status);
+    }
+
+    // Index per_shard_options by shard_id so we can pair with the legacy
+    // parallel arrays without assuming the coordinator emits them in the
+    // same order — proto repeated semantics don't guarantee a fixed order
+    // across coordinator releases.
+    std::map<uint32_t, const proto::internal::RouteQueryShardOptions*> by_shard;
+    for (const auto& shard_opts : response.per_shard_options()) {
+      by_shard[shard_opts.shard_id()] = &shard_opts;
     }
 
     std::vector<ShardTarget> targets;
@@ -332,6 +347,25 @@ class CachedCoordinatorResolver : public ICollectionResolver {
       t.collection_id = response.collection_id();
       t.node_address = i < response.target_node_addresses_size()
                            ? response.target_node_addresses(i) : "";
+
+      // Populate the fallback options list. If the coordinator predates
+      // the per_shard_options field (back-compat) the targets vector
+      // still holds the legacy primary-only entry — synthesize an
+      // options[0] from it so downstream callers always have a list to
+      // iterate.
+      auto it = by_shard.find(t.shard_id);
+      if (it != by_shard.end()) {
+        const auto& opts = *it->second;
+        t.options.reserve(opts.options_size());
+        for (const auto& o : opts.options()) {
+          t.options.push_back(ShardNodeOption{
+              o.node_id(), o.node_address(), o.is_primary()});
+        }
+      } else if (!t.node_address.empty()) {
+        t.options.push_back(ShardNodeOption{
+            i < response.target_node_ids_size() ? response.target_node_ids(i) : 0,
+            t.node_address, true});
+      }
       targets.push_back(std::move(t));
     }
     return targets;

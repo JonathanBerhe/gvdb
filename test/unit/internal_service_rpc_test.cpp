@@ -623,6 +623,154 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
   }
 }
 
+// When reads opt into replica fallback and the primary is healthy, the
+// per-shard options list must lead with the primary and append every
+// routable replica so the caller has fallback targets to walk on a
+// transient first-attempt failure.
+TEST_CASE_FIXTURE(InternalServiceRpcTest,
+                  "RouteQuery_OptionsListIncludesPrimaryAndRoutableReplicas") {
+  // Register primary (1) + two replicas (2, 3), all READY.
+  for (uint32_t id = 1; id <= 3; ++id) {
+    proto::internal::NodeInfo info;
+    info.set_node_id(id);
+    info.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    info.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+    info.set_grpc_address("localhost:5005" + std::to_string(id));
+    node_registry_->UpdateNode(info);
+    (void)shard_manager_->RegisterNode(core::MakeNodeId(id));
+  }
+
+  auto coll = coordinator_->CreateCollection(
+      "options_test", 8, core::MetricType::L2, core::IndexType::FLAT, 1);
+  REQUIRE(coll.ok());
+  auto metadata = coordinator_->GetCollectionMetadata("options_test");
+  REQUIRE(metadata.ok());
+  for (const auto& sid : metadata->shard_ids) {
+    (void)shard_manager_->SetPrimaryNode(sid, core::MakeNodeId(1));
+    (void)shard_manager_->AddReplica(sid, core::MakeNodeId(2));
+    (void)shard_manager_->AddReplica(sid, core::MakeNodeId(3));
+  }
+
+  grpc::ServerContext ctx;
+  proto::internal::RouteQueryRequest req;
+  req.set_collection_name("options_test");
+  req.set_prefer_routable_replica(true);
+  proto::internal::RouteQueryResponse resp;
+  REQUIRE(service_->RouteQuery(&ctx, &req, &resp).ok());
+
+  REQUIRE(resp.per_shard_options_size() > 0);
+  const auto& opts = resp.per_shard_options(0).options();
+  REQUIRE(opts.size() == 3);
+  // Primary is options[0]; replicas follow in assignment order.
+  CHECK(opts[0].is_primary());
+  CHECK(opts[0].node_id() == 1u);
+  CHECK_FALSE(opts[1].is_primary());
+  CHECK(opts[1].node_id() == 2u);
+  CHECK_FALSE(opts[2].is_primary());
+  CHECK(opts[2].node_id() == 3u);
+  // Legacy parallel arrays mirror options[0].
+  REQUIRE(resp.target_node_ids_size() > 0);
+  CHECK(resp.target_node_ids(0) == opts[0].node_id());
+  CHECK(resp.target_node_addresses(0) == opts[0].node_address());
+}
+
+// When the primary is draining and the caller opts into replica fallback,
+// options[0] must be a routable replica and the draining primary must be
+// the *last* fallback (not absent — see RouteQuery_FallsBackToPrimary…).
+TEST_CASE_FIXTURE(InternalServiceRpcTest,
+                  "RouteQuery_OptionsListPlacesDrainingPrimaryLast") {
+  for (uint32_t id = 1; id <= 3; ++id) {
+    proto::internal::NodeInfo info;
+    info.set_node_id(id);
+    info.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    info.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+    info.set_grpc_address("localhost:6006" + std::to_string(id));
+    node_registry_->UpdateNode(info);
+    (void)shard_manager_->RegisterNode(core::MakeNodeId(id));
+  }
+
+  auto coll = coordinator_->CreateCollection(
+      "drain_options_test", 8, core::MetricType::L2,
+      core::IndexType::FLAT, 1);
+  REQUIRE(coll.ok());
+  auto metadata = coordinator_->GetCollectionMetadata("drain_options_test");
+  REQUIRE(metadata.ok());
+  for (const auto& sid : metadata->shard_ids) {
+    (void)shard_manager_->SetPrimaryNode(sid, core::MakeNodeId(1));
+    (void)shard_manager_->AddReplica(sid, core::MakeNodeId(2));
+    (void)shard_manager_->AddReplica(sid, core::MakeNodeId(3));
+  }
+
+  // Primary 1 transitions to DRAINING.
+  proto::internal::NodeInfo drain_info;
+  drain_info.set_node_id(1);
+  drain_info.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  drain_info.set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
+  drain_info.set_grpc_address("localhost:60061");
+  node_registry_->UpdateNode(drain_info);
+
+  grpc::ServerContext ctx;
+  proto::internal::RouteQueryRequest req;
+  req.set_collection_name("drain_options_test");
+  req.set_prefer_routable_replica(true);
+  proto::internal::RouteQueryResponse resp;
+  REQUIRE(service_->RouteQuery(&ctx, &req, &resp).ok());
+
+  REQUIRE(resp.per_shard_options_size() > 0);
+  const auto& opts = resp.per_shard_options(0).options();
+  REQUIRE(opts.size() == 3);
+  // Routable replicas first, primary last.
+  CHECK_FALSE(opts[0].is_primary());
+  CHECK_FALSE(opts[1].is_primary());
+  CHECK(opts[2].is_primary());
+  CHECK(opts[2].node_id() == 1u);
+  // Routable replicas chosen in assignment order.
+  CHECK(opts[0].node_id() == 2u);
+  CHECK(opts[1].node_id() == 3u);
+  // Legacy parallel arrays mirror options[0] (the chosen replica).
+  CHECK(resp.target_node_ids(0) == 2u);
+}
+
+// Writes must always go to the primary; the options list must contain
+// only the primary even when replicas exist. Replica fallback would
+// silently violate write ordering.
+TEST_CASE_FIXTURE(InternalServiceRpcTest,
+                  "RouteQuery_OptionsListWritesPrimaryOnly") {
+  for (uint32_t id = 1; id <= 2; ++id) {
+    proto::internal::NodeInfo info;
+    info.set_node_id(id);
+    info.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    info.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+    info.set_grpc_address("localhost:7007" + std::to_string(id));
+    node_registry_->UpdateNode(info);
+    (void)shard_manager_->RegisterNode(core::MakeNodeId(id));
+  }
+
+  auto coll = coordinator_->CreateCollection(
+      "write_options_test", 8, core::MetricType::L2,
+      core::IndexType::FLAT, 1);
+  REQUIRE(coll.ok());
+  auto metadata = coordinator_->GetCollectionMetadata("write_options_test");
+  REQUIRE(metadata.ok());
+  for (const auto& sid : metadata->shard_ids) {
+    (void)shard_manager_->SetPrimaryNode(sid, core::MakeNodeId(1));
+    (void)shard_manager_->AddReplica(sid, core::MakeNodeId(2));
+  }
+
+  grpc::ServerContext ctx;
+  proto::internal::RouteQueryRequest req;
+  req.set_collection_name("write_options_test");
+  // prefer_routable_replica left default (false) — write semantics.
+  proto::internal::RouteQueryResponse resp;
+  REQUIRE(service_->RouteQuery(&ctx, &req, &resp).ok());
+
+  REQUIRE(resp.per_shard_options_size() > 0);
+  const auto& opts = resp.per_shard_options(0).options();
+  REQUIRE(opts.size() == 1);
+  CHECK(opts[0].is_primary());
+  CHECK(opts[0].node_id() == 1u);
+}
+
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "ExecuteShardQuery_NonexistentSegment") {
   grpc::ServerContext ctx;
   proto::internal::ExecuteShardQueryRequest request;

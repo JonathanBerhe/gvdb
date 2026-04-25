@@ -146,6 +146,28 @@ MetricsRegistry::MetricsRegistry()
                                   .Help("Auto-rebalance workers that returned "
                                         "a non-OK status")
                                   .Register(*registry_);
+
+  // Read replica-fallback observability. Counters labelled by the logical
+  // operation ("get", "hybrid_search", "search", "range_search") so each
+  // path can be tracked independently; reasons distinguish whether the
+  // primary or a replica was the failed first option.
+  read_replica_fallback_total_ =
+      &prometheus::BuildCounter()
+           .Name("gvdb_read_replica_fallback_total")
+           .Help("Read RPCs whose first candidate node failed and that "
+                 "succeeded after falling back to a replica")
+           .Register(*registry_);
+  read_exhausted_replicas_total_ =
+      &prometheus::BuildCounter()
+           .Name("gvdb_read_exhausted_replicas_total")
+           .Help("Read RPCs that exhausted every routable candidate and "
+                 "surfaced UNAVAILABLE to the caller")
+           .Register(*registry_);
+  read_attempts_ = &prometheus::BuildHistogram()
+                        .Name("gvdb_read_attempts")
+                        .Help("Number of candidate nodes a single read "
+                              "tried before succeeding or exhausting")
+                        .Register(*registry_);
 }
 
 MetricsRegistry::~MetricsRegistry() {
@@ -321,6 +343,32 @@ void MetricsRegistry::AddAutoRebalanceMovesCompleted(uint64_t moves) {
 
 void MetricsRegistry::IncAutoRebalanceFailures() {
   auto_rebalance_failures_->Add({}).Increment();
+}
+
+// ============================================================================
+// Read Replica Fallback Metrics
+// ============================================================================
+
+void MetricsRegistry::IncReadReplicaFallback(const std::string& operation,
+                                              const std::string& reason) {
+  read_replica_fallback_total_
+      ->Add({{"operation", operation}, {"reason", reason}})
+      .Increment();
+}
+
+void MetricsRegistry::IncReadExhaustedReplicas(const std::string& operation) {
+  read_exhausted_replicas_total_->Add({{"operation", operation}}).Increment();
+}
+
+void MetricsRegistry::RecordReadAttempts(const std::string& operation,
+                                          uint32_t attempts) {
+  // Bucket layout sized for typical RF=2-5 clusters: most reads succeed
+  // on attempt 1; tail of 2-3 covers fallback to a single replica;
+  // ≥4 indicates a fanout cluster or infrastructure trouble.
+  static const auto buckets =
+      prometheus::Histogram::BucketBoundaries{1, 2, 3, 4, 5, 10};
+  read_attempts_->Add({{"operation", operation}}, buckets)
+      .Observe(static_cast<double>(attempts));
 }
 
 // ============================================================================

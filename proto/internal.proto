@@ -222,11 +222,38 @@ message RouteQueryRequest {
   bool prefer_routable_replica = 6;
 }
 
+// One candidate target for a shard. Carries enough info for the caller to
+// dial the node and decide whether it has fallen back from the primary.
+message RouteQueryNodeOption {
+  uint32 node_id = 1;
+  string node_address = 2;
+  // True iff this option is the shard's primary in the current
+  // assignment. Distinguishes "first-attempt was primary" from
+  // "first-attempt was already a replica because primary was draining".
+  bool is_primary = 3;
+}
+
+// Per-shard prioritized list of candidate target nodes. The first entry
+// matches the legacy target_node_id / target_node_address parallel arrays
+// in RouteQueryResponse; subsequent entries are routable replicas the
+// caller can fall back to on UNAVAILABLE / DEADLINE_EXCEEDED before
+// surfacing an error to the user.
+message RouteQueryShardOptions {
+  uint32 shard_id = 1;
+  repeated RouteQueryNodeOption options = 2;
+}
+
 message RouteQueryResponse {
   repeated uint32 target_shard_ids = 1;
   repeated uint32 target_node_ids = 2;
   repeated string target_node_addresses = 3;
   uint32 collection_id = 4;
+  // Per-shard fallback list, parallel to target_shard_ids by shard_id.
+  // options[0] mirrors the entry in target_node_ids/target_node_addresses;
+  // options[1..N] are routable replicas to try after a transient failure.
+  // Optional for back-compat: pre-1.x clients ignore this field and keep
+  // working with the single-target parallel arrays.
+  repeated RouteQueryShardOptions per_shard_options = 5;
 }
 
 message ExecuteShardQueryRequest {
