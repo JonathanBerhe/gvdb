@@ -52,11 +52,11 @@ const (
 // ReasonStable with the rollout conditions (defined in rollout.go) to
 // keep reason strings consistent across the operator's status surface.
 const (
-	ReasonRemovingGhostPeer         = "RemovingGhostPeer"
-	ReasonTransferringLeadership    = "TransferringLeadership"
-	ReasonWaitingForScaleSuccessor  = "WaitingForSuccessor"
-	ReasonWaitingForMembership      = "WaitingForMembership"
-	ReasonScaleWaitingForRollout    = "WaitingForCoordinatorRollout"
+	ReasonRemovingGhostPeer        = "RemovingGhostPeer"
+	ReasonTransferringLeadership   = "TransferringLeadership"
+	ReasonWaitingForScaleSuccessor = "WaitingForSuccessor"
+	ReasonWaitingForMembership     = "WaitingForMembership"
+	ReasonScaleWaitingForRollout   = "WaitingForCoordinatorRollout"
 )
 
 // CoordinatorScaleStep is the single next action the reconciler should
