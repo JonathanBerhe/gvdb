@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.28.0](https://github.com/JonathanBerhe/gvdb/compare/v0.27.0...v0.28.0) (2026-04-25)
+
+
+### Features
+
+* **operator:** data-node scale reconciler with pre-drain safety (1.8.c) ([4e22980](https://github.com/JonathanBerhe/gvdb/commit/4e22980db6d0686fac2c7312df373c6367dbd776))
+* **operator:** data-node scale reconciler with pre-drain safety (1.8.c) ([3becfab](https://github.com/JonathanBerhe/gvdb/commit/3becfab61fa145050468ac43a6426036f90c0a0d))
+
+
+### Bug Fixes
+
+* **operator:** PR-93 review fixes — event reason, SSA ownership, state-machine ordering ([0cafd39](https://github.com/JonathanBerhe/gvdb/commit/0cafd39100e2dd3ce11323976d2ac3067ccf0765))
+
 ## [0.27.0](https://github.com/JonathanBerhe/gvdb/compare/v0.26.1...v0.27.0) (2026-04-24)
 
 
