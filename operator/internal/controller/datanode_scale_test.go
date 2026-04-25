@@ -333,6 +333,28 @@ func TestDataNodeScale_VictimIsPrimaryWithHealthyReplica(t *testing.T) {
 	}
 }
 
+func TestDataNodeScale_PostBootstrapScaleUpBypassesConvergence(t *testing.T) {
+	// Regression for #2 in PR-93 review: after the main render creates
+	// the data-node STS without Replicas (K8s defaults to 1), the scale
+	// reconciler must immediately jump to the target — NOT block in
+	// WaitingForConvergence because pod-0 hasn't become Ready yet. The
+	// fix ordering puts the scale-up branch BEFORE the convergence guard.
+	step := desiredDataNodeScaleStep(
+		3, // specReplicas (target)
+		1, // currentSpecReplicas (K8s default after main render created STS)
+		0, // observedReadyReplicas (pod 0 is still ContainerCreating)
+		nil,
+		gvdbclient.ClusterHealth{}, // coordinator unreachable on first reconcile
+		true,
+	)
+	if step.Action != DataNodeScaleGrowing {
+		t.Fatalf("expected Growing (scale-up bypasses convergence), got %+v", step)
+	}
+	if step.EffectiveReplicas != 3 {
+		t.Fatalf("expected EffectiveReplicas=3, got %d", step.EffectiveReplicas)
+	}
+}
+
 func TestDataNodeScale_RF1OnNonVictimShardDoesNotBlock(t *testing.T) {
 	// Defensive: a separate shard has RF=1 pinned to a surviving ordinal
 	// (0). Victim is ordinal 4. Scale must still proceed — the RF=1
