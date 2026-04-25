@@ -158,6 +158,29 @@ set_tests_properties(ProxyIntegrationTests PROPERTIES
   LABELS "integration"
 )
 
+# Drain-era replica fallback wire-level integration tests
+add_executable(drain_read_fallback_tests
+  drain_read_fallback_test.cpp
+)
+
+target_link_libraries(drain_read_fallback_tests
+  PRIVATE
+    gvdb_network
+    gvdb_core
+    gvdb_utils
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    doctest::doctest_with_main
+)
+
+add_test(NAME DrainReadFallbackTests COMMAND drain_read_fallback_tests)
+
+set_tests_properties(DrainReadFallbackTests PROPERTIES
+  TIMEOUT 60
+  LABELS "integration"
+)
+
 # S3/MinIO integration tests (uses InMemoryObjectStore mock)
 add_executable(s3_integration_tests
   s3_integration_test.cpp
