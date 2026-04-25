@@ -259,14 +259,22 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCache
   CHECK_GT(response2.results_size(), 0);
 }
 
-// Test: Segment not found on coordinator
-TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "SearchEmptyCollectionReturnsNoResults") {
-  // Create collection (segment is created on data node by coordinator)
+// Test: Search against a registered backend that isn't actually listening.
+//
+// The fixture registers data-node 1 at "localhost:50051" but no server is
+// bound there — only the coordinator's InternalService runs (on a dynamic
+// port). SearchDistributed routes the query to the registered backend,
+// can't dial it, walks any replicas (none in this fixture), and surfaces
+// UNAVAILABLE listing the failed shard. Pre-replica-fallback the failure
+// was silently swallowed and SearchDistributed returned OK with 0 results
+// — a partial-data hazard masquerading as success. The new contract:
+// any unreachable shard is a hard error so callers can act on it.
+TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest,
+                  "SearchUnreachableBackendSurfacesUnavailable") {
   auto collection_id = coordinator_->CreateCollection(
       "empty_collection", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
   REQUIRE(collection_id.ok());
 
-  // Search empty collection — should succeed with 0 results
   proto::SearchRequest request;
   request.set_collection_name("empty_collection");
   request.set_top_k(5);
@@ -278,11 +286,23 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "SearchEmptyCollectionRetur
 
   grpc::ServerContext context;
   proto::SearchResponse response;
-  grpc::Status status = data_vectordb_service_->Search(&context, &request, &response);
+  grpc::Status status =
+      data_vectordb_service_->Search(&context, &request, &response);
 
-  INFO(status.error_message());
-  CHECK(status.ok());
-  CHECK_EQ(response.results_size(), 0);
+  // SearchDistributed must NOT silently drop a shard whose RPC failed.
+  //
+  // The exact gRPC error code is intentionally not pinned: which layer
+  // reports the dial-failure first depends on the gRPC build (we have
+  // observed both UNAVAILABLE — transport-level "connection refused" —
+  // and UNKNOWN — channel-creation surfaces the failure as a generic
+  // status). Pinning a code here would couple the test to gRPC's
+  // internal error reporting and break across vendored gRPC bumps.
+  // The CONTRACT under test is "an unreachable shard surfaces a
+  // visible non-OK with the shard id named", not which integer code
+  // gRPC chooses to report it under.
+  CHECK_FALSE(status.ok());
+  // Failure message names the shard so the caller can surface it.
+  CHECK(status.error_message().find("shards [0]") != std::string::npos);
 }
 
 // ============================================================================

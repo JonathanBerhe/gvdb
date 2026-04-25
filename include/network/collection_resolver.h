@@ -17,11 +17,29 @@ namespace storage { class ISegmentStore; }
 namespace cluster { class Coordinator; }
 namespace network {
 
-// Target for a distributed shard query
+// One candidate node for a shard query. Intentionally mirrors the proto
+// RouteQueryNodeOption shape: the resolver projects the proto layer up
+// so consumers (proxy, query-node SearchDistributed) can iterate
+// fallbacks without taking a transitive dependency on internal.pb.h.
+// Keep the fields in lockstep with proto::internal::RouteQueryNodeOption;
+// any new field added there should be added here as well, and
+// CachedCoordinatorResolver::GetShardTargets updated to populate it.
+struct ShardNodeOption {
+  uint32_t node_id;
+  std::string node_address;
+  bool is_primary;
+};
+
+// Target for a distributed shard query. The legacy single-target view
+// (node_address) is preserved for callers that don't need fallback;
+// new callers iterate `options` to walk routable replicas when the
+// first attempt fails with a transient error. options[0].node_address
+// always equals node_address.
 struct ShardTarget {
   uint32_t shard_id;
   uint32_t collection_id;
   std::string node_address;
+  std::vector<ShardNodeOption> options;
 };
 
 // Information about a collection (used in ListCollections responses)

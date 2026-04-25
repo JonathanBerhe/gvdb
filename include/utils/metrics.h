@@ -165,6 +165,44 @@ class MetricsRegistry {
    */
   void IncAutoRebalanceFailures();
 
+  // ============================================================================
+  // Read Replica Fallback Metrics
+  // ============================================================================
+  //
+  // Surface the proxy / query-node read-path's behaviour when the original
+  // shard target is unreachable: how often a read fell back to a replica,
+  // how many attempts each read needed, and how often we exhausted the
+  // entire candidate list (meaning the user saw a hard UNAVAILABLE).
+
+  /**
+   * @brief Increment the counter for reads that failed on the first
+   *        candidate node and succeeded on a later candidate.
+   * @param operation Logical operation name (e.g. "get", "hybrid_search",
+   *                  "search", "range_search").
+   * @param reason Why the first attempt failed: "primary_unreachable" if
+   *               the primary was the first option, "replica_unreachable"
+   *               if a replica was already serving (e.g. drain era) and
+   *               itself failed.
+   */
+  void IncReadReplicaFallback(const std::string& operation,
+                              const std::string& reason);
+
+  /**
+   * @brief Increment the counter for reads where every candidate node
+   *        failed, leaving the user with an UNAVAILABLE response.
+   * @param operation Logical operation name.
+   */
+  void IncReadExhaustedReplicas(const std::string& operation);
+
+  /**
+   * @brief Observe the number of attempts a single read consumed before
+   *        succeeding or exhausting its candidate list. 1 = succeeded
+   *        on first try; ≥2 = needed at least one fallback.
+   * @param operation Logical operation name.
+   * @param attempts Total number of attempts made.
+   */
+  void RecordReadAttempts(const std::string& operation, uint32_t attempts);
+
  private:
   MetricsRegistry();
   ~MetricsRegistry();
@@ -201,6 +239,13 @@ class MetricsRegistry {
   prometheus::Family<prometheus::Counter>* auto_rebalance_debounced_;
   prometheus::Family<prometheus::Counter>* auto_rebalance_moves_completed_;
   prometheus::Family<prometheus::Counter>* auto_rebalance_failures_;
+
+  // Read replica-fallback observability — how often the proxy / query-node
+  // had to skip past an unreachable target, and how often the entire
+  // candidate list was exhausted.
+  prometheus::Family<prometheus::Counter>* read_replica_fallback_total_;
+  prometheus::Family<prometheus::Counter>* read_exhausted_replicas_total_;
+  prometheus::Family<prometheus::Histogram>* read_attempts_;
 };
 
 /**

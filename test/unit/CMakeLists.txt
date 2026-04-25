@@ -389,6 +389,21 @@ target_link_libraries(dns_channel_args_tests
 add_test(NAME DnsChannelArgsTests COMMAND dns_channel_args_tests)
 set_tests_properties(DnsChannelArgsTests PROPERTIES TIMEOUT 30)
 
+# Replica-fallback helper tests
+add_executable(replica_fallback_tests
+  replica_fallback_test.cpp
+)
+
+target_link_libraries(replica_fallback_tests
+  PRIVATE
+    gvdb_network
+    ${_GRPC_GRPCPP}
+    doctest::doctest_with_main
+)
+
+add_test(NAME ReplicaFallbackTests COMMAND replica_fallback_tests)
+set_tests_properties(ReplicaFallbackTests PROPERTIES TIMEOUT 30)
+
 # VectorDBService DISTRIBUTED mode tests
 add_executable(vectordb_service_distributed_tests
   vectordb_service_distributed_test.cpp
