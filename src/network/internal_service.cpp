@@ -617,11 +617,26 @@ grpc::Status InternalService::RouteQuery(
 
     const bool prefer_replica = request->prefer_routable_replica();
 
-    // For each shard, find a target data node. Prefer the primary; if the
-    // primary is draining and the caller allows replica fallback (reads),
-    // pick the first routable replica instead so we shed traffic off the
-    // draining node immediately rather than waiting for heartbeat timeout
-    // (roadmap 0b.1).
+    // For each shard, build a prioritized list of candidate nodes the caller
+    // can try. options[0] becomes the legacy parallel-array entry (so older
+    // clients keep working unchanged); options[1..N] are fallbacks the
+    // caller can attempt when its first RPC fails with UNAVAILABLE or
+    // DEADLINE_EXCEEDED. Ordering rules:
+    //
+    //   * writes (prefer_replica == false): primary only — replicas can't
+    //     accept writes.
+    //   * reads with primary routable: [primary, routable-replicas...].
+    //     Primary first because it has the freshest data; replicas are
+    //     fallbacks for transient primary unreachability.
+    //   * reads with primary draining: [routable-replicas..., primary].
+    //     Sheds traffic off the draining node immediately while still
+    //     leaving the primary as a last-resort fallback if every replica
+    //     is also unreachable.
+    //
+    // If the resulting list is empty (e.g. node_registry_ unset or every
+    // candidate has no recorded address), emit the primary as a single
+    // option with an empty address so the caller sees a deterministic
+    // "no routable target" failure rather than a missing shard entry.
     for (const auto& shard_id : metadata.shard_ids) {
       auto primary_result = shard_manager_->GetPrimaryNode(shard_id);
       if (!primary_result.ok()) continue;
@@ -629,37 +644,73 @@ grpc::Status InternalService::RouteQuery(
       core::NodeId primary_id = *primary_result;
       if (primary_id == core::kInvalidNodeId) continue;
 
-      core::NodeId selected_id = primary_id;
-      std::string selected_address;
-
-      if (node_registry_) {
-        const bool primary_draining =
-            !node_registry_->IsNodeRoutable(core::ToUInt32(primary_id));
-
-        if (primary_draining && prefer_replica) {
-          // Try to find a routable replica.
-          auto replicas_result = shard_manager_->GetReplicaNodes(shard_id);
-          if (replicas_result.ok()) {
-            for (auto replica : *replicas_result) {
-              if (replica == primary_id) continue;
-              if (!node_registry_->IsNodeRoutable(core::ToUInt32(replica))) {
-                continue;
-              }
-              selected_id = replica;
-              break;
-            }
-          }
-        }
-
+      // Resolve a node-id to (address, routable) using the registry.
+      auto resolve = [&](core::NodeId nid) -> std::pair<std::string, bool> {
+        if (!node_registry_) return {std::string{}, true};
         cluster::RegisteredNode node;
-        if (node_registry_->GetNode(core::ToUInt32(selected_id), &node)) {
-          selected_address = node.info.grpc_address();
+        if (!node_registry_->GetNode(core::ToUInt32(nid), &node)) {
+          return {std::string{}, false};
+        }
+        return {node.info.grpc_address(),
+                node_registry_->IsNodeRoutable(core::ToUInt32(nid))};
+      };
+
+      auto [primary_address, primary_routable] = resolve(primary_id);
+
+      std::vector<core::NodeId> replicas;
+      if (auto replicas_result = shard_manager_->GetReplicaNodes(shard_id);
+          replicas_result.ok()) {
+        for (auto replica : *replicas_result) {
+          if (replica == primary_id) continue;  // primary handled separately
+          replicas.push_back(replica);
         }
       }
 
+      // Build the per-shard options list.
+      auto* shard_opts = response->add_per_shard_options();
+      shard_opts->set_shard_id(core::ToUInt16(shard_id));
+
+      auto add_option = [&](core::NodeId nid, const std::string& addr,
+                            bool is_primary) {
+        auto* opt = shard_opts->add_options();
+        opt->set_node_id(core::ToUInt32(nid));
+        opt->set_node_address(addr);
+        opt->set_is_primary(is_primary);
+      };
+
+      if (!prefer_replica) {
+        // Writes: primary only.
+        add_option(primary_id, primary_address, /*is_primary=*/true);
+      } else if (primary_routable) {
+        // Reads, primary healthy: primary first, replicas as fallbacks.
+        add_option(primary_id, primary_address, /*is_primary=*/true);
+        for (auto replica : replicas) {
+          auto [addr, routable] = resolve(replica);
+          if (routable && !addr.empty()) {
+            add_option(replica, addr, /*is_primary=*/false);
+          }
+        }
+      } else {
+        // Reads, primary draining: routable replicas first, primary last.
+        for (auto replica : replicas) {
+          auto [addr, routable] = resolve(replica);
+          if (routable && !addr.empty()) {
+            add_option(replica, addr, /*is_primary=*/false);
+          }
+        }
+        // Always include primary as a last-resort even when unrouteable
+        // — the caller may have stale heartbeat data and the primary may
+        // actually be reachable, and emitting nothing leaves the shard
+        // with no target at all.
+        add_option(primary_id, primary_address, /*is_primary=*/true);
+      }
+
+      // Mirror options[0] into the legacy parallel arrays for clients
+      // that haven't been recompiled to read per_shard_options.
+      const auto& first = shard_opts->options(0);
       response->add_target_shard_ids(core::ToUInt16(shard_id));
-      response->add_target_node_ids(core::ToUInt32(selected_id));
-      response->add_target_node_addresses(selected_address);
+      response->add_target_node_ids(first.node_id());
+      response->add_target_node_addresses(first.node_address());
     }
 
     utils::Logger::Instance().Debug("RouteQuery: {} shards for collection '{}'",

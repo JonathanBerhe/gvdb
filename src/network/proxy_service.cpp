@@ -4,6 +4,7 @@
 #include "network/proxy_service.h"
 #include "network/audit_context.h"
 #include "network/dns_channel_args.h"
+#include "network/replica_fallback.h"
 #include "utils/logger.h"
 
 namespace gvdb {
@@ -341,16 +342,17 @@ grpc::Status ProxyService::Get(
   AuditContext::SetCollection(request->collection_name());
   AuditContext::SetItemCount(request->ids().size());
 
-  // Read path — replica fallback OK when primary is draining (0b.1).
-  auto* client = GetDataNodeClientForCollection(
-      request->collection_name(), /*read_only=*/true);
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
-  }
-
+  // Read with replica fallback: if the first candidate is unreachable
+  // (transient drain-window failure), try the next routable replica before
+  // surfacing UNAVAILABLE to the caller.
   proto::GetRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  return client->Get(&client_ctx, internal_req, response);
+  return network::RouteAndCallWithFallback(
+      GetCoordinatorInternalClient(), request->collection_name(), "get",
+      std::chrono::milliseconds(5000),
+      [this](const std::string& addr) { return GetOrCreateDataClient(addr); },
+      [&](grpc::ClientContext* ctx, proto::VectorDBService::Stub* stub) {
+        return stub->Get(ctx, internal_req, response);
+      });
 }
 
 grpc::Status ProxyService::Delete(
@@ -408,16 +410,15 @@ grpc::Status ProxyService::ListVectors(
     const proto::ListVectorsRequest* request,
     proto::ListVectorsResponse* response) {
 
-  // Read path — replica fallback OK when primary is draining (0b.1).
-  auto* client = GetDataNodeClientForCollection(
-      request->collection_name(), /*read_only=*/true);
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
-  }
-
+  // Read with replica fallback (see ProxyService::Get for rationale).
   proto::ListVectorsRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  return client->ListVectors(&client_ctx, internal_req, response);
+  return network::RouteAndCallWithFallback(
+      GetCoordinatorInternalClient(), request->collection_name(), "list_vectors",
+      std::chrono::milliseconds(5000),
+      [this](const std::string& addr) { return GetOrCreateDataClient(addr); },
+      [&](grpc::ClientContext* ctx, proto::VectorDBService::Stub* stub) {
+        return stub->ListVectors(ctx, internal_req, response);
+      });
 }
 
 grpc::Status ProxyService::HybridSearch(
@@ -426,16 +427,15 @@ grpc::Status ProxyService::HybridSearch(
     proto::HybridSearchResponse* response) {
   AuditContext::SetCollection(request->collection_name());
 
-  // Read path — replica fallback OK when primary is draining (0b.1).
-  auto* client = GetDataNodeClientForCollection(
-      request->collection_name(), /*read_only=*/true);
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
-  }
-
+  // Read with replica fallback (see ProxyService::Get for rationale).
   proto::HybridSearchRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  return client->HybridSearch(&client_ctx, internal_req, response);
+  return network::RouteAndCallWithFallback(
+      GetCoordinatorInternalClient(), request->collection_name(), "hybrid_search",
+      std::chrono::milliseconds(5000),
+      [this](const std::string& addr) { return GetOrCreateDataClient(addr); },
+      [&](grpc::ClientContext* ctx, proto::VectorDBService::Stub* stub) {
+        return stub->HybridSearch(ctx, internal_req, response);
+      });
 }
 
 grpc::Status ProxyService::Search(
