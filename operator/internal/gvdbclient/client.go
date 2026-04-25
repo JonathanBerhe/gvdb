@@ -416,6 +416,26 @@ func (c *CoordinatorClient) RemovePeer(ctx context.Context, nodeID uint32) (int3
 	return resp.GetCurrentLeaderId(), nil
 }
 
+// RebalanceShards asks the coordinator to re-plan shard placement.
+// Fire-and-forget in effect: the RPC returns immediately with the number
+// of shards the coordinator enqueued for migration (via
+// ExecuteRebalancePlan); actual moves run asynchronously on the
+// coordinator and complete later (bounded concurrency, see
+// src/cluster/coordinator.cpp kMaxMovesPerCycle).
+//
+// collectionID=0 means "all collections" per proto/internal.proto.
+// Used by the data-node scale reconciler (roadmap 1.8.c) to drain
+// shards off ordinals being scaled out.
+func (c *CoordinatorClient) RebalanceShards(ctx context.Context, collectionID uint32) (uint32, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	resp, err := c.stub.RebalanceShards(ctx, &pb.RebalanceShardsRequest{CollectionId: collectionID})
+	if err != nil {
+		return 0, fmt.Errorf("rebalance shards: %w", err)
+	}
+	return resp.GetShardsMoved(), nil
+}
+
 // Close releases the underlying gRPC connection.
 func (c *Client) Close() error {
 	if c == nil || c.conn == nil {

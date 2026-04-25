@@ -205,6 +205,16 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(scaleErr, "coordinator scale reconciliation failed")
 	}
 
+	// Reconcile data-node StatefulSet replicas against spec.dataNode.replicas
+	// (roadmap 1.8.c). Holds replicas at a safe floor when shrinking would
+	// orphan any shard; kicks the coordinator to rebalance off doomed
+	// ordinals. Sole writer of Spec.Replicas via datanodeScaleFieldManager —
+	// render intentionally omits the field to keep ownership unambiguous.
+	dnScaleRequeue, dnScaleErr := r.reconcileDataNodeScale(ctx, &cluster, clusterHealth)
+	if dnScaleErr != nil {
+		log.Error(dnScaleErr, "data-node scale reconciliation failed")
+	}
+
 	phase, conditions := computePhase(nodeCounts)
 	cluster.Status.Phase = phase
 	for _, cond := range conditions {
@@ -234,6 +244,9 @@ func (r *GVDBClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	if scaleRequeue > 0 && scaleRequeue < requeue {
 		requeue = scaleRequeue
+	}
+	if dnScaleRequeue > 0 && dnScaleRequeue < requeue {
+		requeue = dnScaleRequeue
 	}
 	return ctrl.Result{RequeueAfter: requeue}, nil
 }
@@ -903,6 +916,282 @@ func (r *GVDBClusterReconciler) callTransferLeadershipOnLeader(
 		return fmt.Errorf("no coordinator available for TransferLeadership(%d)", targetNodeID)
 	}
 	return lastErr
+}
+
+// datanodeScaleFieldManager is the SSA field owner for Replicas on the
+// data-node StatefulSet. Distinct from the main `gvdb-operator` field
+// manager (which owns everything else the render produces) and from the
+// rollout's field manager (which owns updateStrategy.rollingUpdate.partition).
+// The render deliberately omits Replicas so this is the sole writer —
+// see operator/internal/render/datanode.go.
+const datanodeScaleFieldManager = "gvdb-operator-datanode-scale"
+
+// DataNodeScaleLastRebalanceAnnotation records the last time the data-node
+// scale reconciler triggered RebalanceShards. The rebalance-quiescence gate
+// uses max(annotation, clusterHealth.LastRebalanceUnixMs) so neither a
+// flapping coordinator report nor an operator-pod restart drops us below
+// the RebalanceQuiescenceWindow ratchet.
+const DataNodeScaleLastRebalanceAnnotation = "gvdb.io/datanode-scale-last-rebalance-trigger-unix-ms"
+
+// reconcileDataNodeScale enforces safe scale-down of the data-node
+// StatefulSet against spec.dataNode.replicas. Roadmap 1.8.c.
+//
+// Why this exists: SIGTERM → coordinator DRAINING migration (the happy
+// path for scale-down today) promotes primaries and drops stale replica
+// entries but does NOT re-replicate. A scale-down where the victim pod is
+// the *only* replica holder for some shard orphans data. This reconciler
+// is the pre-flight safety gate: it holds spec.replicas at a floor until
+// the coordinator has re-distributed shards off ordinals about to be
+// removed, then releases one ordinal at a time.
+//
+// Sequencing notes:
+//   - This reconciler is the SOLE writer of Spec.Replicas on the data-node
+//     STS; render omits the field (operator/internal/render/datanode.go).
+//   - On first-ever reconcile the STS was just created by the main render
+//     apply *without* Replicas; K8s defaults it to 1. Before any data-node
+//     pod finishes starting, this reconciler patches Replicas to the target.
+//     The transient single-pod state lasts less than one reconcile pass
+//     (order of milliseconds) and the StatefulSet controller typically
+//     never processes a create-at-1 event before we overwrite it.
+//   - Yields to the data-node rollout — partition-gated pod eviction and
+//     stepwise replica shrink must not interleave.
+//
+// Returns a requeue hint: 2s during an active scale-down, 5s while waiting
+// (unsafe distribution, rollout, health), 0 when stable.
+func (r *GVDBClusterReconciler) reconcileDataNodeScale(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
+	clusterHealth gvdbclient.ClusterHealth,
+) (time.Duration, error) {
+	log := logf.FromContext(ctx)
+
+	var sts appsv1.StatefulSet
+	stsKey := types.NamespacedName{
+		Namespace: cluster.Namespace,
+		Name:      render.WorkloadName(cluster, render.DataNodeComponent),
+	}
+	if err := r.Get(ctx, stsKey, &sts); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return 0, fmt.Errorf("get data-node sts: %w", err)
+		}
+		// STS not yet visible — either the main render apply earlier in
+		// this reconcile pass hasn't propagated through the informer
+		// cache, or the STS was deleted out from under us. We can't
+		// SSA-apply a Replicas-only patch in this state (CREATE would
+		// fail on missing required fields like Selector/Template), so
+		// requeue quickly and let the next pass observe the recreated
+		// STS. The condition stays at its last-known value rather than
+		// flapping during a transient cache miss.
+		return 2 * time.Second, nil
+	}
+
+	specReplicas := render.EffectiveReplicas(cluster, render.DataNodeComponent)
+
+	currentSpecReplicas := int32(0)
+	observedReadyReplicas := int32(0)
+	if sts.Spec.Replicas != nil {
+		currentSpecReplicas = *sts.Spec.Replicas
+	}
+	observedReadyReplicas = sts.Status.ReadyReplicas
+
+	rolloutReady := meta.IsStatusConditionTrue(
+		cluster.Status.Conditions, gvdbv1alpha1.ConditionDataNodeRolloutReady,
+	)
+
+	// Fetch shard assignments only when a scale-down decision is pending.
+	// In every other path (stable, growing, bootstrap, waiting) the pure
+	// function ignores the shard list, so the RPC would be wasted.
+	var shardAssignments []gvdbclient.ShardAssignment
+	if currentSpecReplicas > 0 && currentSpecReplicas > specReplicas {
+		shardAssignments = r.fetchShardAssignments(ctx, cluster)
+		// If the cluster reports shards but we got nothing back, we can't
+		// make a safe decision — hold and surface the gap.
+		if shardAssignments == nil && clusterHealth.TotalShards > 0 {
+			meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+				Type:   gvdbv1alpha1.ConditionDataNodeScaleReady,
+				Status: metav1.ConditionFalse,
+				Reason: ReasonWaitingForShardVisibility,
+				Message: fmt.Sprintf(
+					"could not fetch shard assignments from any coordinator; cluster reports %d total shards",
+					clusterHealth.TotalShards),
+			})
+			return 5 * time.Second, nil
+		}
+	}
+
+	step := desiredDataNodeScaleStep(
+		specReplicas, currentSpecReplicas, observedReadyReplicas,
+		shardAssignments, clusterHealth, rolloutReady,
+	)
+
+	condStatus := metav1.ConditionFalse
+	msg := "data-node scale reconciliation in progress"
+	if step.Done {
+		condStatus = metav1.ConditionTrue
+		msg = fmt.Sprintf("data-node StatefulSet at %d replicas; shard placement safe", specReplicas)
+	}
+	if step.Message != "" {
+		msg = step.Message
+	}
+	meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
+		Type:    gvdbv1alpha1.ConditionDataNodeScaleReady,
+		Status:  condStatus,
+		Reason:  step.Reason,
+		Message: msg,
+	})
+
+	switch step.Action {
+	case DataNodeScaleStable:
+		return 0, nil
+
+	case DataNodeScaleGrowing, DataNodeScaleShrinking:
+		// Both paths write Replicas via the scale field manager. Growing
+		// is a single-shot jump to target; Shrinking drops by exactly one
+		// ordinal so each step is re-gated on fresh state next reconcile.
+		if err := r.applyDataNodeScalePatch(ctx, cluster, step.EffectiveReplicas, 0); err != nil {
+			log.Error(err, "data-node scale SSA apply failed",
+				"action", step.Action, "replicas", step.EffectiveReplicas)
+			return 2 * time.Second, nil
+		}
+		log.Info("data-node scale applied",
+			"action", step.Action, "replicas", step.EffectiveReplicas,
+			"victimOrdinal", step.VictimOrdinal)
+		return 2 * time.Second, nil
+
+	case DataNodeScaleUnsafeShrink:
+		// (Throttled) ask the coordinator to re-plan so doomed ordinals
+		// get drained. The replicas reaffirm + annotation stamp ride in
+		// a single SSA apply so the field manager never transiently
+		// relinquishes Replicas ownership between two writes.
+		var triggerAtMs int64
+		if step.ShouldTriggerRebalance && r.shouldTriggerDataNodeRebalance(&sts, clusterHealth, time.Now()) {
+			shards, err := r.callRebalanceShardsOnLeader(ctx, cluster, 0)
+			if err != nil {
+				log.Error(err, "RebalanceShards for data-node scale failed")
+			} else {
+				log.Info("RebalanceShards triggered for data-node scale",
+					"shards_enqueued", shards, "victim_ordinal", step.VictimOrdinal,
+					"unsafe_shards", step.UnsafeShards)
+				triggerAtMs = time.Now().UnixMilli()
+			}
+		}
+		if err := r.applyDataNodeScalePatch(ctx, cluster, step.EffectiveReplicas, triggerAtMs); err != nil {
+			log.V(1).Info("unsafe-shrink replicas reaffirm failed (non-fatal)", "err", err)
+		}
+		return 5 * time.Second, nil
+
+	case DataNodeScaleRF1Blocked:
+		if err := r.applyDataNodeScalePatch(ctx, cluster, step.EffectiveReplicas, 0); err != nil {
+			log.V(1).Info("rf1-blocked replicas reaffirm failed (non-fatal)", "err", err)
+		}
+		// Surface the permanent block as a Warning Event so the user sees
+		// it on `kubectl describe gvdbcluster` without reading operator
+		// logs. The condition already carries the signal; the event is UX.
+		// The event Reason must be a short reason constant (not the
+		// condition type) to match the user-facing "REASON" column in
+		// `kubectl describe` — follows the rollout's ReasonRF1Blocked
+		// precedent at line 477.
+		if r.Recorder != nil {
+			r.Recorder.Event(cluster, corev1.EventTypeWarning,
+				ReasonRF1ShardPinnedToScaleVictim, msg)
+		}
+		return 30 * time.Second, nil
+
+	case DataNodeScaleWaitingForConvergence:
+		return 2 * time.Second, nil
+
+	case DataNodeScaleWaitingForRollout, DataNodeScaleWaitingForHealth:
+		return 5 * time.Second, nil
+	}
+
+	return 5 * time.Second, nil
+}
+
+// applyDataNodeScalePatch writes spec.replicas on the data-node STS via
+// SSA, claiming ownership under datanodeScaleFieldManager. Optionally
+// stamps the rebalance-trigger annotation in the same apply so SSA does
+// not transiently relinquish Replicas ownership between writes — each
+// SSA apply replaces the field manager's owned-set with whatever it sent,
+// so a separate annotation-only apply would drop the Replicas claim.
+//
+// Uses ForceOwnership so that if a pre-1.8.c deployment left Replicas
+// owned by the main `gvdb-operator` field manager, the first scale
+// reconciler pass transfers ownership cleanly rather than erroring out.
+//
+// rebalanceTriggerAtMs == 0 means "do not touch the annotation"; non-zero
+// means "stamp this Unix-ms value as the latest rebalance trigger".
+func (r *GVDBClusterReconciler) applyDataNodeScalePatch(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
+	replicas int32, rebalanceTriggerAtMs int64,
+) error {
+	patch := &appsv1.StatefulSet{
+		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: cluster.Namespace,
+			Name:      render.WorkloadName(cluster, render.DataNodeComponent),
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: &replicas,
+		},
+	}
+	if rebalanceTriggerAtMs > 0 {
+		patch.ObjectMeta.Annotations = map[string]string{
+			DataNodeScaleLastRebalanceAnnotation: strconv.FormatInt(rebalanceTriggerAtMs, 10),
+		}
+	}
+	return r.Patch(ctx, patch, client.Apply,
+		client.FieldOwner(datanodeScaleFieldManager),
+		client.ForceOwnership,
+	)
+}
+
+// shouldTriggerDataNodeRebalance applies the quiescence throttle: fire
+// RebalanceShards at most once per RebalanceQuiescenceWindow so a tight
+// reconcile loop doesn't spam the coordinator. Ratchets against
+// clusterHealth.LastRebalanceUnixMs (what the coordinator reports as the
+// most recent rebalance) AND the operator-persisted last-trigger
+// annotation — takes whichever is more recent.
+func (r *GVDBClusterReconciler) shouldTriggerDataNodeRebalance(
+	sts *appsv1.StatefulSet, clusterHealth gvdbclient.ClusterHealth, now time.Time,
+) bool {
+	refMs := clusterHealth.LastRebalanceUnixMs
+	if sts != nil && sts.Annotations != nil {
+		if raw, ok := sts.Annotations[DataNodeScaleLastRebalanceAnnotation]; ok {
+			if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v > refMs {
+				refMs = v
+			}
+		}
+	}
+	if refMs <= 0 {
+		return true // no prior trigger on record — fire.
+	}
+	return now.Sub(time.UnixMilli(refMs)) >= RebalanceQuiescenceWindow
+}
+
+// callRebalanceShardsOnLeader dials coordinator pods in ordinal order and
+// calls RebalanceShards on the first that accepts. RebalanceShards is a
+// leader-routed RPC on the coordinator but returns success from any
+// healthy pod that can reach the leader — the server-side path does the
+// routing. Mirrors callRemovePeerOnLeader / callTransferLeadershipOnLeader.
+func (r *GVDBClusterReconciler) callRebalanceShardsOnLeader(
+	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster, collectionID uint32,
+) (uint32, error) {
+	var lastErr error
+	for _, target := range render.CoordinatorPodAddresses(cluster) {
+		cc, err := r.StatsPool.GetCoordinator(target)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		n, err := cc.RebalanceShards(ctx, collectionID)
+		if err == nil {
+			return n, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		return 0, fmt.Errorf("no coordinator available for RebalanceShards(%d)", collectionID)
+	}
+	return 0, lastErr
 }
 
 // applyObject Server-Side-Applies the rendered object. SSA is idempotent

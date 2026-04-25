@@ -237,63 +237,31 @@ func desiredDataNodePartition(
 	// The clamp at the top of the function guarantees currentPartition
 	// <= replicas-1, so targetOrdinal can only be negative (when partition
 	// already sits at 0 on the final pod); the >= 0 guard handles that.
+	//
+	// The actual per-shard math lives in shardsOrphanedBy
+	// (datanode_shard_safety.go) and is shared with desiredDataNodeScaleStep
+	// so rollout and scale cannot drift on what "unsafe" means. RF1 wins over
+	// Orphaned when both are present — RF1 is permanent and the operator
+	// should surface it first; Orphaned is transient and rebalance resolves it.
 	targetOrdinal := currentPartition - 1
 	if targetOrdinal >= 0 {
 		targetNodeID := uint32(DataNodeBaseNodeID + targetOrdinal)
-		// Build the "ready failover candidates" set from DATA nodes only.
-		// GetClusterHealth returns every node type (coordinator, query,
-		// proxy, data) — filtering by IsDataNode avoids any implicit
-		// coupling to the node-id range convention in render/datanode.go.
-		ready := make(map[uint32]bool, len(clusterHealth.Nodes))
-		for _, n := range clusterHealth.Nodes {
-			if n.Ready && n.IsDataNode {
-				ready[n.NodeID] = true
+		risk := shardsOrphanedBy(targetNodeID, shardAssignments, clusterHealth)
+		if risk.RF1Blocked() {
+			p := currentPartition
+			return DataNodeRolloutStep{
+				Partition: &p, Done: false, Reason: ReasonRF1Blocked,
+				Message: fmt.Sprintf(
+					"shard %d has RF=1 and only replica is on drain target node %d",
+					risk.RF1Shards[0], targetNodeID),
 			}
 		}
-		for _, sa := range shardAssignments {
-			// internal_service.cpp:108-111 populates primary_node_id from
-			// shard_info.primary_node and node_ids[] from replica_nodes —
-			// they are DISJOINT. The effective node set for availability
-			// reasoning is {primary} ∪ replicas; the RF=1 case is when
-			// that effective set has a single member and it is the target.
-			healthyOther := 0
-			containsTarget := false
-			effectiveSize := 0
-			if sa.PrimaryNodeID != 0 {
-				effectiveSize++
-				if sa.PrimaryNodeID == targetNodeID {
-					containsTarget = true
-				} else if ready[sa.PrimaryNodeID] {
-					healthyOther++
-				}
-			}
-			for _, nid := range sa.NodeIDs {
-				effectiveSize++
-				if nid == targetNodeID {
-					containsTarget = true
-					continue
-				}
-				if ready[nid] {
-					healthyOther++
-				}
-			}
-			if healthyOther >= 1 {
-				continue
-			}
-			if containsTarget && effectiveSize == 1 {
-				p := currentPartition
-				return DataNodeRolloutStep{
-					Partition: &p, Done: false, Reason: ReasonRF1Blocked,
-					Message: fmt.Sprintf(
-						"shard %d has RF=1 and only replica is on drain target node %d",
-						sa.ShardID, targetNodeID),
-				}
-			}
+		if !risk.Safe() {
 			p := currentPartition
 			return DataNodeRolloutStep{
 				Partition: &p, Done: false, Reason: ReasonWaitingForReplicaSafety,
 				Message: fmt.Sprintf("shard %d has no ready replica besides node %d",
-					sa.ShardID, targetNodeID),
+					risk.Orphaned[0], targetNodeID),
 			}
 		}
 	}
