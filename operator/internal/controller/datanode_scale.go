@@ -17,9 +17,9 @@ import (
 )
 
 // DataNodeScaleAction is the single next action the data-node scale
-// reconciler should take this pass. Mirrors CoordinatorScaleAction for
-// ConsistencyOfSurface — both conditions share the same state-machine
-// shape so operators watching one learn the other at no extra cost.
+// reconciler should take this pass. Mirrors CoordinatorScaleAction so
+// operators watching one condition recognise the same shape on the
+// other — same state-machine surface, same Reason naming convention.
 type DataNodeScaleAction string
 
 const (
@@ -29,11 +29,10 @@ const (
 
 	// DataNodeScaleGrowing: spec > current. Issue one SSA write to bring
 	// spec.replicas up to target; subsequent reconciles spin in
-	// WaitingForConvergence until K8s has all new pods Ready. Also the
-	// bootstrap path: STS absent (current==0) falls through here so the
-	// first Apply creates the STS at the desired replica count rather
-	// than at K8s's default of 1 — a transient 1-replica state breaks
-	// the coordinator-first startup contract for multi-data-node clusters.
+	// WaitingForConvergence (when scale-down) or just observe the new
+	// pods coming Ready (when scale-up). Includes the post-bootstrap
+	// case where the main render created the STS at K8s's default of 1
+	// and this reconciler immediately jumps it to the target count.
 	DataNodeScaleGrowing DataNodeScaleAction = "Growing"
 
 	// DataNodeScaleShrinking: converged and the highest-ordinal pod's
@@ -90,6 +89,11 @@ const (
 	ReasonWaitingForPodTermination       = "WaitingForPodTermination"
 	ReasonScaleWaitingForDataNodeRollout = "WaitingForDataNodeRollout"
 	ReasonScaleWaitingForDataNodeHealth  = "WaitingForDataNodeHealth"
+	// ReasonWaitingForShardVisibility: a scale-down decision is pending
+	// but no coordinator answered GetShardAssignments. We refuse to act
+	// without visibility — making a "safe" call against an empty shard
+	// list could misclassify an actually-orphaned shard as Safe.
+	ReasonWaitingForShardVisibility = "WaitingForShardVisibility"
 )
 
 // DataNodeScaleStep is the product of desiredDataNodeScaleStep — a
@@ -148,15 +152,31 @@ type DataNodeScaleStep struct {
 //
 // Decision ladder (first match wins):
 //
-//  1. Bootstrap (current == 0) → Growing to spec. Shard safety is trivial
-//     when there are no shards yet.
+//  1. Bootstrap (current == 0, STS absent) → Growing to spec. Reachable
+//     only when the reconciler runs before the main render's apply has
+//     created the STS, or when the STS has been deleted out from under us.
+//     The reconciler's caller short-circuits in that case (it cannot SSA-
+//     create a StatefulSet from a Replicas-only patch — required fields
+//     like Selector are missing); this branch exists for callers that
+//     pre-seed the STS via a different path.
 //  2. Rollout in flight → WaitingForRollout. Hold.
-//  3. Pods not converged (observedReady < current) → WaitingForConvergence.
-//  4. Any surviving data-node unhealthy → WaitingForHealth.
-//  5. current == spec → Stable, Done=true.
-//  6. current < spec → Growing to spec in one write.
-//  7. current > spec → compute victim = current-1; classify via
-//     shardsOrphanedBy:
+//  3. current == spec → Stable, Done=true. Stable is reported even when
+//     the coordinator is unreachable — alignment with reconcileCoordinator
+//     Scale's "leave condition unchanged on visibility loss" stance for
+//     stable clusters; we don't want a brief coordinator blip to flip the
+//     condition and trigger user alarms.
+//  4. current < spec → Growing to spec in one write. Scale-up is always
+//     safe (adds capacity, can't orphan shards) so it bypasses both the
+//     convergence and health guards. K8s's StatefulSet controller paces
+//     pod creation; subsequent reconciles spin in WaitingForConvergence
+//     until pods are Ready.
+//  5. current > spec (scale-down) — additional safety gates apply:
+//     a. Convergence guard: observedReady < current → WaitingForConvergence.
+//     Don't stack a second shrink on top of one that K8s hasn't paced
+//     through yet.
+//     b. Health guard: any surviving ordinal not Ready in coordinator's
+//     heartbeat view → WaitingForHealth.
+//     c. Classify victim = current-1 via shardsOrphanedBy:
 //     - RF1Blocked       → RF1Blocked (permanent)
 //     - Orphaned non-empty → UnsafeShrink (transient; trigger rebalance)
 //     - Safe              → Shrinking by 1
@@ -173,14 +193,17 @@ func desiredDataNodeScaleStep(
 	clusterHealth gvdbclient.ClusterHealth,
 	dataNodeRolloutReady bool,
 ) DataNodeScaleStep {
-	// 1. Bootstrap: STS doesn't exist (or is at zero). Set it directly
-	// to the desired count; no shards yet to protect.
+	// 1. Bootstrap: STS doesn't exist. The reconciler's caller refuses
+	// to SSA-apply a Replicas-only patch in that state (required STS
+	// spec fields would be missing on CREATE), but we still emit a
+	// Growing step so the condition reflects intent rather than a misleading
+	// Stable/Waiting state.
 	if currentSpecReplicas == 0 {
 		return DataNodeScaleStep{
 			Action:            DataNodeScaleGrowing,
 			EffectiveReplicas: specReplicas,
 			Reason:            ReasonScalingUp,
-			Message:           "bootstrap: creating data-node StatefulSet at target replicas",
+			Message:           "bootstrap: data-node StatefulSet absent; main render will create it",
 		}
 	}
 
@@ -194,8 +217,36 @@ func desiredDataNodeScaleStep(
 		}
 	}
 
-	// 3. Convergence guard — K8s is still creating or terminating pods.
-	// Do not stack a second scale decision on top.
+	// 3. Already at target — stable. Coordinator-visibility / pod-readiness
+	// blips don't flip Stable; we only report False when there is real
+	// scale work to do.
+	if currentSpecReplicas == specReplicas {
+		return DataNodeScaleStep{
+			Action:            DataNodeScaleStable,
+			EffectiveReplicas: specReplicas,
+			Reason:            ReasonStable,
+			Done:              true,
+		}
+	}
+
+	// 4. Scale up — single-write growth. Bypasses convergence/health
+	// guards because growing is always safe (adds replicas, can't orphan
+	// shards). Crucially this also covers the post-bootstrap case where
+	// the main render created the STS at the K8s-default of 1 and the
+	// scale reconciler now jumps it to the target — without this branch
+	// firing, the convergence guard would block here and the cluster
+	// would come up as 1 pod, wait, then grow.
+	if currentSpecReplicas < specReplicas {
+		return DataNodeScaleStep{
+			Action:            DataNodeScaleGrowing,
+			EffectiveReplicas: specReplicas,
+			Reason:            ReasonScalingUp,
+		}
+	}
+
+	// 5. Scale down — classify the victim and shrink-or-hold.
+
+	// 5a. Convergence guard — K8s still pacing the previous shrink.
 	if observedReadyReplicas < currentSpecReplicas {
 		return DataNodeScaleStep{
 			Action:            DataNodeScaleWaitingForConvergence,
@@ -204,8 +255,8 @@ func desiredDataNodeScaleStep(
 		}
 	}
 
-	// 4. Health guard — the coordinator must see every surviving
-	// ordinal as Ready before we perturb the membership again.
+	// 5b. Health guard — every surviving ordinal must be Ready in the
+	// coordinator's heartbeat view before we shrink further.
 	minOrdinal := specReplicas
 	if currentSpecReplicas < minOrdinal {
 		minOrdinal = currentSpecReplicas
@@ -227,26 +278,7 @@ func desiredDataNodeScaleStep(
 		}
 	}
 
-	// 5. Already at target — stable.
-	if currentSpecReplicas == specReplicas {
-		return DataNodeScaleStep{
-			Action:            DataNodeScaleStable,
-			EffectiveReplicas: specReplicas,
-			Reason:            ReasonStable,
-			Done:              true,
-		}
-	}
-
-	// 6. Scale up — single-write growth.
-	if currentSpecReplicas < specReplicas {
-		return DataNodeScaleStep{
-			Action:            DataNodeScaleGrowing,
-			EffectiveReplicas: specReplicas,
-			Reason:            ReasonScalingUp,
-		}
-	}
-
-	// 7. Scale down — classify the victim and shrink-or-hold.
+	// 5c. Safety classification.
 	victim := currentSpecReplicas - 1
 	victimNodeID := uint32(DataNodeBaseNodeID) + uint32(victim)
 	risk := shardsOrphanedBy(victimNodeID, shardAssignments, clusterHealth)
