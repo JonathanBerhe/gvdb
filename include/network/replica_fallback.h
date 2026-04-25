@@ -56,10 +56,15 @@ bool IsTransientReplicaError(grpc::StatusCode code);
 //     grpc::Status CallFn(grpc::ClientContext* context,
 //                         const std::string& target_address);
 //
-// The helper sets a per-attempt deadline derived from total_deadline and
-// the candidate count, bounded to [20ms, 2s] so a tight overall deadline
-// still gives every attempt enough headroom while a generous one fails
-// over fast.
+// `total_attempt_budget` is the input the helper divides by the number
+// of candidates to derive a per-attempt deadline (then clamped to
+// [kReplicaFallbackMinPerAttempt, kReplicaFallbackMaxPerAttempt]). It is
+// NOT a wall-clock total: a budget of 5s with 5 candidates yields five
+// 1-second attempts (=5s wall), but a budget of 5s with 2 candidates
+// yields two 2-second attempts (=4s wall), and 30s with 5 candidates
+// yields five 2-second attempts (=10s wall, capped). Budgets exist to
+// shape per-attempt deadlines, not to enforce a fixed wall-clock cap;
+// callers that need a wall-clock cap should bound their own deadline.
 //
 // Observability: every call observes gvdb_read_attempts; the first
 // successful fallback (i > 0) bumps gvdb_read_replica_fallback_total with
@@ -72,7 +77,7 @@ template <typename CallFn>
 ReplicaFallbackResult CallWithReplicaFallback(
     const google::protobuf::RepeatedPtrField<
         proto::internal::RouteQueryNodeOption>& options,
-    std::chrono::milliseconds total_deadline,
+    std::chrono::milliseconds total_attempt_budget,
     const std::string& operation_label,
     CallFn&& call_fn) {
   ReplicaFallbackResult result;
@@ -86,7 +91,7 @@ ReplicaFallbackResult CallWithReplicaFallback(
     return result;
   }
 
-  std::chrono::milliseconds per_attempt = total_deadline / options.size();
+  std::chrono::milliseconds per_attempt = total_attempt_budget / options.size();
   if (per_attempt < kReplicaFallbackMinPerAttempt) {
     per_attempt = kReplicaFallbackMinPerAttempt;
   }
@@ -110,7 +115,14 @@ ReplicaFallbackResult CallWithReplicaFallback(
         operation_label, result.attempts + 1, options.size(),
         opt.node_id(), opt.node_address(), opt.is_primary());
 
-    grpc::Status status = std::forward<CallFn>(call_fn)(&context, opt.node_address());
+    // call_fn is a callable that we may invoke multiple times during
+    // fallback iteration; do NOT std::forward it here (that would cast
+    // to rvalue on every call, which is fine for stateless lambdas but
+    // would silently move-from any captured state on the first call and
+    // dangle on subsequent ones for callers that pass &&-qualified
+    // operator() callables). Plain lvalue invocation matches the loop
+    // semantic: "may be called once per candidate".
+    grpc::Status status = call_fn(&context, opt.node_address());
     ++result.attempts;
     last_status = status;
     result.target_node_id_used = opt.node_id();
@@ -162,24 +174,35 @@ ReplicaFallbackResult CallWithReplicaFallback(
   return result;
 }
 
-// Convenience wrapper that pairs a RouteQuery RPC with
-// CallWithReplicaFallback. Reads are collection-scoped from the proxy's
-// perspective; the coordinator's RouteQuery answers with per-shard
-// candidates and this helper iterates the FIRST shard's options. (Today's
-// proxy read paths assume one logical shard owns the request — this
-// preserves that semantic; multi-shard fan-out is the query-node's job.)
+// Per-call deadline for the RouteQuery RPC fired inside
+// RouteReadAndCallWithFallback. RouteQuery is in-process metadata
+// lookup on the coordinator (sub-millisecond healthy); a generous-but-
+// bounded ceiling here protects the whole proxy path from a coordinator
+// pause / packet drop / GC stall, so reads fail fast instead of hanging
+// while the user keeps clicking.
+inline constexpr std::chrono::milliseconds kRouteQueryRpcDeadline{1000};
+
+// Convenience wrapper for read paths: pairs a RouteQuery RPC with
+// CallWithReplicaFallback. Always sets prefer_routable_replica=true on
+// the request — writes go through a different (primary-only) path and
+// must not use this helper. Iterates the FIRST shard's options because
+// today's proxy read paths assume one logical shard owns the request;
+// multi-shard fan-out is the query-node's job.
 //
 // dial_fn signature:   (const std::string& target_address) -> StubT*
 // call_fn signature:   (grpc::ClientContext*, StubT*) -> grpc::Status
 //
+// `total_attempt_budget` has the same shape-per-attempt semantic as in
+// CallWithReplicaFallback (NOT a wall-clock cap); see its docstring.
+//
 // Returns OK iff at least one candidate succeeded; otherwise the final
 // (transient or non-transient) status from the helper.
 template <typename DialFn, typename CallFn>
-grpc::Status RouteAndCallWithFallback(
+grpc::Status RouteReadAndCallWithFallback(
     proto::internal::InternalService::Stub* internal_client,
     const std::string& collection_name,
     const std::string& operation_label,
-    std::chrono::milliseconds total_deadline,
+    std::chrono::milliseconds total_attempt_budget,
     DialFn&& dial_fn,
     CallFn&& call_fn) {
   if (!internal_client) {
@@ -194,6 +217,10 @@ grpc::Status RouteAndCallWithFallback(
 
   proto::internal::RouteQueryResponse route_resp;
   grpc::ClientContext route_ctx;
+  // Bounded deadline so a paused / unreachable coordinator can't stall
+  // every proxy read indefinitely.
+  route_ctx.set_deadline(std::chrono::system_clock::now() +
+                          kRouteQueryRpcDeadline);
   auto route_status =
       internal_client->RouteQuery(&route_ctx, route_req, &route_resp);
   if (!route_status.ok()) {
@@ -239,7 +266,7 @@ grpc::Status RouteAndCallWithFallback(
     return call_fn(ctx, stub);
   };
 
-  auto result = CallWithReplicaFallback(options, total_deadline,
+  auto result = CallWithReplicaFallback(options, total_attempt_budget,
                                          operation_label, adapter);
   return result.final_status;
 }

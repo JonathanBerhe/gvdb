@@ -17,9 +17,13 @@ namespace storage { class ISegmentStore; }
 namespace cluster { class Coordinator; }
 namespace network {
 
-// One candidate node for a shard query. Mirrors the proto
-// RouteQueryNodeOption — the resolver projects the proto layer up so
-// callers can iterate fallbacks without depending on internal.pb.h.
+// One candidate node for a shard query. Intentionally mirrors the proto
+// RouteQueryNodeOption shape: the resolver projects the proto layer up
+// so consumers (proxy, query-node SearchDistributed) can iterate
+// fallbacks without taking a transitive dependency on internal.pb.h.
+// Keep the fields in lockstep with proto::internal::RouteQueryNodeOption;
+// any new field added there should be added here as well, and
+// CachedCoordinatorResolver::GetShardTargets updated to populate it.
 struct ShardNodeOption {
   uint32_t node_id;
   std::string node_address;

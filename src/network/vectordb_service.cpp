@@ -204,6 +204,13 @@ grpc::Status VectorDBService::SearchDistributed(
               proto_options, std::chrono::milliseconds(10000), "search",
               [&](grpc::ClientContext* ctx,
                   const std::string& addr) -> grpc::Status {
+                // Defensive clear: today's helper returns on first OK,
+                // so this lambda runs at most once with a successful
+                // status. If a future maintainer changes the helper's
+                // strategy (e.g. best-of-N) this prevents accumulating
+                // duplicate entries from multiple successful retries.
+                result.entries.clear();
+
                 auto channel = grpc::CreateChannel(
                     addr, grpc::InsecureChannelCredentials());
                 auto stub =
@@ -223,11 +230,6 @@ grpc::Status VectorDBService::SearchDistributed(
                 auto status = stub->ExecuteShardQuery(ctx, shard_req,
                                                        &shard_resp);
                 if (status.ok()) {
-                  // Move results into the outer ShardResult on success.
-                  // Cleared on a transient failure attempt by re-entering
-                  // this lambda the helper builds fresh request/response
-                  // each pass; entries only accumulate on the
-                  // single-and-only OK path.
                   for (const auto& r : shard_resp.results()) {
                     ShardEntry entry;
                     entry.id = r.id();
@@ -934,35 +936,20 @@ grpc::Status VectorDBService::RangeSearchDistributed(
         "No shards found for collection: " + request->collection_name());
   }
 
-  // Deduplicate node addresses (multiple shards may be on the same node)
-  // and pair each one with its candidate fallback list. The fallback set
-  // for a node is the union of the *other* options (replicas) for every
-  // shard the node covers — if the node is unreachable, those replicas
-  // hold the same shard data and can answer in its place.
-  //
-  // RangeSearch is collection-scoped (no shard_id selector), so a fall-
-  // back replica may not host every shard the original node hosted. The
-  // per-node retry below recovers single-node availability blips; full
-  // per-shard fallback for RangeSearch would require a shard-scoped
-  // RangeSearch RPC and is intentionally deferred.
-  std::map<std::string, std::vector<ShardNodeOption>> per_node_options;
+  // Deduplicate node addresses — multiple shards may live on the same
+  // node, in which case one RangeSearch RPC covers all of them. We do
+  // NOT use replica fallback at the per-node level here: RangeSearch is
+  // collection-scoped (no shard selector), so a "replica" of one shard
+  // may not host the other shards the original node owned. Falling over
+  // to such a replica would return a successful-but-truncated response
+  // — re-introducing the silent partial-truncation hazard this PR
+  // explicitly fixes elsewhere. Per-shard fallback for RangeSearch
+  // requires a shard-scoped RangeSearch RPC and is intentionally
+  // deferred; until then, a single-node failure surfaces UNAVAILABLE
+  // listing the failed node — visible, not silent.
+  std::set<std::string> node_addrs;
   for (const auto& t : targets) {
-    if (t.node_address.empty()) continue;
-    auto& bucket = per_node_options[t.node_address];
-    // Primary placeholder so the helper sees the node itself first.
-    if (bucket.empty()) {
-      bucket.push_back(ShardNodeOption{0, t.node_address, true});
-    }
-    for (const auto& o : t.options) {
-      if (o.node_address == t.node_address) continue;  // dedup the primary
-      // Skip if already present; CallWithReplicaFallback would otherwise
-      // re-attempt the same address.
-      bool seen = false;
-      for (const auto& existing : bucket) {
-        if (existing.node_address == o.node_address) { seen = true; break; }
-      }
-      if (!seen) bucket.push_back(o);
-    }
+    if (!t.node_address.empty()) node_addrs.insert(t.node_address);
   }
 
   struct NodeResult {
@@ -974,49 +961,29 @@ grpc::Status VectorDBService::RangeSearchDistributed(
   };
 
   std::vector<std::future<NodeResult>> futures;
-  futures.reserve(per_node_options.size());
+  futures.reserve(node_addrs.size());
 
-  for (auto& kv : per_node_options) {
-    const std::string addr = kv.first;
-    const std::vector<ShardNodeOption> options = kv.second;
+  for (const auto& addr : node_addrs) {
     futures.push_back(std::async(std::launch::async,
-        [addr, options, &request]() -> NodeResult {
+        [addr, &request]() -> NodeResult {
           NodeResult result;
           result.addr = addr;
 
-          google::protobuf::RepeatedPtrField<
-              proto::internal::RouteQueryNodeOption>
-              proto_options;
-          for (const auto& o : options) {
-            auto* p = proto_options.Add();
-            p->set_node_id(o.node_id);
-            p->set_node_address(o.node_address);
-            p->set_is_primary(o.is_primary);
-          }
+          auto channel = grpc::CreateChannel(
+              addr, grpc::InsecureChannelCredentials());
+          auto stub = proto::VectorDBService::NewStub(channel);
 
-          auto rpc_result = CallWithReplicaFallback(
-              proto_options, std::chrono::milliseconds(10000),
-              "range_search",
-              [&](grpc::ClientContext* ctx,
-                  const std::string& target_addr) -> grpc::Status {
-                auto channel = grpc::CreateChannel(
-                    target_addr, grpc::InsecureChannelCredentials());
-                auto stub = proto::VectorDBService::NewStub(channel);
-                proto::RangeSearchResponse fresh_resp;
-                auto status = stub->RangeSearch(ctx, *request, &fresh_resp);
-                if (status.ok()) {
-                  result.resp = std::move(fresh_resp);
-                }
-                return status;
-              });
+          grpc::ClientContext ctx;
+          ctx.set_deadline(std::chrono::system_clock::now() +
+                           std::chrono::seconds(10));
 
-          result.ok = rpc_result.final_status.ok();
-          result.last_status_code = rpc_result.final_status.error_code();
-          result.last_error =
-              std::string(rpc_result.final_status.error_message());
+          auto status = stub->RangeSearch(&ctx, *request, &result.resp);
+          result.ok = status.ok();
+          result.last_status_code = status.error_code();
+          result.last_error = std::string(status.error_message());
           if (!result.ok) {
             utils::Logger::Instance().Warn(
-                "Distributed RangeSearch exhausted candidates from {}: {}",
+                "Distributed RangeSearch failed on {}: {}",
                 result.addr, result.last_error);
           }
           return result;
