@@ -99,24 +99,94 @@ The chart is intentionally minimal. Exposed keys mirror [`deploy/helm/gvdb/value
 |-----------|---------|-------------|
 | `ui.enabled` | `false` | Deploy the GVDB Web UI alongside the cluster |
 | `ui.image.repository` | `ghcr.io/jonathanberhe/gvdb-ui` | UI image |
-| `ui.image.tag` | `latest` | UI tag |
+| `ui.image.tag` | `latest` | UI tag (the UI image is not yet built/pushed by CI; enabling currently requires manually publishing a tag) |
 | `ui.port` | `8080` | Container port |
 | `ui.service.type` | `ClusterIP` | |
 | `ui.service.port` | `8080` | |
 
-## What the chart does **not** surface (yet)
+## Hardening primitives (production)
 
-The following are **not Helm-parameterized**. Configure them by mounting a custom `gvdb-config.yaml` ConfigMap / Secret that overrides the values the chart renders, or patch the StatefulSet directly:
+All hardening features default to `enabled: false` so the dev/kind install is unchanged. Enable them in a production overlay. Per-workload toggles let you adopt incrementally — e.g. PDB everywhere first, then NetworkPolicy.
 
-- **Authentication** / **RBAC** — API keys, RBAC users (see [Security](security.md))
-- **TLS** — mutual TLS material (certificates, keys)
-- **Audit logging**
-- **Prometheus `ServiceMonitor`**
-- **Object storage** (S3 / MinIO) for [tiered storage](../features/tiered-storage.md) — the server supports it, but the chart doesn't expose the knobs
+### Per-workload: PDB, anti-affinity, zone-spread, ServiceAccount, PriorityClass
 
-Contributions to expose these in the Helm chart are welcome.
+Each of `coordinator`, `dataNode`, `queryNode`, `proxy` exposes the same shape:
 
-## Example: small production setup
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `<workload>.podDisruptionBudget.enabled` | `false` | Emit a PodDisruptionBudget. The chart fails the render if `minAvailable > replicas`. |
+| `<workload>.podDisruptionBudget.minAvailable` | `1` | For HA Raft, set to `replicas - 1` (e.g. 2 with `replicas: 3`) so K8s cannot break quorum. |
+| `<workload>.podAntiAffinity.enabled` | `false` | Spread replicas across `topologyKey`. |
+| `<workload>.podAntiAffinity.type` | `preferred` | `preferred` (soft) or `required` (hard). |
+| `<workload>.podAntiAffinity.topologyKey` | `kubernetes.io/hostname` | Use `topology.kubernetes.io/zone` for AZ spread. |
+| `<workload>.zoneSpread.enabled` | `false` | Add a `topologySpreadConstraints` entry on `topology.kubernetes.io/zone`. StatefulSets default to `whenUnsatisfiable: DoNotSchedule` (refuse to colocate replicas in one AZ — data-safety contract); the proxy uses `ScheduleAnyway` (availability over balance). |
+| `<workload>.zoneSpread.maxSkew` | `1` | |
+| `<workload>.topologySpreadConstraints` | `[]` | Raw user-provided list, appended after `zoneSpread`. Explicit overrides win. |
+| `<workload>.serviceAccount.create` | `false` | Create a per-workload ServiceAccount. |
+| `<workload>.serviceAccount.name` | `""` | Override generated name. |
+| `<workload>.serviceAccount.annotations` | `{}` | Cloud IAM annotations: `eks.amazonaws.com/role-arn` (IRSA), `iam.gke.io/gcp-service-account` (Workload Identity), `azure.workload.identity/client-id` (AKS). |
+| `<workload>.priorityClassName` | `""` | Auto-wired to `<release>-<namespace>-<workload>` when `priorityClasses.create=true`. |
+
+Example: 3 coordinator replicas across 3 AZs, with a PDB protecting Raft quorum.
+
+```yaml title="values.prod.yaml"
+coordinator:
+  replicas: 3
+  singleNode: false
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2          # quorum = floor(3/2)+1 = 2; never go below
+  podAntiAffinity:
+    enabled: true
+    type: required
+    topologyKey: topology.kubernetes.io/zone
+  zoneSpread:
+    enabled: true
+    maxSkew: 1
+```
+
+### `priorityClasses`
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `priorityClasses.create` | `false` | Create cluster-scoped PriorityClasses for all four workloads. The names embed the namespace so two installs in different namespaces don't collide. |
+| `priorityClasses.coordinator.value` | `1000000` | |
+| `priorityClasses.dataNode.value` | `900000` | |
+| `priorityClasses.queryNode.value` | `800000` | |
+| `priorityClasses.proxy.value` | `700000` | |
+
+All values reserve headroom under K8s `system-cluster-critical` (`2000000000`).
+
+### `networkPolicy`
+
+Per-workload `NetworkPolicy` resources allowing only the gRPC, Raft, and metrics traffic the chart documents, plus DNS egress to kube-system CoreDNS. Requires a CNI that enforces NetworkPolicy (kindnet 0.20+, Calico, Cilium, EKS VPC CNI with NP enabled, GKE NetworkPolicy add-on, AKS Calico, etc.).
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `networkPolicy.enabled` | `false` | Emit policies for all four workloads. |
+| `networkPolicy.dns.namespaceSelectorLabels` | `{}` (defaults to `kubernetes.io/metadata.name: kube-system`) | Override if your cluster lacks the K8s 1.22+ automatic NS label or runs CoreDNS elsewhere. |
+| `networkPolicy.dns.podSelectorLabels` | `{}` (defaults to `k8s-app: kube-dns`) | Override if CoreDNS uses non-standard labels. |
+| `networkPolicy.proxy.clientCIDRs` | `[]` | **Empty blocks all external proxy traffic.** Set to e.g. `["10.0.0.0/8"]` for VPC-only, `["0.0.0.0/0"]` for fully public (only with auth). |
+| `networkPolicy.<workload>.extraIngress` | `[]` | Additional ingress rules appended verbatim (e.g. allow scrape from a non-default Prometheus namespace). |
+| `networkPolicy.<workload>.extraEgress` | `[]` | Additional egress rules appended verbatim. |
+
+### `metrics` (Prometheus Operator)
+
+Emits PodMonitor for the three StatefulSet workloads (coordinator, data-node, query-node) — each replica binds metrics on a different ordinal-derived port, so PodMonitor relabel rules rewrite `__address__` to `<pod_ip>:<port>`. The proxy uses ServiceMonitor (fixed port 9050).
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `metrics.serviceMonitor.enabled` | `false` | Emit Pod/ServiceMonitor resources. Requires Prometheus Operator CRDs (`monitoring.coreos.com/v1`). |
+| `metrics.serviceMonitor.namespace` | `""` (release namespace) | Set when Prometheus does not select cross-namespace. |
+| `metrics.serviceMonitor.interval` | `30s` | Scrape interval. |
+| `metrics.serviceMonitor.scrapeTimeout` | `10s` | |
+| `metrics.serviceMonitor.additionalLabels` | `{}` | Must include whatever your Prometheus's `serviceMonitorSelector` / `podMonitorSelector` matches (often `release: kube-prometheus-stack` for the kube-prometheus-stack default). |
+
+Coordinator metrics ports: `9091, 9092, ...` (`9090 + node_id`, `node_id = ordinal + 1`). Data-node: `9101, 9102, ...`. Query-node: `9201, 9202, ...`. Proxy: fixed `9050`.
+
+## Production overlay example
+
+Combines every hardening gate. Pair with a CNI that enforces NetworkPolicy and a Prometheus Operator install (e.g. kube-prometheus-stack).
 
 ```yaml title="values.prod.yaml"
 image:
@@ -125,31 +195,75 @@ image:
 coordinator:
   replicas: 3
   singleNode: false
+  podDisruptionBudget: { enabled: true, minAvailable: 2 }
+  podAntiAffinity: { enabled: true, type: required, topologyKey: topology.kubernetes.io/zone }
+  zoneSpread: { enabled: true, maxSkew: 1 }
+  serviceAccount: { create: true }
 
 dataNode:
-  replicas: 5
+  replicas: 3
   memoryLimitGb: 16
-  storage:
-    size: 200Gi
-    storageClass: gp3
+  storage: { size: 200Gi, storageClass: gp3 }
+  podDisruptionBudget: { enabled: true, minAvailable: 2 }
+  podAntiAffinity: { enabled: true, type: required, topologyKey: topology.kubernetes.io/zone }
+  zoneSpread: { enabled: true, maxSkew: 1 }
+  serviceAccount:
+    create: true
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/gvdb-data-node
 
 queryNode:
   replicas: 3
+  podDisruptionBudget: { enabled: true, minAvailable: 1 }
+  podAntiAffinity: { enabled: true, type: preferred, topologyKey: topology.kubernetes.io/zone }
+  zoneSpread: { enabled: true }
 
 proxy:
   replicas: 2
-  service:
-    type: LoadBalancer
+  service: { type: LoadBalancer }
+  podDisruptionBudget: { enabled: true, minAvailable: 1 }
+  zoneSpread: { enabled: true }
 
-config:
-  index:
-    defaultIndexType: "AUTO"
-  logging:
-    level: "info"
+priorityClasses:
+  create: true
 
-ui:
+networkPolicy:
   enabled: true
+  proxy:
+    clientCIDRs: ["10.0.0.0/8"]    # VPC-only — set to your client CIDR
+
+metrics:
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      release: kube-prometheus-stack
+
+security:
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    seccompProfile: { type: RuntimeDefault }
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities: { drop: [ALL] }
+    readOnlyRootFilesystem: true
 ```
+
+## What the chart does **not** surface (yet)
+
+The following are **not Helm-parameterized**. Configure them by mounting a custom `gvdb-config.yaml` ConfigMap / Secret that overrides the values the chart renders, or patch the StatefulSet directly:
+
+- **Authentication** / **RBAC** — API keys, RBAC users (see [Security](security.md))
+- **TLS** — mutual TLS material (certificates, keys)
+- **Audit logging**
+- **cert-manager `Certificate`** for inter-node mTLS
+- **External Secrets Operator** integration (AWS Secrets Manager / GCP Secret Manager / Azure Key Vault sync)
+- **Ingress / Gateway API** — gRPC ingress with TLS termination
+- **Pre-upgrade health-check hook** (Helm `pre-upgrade` Job calling coordinator `GetClusterHealth`)
+- **Object storage** (S3 / MinIO) for [tiered storage](../features/tiered-storage.md) — the server supports it, but the chart doesn't expose the knobs
+
+Contributions to expose these in the Helm chart are welcome.
 
 ```bash
 helm upgrade --install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
@@ -162,3 +276,4 @@ helm upgrade --install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
 - [Distributed cluster](../getting-started/distributed-cluster.md) — walkthrough
 - [Configuration](configuration.md) — the server-side YAML the chart renders
 - [Security](security.md) — how to layer auth/TLS on top of the chart
+- [Monitoring](monitoring.md) — Prometheus scrape setup with the chart's PodMonitor/ServiceMonitor

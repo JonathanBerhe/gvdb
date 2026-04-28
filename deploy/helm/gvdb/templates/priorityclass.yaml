@@ -1,5 +1,5 @@
 {{/*
-PriorityClass templates (roadmap 0b.5).
+PriorityClass templates.
 
 Prevents GVDB components from being preempted by lower-priority batch
 workloads on a shared cluster. Opt-in because PriorityClass is a cluster-
