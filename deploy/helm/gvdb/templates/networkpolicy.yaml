@@ -1,0 +1,279 @@
+{{/*
+Per-workload NetworkPolicy resources. One NetworkPolicy per workload so
+each policy is independently selectable, debuggable (`kubectl describe
+netpol <release>-coordinator`), and aligned with the per-workload
+selectorLabels helpers. Each policy declares both Ingress and Egress so
+the only traffic permitted is what the chart explicitly allows: gRPC,
+Raft, and metrics on the documented ports, plus DNS egress to CoreDNS.
+
+DNS egress targets the kube-system namespace via the K8s 1.22+
+auto-applied "kubernetes.io/metadata.name=kube-system" namespace label
+and the standard "k8s-app=kube-dns" pod label CoreDNS uses on EKS, GKE,
+and AKS. Override .Values.networkPolicy.dns.* if your cluster differs.
+
+Empty .Values.networkPolicy.proxy.clientCIDRs blocks ALL external proxy
+traffic when the policy is enabled — operators must populate it (e.g.
+["10.0.0.0/8"] for VPC-only, ["0.0.0.0/0"] for public, never without
+auth). The chart does not default to public for safety.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+{{- $dnsNs := .Values.networkPolicy.dns.namespaceSelectorLabels -}}
+{{- if not $dnsNs -}}
+{{- $dnsNs = dict "kubernetes.io/metadata.name" "kube-system" -}}
+{{- end -}}
+{{- $dnsPod := .Values.networkPolicy.dns.podSelectorLabels -}}
+{{- if not $dnsPod -}}
+{{- $dnsPod = dict "k8s-app" "kube-dns" -}}
+{{- end -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "gvdb.fullname" . }}-coordinator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.coordinator.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "gvdb.coordinator.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.dataNode.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.queryNode.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.proxy.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.coordinator.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 50051
+        - protocol: TCP
+          port: 8300
+        - protocol: TCP
+          port: 9091
+    {{- with .Values.networkPolicy.coordinator.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.coordinator.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 8300
+        - protocol: TCP
+          port: 50051
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $dnsNs | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $dnsPod | nindent 14 }}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- with .Values.networkPolicy.coordinator.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "gvdb.fullname" . }}-data-node
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.dataNode.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "gvdb.dataNode.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.coordinator.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.queryNode.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.proxy.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.dataNode.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 50060
+    {{- with .Values.networkPolicy.dataNode.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.coordinator.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 50051
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $dnsNs | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $dnsPod | nindent 14 }}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- with .Values.networkPolicy.dataNode.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "gvdb.fullname" . }}-query-node
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.queryNode.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "gvdb.queryNode.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.coordinator.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.proxy.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 50070
+    {{- with .Values.networkPolicy.queryNode.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.coordinator.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 50051
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.dataNode.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 50060
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $dnsNs | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $dnsPod | nindent 14 }}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- with .Values.networkPolicy.queryNode.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "gvdb.fullname" . }}-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.proxy.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "gvdb.proxy.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- if or .Values.networkPolicy.proxy.clientCIDRs .Values.networkPolicy.proxy.extraFrom }}
+  ingress:
+    - from:
+        {{- range .Values.networkPolicy.proxy.clientCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+        {{- with .Values.networkPolicy.proxy.extraFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 50050
+        - protocol: TCP
+          port: 9050
+  {{- else }}
+  ingress: []  # deny all external ingress when no clientCIDRs configured
+  {{- end }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.coordinator.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 50051
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.queryNode.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 50070
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "gvdb.dataNode.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 50060
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $dnsNs | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $dnsPod | nindent 14 }}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- with .Values.networkPolicy.proxy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

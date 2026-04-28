@@ -33,12 +33,20 @@ spec:
              "type" .Values.dataNode.podAntiAffinity.type
              "topologyKey" .Values.dataNode.podAntiAffinity.topologyKey) | nindent 8 }}
       {{- end }}
-      {{- with .Values.dataNode.topologySpreadConstraints }}
+      {{- if or .Values.dataNode.zoneSpread.enabled .Values.dataNode.topologySpreadConstraints }}
       topologySpreadConstraints:
+        {{- if .Values.dataNode.zoneSpread.enabled }}
+        {{- include "gvdb.zoneSpread" (dict
+             "selectorLabels" (include "gvdb.dataNode.selectorLabels" .)
+             "whenUnsatisfiable" "DoNotSchedule"
+             "maxSkew" .Values.dataNode.zoneSpread.maxSkew) | nindent 8 }}
+        {{- end }}
+        {{- with .Values.dataNode.topologySpreadConstraints }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       # Give the pod time to send a drain heartbeat to the coordinator and
-      # finish in-flight work before K8s sends SIGKILL (roadmap 0b.1).
+      # finish in-flight work before K8s sends SIGKILL.
       terminationGracePeriodSeconds: {{ .Values.dataNode.terminationGracePeriodSeconds | default 30 }}
       initContainers:
         - name: wait-for-coordinator
@@ -76,6 +84,14 @@ spec:
           ports:
             - containerPort: 50060
               name: grpc
+            # The bound metrics port is 9101 + ordinal (per-pod, dynamic). K8s
+            # does not enforce that containerPort matches the listening port —
+            # this declaration exists so the PodMonitor can target the named
+            # "metrics" port for discovery; the relabel rules in
+            # servicemonitor.yaml rewrite __address__ to the actual ordinal-
+            # specific port.
+            - containerPort: 9101
+              name: metrics
           volumeMounts:
             - name: data
               mountPath: /data/gvdb/data_node

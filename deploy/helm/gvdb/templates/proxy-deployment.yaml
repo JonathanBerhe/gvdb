@@ -32,9 +32,17 @@ spec:
              "type" .Values.proxy.podAntiAffinity.type
              "topologyKey" .Values.proxy.podAntiAffinity.topologyKey) | nindent 8 }}
       {{- end }}
-      {{- with .Values.proxy.topologySpreadConstraints }}
+      {{- if or .Values.proxy.zoneSpread.enabled .Values.proxy.topologySpreadConstraints }}
       topologySpreadConstraints:
+        {{- if .Values.proxy.zoneSpread.enabled }}
+        {{- include "gvdb.zoneSpread" (dict
+             "selectorLabels" (include "gvdb.proxy.selectorLabels" .)
+             "whenUnsatisfiable" "ScheduleAnyway"
+             "maxSkew" .Values.proxy.zoneSpread.maxSkew) | nindent 8 }}
+        {{- end }}
+        {{- with .Values.proxy.topologySpreadConstraints }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       initContainers:
         - name: wait-for-coordinator
@@ -80,7 +88,7 @@ spec:
             - {{ include "gvdb.coordinator.address" . | quote }}
             # Single dns:/// URI for the query-node headless service;
             # gRPC's round_robin LB fans out across all Ready pods and
-            # picks up scale-up without a helm upgrade (roadmap 1.7).
+            # picks up scale-up without a helm upgrade.
             - "--query-nodes"
             - {{ include "gvdb.queryNode.dnsUri" . | quote }}
           ports:
