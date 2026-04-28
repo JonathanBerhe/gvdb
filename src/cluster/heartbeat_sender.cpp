@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "cluster/heartbeat_sender.h"
+#include "cluster/primary_term_tracker.h"
 #include "utils/logger.h"
 #include <grpcpp/grpcpp.h>
 #include <chrono>
@@ -105,6 +106,25 @@ void HeartbeatSender::SendLoop() {
 
       if (status.ok() && response.acknowledged()) {
         utils::Logger::Instance().Debug("Heartbeat acknowledged by coordinator");
+        // Sync the local primary-term view from the coordinator's
+        // authoritative shard_primaries list. Coordinator pushes one
+        // entry per shard this node is involved with (primary or
+        // replica). The tracker gates writes against this view; out-of-
+        // sync state defaults to "no entry" → write rejected with
+        // FAILED_PRECONDITION rather than silently committing to a node
+        // that's no longer primary.
+        if (primary_term_tracker_ != nullptr) {
+          for (const auto& sp : response.shard_primaries()) {
+            const bool is_primary_here =
+                static_cast<int>(sp.primary_node_id()) == node_id_;
+            if (is_primary_here) {
+              primary_term_tracker_->RecordPrimary(sp.shard_id(), sp.term());
+            } else {
+              primary_term_tracker_->RecordNotPrimary(sp.shard_id(),
+                                                       sp.term());
+            }
+          }
+        }
       } else {
         utils::Logger::Instance().Warn("Heartbeat failed: {}",
                                         status.error_message());

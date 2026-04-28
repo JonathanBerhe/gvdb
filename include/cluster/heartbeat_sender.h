@@ -12,6 +12,8 @@
 namespace gvdb {
 namespace cluster {
 
+class PrimaryTermTracker;
+
 // Sends periodic heartbeats to a coordinator node.
 // Used by data nodes and query nodes to register their presence.
 class HeartbeatSender {
@@ -22,6 +24,16 @@ class HeartbeatSender {
                   proto::internal::NodeType node_type,
                   std::atomic<bool>& shutdown_flag);
   ~HeartbeatSender();
+
+  // Optional: when set, every successful heartbeat response feeds its
+  // shard_primaries field into the tracker, keeping the data-node's
+  // local "am I primary for shard X at term Y?" view in sync with the
+  // coordinator. Owned by the caller (typically data_node_main); must
+  // outlive this HeartbeatSender. No-op when null (e.g. query-nodes,
+  // tests).
+  void SetPrimaryTermTracker(PrimaryTermTracker* tracker) {
+    primary_term_tracker_ = tracker;
+  }
 
   // Start sending heartbeats in a background thread
   void Start();
@@ -54,6 +66,7 @@ class HeartbeatSender {
   proto::internal::NodeType node_type_;
   std::atomic<bool>& shutdown_flag_;
   std::unique_ptr<std::thread> thread_;
+  PrimaryTermTracker* primary_term_tracker_ = nullptr;
 };
 
 }  // namespace cluster
