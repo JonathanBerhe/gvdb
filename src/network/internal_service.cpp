@@ -638,10 +638,15 @@ grpc::Status InternalService::RouteQuery(
     // option with an empty address so the caller sees a deterministic
     // "no routable target" failure rather than a missing shard entry.
     for (const auto& shard_id : metadata.shard_ids) {
-      auto primary_result = shard_manager_->GetPrimaryNode(shard_id);
-      if (!primary_result.ok()) continue;
+      // Atomic (primary, term) read so we can stamp every option with
+      // the same term value. If we read primary and term separately a
+      // concurrent SetPrimaryNode could pair an old node with a new
+      // term (or vice versa), feeding the proxy a contradiction.
+      auto primary_view = shard_manager_->GetPrimaryNodeAndTerm(shard_id);
+      if (!primary_view.ok()) continue;
 
-      core::NodeId primary_id = *primary_result;
+      core::NodeId primary_id = primary_view->node_id;
+      const uint64_t primary_term = primary_view->term;
       if (primary_id == core::kInvalidNodeId) continue;
 
       // Resolve a node-id to (address, routable) using the registry.
@@ -676,6 +681,12 @@ grpc::Status InternalService::RouteQuery(
         opt->set_node_id(core::ToUInt32(nid));
         opt->set_node_address(addr);
         opt->set_is_primary(is_primary);
+        // Every option carries the same primary_term — the term is a
+        // property of the shard's current primary assignment, not of
+        // the node that happens to be in the candidate list. The
+        // proxy stamps this onto write RPCs as gvdb-shard-term so the
+        // data-node can reject term-mismatched writes.
+        opt->set_primary_term(primary_term);
       };
 
       if (!prefer_replica) {
@@ -877,12 +888,29 @@ grpc::Status InternalService::Heartbeat(
     response->set_timestamp(
         std::chrono::system_clock::now().time_since_epoch().count());
 
-    // Send shard assignments back to the node
+    // Send shard assignments back to the node, plus the authoritative
+    // per-shard primary view so the data-node's PrimaryTermTracker
+    // can gate writes against term mismatches.
+    //
+    // Scaling note: GetShardsForNode iterates the full shard table per
+    // call, making this loop O(shards) per heartbeat. At the default
+    // 10s cadence (heartbeat_sender.cpp:116) and 1k-10k shard scales
+    // this is a few hundred microseconds — fine. Beyond ~50k shards
+    // we'd want a per-node shard index in ShardManager; not a v1
+    // concern.
     if (shard_manager_ && node_info.node_id() > 0) {
       core::NodeId nid = core::MakeNodeId(node_info.node_id());
       auto shards = shard_manager_->GetShardsForNode(nid);
       for (const auto& shard_info : shards) {
         response->add_assigned_shards(core::ToUInt16(shard_info.shard_id));
+        // Primary view: shard_id, current primary_node_id, current term.
+        // Same payload sent to every node touching this shard (primary
+        // or replica) — keeps each data-node's tracker in sync without
+        // a separate per-role channel.
+        auto* sp = response->add_shard_primaries();
+        sp->set_shard_id(core::ToUInt16(shard_info.shard_id));
+        sp->set_primary_node_id(core::ToUInt32(shard_info.primary_node));
+        sp->set_term(shard_info.primary_term);
       }
     }
 

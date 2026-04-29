@@ -231,6 +231,14 @@ message RouteQueryNodeOption {
   // assignment. Distinguishes "first-attempt was primary" from
   // "first-attempt was already a replica because primary was draining".
   bool is_primary = 3;
+  // Monotonic per-shard primary term at routing time. Stamped onto
+  // every write RPC by the proxy as the `gvdb-shard-term` gRPC
+  // metadata header; the data-node rejects writes whose term doesn't
+  // match its locally-recorded term so a write routed just before a
+  // primary swap can't commit on the demoted node. Reads ignore this
+  // (any term-tagged read is fine; staleness is bounded by the
+  // replica-lag invariant which is a separate concern).
+  uint64 primary_term = 4;
 }
 
 // Per-shard prioritized list of candidate target nodes. The first entry
@@ -302,6 +310,14 @@ message HeartbeatRequest {
   NodeInfo node_info = 1;
 }
 
+// Per-shard primary view pushed to a data-node so it can gate writes
+// against "am I currently primary for this shard at this term?".
+message ShardPrimaryAssignment {
+  uint32 shard_id = 1;
+  uint32 primary_node_id = 2;
+  uint64 term = 3;
+}
+
 message HeartbeatResponse {
   bool acknowledged = 1;
   int64 timestamp = 2;
@@ -309,6 +325,12 @@ message HeartbeatResponse {
   // Coordinator can send instructions in heartbeat response
   repeated uint32 assigned_shards = 3;
   bool should_rebalance = 4;
+
+  // Authoritative per-shard primary view for shards this responding
+  // node touches (either as primary or as replica). Steady-state
+  // sync channel for the data-node's PrimaryTermTracker. Backward-
+  // compatible: pre-1.x data-nodes ignore this field.
+  repeated ShardPrimaryAssignment shard_primaries = 5;
 }
 
 message GetClusterHealthRequest {}

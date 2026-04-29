@@ -167,6 +167,12 @@ TEST_CASE("CallWithReplicaFallback returns FAILED_PRECONDITION on empty options"
 TEST_CASE("IsTransientReplicaError flags only routing-relevant codes") {
   CHECK(IsTransientReplicaError(grpc::StatusCode::UNAVAILABLE));
   CHECK(IsTransientReplicaError(grpc::StatusCode::DEADLINE_EXCEEDED));
+  // ABORTED is the data-node's signal "your write tagged a stale
+  // primary term; re-route via a fresh RouteQuery". The proxy's
+  // write-side helper retries on this; the helper must classify it as
+  // transient so the inner loop continues to the next candidate /
+  // re-routes via the outer wrapper.
+  CHECK(IsTransientReplicaError(grpc::StatusCode::ABORTED));
   CHECK_FALSE(IsTransientReplicaError(grpc::StatusCode::OK));
   CHECK_FALSE(IsTransientReplicaError(grpc::StatusCode::INTERNAL));
   CHECK_FALSE(IsTransientReplicaError(grpc::StatusCode::NOT_FOUND));

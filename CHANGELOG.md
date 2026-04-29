@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.29.0](https://github.com/JonathanBerhe/gvdb/compare/v0.28.0...v0.29.0) (2026-04-25)
+
+
+### Features
+
+* **network:** drain-era replica fallback for read paths (0b.2) ([bb6a1c8](https://github.com/JonathanBerhe/gvdb/commit/bb6a1c848f26a7ce69b9f955565533f6c6237fe5))
+* **network:** drain-era replica fallback for read paths (0b.2) ([cb83e25](https://github.com/JonathanBerhe/gvdb/commit/cb83e25a4db292f486711060f7fb0d8a12424cfd))
+
+
+### Bug Fixes
+
+* **network:** PR-95 review fixes — drop range-search per-node fallback, add RouteQuery deadline, rename helper, doc tightening ([eee3d20](https://github.com/JonathanBerhe/gvdb/commit/eee3d20ef9e3bce55c5a8ce02820cd6ce9ffe732))
+
 ## [0.28.0](https://github.com/JonathanBerhe/gvdb/compare/v0.27.0...v0.28.0) (2026-04-25)
 
 
