@@ -167,11 +167,14 @@ Key values:
 |-----------|---------|-------------|
 | `dataNode.replicas` | `2` | Number of data nodes |
 | `queryNode.replicas` | `1` | Number of query nodes |
+| `coordinator.replicas` | `1` | Coordinators (use 3 for Raft HA in production) |
 | `proxy.service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer` |
 | `image.repository` | `gvdb` | Container image |
-| `image.tag` | `latest` | Image tag |
+| `image.tag` | `""` (Chart `appVersion`) | Image tag |
 | `dataNode.storage.size` | `5Gi` | PVC size per data node |
 | `dataNode.memoryLimitGb` | `4` | Memory limit for vector storage |
+
+**Production hardening (all opt-in, default off):** `<workload>.podDisruptionBudget`, `<workload>.podAntiAffinity`, `<workload>.zoneSpread`, `<workload>.serviceAccount` (with cloud IAM annotations), `priorityClasses.create`, `networkPolicy.enabled` (per-workload `NetworkPolicy` resources), `metrics.serviceMonitor.enabled` (PodMonitor + ServiceMonitor for Prometheus Operator), `security.podSecurityContext` / `security.containerSecurityContext`. See the [Deploy with Helm guide](https://jonathanberhe.github.io/gvdb/operations/deploy-helm/#hardening-primitives-production) for the full reference and a copy-pasteable `values.prod.yaml`.
 
 See [`deploy/helm/gvdb/values.yaml`](deploy/helm/gvdb/values.yaml) for all options.
 

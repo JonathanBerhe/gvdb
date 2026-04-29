@@ -1,5 +1,5 @@
 {{/*
-PodDisruptionBudget templates (roadmap 0b.5).
+PodDisruptionBudget templates.
 
 One PDB per workload, all opt-in. In HA topologies these prevent
 `kubectl drain` / cluster-autoscaler from evicting too many replicas at
@@ -13,8 +13,7 @@ can override in their own values file.
 {{- /*
   Validate each PDB: minAvailable must be in [0, replicas]. A value
   greater than replicas would produce a PDB that is always violated and
-  blocks every voluntary disruption (kubectl drain, cluster-autoscaler)
-  (roadmap 0b.5 review #10).
+  blocks every voluntary disruption (kubectl drain, cluster-autoscaler).
 */ -}}
 
 {{- if .Values.coordinator.podDisruptionBudget.enabled }}

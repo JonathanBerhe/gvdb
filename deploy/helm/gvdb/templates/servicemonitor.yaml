@@ -1,0 +1,158 @@
+{{/*
+Prometheus Operator integration. PodMonitor for the three StatefulSet
+workloads because each replica binds metrics on an ordinal-derived port:
+  coordinator: 9090 + node_id           (node_id = ordinal + 1)
+  data-node:   9100 + (node_id - 100)   (node_id = 101 + ordinal)
+  query-node:  9200 + (node_id - 200)   (node_id = 201 + ordinal)
+A ServiceMonitor would only catch the first ordinal because the
+Service's named "metrics" port is fixed. PodMonitor selects pods by
+label, then relabel rules rewrite __address__ to <pod_ip>:<port>. Each
+ordinal gets its own relabel rule that pattern-matches the pod name and
+sets a temporary __tmp_metrics_port label; a final rule combines pod IP
++ port into __address__. ServiceMonitor is fine for the proxy because
+the proxy Deployment binds metrics on a fixed port (9050).
+
+The PodMonitor port name "metrics" is a discovery filter — the named
+port must exist on the pod for K8s to consider the endpoint, but the
+actual scrape uses __address__ after relabeling. The static
+containerPort number declared on each StatefulSet is therefore
+informational; the bound port differs per ordinal.
+*/}}
+{{- if .Values.metrics.serviceMonitor.enabled }}
+{{- $ns := .Values.metrics.serviceMonitor.namespace -}}
+{{- if not $ns -}}{{- $ns = .Release.Namespace -}}{{- end -}}
+{{- $extraLabels := .Values.metrics.serviceMonitor.additionalLabels | default dict -}}
+{{- $interval := .Values.metrics.serviceMonitor.interval | default "30s" -}}
+{{- $scrapeTimeout := .Values.metrics.serviceMonitor.scrapeTimeout | default "10s" -}}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "gvdb.fullname" . }}-coordinator
+  namespace: {{ $ns }}
+  labels:
+    {{- include "gvdb.coordinator.labels" . | nindent 4 }}
+    {{- with $extraLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "gvdb.coordinator.selectorLabels" . | nindent 6 }}
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ $interval }}
+      scrapeTimeout: {{ $scrapeTimeout }}
+      relabelings:
+        {{- range $i, $_ := until (int .Values.coordinator.replicas) }}
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          regex: '.*-coordinator-{{ $i }}$'
+          targetLabel: __tmp_metrics_port
+          replacement: '{{ add 9091 $i }}'
+        {{- end }}
+        - sourceLabels: [__meta_kubernetes_pod_ip, __tmp_metrics_port]
+          regex: '([^;]+);(\d+)'
+          targetLabel: __address__
+          replacement: '$1:$2'
+        - action: labeldrop
+          regex: __tmp_metrics_port
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "gvdb.fullname" . }}-data-node
+  namespace: {{ $ns }}
+  labels:
+    {{- include "gvdb.dataNode.labels" . | nindent 4 }}
+    {{- with $extraLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "gvdb.dataNode.selectorLabels" . | nindent 6 }}
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ $interval }}
+      scrapeTimeout: {{ $scrapeTimeout }}
+      relabelings:
+        {{- range $i, $_ := until (int .Values.dataNode.replicas) }}
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          regex: '.*-data-node-{{ $i }}$'
+          targetLabel: __tmp_metrics_port
+          replacement: '{{ add 9101 $i }}'
+        {{- end }}
+        - sourceLabels: [__meta_kubernetes_pod_ip, __tmp_metrics_port]
+          regex: '([^;]+);(\d+)'
+          targetLabel: __address__
+          replacement: '$1:$2'
+        - action: labeldrop
+          regex: __tmp_metrics_port
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "gvdb.fullname" . }}-query-node
+  namespace: {{ $ns }}
+  labels:
+    {{- include "gvdb.queryNode.labels" . | nindent 4 }}
+    {{- with $extraLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "gvdb.queryNode.selectorLabels" . | nindent 6 }}
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ $interval }}
+      scrapeTimeout: {{ $scrapeTimeout }}
+      relabelings:
+        {{- range $i, $_ := until (int .Values.queryNode.replicas) }}
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          regex: '.*-query-node-{{ $i }}$'
+          targetLabel: __tmp_metrics_port
+          replacement: '{{ add 9201 $i }}'
+        {{- end }}
+        - sourceLabels: [__meta_kubernetes_pod_ip, __tmp_metrics_port]
+          regex: '([^;]+);(\d+)'
+          targetLabel: __address__
+          replacement: '$1:$2'
+        - action: labeldrop
+          regex: __tmp_metrics_port
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "gvdb.fullname" . }}-proxy
+  namespace: {{ $ns }}
+  labels:
+    {{- include "gvdb.proxy.labels" . | nindent 4 }}
+    {{- with $extraLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "gvdb.proxy.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ $interval }}
+      scrapeTimeout: {{ $scrapeTimeout }}
+{{- end }}
