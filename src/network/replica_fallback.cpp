@@ -15,6 +15,14 @@ bool IsTransientReplicaError(grpc::StatusCode code) {
   // target responded. Slow node, GC pause, head-of-line blocking — all
   // node-local issues, so a different node is worth trying.
   //
+  // ABORTED: a write raced a primary swap. The data-node returns
+  // ABORTED with detail "stale_primary_term" or "not_primary_for_shard"
+  // when its local PrimaryTermTracker rejects a write that the proxy
+  // routed using stale RouteQuery cache. The proxy must re-route via
+  // a fresh RouteQuery — handled by RouteWriteAndCallWithFallback,
+  // which re-issues RouteQuery on each retry rather than reusing a
+  // stale options list.
+  //
   // Codes intentionally NOT considered transient (do not broaden this
   // set without re-examining each):
   //
@@ -33,10 +41,9 @@ bool IsTransientReplicaError(grpc::StatusCode code) {
   //     load. Let the caller back off.
   //   - CANCELLED: the upstream caller gave up. We must not initiate
   //     more work on their behalf.
-  //   - ABORTED: optimistic-concurrency conflict; client must retry
-  //     the whole operation, not just route to a replica.
   return code == grpc::StatusCode::UNAVAILABLE ||
-         code == grpc::StatusCode::DEADLINE_EXCEEDED;
+         code == grpc::StatusCode::DEADLINE_EXCEEDED ||
+         code == grpc::StatusCode::ABORTED;
 }
 
 }  // namespace network
