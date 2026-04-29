@@ -31,6 +31,15 @@ struct ShardInfo {
   std::vector<core::NodeId> replica_nodes;
   ShardState state;
 
+  // Monotonic generation number, bumped on every primary change. Anchors
+  // write linearizability across primary swaps: the proxy stamps
+  // `gvdb-shard-term` on every write call from the value it learned via
+  // RouteQuery, and the data-node rejects writes whose term doesn't
+  // match its locally-recorded term. Without this, a write routed to
+  // the old primary just before a swap would commit silently and leak
+  // out of consensus.
+  uint64_t primary_term;
+
   // Metrics for rebalancing decisions
   size_t data_size_bytes;
   size_t vector_count;
@@ -45,6 +54,7 @@ struct ShardInfo {
     : shard_id(core::kInvalidShardId),
       primary_node(core::kInvalidNodeId),
       state(ShardState::ACTIVE),
+      primary_term(0),
       data_size_bytes(0),
       vector_count(0),
       query_count(0) {}
@@ -74,8 +84,32 @@ class ShardManager {
 
   // Shard-to-node mapping
   absl::StatusOr<core::NodeId> GetPrimaryNode(core::ShardId shard_id) const;
+
+  // Returns (primary_node, primary_term) atomically. Use this when both
+  // pieces are needed — calling GetPrimaryNode() then GetPrimaryTerm()
+  // would race against a concurrent SetPrimaryNode and could pair an
+  // old node with a new term (or vice versa).
+  struct PrimaryView {
+    core::NodeId node_id;
+    uint64_t term;
+  };
+  absl::StatusOr<PrimaryView> GetPrimaryNodeAndTerm(
+      core::ShardId shard_id) const;
+
   absl::StatusOr<std::vector<core::NodeId>> GetReplicaNodes(core::ShardId shard_id) const;
+
+  // Sets the primary for a shard. The single-arg form auto-increments
+  // primary_term — preserves callers that don't pin a term explicitly
+  // (rebalance plan, drain handler before they're refactored to the
+  // two-phase swap). The three-arg form is for the orchestrated swap
+  // path (Coordinator::TransferPrimary): the caller has computed the
+  // term on its own and wants the term written exactly. Both forms
+  // reject term regressions (writing a term ≤ existing primary_term)
+  // — primary_term is monotonic by contract.
   absl::Status SetPrimaryNode(core::ShardId shard_id, core::NodeId node_id);
+  absl::Status SetPrimaryNode(core::ShardId shard_id, core::NodeId node_id,
+                              uint64_t primary_term);
+
   absl::Status AddReplica(core::ShardId shard_id, core::NodeId node_id);
   absl::Status RemoveReplica(core::ShardId shard_id, core::NodeId node_id);
 

@@ -15,6 +15,7 @@
 #include "cluster/data_node.h"
 #include "cluster/shard_manager.h"
 #include "cluster/heartbeat_sender.h"
+#include "cluster/primary_term_tracker.h"
 #include "storage/segment_manager.h"
 #include "storage/tiered_segment_manager.h"
 #include "storage/segment_cache.h"
@@ -354,7 +355,22 @@ int main(int argc, char** argv) {
         "Memory Limit: " + std::to_string(args.memory_limit_gb) + " GB",
     });
 
-    // 5. Heartbeat sender
+    // 5. Primary-term tracker — local view of "am I primary for shard X
+    // at term T?". Populated by HeartbeatSender each cycle from the
+    // coordinator's authoritative shard_primaries list. The write-path
+    // enforcement in VectorDBService and the explicit two-phase swap
+    // RPCs read from / write to this same tracker.
+    //
+    // LIFETIME ORDER MATTERS: this declaration MUST precede the
+    // HeartbeatSender below so the tracker outlives every heartbeat
+    // cycle. HeartbeatSender stores a raw pointer to the tracker and
+    // writes to it from its background loop; reversing the declaration
+    // order would let the tracker be destroyed while the loop is still
+    // touching it during shutdown. Keep them in this order.
+    auto primary_term_tracker = std::make_unique<cluster::PrimaryTermTracker>();
+
+    // 6. Heartbeat sender
+
     std::unique_ptr<cluster::HeartbeatSender> heartbeat;
     if (!args.coordinator_addresses.empty()) {
       std::string heartbeat_addr = args.advertise_address.empty()
@@ -363,6 +379,7 @@ int main(int argc, char** argv) {
           args.coordinator_addresses[0], args.node_id, heartbeat_addr,
           proto::internal::NodeType::NODE_TYPE_DATA_NODE,
           utils::ServerBootstrap::ShutdownFlag());
+      heartbeat->SetPrimaryTermTracker(primary_term_tracker.get());
       heartbeat->Start();
     }
 

@@ -184,17 +184,76 @@ absl::StatusOr<std::vector<core::NodeId>> ShardManager::GetReplicaNodes(
   return it->second.replica_nodes;
 }
 
-absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id, core::NodeId node_id) {
+absl::StatusOr<ShardManager::PrimaryView> ShardManager::GetPrimaryNodeAndTerm(
+    core::ShardId shard_id) const {
+  std::shared_lock lock(shard_mutex_);
+  auto it = shards_.find(shard_id);
+  if (it == shards_.end()) {
+    return absl::NotFoundError(
+        absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
+  }
+  if (it->second.primary_node == core::kInvalidNodeId) {
+    return absl::FailedPreconditionError(
+        absl::StrCat("Shard has no primary node: ", core::ToUInt16(shard_id)));
+  }
+  return PrimaryView{it->second.primary_node, it->second.primary_term};
+}
+
+// Single-arg setter: auto-increments primary_term. The auto-bump is
+// always at least the prior term + 1; callers that want full control
+// over the term value (e.g. the two-phase swap orchestrator) should
+// use the explicit-term overload.
+absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id,
+                                           core::NodeId node_id) {
   std::unique_lock lock(shard_mutex_);
   auto it = shards_.find(shard_id);
   if (it == shards_.end()) {
-    return absl::NotFoundError(absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
+    return absl::NotFoundError(
+        absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
+  }
+
+  // Bump term unconditionally so any in-flight write tagged with the
+  // pre-call term is rejected on arrival at the data-node side. We do
+  // not skip the bump when node_id matches the current primary because
+  // term is also used by drain-and-restore-on-same-node paths to reset
+  // the stale-write rejection horizon.
+  it->second.primary_node = node_id;
+  it->second.primary_term += 1;
+  utils::Logger::Instance().Info(
+      "Set primary node for shard {} to node {} (term={})",
+      core::ToUInt16(shard_id), core::ToUInt32(node_id),
+      it->second.primary_term);
+  return absl::OkStatus();
+}
+
+// Explicit-term setter for the two-phase swap orchestrator. Rejects
+// term regressions: primary_term is monotonic per shard by contract,
+// so writing a term ≤ existing term is a coordinator bug — never
+// silently apply it (would let a stale-routing client win against a
+// later promotion).
+absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id,
+                                           core::NodeId node_id,
+                                           uint64_t primary_term) {
+  std::unique_lock lock(shard_mutex_);
+  auto it = shards_.find(shard_id);
+  if (it == shards_.end()) {
+    return absl::NotFoundError(
+        absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
+  }
+
+  if (primary_term <= it->second.primary_term) {
+    return absl::FailedPreconditionError(absl::StrCat(
+        "Refusing to set primary for shard ", core::ToUInt16(shard_id),
+        ": new term ", primary_term,
+        " must be strictly greater than current term ",
+        it->second.primary_term));
   }
 
   it->second.primary_node = node_id;
-  utils::Logger::Instance().Info("Set primary node for shard {} to node {}",
-                                 core::ToUInt16(shard_id),
-                                 core::ToUInt32(node_id));
+  it->second.primary_term = primary_term;
+  utils::Logger::Instance().Info(
+      "Set primary node for shard {} to node {} (explicit term={})",
+      core::ToUInt16(shard_id), core::ToUInt32(node_id), primary_term);
   return absl::OkStatus();
 }
 

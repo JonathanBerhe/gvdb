@@ -404,6 +404,20 @@ target_link_libraries(replica_fallback_tests
 add_test(NAME ReplicaFallbackTests COMMAND replica_fallback_tests)
 set_tests_properties(ReplicaFallbackTests PROPERTIES TIMEOUT 30)
 
+# PrimaryTermTracker unit tests
+add_executable(primary_term_tracker_tests
+  primary_term_tracker_test.cpp
+)
+
+target_link_libraries(primary_term_tracker_tests
+  PRIVATE
+    gvdb_cluster
+    doctest::doctest_with_main
+)
+
+add_test(NAME PrimaryTermTrackerTests COMMAND primary_term_tracker_tests)
+set_tests_properties(PrimaryTermTrackerTests PROPERTIES TIMEOUT 10)
+
 # VectorDBService DISTRIBUTED mode tests
 add_executable(vectordb_service_distributed_tests
   vectordb_service_distributed_test.cpp
