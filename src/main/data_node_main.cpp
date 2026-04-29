@@ -358,11 +358,19 @@ int main(int argc, char** argv) {
     // 5. Primary-term tracker — local view of "am I primary for shard X
     // at term T?". Populated by HeartbeatSender each cycle from the
     // coordinator's authoritative shard_primaries list. The write-path
-    // enforcement in VectorDBService (step 3) and the explicit two-phase
-    // swap RPCs (step 4) read from / write to this same tracker.
+    // enforcement in VectorDBService and the explicit two-phase swap
+    // RPCs read from / write to this same tracker.
+    //
+    // LIFETIME ORDER MATTERS: this declaration MUST precede the
+    // HeartbeatSender below so the tracker outlives every heartbeat
+    // cycle. HeartbeatSender stores a raw pointer to the tracker and
+    // writes to it from its background loop; reversing the declaration
+    // order would let the tracker be destroyed while the loop is still
+    // touching it during shutdown. Keep them in this order.
     auto primary_term_tracker = std::make_unique<cluster::PrimaryTermTracker>();
 
     // 6. Heartbeat sender
+
     std::unique_ptr<cluster::HeartbeatSender> heartbeat;
     if (!args.coordinator_addresses.empty()) {
       std::string heartbeat_addr = args.advertise_address.empty()

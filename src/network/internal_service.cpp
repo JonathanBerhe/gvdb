@@ -891,6 +891,13 @@ grpc::Status InternalService::Heartbeat(
     // Send shard assignments back to the node, plus the authoritative
     // per-shard primary view so the data-node's PrimaryTermTracker
     // can gate writes against term mismatches.
+    //
+    // Scaling note: GetShardsForNode iterates the full shard table per
+    // call, making this loop O(shards) per heartbeat. At the default
+    // 10s cadence (heartbeat_sender.cpp:116) and 1k-10k shard scales
+    // this is a few hundred microseconds — fine. Beyond ~50k shards
+    // we'd want a per-node shard index in ShardManager; not a v1
+    // concern.
     if (shard_manager_ && node_info.node_id() > 0) {
       core::NodeId nid = core::MakeNodeId(node_info.node_id());
       auto shards = shard_manager_->GetShardsForNode(nid);

@@ -117,11 +117,23 @@ void HeartbeatSender::SendLoop() {
           for (const auto& sp : response.shard_primaries()) {
             const bool is_primary_here =
                 static_cast<int>(sp.primary_node_id()) == node_id_;
-            if (is_primary_here) {
-              primary_term_tracker_->RecordPrimary(sp.shard_id(), sp.term());
-            } else {
-              primary_term_tracker_->RecordNotPrimary(sp.shard_id(),
-                                                       sp.term());
+            const bool ok =
+                is_primary_here
+                    ? primary_term_tracker_->RecordPrimary(sp.shard_id(),
+                                                           sp.term())
+                    : primary_term_tracker_->RecordNotPrimary(sp.shard_id(),
+                                                              sp.term());
+            // A false return means a term regression — the heartbeat
+            // tried to walk the term backwards, which is contractually
+            // impossible (terms are monotonic per shard). Likely cause:
+            // a stale gRPC response landing after a fresher one. Logged
+            // at warn so a persistent stream surfaces in operator dashboards
+            // without dropping the steady-state debug log spam threshold.
+            if (!ok) {
+              utils::Logger::Instance().Warn(
+                  "Heartbeat: rejected term regression for shard {} "
+                  "(received {}, role primary={})",
+                  sp.shard_id(), sp.term(), is_primary_here);
             }
           }
         }

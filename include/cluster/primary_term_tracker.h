@@ -3,6 +3,11 @@
 
 #pragma once
 
+// Include-what-you-use note: this header uses std::shared_mutex (member
+// field) and std::unordered_map. The implementation file additionally
+// uses std::unique_lock (from <mutex>) and must include it explicitly —
+// libstdc++ does not transitively expose unique_lock through
+// <shared_mutex>, even though libc++ happens to.
 #include <cstdint>
 #include <shared_mutex>
 #include <unordered_map>
