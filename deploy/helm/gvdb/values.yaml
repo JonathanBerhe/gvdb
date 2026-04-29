@@ -5,13 +5,13 @@ image:
 
 # K8s cluster DNS domain. Defaults to cluster.local; override for clusters
 # using a custom domain (e.g. "cluster.internal") so FQDNs in the chart
-# resolve correctly (roadmap 0b.5).
+# resolve correctly.
 clusterDomain: cluster.local
 
 coordinator:
   # Set replicas: 3 (or 5, 7...) for Raft HA. Each pod derives its node-id
   # from the StatefulSet ordinal + 1, and --raft-peers is populated from
-  # the headless service DNS in "id:host:port" format (roadmap 0b.4).
+  # the headless service DNS in "id:host:port" format.
   # replicas: 1 keeps --single-node mode (dev / kind default).
   replicas: 1
   # Legacy toggle retained for clarity — ignored when replicas > 1.
@@ -26,8 +26,8 @@ coordinator:
   storage:
     size: 1Gi
     storageClass: ""
-  # Production hardening primitives (roadmap 0b.5). All default off so the
-  # dev / kind install is unchanged. Enable in a values-prod.yaml overlay.
+  # Production hardening primitives. All default off so the dev / kind
+  # install is unchanged. Enable in a values-prod.yaml overlay.
   podDisruptionBudget:
     # Prevents voluntary disruptions (drain, cluster-autoscaler) from
     # evicting too many replicas at once. Default off so dev/kind with 1
@@ -41,7 +41,16 @@ coordinator:
     enabled: false
     type: preferred  # "preferred" (soft) or "required" (hard)
     topologyKey: kubernetes.io/hostname  # e.g. topology.kubernetes.io/zone for AZ spread
-  topologySpreadConstraints: []  # user-provided raw list, e.g. AZ spread
+  # Spread replicas across topology.kubernetes.io/zone. StatefulSets use
+  # whenUnsatisfiable: DoNotSchedule for data safety — K8s refuses to
+  # schedule a replica that would colocate in a single AZ. Default off
+  # so kind/dev (single node, single zone) stays schedulable. The
+  # user-provided topologySpreadConstraints list below is appended after
+  # this default, so explicit overrides win.
+  zoneSpread:
+    enabled: false
+    maxSkew: 1
+  topologySpreadConstraints: []  # user-provided raw list, appended after zoneSpread
   serviceAccount:
     create: false
     name: ""
@@ -54,7 +63,7 @@ dataNode:
   # Seconds between SIGTERM and SIGKILL. Pod uses this window to send a
   # draining heartbeat to the coordinator, wait for in-flight index builds
   # to finish (IVF can take tens of seconds), and close gRPC connections
-  # cleanly (roadmap 0b.1).
+  # cleanly.
   terminationGracePeriodSeconds: 60
   resources:
     requests:
@@ -66,7 +75,7 @@ dataNode:
   storage:
     size: 5Gi
     storageClass: ""
-  # Hardening (roadmap 0b.5) — same shape as coordinator.
+  # Hardening primitives — same shape as coordinator.
   podDisruptionBudget:
     enabled: false
     minAvailable: 1
@@ -74,6 +83,9 @@ dataNode:
     enabled: false
     type: preferred
     topologyKey: kubernetes.io/hostname
+  zoneSpread:
+    enabled: false
+    maxSkew: 1
   topologySpreadConstraints: []
   serviceAccount:
     create: false
@@ -95,7 +107,7 @@ queryNode:
   storage:
     size: 2Gi
     storageClass: ""
-  # Hardening (roadmap 0b.5).
+  # Hardening primitives.
   podDisruptionBudget:
     enabled: false
     minAvailable: 1
@@ -103,6 +115,9 @@ queryNode:
     enabled: false
     type: preferred
     topologyKey: kubernetes.io/hostname
+  zoneSpread:
+    enabled: false
+    maxSkew: 1
   topologySpreadConstraints: []
   serviceAccount:
     create: false
@@ -123,7 +138,8 @@ proxy:
     type: ClusterIP
     port: 50050
     nodePort: ""
-  # Hardening (roadmap 0b.5).
+  # Hardening primitives. The proxy is stateless, so zoneSpread defaults
+  # to whenUnsatisfiable: ScheduleAnyway (availability over balance).
   podDisruptionBudget:
     enabled: false
     minAvailable: 1
@@ -131,6 +147,9 @@ proxy:
     enabled: false
     type: preferred
     topologyKey: kubernetes.io/hostname
+  zoneSpread:
+    enabled: false
+    maxSkew: 1
   topologySpreadConstraints: []
   serviceAccount:
     create: false
@@ -138,9 +157,9 @@ proxy:
     annotations: {}
   priorityClassName: ""
 
-# Pod- and container-level security contexts applied to every workload
-# (roadmap 0b.5). Empty by default to preserve existing behavior; populate
-# in a production values overlay, e.g.:
+# Pod- and container-level security contexts applied to every workload.
+# Empty by default to preserve existing behavior; populate in a
+# production values overlay, e.g.:
 #   security:
 #     podSecurityContext:
 #       runAsNonRoot: true
@@ -160,9 +179,9 @@ security:
   podSecurityContext: {}
   containerSecurityContext: {}
 
-# PriorityClass objects for each workload (roadmap 0b.5). Cluster-scoped
-# resource — only create when ops explicitly allow it. Defaults reserve
-# headroom under the K8s system-cluster-critical value (2000000000).
+# PriorityClass objects for each workload. Cluster-scoped resource —
+# only create when ops explicitly allow it. Defaults reserve headroom
+# under the K8s system-cluster-critical value (2000000000).
 priorityClasses:
   create: false
   coordinator:
@@ -173,6 +192,59 @@ priorityClasses:
     value: 800000
   proxy:
     value: 700000
+
+# NetworkPolicy. Default off — kind/dev typically does not install a CNI
+# that enforces NetworkPolicy (kindnet supports it as of 0.20+ but most
+# dev clusters skip it). Enable in a values-prod.yaml overlay. Per-
+# workload policies are emitted that allow only the gRPC / Raft /
+# metrics traffic the chart documents, plus DNS egress to kube-system
+# CoreDNS. With the policy enabled, an empty proxy.clientCIDRs list
+# blocks ALL external proxy traffic — operators MUST populate it.
+networkPolicy:
+  enabled: false
+  # Override the kube-system namespace selector if your cluster does
+  # not have the K8s 1.22+ "kubernetes.io/metadata.name" automatic
+  # label or if CoreDNS runs in a non-standard namespace. Both
+  # selectors are AND-ed together; leave empty for the chart defaults.
+  dns:
+    namespaceSelectorLabels: {}  # default: { kubernetes.io/metadata.name: kube-system }
+    podSelectorLabels: {}        # default: { k8s-app: kube-dns }
+  coordinator:
+    extraIngress: []   # appended verbatim; e.g. allow scrape from a non-default Prometheus namespace
+    extraEgress: []
+  dataNode:
+    extraIngress: []
+    extraEgress: []
+  queryNode:
+    extraIngress: []
+    extraEgress: []
+  proxy:
+    # Client CIDRs that may reach the proxy on 50050 (gRPC) and 9050
+    # (metrics). Empty means NO clients — operators MUST set this list
+    # when enabling the policy or external traffic is dropped.
+    # Examples: ["10.0.0.0/8"] for a VPC, ["0.0.0.0/0"] for fully
+    # public (not recommended without auth).
+    clientCIDRs: []
+    extraFrom: []     # additional 'from' entries (podSelector / namespaceSelector)
+    extraEgress: []
+
+# Prometheus Operator integration. Default off so the chart installs
+# cleanly on clusters without the Operator CRDs. Enable when
+# kube-prometheus-stack is present.
+metrics:
+  serviceMonitor:
+    enabled: false
+    # Namespace where the PodMonitor/ServiceMonitor are created. Empty
+    # means the same namespace as the release. Set to the Prometheus
+    # Operator's watched namespace if it does not select cross-namespace.
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    # Labels added to every PodMonitor/ServiceMonitor — must include
+    # whatever Prometheus's serviceMonitorSelector / podMonitorSelector
+    # selects on (often `release: kube-prometheus-stack` or
+    # `prometheus: <name>`).
+    additionalLabels: {}
 
 config:
   server:
@@ -197,6 +269,9 @@ ui:
   enabled: false
   image:
     repository: ghcr.io/jonathanberhe/gvdb-ui
+    # NOTE: this image is not yet built/pushed by CI. Enabling ui.enabled
+    # currently requires manually publishing a tag to the registry. Pinning
+    # to a real tag will land in a follow-up that adds the publish workflow.
     tag: latest
     pullPolicy: IfNotPresent
   port: 8080

@@ -8,12 +8,12 @@ metadata:
 spec:
   serviceName: {{ include "gvdb.coordinator.serviceName" . }}
   replicas: {{ .Values.coordinator.replicas }}
-  # Start all coordinator pods in parallel (roadmap 0b.4). The default
-  # OrderedReady deadlocks HA bootstrap: pod-0 can't reach Ready until
-  # Raft quorum forms, Raft quorum needs pod-1/pod-2, and OrderedReady
-  # won't start pod-1 until pod-0 is Ready. Parallel breaks the cycle.
-  # Safe for statelessly-identified pods because each pod derives its
-  # identity from HOSTNAME independently.
+  # Start all coordinator pods in parallel. The default OrderedReady
+  # deadlocks HA bootstrap: pod-0 can't reach Ready until Raft quorum
+  # forms, Raft quorum needs pod-1/pod-2, and OrderedReady won't start
+  # pod-1 until pod-0 is Ready. Parallel breaks the cycle. Safe for
+  # statelessly-identified pods because each pod derives its identity
+  # from HOSTNAME independently.
   podManagementPolicy: Parallel
   selector:
     matchLabels:
@@ -40,9 +40,17 @@ spec:
              "type" .Values.coordinator.podAntiAffinity.type
              "topologyKey" .Values.coordinator.podAntiAffinity.topologyKey) | nindent 8 }}
       {{- end }}
-      {{- with .Values.coordinator.topologySpreadConstraints }}
+      {{- if or .Values.coordinator.zoneSpread.enabled .Values.coordinator.topologySpreadConstraints }}
       topologySpreadConstraints:
+        {{- if .Values.coordinator.zoneSpread.enabled }}
+        {{- include "gvdb.zoneSpread" (dict
+             "selectorLabels" (include "gvdb.coordinator.selectorLabels" .)
+             "whenUnsatisfiable" "DoNotSchedule"
+             "maxSkew" .Values.coordinator.zoneSpread.maxSkew) | nindent 8 }}
+        {{- end }}
+        {{- with .Values.coordinator.topologySpreadConstraints }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       containers:
         - name: coordinator
@@ -56,11 +64,11 @@ spec:
           args:
             - |
               # Derive a 1-indexed node-id from the StatefulSet ordinal so
-              # each coordinator pod gets a stable identity across restarts
-              # (roadmap 0b.4). NuRaft requires node_id > 0. Validate the
-              # parsed ordinal explicitly so a future StatefulSet rename
-              # that breaks the '<name>-<ordinal>' pattern fails loud
-              # instead of silently producing node-id=1 for every pod.
+              # each coordinator pod gets a stable identity across restarts.
+              # NuRaft requires node_id > 0. Validate the parsed ordinal
+              # explicitly so a future StatefulSet rename that breaks the
+              # '<name>-<ordinal>' pattern fails loud instead of silently
+              # producing node-id=1 for every pod.
               # Use POSIX-portable constructs (runtime shell is /bin/sh =
               # dash) — no bash-isms like [[ ]] or `set -o pipefail`.
               set -eu
@@ -108,9 +116,9 @@ spec:
             tcpSocket:
               port: 50051
             # The coordinator waits up to 60s for Raft leader election
-            # during HA bootstrap before opening :50051 (roadmap 0b.4).
-            # Give the probe enough runway to not kill the pod mid-
-            # election when peers come up in parallel.
+            # during HA bootstrap before opening :50051. Give the probe
+            # enough runway to not kill the pod mid-election when peers
+            # come up in parallel.
             initialDelaySeconds: 90
             periodSeconds: 20
           resources:

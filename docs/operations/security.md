@@ -28,8 +28,8 @@ Clients connect over an insecure channel by default. For TLS endpoints, use a cu
 
     creds = grpc.ssl_channel_credentials(open("ca.crt", "rb").read())
     # The GVDBClient currently constructs an insecure channel internally.
-    # For TLS, use the generated gRPC stubs directly or wait for a
-    # channel-factory kwarg (tracked on the roadmap).
+    # For TLS today, use the generated gRPC stubs directly. A
+    # channel-factory kwarg on GVDBClient is planned.
     ```
 
 === "Java"
@@ -127,8 +127,18 @@ Each entry contains `timestamp`, `api_key_id`, `operation`, `collection`, `statu
 
 ## Network isolation
 
-- In Kubernetes, use `NetworkPolicy` to restrict traffic to the proxy from known app namespaces.
-- For multi-tenant setups, combine RBAC collection scoping with per-tenant API keys.
+The Helm chart ships per-workload `NetworkPolicy` templates that allow only the gRPC, Raft, and metrics traffic the chart documents, plus DNS egress to kube-system CoreDNS. Default off — enable in production:
+
+```yaml
+networkPolicy:
+  enabled: true
+  proxy:
+    clientCIDRs: ["10.0.0.0/8"]   # VPC-only; empty list blocks ALL external traffic
+```
+
+Requires a CNI that enforces NetworkPolicy (kindnet 0.20+, Calico, Cilium, EKS VPC CNI with NP enabled, GKE NetworkPolicy add-on, AKS Calico, etc.). Override `networkPolicy.dns.*` if your cluster lacks the K8s 1.22+ automatic kube-system namespace label or runs CoreDNS elsewhere. See [Deploy with Helm — `networkPolicy`](deploy-helm.md#networkpolicy) for the full values reference.
+
+For multi-tenant setups, combine the chart's NetworkPolicy with RBAC collection scoping and per-tenant API keys.
 
 ## Multi-tenancy
 

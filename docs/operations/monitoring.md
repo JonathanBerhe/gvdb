@@ -4,32 +4,38 @@ Every GVDB binary exposes Prometheus metrics and a health endpoint. Dashboards f
 
 ## Prometheus metrics
 
-Each node exposes metrics on `server.metrics_port` (default `9090`):
+Each binary exposes a `/metrics` endpoint on a workload-specific port:
+
+| Workload | Port | Notes |
+|----------|------|-------|
+| coordinator | `9090 + node_id` (e.g. `9091` for `node_id=1`) | Per-replica; HA Raft cluster has one port per coordinator |
+| proxy | `9050` | Fixed |
+| data-node | `9100 + (node_id - 100)` (e.g. `9101` for `node_id=101`) | Per-replica |
+| query-node | `9200 + (node_id - 200)` (e.g. `9201` for `node_id=201`) | Per-replica |
 
 ```bash
-curl http://<node>:9090/metrics
+curl http://<node>:9091/metrics      # coordinator-0
+curl http://<node>:9050/metrics      # proxy
 ```
 
 Exposed metric families cover RPCs (rate, latency, errors), segments (counts by state, sizes), index builds (queue depth), the query result cache, replication, and Raft. The exact set evolves across versions — scrape the endpoint to see what's live on your deployment.
 
-## ServiceMonitor
+## Prometheus Operator (PodMonitor / ServiceMonitor)
 
-The Helm chart does not render a `ServiceMonitor` yet. To add one, create a Kubernetes manifest that selects the GVDB pods' metrics port:
+The Helm chart renders Prometheus Operator resources for every workload — opt-in via `metrics.serviceMonitor.enabled=true`:
 
 ```yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: gvdb
-  namespace: gvdb
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: gvdb
-  endpoints:
-    - port: metrics
-      interval: 30s
+metrics:
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      release: kube-prometheus-stack    # match your Prometheus's selector
+    interval: 30s
 ```
+
+Because each StatefulSet replica binds metrics on an ordinal-derived port (see the table above), the chart uses **PodMonitor** for coordinator, data-node, and query-node, with relabel rules that rewrite `__address__` to `<pod_ip>:<derived_port>`. The proxy uses **ServiceMonitor** (fixed port). All four resources land in the release namespace by default; override via `metrics.serviceMonitor.namespace`.
+
+See [Deploy with Helm — `metrics`](deploy-helm.md#metrics-prometheus-operator) for the full values reference, and [Configuration](configuration.md) for how to override the metrics port server-side if needed.
 
 ## Grafana dashboards
 
@@ -101,7 +107,7 @@ Each line records `timestamp`, `api_key_id`, `operation`, `collection`, `status`
 
 ## Tracing
 
-OpenTelemetry support is on the roadmap — see the repo's `ROADMAP.md`.
+OpenTelemetry distributed tracing is planned.
 
 ## See also
 

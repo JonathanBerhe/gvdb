@@ -213,6 +213,8 @@ jobs:
               - 'operator/**'
               - 'deploy/helm/gvdb-operator/**'
               - 'proto/vectordb.proto'
+            gvdb-chart:
+              - 'deploy/helm/gvdb/**'
 
       - name: Set up Go
         if: steps.filter.outputs.operator == 'true'
@@ -241,6 +243,35 @@ jobs:
         if: steps.filter.outputs.operator == 'true'
         run: helm lint deploy/helm/gvdb-operator
 
+      - name: Lint gvdb chart
+        if: steps.filter.outputs.gvdb-chart == 'true'
+        run: helm lint deploy/helm/gvdb
+
+      # Render with default values to catch templating regressions that
+      # would change the dev/kind install behavior. Hardening primitives
+      # are gated, so the default render must remain stable.
+      - name: helm template smoke (default values)
+        if: steps.filter.outputs.gvdb-chart == 'true'
+        run: helm template gvdb deploy/helm/gvdb > /dev/null
+
+      # Render with every hardening gate flipped on, mimicking a
+      # production overlay. Catches regressions in the new
+      # NetworkPolicy / PodMonitor / zoneSpread paths.
+      - name: helm template smoke (hardening overlay)
+        if: steps.filter.outputs.gvdb-chart == 'true'
+        run: |
+          helm template gvdb deploy/helm/gvdb \
+            --set networkPolicy.enabled=true \
+            --set 'networkPolicy.proxy.clientCIDRs={10.0.0.0/8}' \
+            --set metrics.serviceMonitor.enabled=true \
+            --set coordinator.replicas=3 \
+            --set coordinator.zoneSpread.enabled=true \
+            --set dataNode.zoneSpread.enabled=true \
+            --set queryNode.zoneSpread.enabled=true \
+            --set proxy.zoneSpread.enabled=true \
+            --set priorityClasses.create=true \
+            > /dev/null
+
       - name: Skip notice
-        if: steps.filter.outputs.operator == 'false'
-        run: echo "No operator changes — skipping"
+        if: steps.filter.outputs.operator == 'false' && steps.filter.outputs.gvdb-chart == 'false'
+        run: echo "No operator or gvdb chart changes — skipping"
