@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.0](https://github.com/JonathanBerhe/gvdb/compare/v0.29.0...v0.30.0) (2026-04-29)
+
+
+### Features
+
+* **cluster:** primary-term foundation ([f7fb790](https://github.com/JonathanBerhe/gvdb/commit/f7fb790e742826d7220682d56272606ac2533a06))
+
 ## [0.29.0](https://github.com/JonathanBerhe/gvdb/compare/v0.28.0...v0.29.0) (2026-04-25)
 
 
