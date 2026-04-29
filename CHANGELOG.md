@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.0](https://github.com/JonathanBerhe/gvdb/compare/v0.30.0...v0.31.0) (2026-04-29)
+
+
+### Features
+
+* **helm:** NetworkPolicy, Prometheus PodMonitor, zone-spread defaults, chart CI ([c82ef6b](https://github.com/JonathanBerhe/gvdb/commit/c82ef6b85758699d550cf8f42cdec852fccfbe61))
+
 ## [0.30.0](https://github.com/JonathanBerhe/gvdb/compare/v0.29.0...v0.30.0) (2026-04-29)
 
 
