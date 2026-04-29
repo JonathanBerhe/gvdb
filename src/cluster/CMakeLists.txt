@@ -10,6 +10,7 @@ add_library(gvdb_cluster
   node_registry.cpp
   internal_client.cpp
   heartbeat_sender.cpp
+  primary_term_tracker.cpp
 )
 
 target_include_directories(gvdb_cluster

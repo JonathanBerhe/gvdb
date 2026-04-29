@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "cluster/heartbeat_sender.h"
+#include "cluster/primary_term_tracker.h"
 #include "utils/logger.h"
 #include <grpcpp/grpcpp.h>
 #include <chrono>
@@ -105,6 +106,37 @@ void HeartbeatSender::SendLoop() {
 
       if (status.ok() && response.acknowledged()) {
         utils::Logger::Instance().Debug("Heartbeat acknowledged by coordinator");
+        // Sync the local primary-term view from the coordinator's
+        // authoritative shard_primaries list. Coordinator pushes one
+        // entry per shard this node is involved with (primary or
+        // replica). The tracker gates writes against this view; out-of-
+        // sync state defaults to "no entry" → write rejected with
+        // FAILED_PRECONDITION rather than silently committing to a node
+        // that's no longer primary.
+        if (primary_term_tracker_ != nullptr) {
+          for (const auto& sp : response.shard_primaries()) {
+            const bool is_primary_here =
+                static_cast<int>(sp.primary_node_id()) == node_id_;
+            const bool ok =
+                is_primary_here
+                    ? primary_term_tracker_->RecordPrimary(sp.shard_id(),
+                                                           sp.term())
+                    : primary_term_tracker_->RecordNotPrimary(sp.shard_id(),
+                                                              sp.term());
+            // A false return means a term regression — the heartbeat
+            // tried to walk the term backwards, which is contractually
+            // impossible (terms are monotonic per shard). Likely cause:
+            // a stale gRPC response landing after a fresher one. Logged
+            // at warn so a persistent stream surfaces in operator dashboards
+            // without dropping the steady-state debug log spam threshold.
+            if (!ok) {
+              utils::Logger::Instance().Warn(
+                  "Heartbeat: rejected term regression for shard {} "
+                  "(received {}, role primary={})",
+                  sp.shard_id(), sp.term(), is_primary_here);
+            }
+          }
+        }
       } else {
         utils::Logger::Instance().Warn("Heartbeat failed: {}",
                                         status.error_message());
