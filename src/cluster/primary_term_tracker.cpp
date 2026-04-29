@@ -3,6 +3,8 @@
 
 #include "cluster/primary_term_tracker.h"
 
+#include <mutex>  // std::unique_lock — header pulls in only <shared_mutex>
+
 namespace gvdb {
 namespace cluster {
 

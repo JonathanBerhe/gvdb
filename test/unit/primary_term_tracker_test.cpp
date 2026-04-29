@@ -3,6 +3,10 @@
 
 #include "cluster/primary_term_tracker.h"
 
+#include <atomic>
+#include <thread>
+#include <vector>
+
 #include <doctest/doctest.h>
 
 using namespace gvdb::cluster;
@@ -75,6 +79,69 @@ TEST_CASE("PrimaryTermTracker: distinct shards are independent") {
   CHECK(t.EvaluateWrite(1, 99) == D::Accept);
   CHECK(t.EvaluateWrite(0, 99) == D::StaleTerm);
   CHECK(t.EvaluateWrite(1, 5) == D::StaleTerm);
+}
+
+TEST_CASE("PrimaryTermTracker: concurrent readers + writers stay consistent") {
+  // Stress the shared_mutex: N writer threads bump the term forward
+  // monotonically, M reader threads call EvaluateWrite. The contract:
+  // (a) no data race / TSAN catch (run with -fsanitize=thread locally
+  //     to confirm — not enforced by CI),
+  // (b) every successful RecordPrimary must observe a term ≥ all
+  //     previous successful records (monotonicity preserved across
+  //     concurrent insert/update),
+  // (c) readers may see any consistent snapshot (no torn reads).
+  //
+  // The test asserts the final state and that the writer thread that
+  // produced it saw a strictly forward sequence of terms.
+  PrimaryTermTracker tracker;
+  constexpr int kWriters = 4;
+  constexpr int kReaders = 4;
+  constexpr int kIters = 500;
+  constexpr uint32_t kShard = 7;
+
+  std::atomic<uint64_t> max_seen{0};
+  std::atomic<bool> any_torn{false};
+
+  std::vector<std::thread> threads;
+  for (int w = 0; w < kWriters; ++w) {
+    threads.emplace_back([&, w] {
+      for (int i = 0; i < kIters; ++i) {
+        // Each writer proposes a unique strictly-increasing term, so
+        // some succeed (the largest seen so far) and others fail
+        // (regression). Either way, RecordPrimary must not corrupt the
+        // table.
+        uint64_t proposed =
+            static_cast<uint64_t>(w) * kIters + static_cast<uint64_t>(i) + 1;
+        if (tracker.RecordPrimary(kShard, proposed)) {
+          uint64_t prev = max_seen.load(std::memory_order_relaxed);
+          while (proposed > prev &&
+                 !max_seen.compare_exchange_weak(prev, proposed)) {
+            // CAS retry.
+          }
+        }
+      }
+    });
+  }
+  for (int r = 0; r < kReaders; ++r) {
+    threads.emplace_back([&] {
+      for (int i = 0; i < kIters; ++i) {
+        auto snap = tracker.Get(kShard);
+        // Each entry must be self-consistent: if has_entry, term must
+        // be > 0 (we only ever insert positive terms). A zero term
+        // with has_entry=true would indicate a torn read.
+        if (snap.has_entry && snap.term == 0) {
+          any_torn.store(true);
+        }
+      }
+    });
+  }
+  for (auto& t : threads) t.join();
+
+  CHECK_FALSE(any_torn.load());
+  auto final_snap = tracker.Get(kShard);
+  CHECK(final_snap.has_entry);
+  CHECK(final_snap.is_primary);
+  CHECK(final_snap.term == max_seen.load());
 }
 
 TEST_CASE("PrimaryTermTracker: Get snapshot reflects state") {

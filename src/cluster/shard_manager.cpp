@@ -244,8 +244,9 @@ absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id,
   if (primary_term <= it->second.primary_term) {
     return absl::FailedPreconditionError(absl::StrCat(
         "Refusing to set primary for shard ", core::ToUInt16(shard_id),
-        " at non-monotonic term ", primary_term,
-        " (current term ", it->second.primary_term, ")"));
+        ": new term ", primary_term,
+        " must be strictly greater than current term ",
+        it->second.primary_term));
   }
 
   it->second.primary_node = node_id;
