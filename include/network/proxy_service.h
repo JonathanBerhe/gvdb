@@ -135,11 +135,18 @@ class ProxyService final : public proto::VectorDBService::Service {
   proto::VectorDBService::Stub* GetQueryNodeClient();
   // Resolve a collection to one of its data nodes via the coordinator's
   // RouteQuery RPC. Set `read_only=true` for read operations so the
-  // coordinator may return a routable replica when the primary is draining
-  // (roadmap 0b.1). Writes must leave read_only=false — they go to the
-  // primary (possibly draining) for correct ordering.
+  // coordinator may return a routable replica when the primary is draining.
+  // Writes must leave read_only=false — they go to the primary (possibly
+  // draining) for correct ordering.
+  //
+  // out_primary_term, if non-null, receives the routed shard's
+  // primary_term — write callers stamp it onto the gRPC client context
+  // as the gvdb-shard-term header so the data-node can reject writes
+  // that race a primary swap. Reads pass nullptr (they don't enforce
+  // term equality).
   proto::VectorDBService::Stub* GetDataNodeClientForCollection(
-      const std::string& collection_name, bool read_only = false);
+      const std::string& collection_name, bool read_only = false,
+      uint64_t* out_primary_term = nullptr);
   proto::VectorDBService::Stub* GetOrCreateDataClient(const std::string& address);
 };
 

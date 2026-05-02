@@ -15,6 +15,8 @@
 #include <string>
 
 namespace gvdb {
+namespace cluster { class PrimaryTermTracker; }
+
 namespace network {
 
 // Implementation of the VectorDBService gRPC service.
@@ -30,6 +32,15 @@ class VectorDBService final : public proto::VectorDBService::Service {
       std::shared_ptr<storage::BulkImporter> bulk_importer = nullptr);
 
   ~VectorDBService();
+
+  // Wire the data-node's local primary-term view so writes can be gated
+  // against "am I primary for this shard at this term?". Optional;
+  // when null (single-node, tests, query-nodes) the gate is skipped
+  // and writes accept any term silently. Owned by the caller (typically
+  // data_node_main); must outlive this service.
+  void SetPrimaryTermTracker(cluster::PrimaryTermTracker* tracker) {
+    primary_term_tracker_ = tracker;
+  }
 
   // Collection management
   grpc::Status CreateCollection(
@@ -145,11 +156,36 @@ class VectorDBService final : public proto::VectorDBService::Service {
       const proto::RangeSearchRequest* request,
       proto::RangeSearchResponse* response);
 
+  // Per-write-call primary-term gate. Reads the gvdb-shard-term header
+  // from the gRPC client metadata and consults primary_term_tracker_
+  // for "is this node primary for the shard at that term?". The
+  // sample_vector_id is mapped to a shard_id via the same hash the
+  // proxy uses (vid % num_shards) so the gate fires per-shard, not
+  // per-collection.
+  //
+  // Behavior:
+  //   - tracker is null (single-node / tests / query-nodes): OK.
+  //   - header absent (pre-1.x client): OK with a one-shot warn log
+  //     so a rolling upgrade doesn't break writes from old proxies.
+  //   - header malformed: INVALID_ARGUMENT.
+  //   - tracker says StaleTerm or NotPrimary: ABORTED with detail.
+  //   - tracker says UnknownShard (proxy raced past heartbeat sync,
+  //     or this node really doesn't own the shard): FAILED_PRECONDITION.
+  //   - tracker says Accept: OK.
+  grpc::Status EvaluateWriteGate(grpc::ServerContext* context,
+                                  const std::string& collection_name,
+                                  uint64_t sample_vector_id);
+
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::unique_ptr<ICollectionResolver> resolver_;
   std::shared_ptr<auth::RbacStore> rbac_store_;
   std::shared_ptr<storage::BulkImporter> bulk_importer_;
+
+  // Optional write-path primary-term gate. Null on single-node / query-
+  // nodes / tests; non-null on a real distributed data-node, populated
+  // via SetPrimaryTermTracker before serving begins.
+  cluster::PrimaryTermTracker* primary_term_tracker_ = nullptr;
 
   // Statistics
   std::atomic<uint64_t> total_queries_{0};
