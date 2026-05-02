@@ -181,6 +181,29 @@ set_tests_properties(DrainReadFallbackTests PROPERTIES
   LABELS "integration"
 )
 
+# Primary-swap (write-side ABORTED retry) wire-level integration tests
+add_executable(primary_swap_integration_tests
+  primary_swap_integration_test.cpp
+)
+
+target_link_libraries(primary_swap_integration_tests
+  PRIVATE
+    gvdb_network
+    gvdb_core
+    gvdb_utils
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    doctest::doctest_with_main
+)
+
+add_test(NAME PrimarySwapIntegrationTests COMMAND primary_swap_integration_tests)
+
+set_tests_properties(PrimarySwapIntegrationTests PROPERTIES
+  TIMEOUT 60
+  LABELS "integration"
+)
+
 # S3/MinIO integration tests (uses InMemoryObjectStore mock)
 add_executable(s3_integration_tests
   s3_integration_test.cpp

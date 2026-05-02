@@ -1106,6 +1106,21 @@ class MockClient : public IInternalServiceClient {
     }
     return grpc::Status::OK;
   }
+  // Read-repair tests don't drive a primary swap; default the two-phase
+  // RPCs to OK so the abstract base contract is satisfied. A dedicated
+  // primary-swap test harness exercises them with assertions.
+  grpc::Status PausePrimary(
+      grpc::ClientContext*, const proto::internal::PausePrimaryRequest&,
+      proto::internal::PausePrimaryResponse* resp) override {
+    resp->set_success(true);
+    return grpc::Status::OK;
+  }
+  grpc::Status PreparePromote(
+      grpc::ClientContext*, const proto::internal::PreparePromoteRequest&,
+      proto::internal::PreparePromoteResponse* resp) override {
+    resp->set_success(true);
+    return grpc::Status::OK;
+  }
 };
 
 // Factory that returns copies of pre-configured mock clients
