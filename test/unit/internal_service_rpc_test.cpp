@@ -3,6 +3,7 @@
 
 #include "network/internal_service.h"
 #include "cluster/coordinator.h"
+#include "cluster/primary_term_tracker.h"
 #include "cluster/shard_manager.h"
 #include "cluster/node_registry.h"
 #include "consensus/timestamp_oracle.h"
@@ -1260,4 +1261,198 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_WithShardAssignment") {
 
   // The first target node should be node 1
   CHECK_EQ(response.target_node_ids(0), 1);
+}
+
+// ============================================================================
+// Two-Phase Primary Swap Tests
+// ============================================================================
+//
+// These cover the data-node-side PausePrimary / PreparePromote handlers
+// in isolation: the fixture's service_ doesn't normally have a
+// PrimaryTermTracker wired (it's optional), so each test wires its own
+// tracker and observes the resulting state transitions.
+
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "PreparePromote_RecordsPrimaryAtTerm") {
+  PrimaryTermTracker tracker;
+  service_->SetPrimaryTermTracker(&tracker);
+
+  grpc::ServerContext ctx;
+  proto::internal::PreparePromoteRequest req;
+  req.set_shard_id(7);
+  req.set_new_term(3);
+  proto::internal::PreparePromoteResponse resp;
+
+  auto status = service_->PreparePromote(&ctx, &req, &resp);
+
+  CHECK(status.ok());
+  CHECK(resp.success());
+
+  auto snap = tracker.Get(7);
+  CHECK(snap.has_entry);
+  CHECK(snap.is_primary);
+  CHECK_EQ(snap.term, 3u);
+}
+
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "PreparePromote_IdempotentReplay") {
+  PrimaryTermTracker tracker;
+  service_->SetPrimaryTermTracker(&tracker);
+
+  grpc::ServerContext ctx1, ctx2;
+  proto::internal::PreparePromoteRequest req;
+  req.set_shard_id(2);
+  req.set_new_term(5);
+  proto::internal::PreparePromoteResponse resp1, resp2;
+
+  // First call promotes; second call at the same term must be idempotent OK.
+  CHECK(service_->PreparePromote(&ctx1, &req, &resp1).ok());
+  CHECK(resp1.success());
+  CHECK(service_->PreparePromote(&ctx2, &req, &resp2).ok());
+  CHECK(resp2.success());
+
+  auto snap = tracker.Get(2);
+  CHECK_EQ(snap.term, 5u);
+  CHECK(snap.is_primary);
+}
+
+TEST_CASE_FIXTURE(InternalServiceRpcTest,
+                  "PreparePromote_RejectsTermRegression") {
+  PrimaryTermTracker tracker;
+  service_->SetPrimaryTermTracker(&tracker);
+
+  // First, promote at term 5.
+  {
+    grpc::ServerContext ctx;
+    proto::internal::PreparePromoteRequest req;
+    req.set_shard_id(3);
+    req.set_new_term(5);
+    proto::internal::PreparePromoteResponse resp;
+    CHECK(service_->PreparePromote(&ctx, &req, &resp).ok());
+  }
+
+  // Now try to "promote" at a smaller term. The handler must reject —
+  // term must be strictly greater than the recorded one to fire.
+  grpc::ServerContext ctx;
+  proto::internal::PreparePromoteRequest req;
+  req.set_shard_id(3);
+  req.set_new_term(4);
+  proto::internal::PreparePromoteResponse resp;
+  auto status = service_->PreparePromote(&ctx, &req, &resp);
+
+  CHECK_FALSE(resp.success());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::FAILED_PRECONDITION);
+  // Tracker state must remain at the larger term.
+  CHECK_EQ(tracker.Get(3).term, 5u);
+}
+
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "PreparePromote_NewTermZeroRejected") {
+  PrimaryTermTracker tracker;
+  service_->SetPrimaryTermTracker(&tracker);
+
+  grpc::ServerContext ctx;
+  proto::internal::PreparePromoteRequest req;
+  req.set_shard_id(1);
+  req.set_new_term(0);  // invalid: term 0 is the "no entry" sentinel
+  proto::internal::PreparePromoteResponse resp;
+  auto status = service_->PreparePromote(&ctx, &req, &resp);
+
+  CHECK_FALSE(resp.success());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+}
+
+TEST_CASE_FIXTURE(InternalServiceRpcTest,
+                  "PreparePromote_FailsClosedWithoutTracker") {
+  // Default fixture leaves tracker null. The handler must surface
+  // FAILED_PRECONDITION rather than crash, so a misrouted RPC sent to
+  // a non-data-node host gives a useful error.
+  grpc::ServerContext ctx;
+  proto::internal::PreparePromoteRequest req;
+  req.set_shard_id(0);
+  req.set_new_term(1);
+  proto::internal::PreparePromoteResponse resp;
+  auto status = service_->PreparePromote(&ctx, &req, &resp);
+
+  CHECK_FALSE(resp.success());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::FAILED_PRECONDITION);
+}
+
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "PausePrimary_DemoteToNotPrimary") {
+  PrimaryTermTracker tracker;
+  service_->SetPrimaryTermTracker(&tracker);
+
+  // Set up: this node is primary at term 4.
+  CHECK(tracker.RecordPrimary(11, 4));
+
+  // Coordinator pauses us before promoting another node to term 5.
+  grpc::ServerContext ctx;
+  proto::internal::PausePrimaryRequest req;
+  req.set_shard_id(11);
+  req.set_new_term(5);
+  req.set_new_primary_node_id(42);
+  proto::internal::PausePrimaryResponse resp;
+
+  auto status = service_->PausePrimary(&ctx, &req, &resp);
+
+  CHECK(status.ok());
+  CHECK(resp.success());
+
+  auto snap = tracker.Get(11);
+  CHECK(snap.has_entry);
+  CHECK_FALSE(snap.is_primary);
+  // Tracker stamps last_known_term = new_term - 1; subsequent stale
+  // writes tagged with term ≤ 4 are still rejected.
+  CHECK_EQ(snap.term, 4u);
+}
+
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "PausePrimary_ReplaySafe") {
+  PrimaryTermTracker tracker;
+  service_->SetPrimaryTermTracker(&tracker);
+
+  CHECK(tracker.RecordPrimary(8, 2));
+
+  proto::internal::PausePrimaryRequest req;
+  req.set_shard_id(8);
+  req.set_new_term(3);
+  req.set_new_primary_node_id(99);
+
+  // Two consecutive PausePrimary calls (e.g. coordinator retried after a
+  // transient timeout) must both succeed without corrupting state.
+  for (int i = 0; i < 2; ++i) {
+    grpc::ServerContext ctx;
+    proto::internal::PausePrimaryResponse resp;
+    auto status = service_->PausePrimary(&ctx, &req, &resp);
+    CHECK(status.ok());
+    CHECK(resp.success());
+  }
+
+  CHECK_FALSE(tracker.Get(8).is_primary);
+}
+
+TEST_CASE_FIXTURE(InternalServiceRpcTest,
+                  "PausePrimary_NewTermZeroRejected") {
+  PrimaryTermTracker tracker;
+  service_->SetPrimaryTermTracker(&tracker);
+
+  grpc::ServerContext ctx;
+  proto::internal::PausePrimaryRequest req;
+  req.set_shard_id(0);
+  req.set_new_term(0);
+  proto::internal::PausePrimaryResponse resp;
+  auto status = service_->PausePrimary(&ctx, &req, &resp);
+
+  CHECK_FALSE(resp.success());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+}
+
+TEST_CASE_FIXTURE(InternalServiceRpcTest,
+                  "PausePrimary_FailsClosedWithoutTracker") {
+  // Default fixture: tracker is null. Hard-fail.
+  grpc::ServerContext ctx;
+  proto::internal::PausePrimaryRequest req;
+  req.set_shard_id(0);
+  req.set_new_term(1);
+  proto::internal::PausePrimaryResponse resp;
+  auto status = service_->PausePrimary(&ctx, &req, &resp);
+
+  CHECK_FALSE(resp.success());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::FAILED_PRECONDITION);
 }
