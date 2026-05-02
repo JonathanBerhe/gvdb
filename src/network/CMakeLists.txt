@@ -11,6 +11,7 @@ add_library(gvdb_network
   audit_interceptor.cpp
   audit_context.cpp
   dns_channel_args.cpp
+  primary_term_header.cpp
   replica_fallback.cpp
 )
 
