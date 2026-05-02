@@ -5,6 +5,7 @@
 #include "network/proto_conversions.h"
 #include "cluster/node_registry.h"
 #include "cluster/coordinator.h"
+#include "cluster/primary_term_tracker.h"
 #include "consensus/raft_node.h"
 #include "consensus/timestamp_oracle.h"
 #include "utils/logger.h"
@@ -1157,6 +1158,134 @@ grpc::Status InternalService::TransferLeadership(
     response->set_current_leader_id(raft_node_->GetLeaderId());
     total_errors_++;
   }
+  return grpc::Status::OK;
+}
+
+// =============================================================================
+// Two-Phase Primary Swap
+// =============================================================================
+//
+// Both handlers are idempotent: a coordinator that retries after a transient
+// failure must not corrupt the local PrimaryTermTracker state.
+//
+//   PausePrimary: stop accepting writes for `shard_id`. Records
+//     last_known_term = new_term - 1 so a subsequent stale-routing write
+//     tagged with `term ≤ last_known_term` is rejected with the right
+//     error. Replay (already-not-primary) returns OK.
+//
+//   PreparePromote: claim primary status at `new_term`. Strictly
+//     monotonic — re-promote at an equal or older term returns
+//     success=false so a buggy double-promote surfaces loudly. Replay
+//     at the same term is OK because RecordPrimary is idempotent on
+//     (shard, term) match.
+//
+// Both calls are no-ops on a non-data-node host (tracker is null);
+// they return FAILED_PRECONDITION rather than crashing so a misrouted
+// RPC is surfaced to the caller.
+
+grpc::Status InternalService::PausePrimary(
+    grpc::ServerContext* context,
+    const proto::internal::PausePrimaryRequest* request,
+    proto::internal::PausePrimaryResponse* response) {
+  total_requests_++;
+
+  if (!primary_term_tracker_) {
+    total_errors_++;
+    response->set_success(false);
+    response->set_message("PausePrimary received on a non-data-node host");
+    return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+                        "primary_term_tracker not wired on this service");
+  }
+
+  const uint32_t shard_id = request->shard_id();
+  const uint64_t new_term = request->new_term();
+  const uint32_t new_primary = request->new_primary_node_id();
+
+  if (new_term == 0) {
+    total_errors_++;
+    response->set_success(false);
+    response->set_message("new_term must be > 0");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+                        "PausePrimary: new_term must be > 0");
+  }
+
+  // last_known_term is the term we're being demoted FROM, i.e. the
+  // cluster's current term before the swap commits. By contract that's
+  // exactly new_term - 1.
+  const uint64_t last_known_term = new_term - 1;
+  const bool ok = primary_term_tracker_->RecordNotPrimary(shard_id, last_known_term);
+
+  utils::Logger::Instance().Info(
+      "PausePrimary: shard={} stepping_down_from_term={} new_primary_node={} record_ok={}",
+      shard_id, last_known_term, new_primary, ok);
+
+  // RecordNotPrimary returns false only on term regression — a coordinator
+  // bug or a stale retry from a swap that already advanced beyond this
+  // term. Either way the local view is already correct (or fresher), so
+  // surface the regression as success=true with a diagnostic message
+  // rather than failing the swap. Idempotency depends on this.
+  response->set_success(true);
+  if (!ok) {
+    response->set_message(
+        "term regression detected; local view already at or beyond new_term, idempotent ok");
+  } else {
+    response->set_message("paused");
+  }
+  return grpc::Status::OK;
+}
+
+grpc::Status InternalService::PreparePromote(
+    grpc::ServerContext* context,
+    const proto::internal::PreparePromoteRequest* request,
+    proto::internal::PreparePromoteResponse* response) {
+  total_requests_++;
+
+  if (!primary_term_tracker_) {
+    total_errors_++;
+    response->set_success(false);
+    response->set_message("PreparePromote received on a non-data-node host");
+    return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+                        "primary_term_tracker not wired on this service");
+  }
+
+  const uint32_t shard_id = request->shard_id();
+  const uint64_t new_term = request->new_term();
+
+  if (new_term == 0) {
+    total_errors_++;
+    response->set_success(false);
+    response->set_message("new_term must be > 0");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+                        "PreparePromote: new_term must be > 0");
+  }
+
+  const auto snap_before = primary_term_tracker_->Get(shard_id);
+  const bool ok = primary_term_tracker_->RecordPrimary(shard_id, new_term);
+
+  if (!ok) {
+    // Strictly-greater term regression. This is a real coordinator bug —
+    // surface it as a hard failure so the orchestrator's reconcile loop
+    // logs it and gives up rather than silently overwriting state.
+    // Idempotent replay at the SAME term goes through RecordPrimary's
+    // ok-on-match path (returns true), so we won't reach this branch
+    // for a benign retry.
+    total_errors_++;
+    response->set_success(false);
+    response->set_message(
+        "term regression: refusing to promote at term <= currently-recorded term");
+    utils::Logger::Instance().Warn(
+        "PreparePromote rejected: shard={} requested_term={} known_term={} (regression)",
+        shard_id, new_term, snap_before.term);
+    return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+                        "PreparePromote: term must be strictly greater than known term");
+  }
+
+  utils::Logger::Instance().Info(
+      "PreparePromote: shard={} promoted_to_term={} (was_primary={}, prev_term={})",
+      shard_id, new_term, snap_before.is_primary, snap_before.term);
+
+  response->set_success(true);
+  response->set_message("promoted");
   return grpc::Status::OK;
 }
 

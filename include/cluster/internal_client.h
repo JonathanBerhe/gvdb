@@ -43,6 +43,21 @@ class IInternalServiceClient {
       grpc::ClientContext* context,
       const proto::internal::ListSegmentsRequest& request,
       proto::internal::ListSegmentsResponse* response) = 0;
+
+  // Two-phase primary swap RPCs. Called by the coordinator's
+  // TransferPrimary orchestrator: PausePrimary on the outgoing primary
+  // first, then PreparePromote on the incoming primary, then commit
+  // via ShardManager. Both are idempotent on the data-node side so a
+  // retried call after a transient failure is safe.
+  virtual grpc::Status PausePrimary(
+      grpc::ClientContext* context,
+      const proto::internal::PausePrimaryRequest& request,
+      proto::internal::PausePrimaryResponse* response) = 0;
+
+  virtual grpc::Status PreparePromote(
+      grpc::ClientContext* context,
+      const proto::internal::PreparePromoteRequest& request,
+      proto::internal::PreparePromoteResponse* response) = 0;
 };
 
 // Abstract factory for creating IInternalServiceClient instances
@@ -86,6 +101,16 @@ class GrpcInternalServiceClient : public IInternalServiceClient {
       grpc::ClientContext* context,
       const proto::internal::ListSegmentsRequest& request,
       proto::internal::ListSegmentsResponse* response) override;
+
+  grpc::Status PausePrimary(
+      grpc::ClientContext* context,
+      const proto::internal::PausePrimaryRequest& request,
+      proto::internal::PausePrimaryResponse* response) override;
+
+  grpc::Status PreparePromote(
+      grpc::ClientContext* context,
+      const proto::internal::PreparePromoteRequest& request,
+      proto::internal::PreparePromoteResponse* response) override;
 
  private:
   std::unique_ptr<proto::internal::InternalService::Stub> stub_;

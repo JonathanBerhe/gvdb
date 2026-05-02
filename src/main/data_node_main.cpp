@@ -343,11 +343,14 @@ int main(int argc, char** argv) {
     auto service = std::make_unique<network::VectorDBService>(
         segment_store, query_executor, std::move(resolver), nullptr,
         bulk_importer);
-    // Wire the tracker so write paths consult it. Distributed mode only
-    // — single-node has no coordinator pushing assignments and would
-    // see UnknownShard for everything.
+    // Wire the tracker so write paths consult it AND so the two-phase
+    // swap RPCs (PausePrimary / PreparePromote, hosted on InternalService)
+    // can mutate it. Distributed mode only — single-node has no
+    // coordinator pushing assignments and would see UnknownShard for
+    // everything.
     if (!args.coordinator_addresses.empty()) {
       service->SetPrimaryTermTracker(primary_term_tracker.get());
+      internal_service->SetPrimaryTermTracker(primary_term_tracker.get());
     }
 
     // 4. Audit logging + Start server

@@ -50,6 +50,20 @@ grpc::Status GrpcInternalServiceClient::ListSegments(
   return stub_->ListSegments(context, request, response);
 }
 
+grpc::Status GrpcInternalServiceClient::PausePrimary(
+    grpc::ClientContext* context,
+    const proto::internal::PausePrimaryRequest& request,
+    proto::internal::PausePrimaryResponse* response) {
+  return stub_->PausePrimary(context, request, response);
+}
+
+grpc::Status GrpcInternalServiceClient::PreparePromote(
+    grpc::ClientContext* context,
+    const proto::internal::PreparePromoteRequest& request,
+    proto::internal::PreparePromoteResponse* response) {
+  return stub_->PreparePromote(context, request, response);
+}
+
 // ============================================================================
 // GrpcInternalServiceClientFactory Implementation
 // ============================================================================

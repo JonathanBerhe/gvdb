@@ -258,20 +258,22 @@ grpc::Status ProxyService::Insert(
   int num_shards = route_resp.target_node_addresses_size();
 
   if (num_shards == 1) {
-    // Single shard — send everything to one node
-    const std::string& addr = route_resp.target_node_addresses(0);
-    auto* client = GetOrCreateDataClient(addr);
-    if (!client) {
-      return grpc::Status(grpc::StatusCode::UNAVAILABLE, "Data node unavailable");
-    }
+    // Single shard — use the write-side fallback helper which handles
+    // re-routing on ABORTED (term-mismatch during a primary swap).
     proto::InsertRequest internal_req = *request;
-    grpc::ClientContext client_ctx;
-    const uint64_t term = shard_term_at(0);
-    if (term > 0) StampPrimaryTermHeader(&client_ctx, term);
-    return client->Insert(&client_ctx, internal_req, response);
+    return network::RouteWriteAndCallWithFallback(
+        GetCoordinatorInternalClient(), request->collection_name(), "insert",
+        std::chrono::milliseconds(5000),
+        [this](const std::string& addr) { return GetOrCreateDataClient(addr); },
+        [&](grpc::ClientContext* ctx, proto::VectorDBService::Stub* stub) {
+          return stub->Insert(ctx, internal_req, response);
+        });
   }
 
-  // Multi-shard: split vectors by shard and route each batch to correct node
+  // Multi-shard: split vectors by shard and route each batch to correct node.
+  // Per-shard ABORTED retries are inline (one re-route hop per shard) because
+  // the helper assumes a single primary; multi-shard fan-out is bespoke to
+  // the proxy-side hash-by-vector-id split.
   std::vector<proto::InsertRequest> shard_reqs(num_shards);
   for (int i = 0; i < num_shards; ++i) {
     shard_reqs[i].set_collection_name(request->collection_name());
@@ -289,22 +291,53 @@ grpc::Status ProxyService::Insert(
   for (int i = 0; i < num_shards; ++i) {
     if (shard_reqs[i].vectors_size() == 0) continue;
 
-    const std::string& addr = route_resp.target_node_addresses(i);
-    auto* client = GetOrCreateDataClient(addr);
-    if (!client) {
-      utils::Logger::Instance().Warn("Insert: data node unavailable for shard {}: {}", i, addr);
-      if (first_error.empty()) {
-        first_error = "Data node unavailable for shard " + std::to_string(i);
+    // Send to the routed primary; on ABORTED (primary swap raced our
+    // route lookup), re-issue RouteQuery, pick the fresh primary for
+    // shard `i`, and try once more before declaring this shard failed.
+    std::string addr = route_resp.target_node_addresses(i);
+    uint64_t shard_term = shard_term_at(i);
+
+    grpc::Status status;
+    proto::InsertResponse shard_resp;
+    auto attempt_call = [&](const std::string& a, uint64_t t) -> grpc::Status {
+      auto* client = GetOrCreateDataClient(a);
+      if (!client) {
+        return grpc::Status(grpc::StatusCode::UNAVAILABLE,
+                             "Data node unavailable");
       }
-      ++failed_shards;
-      continue;
+      grpc::ClientContext ctx;
+      if (t > 0) StampPrimaryTermHeader(&ctx, t);
+      shard_resp.Clear();
+      return client->Insert(&ctx, shard_reqs[i], &shard_resp);
+    };
+
+    status = attempt_call(addr, shard_term);
+
+    if (!status.ok() &&
+        status.error_code() == grpc::StatusCode::ABORTED) {
+      // Re-route once: a concurrent primary swap moved this shard's
+      // primary; the data-node bounced our stale-term write. Fresh
+      // RouteQuery returns the new primary at the bumped term.
+      utils::Logger::Instance().Info(
+          "Insert: shard {} got ABORTED (term={}, msg=\"{}\"); re-routing",
+          i, shard_term, status.error_message());
+      proto::internal::RouteQueryRequest reroute_req;
+      reroute_req.set_collection_name(request->collection_name());
+      proto::internal::RouteQueryResponse reroute_resp;
+      grpc::ClientContext reroute_ctx;
+      auto reroute_status = internal_client->RouteQuery(
+          &reroute_ctx, reroute_req, &reroute_resp);
+      if (reroute_status.ok() &&
+          i < reroute_resp.target_node_addresses_size()) {
+        addr = reroute_resp.target_node_addresses(i);
+        if (i < reroute_resp.per_shard_options_size() &&
+            reroute_resp.per_shard_options(i).options_size() > 0) {
+          shard_term = reroute_resp.per_shard_options(i).options(0).primary_term();
+        }
+        status = attempt_call(addr, shard_term);
+      }
     }
 
-    proto::InsertResponse shard_resp;
-    grpc::ClientContext client_ctx;
-    const uint64_t shard_term = shard_term_at(i);
-    if (shard_term > 0) StampPrimaryTermHeader(&client_ctx, shard_term);
-    auto status = client->Insert(&client_ctx, shard_reqs[i], &shard_resp);
     if (status.ok()) {
       total_inserted += shard_resp.inserted_count();
     } else {
@@ -400,22 +433,17 @@ grpc::Status ProxyService::Delete(
   AuditContext::SetCollection(request->collection_name());
   AuditContext::SetItemCount(request->ids().size());
 
-  uint64_t primary_term = 0;
-  auto* client = GetDataNodeClientForCollection(
-      request->collection_name(), /*read_only=*/false, &primary_term);
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
-  }
-
+  // Route via the write-side fallback helper: re-issues RouteQuery on
+  // ABORTED so a primary-swap race resolves with one extra RTT instead
+  // of bouncing the error to the user.
   proto::DeleteRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  // Stamp the routed shard's primary_term so the data-node can reject
-  // a write that races a primary swap. Zero term means "coordinator
-  // didn't emit a per_shard_options entry" — back-compat path; no header.
-  if (primary_term > 0) {
-    StampPrimaryTermHeader(&client_ctx, primary_term);
-  }
-  return client->Delete(&client_ctx, internal_req, response);
+  return network::RouteWriteAndCallWithFallback(
+      GetCoordinatorInternalClient(), request->collection_name(), "delete",
+      std::chrono::milliseconds(5000),
+      [this](const std::string& addr) { return GetOrCreateDataClient(addr); },
+      [&](grpc::ClientContext* ctx, proto::VectorDBService::Stub* stub) {
+        return stub->Delete(ctx, internal_req, response);
+      });
 }
 
 grpc::Status ProxyService::UpdateMetadata(
@@ -424,19 +452,14 @@ grpc::Status ProxyService::UpdateMetadata(
     proto::UpdateMetadataResponse* response) {
   AuditContext::SetCollection(request->collection_name());
 
-  uint64_t primary_term = 0;
-  auto* client = GetDataNodeClientForCollection(
-      request->collection_name(), /*read_only=*/false, &primary_term);
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
-  }
-
   proto::UpdateMetadataRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  if (primary_term > 0) {
-    StampPrimaryTermHeader(&client_ctx, primary_term);
-  }
-  return client->UpdateMetadata(&client_ctx, internal_req, response);
+  return network::RouteWriteAndCallWithFallback(
+      GetCoordinatorInternalClient(), request->collection_name(),
+      "update_metadata", std::chrono::milliseconds(5000),
+      [this](const std::string& addr) { return GetOrCreateDataClient(addr); },
+      [&](grpc::ClientContext* ctx, proto::VectorDBService::Stub* stub) {
+        return stub->UpdateMetadata(ctx, internal_req, response);
+      });
 }
 
 grpc::Status ProxyService::Upsert(
@@ -446,19 +469,14 @@ grpc::Status ProxyService::Upsert(
   AuditContext::SetCollection(request->collection_name());
   AuditContext::SetItemCount(request->vectors().size());
 
-  uint64_t primary_term = 0;
-  auto* client = GetDataNodeClientForCollection(
-      request->collection_name(), /*read_only=*/false, &primary_term);
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
-  }
-
   proto::UpsertRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  if (primary_term > 0) {
-    StampPrimaryTermHeader(&client_ctx, primary_term);
-  }
-  return client->Upsert(&client_ctx, internal_req, response);
+  return network::RouteWriteAndCallWithFallback(
+      GetCoordinatorInternalClient(), request->collection_name(), "upsert",
+      std::chrono::milliseconds(5000),
+      [this](const std::string& addr) { return GetOrCreateDataClient(addr); },
+      [&](grpc::ClientContext* ctx, proto::VectorDBService::Stub* stub) {
+        return stub->Upsert(ctx, internal_req, response);
+      });
 }
 
 grpc::Status ProxyService::ListVectors(

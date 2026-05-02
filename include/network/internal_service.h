@@ -13,6 +13,10 @@
 #include <atomic>
 
 namespace gvdb {
+namespace cluster { class PrimaryTermTracker; }
+}
+
+namespace gvdb {
 namespace cluster {
 class NodeRegistry;
 class Coordinator;
@@ -172,6 +176,20 @@ class InternalService final : public proto::internal::InternalService::Service {
       proto::internal::TransferLeadershipResponse* response) override;
 
   // =========================================================================
+  // Two-Phase Primary Swap (Coordinator → Data Node)
+  // =========================================================================
+
+  grpc::Status PausePrimary(
+      grpc::ServerContext* context,
+      const proto::internal::PausePrimaryRequest* request,
+      proto::internal::PausePrimaryResponse* response) override;
+
+  grpc::Status PreparePromote(
+      grpc::ServerContext* context,
+      const proto::internal::PreparePromoteRequest* request,
+      proto::internal::PreparePromoteResponse* response) override;
+
+  // =========================================================================
   // Timestamp Oracle (All Nodes → Coordinator)
   // =========================================================================
 
@@ -179,6 +197,15 @@ class InternalService final : public proto::internal::InternalService::Service {
       grpc::ServerContext* context,
       const proto::internal::GetTimestampRequest* request,
       proto::internal::GetTimestampResponse* response) override;
+
+  // Wire the data-node's local primary-term view so PausePrimary /
+  // PreparePromote can update it directly. Optional; null on a coordinator
+  // node, query-node, or test fixture (those instantiations don't host
+  // the swap RPCs as data-node handlers anyway). Owned by the caller
+  // (data_node_main); must outlive this service.
+  void SetPrimaryTermTracker(cluster::PrimaryTermTracker* tracker) {
+    primary_term_tracker_ = tracker;
+  }
 
  private:
   std::shared_ptr<cluster::ShardManager> shard_manager_;
@@ -188,6 +215,13 @@ class InternalService final : public proto::internal::InternalService::Service {
   std::shared_ptr<consensus::TimestampOracle> timestamp_oracle_;
   std::shared_ptr<cluster::Coordinator> coordinator_;
   std::shared_ptr<consensus::RaftNode> raft_node_;
+
+  // Per-shard primary-term view this data-node is allowed to mutate from
+  // PausePrimary / PreparePromote handlers. Null when the service is
+  // hosted by a non-data-node binary (coordinator, query-node) — those
+  // instances should never see these RPCs in production but we tolerate
+  // the call by returning FAILED_PRECONDITION rather than crashing.
+  cluster::PrimaryTermTracker* primary_term_tracker_ = nullptr;
 
   // Statistics
   std::atomic<uint64_t> total_requests_{0};

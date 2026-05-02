@@ -13,6 +13,7 @@
 
 #include "internal.grpc.pb.h"
 #include "internal.pb.h"
+#include "network/primary_term_header.h"
 #include "utils/logger.h"
 #include "utils/metrics.h"
 
@@ -269,6 +270,181 @@ grpc::Status RouteReadAndCallWithFallback(
   auto result = CallWithReplicaFallback(options, total_attempt_budget,
                                          operation_label, adapter);
   return result.final_status;
+}
+
+// Cap on RouteQuery re-issuances during a single write call. A primary
+// swap that lands during our first attempt costs one re-route; a second
+// swap that races our re-route costs another. Two re-routes covers the
+// realistic worst case — a cluster swapping a shard's primary three
+// times in two RTTs has bigger problems than a write succeeding.
+inline constexpr int kRouteWriteMaxReroutes = 2;
+
+// Write-side analogue of RouteReadAndCallWithFallback. Differs in three
+// ways:
+//
+//   1. RouteQuery is issued with `prefer_routable_replica=false`. Writes
+//      MUST go to the primary; a stale-but-routable replica would accept
+//      the write at a stale term and lose it on the next swap.
+//
+//   2. The proxy stamps the routed shard's primary_term as the
+//      `gvdb-shard-term` gRPC metadata header on each call. The
+//      data-node's write gate compares this term against its locally
+//      recorded term and bounces a stale-routing write with ABORTED.
+//
+//   3. On ABORTED (term-mismatch — see vectordb_service.cpp's write
+//      gate), the helper re-issues RouteQuery rather than walking the
+//      original options list. The swap means the primary genuinely
+//      moved; the original options[0] still points at the demoted node
+//      and would loop forever. We re-route up to kRouteWriteMaxReroutes
+//      times before surfacing the last status.
+//
+// Callable signatures match the read helper:
+//
+//     dial_fn:  (const std::string& target_address) -> StubT*
+//     call_fn:  (grpc::ClientContext*, StubT*) -> grpc::Status
+//
+// `per_attempt_deadline` is applied to every dispatched call (and to
+// the RouteQuery RPCs). Unlike the read helper, this is NOT a budget
+// divided across candidates — there's only ever one candidate in play
+// at a time (the current primary). A fresh deadline is set on every
+// attempt's ClientContext.
+//
+// Returns OK iff a call eventually succeeded; otherwise the last
+// observed status. Non-ABORTED non-OK returns short-circuit immediately
+// (a different primary won't satisfy a NOT_FOUND or INVALID_ARGUMENT).
+template <typename DialFn, typename CallFn>
+grpc::Status RouteWriteAndCallWithFallback(
+    proto::internal::InternalService::Stub* internal_client,
+    const std::string& collection_name,
+    const std::string& operation_label,
+    std::chrono::milliseconds per_attempt_deadline,
+    DialFn&& dial_fn,
+    CallFn&& call_fn) {
+  if (!internal_client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
+                         "no coordinator client to call RouteQuery");
+  }
+
+  auto& metrics = utils::MetricsRegistry::Instance();
+
+  grpc::Status last_status =
+      grpc::Status(grpc::StatusCode::UNAVAILABLE, "no attempts made");
+
+  // attempt 0 = first try, attempts 1..kRouteWriteMaxReroutes = re-route retries.
+  for (int attempt = 0; attempt <= kRouteWriteMaxReroutes; ++attempt) {
+    proto::internal::RouteQueryRequest route_req;
+    route_req.set_collection_name(collection_name);
+    route_req.set_top_k(0);
+    // Writes always go to the primary. A draining-but-routable replica
+    // is fine for reads but fatal for writes (lost on next swap).
+    route_req.set_prefer_routable_replica(false);
+
+    proto::internal::RouteQueryResponse route_resp;
+    grpc::ClientContext route_ctx;
+    route_ctx.set_deadline(std::chrono::system_clock::now() +
+                            kRouteQueryRpcDeadline);
+    auto route_status =
+        internal_client->RouteQuery(&route_ctx, route_req, &route_resp);
+    if (!route_status.ok()) {
+      utils::Logger::Instance().Warn(
+          "write_fallback[{}]: RouteQuery failed on attempt {}/{}: {}",
+          operation_label, attempt + 1, kRouteWriteMaxReroutes + 1,
+          route_status.error_message());
+      last_status = route_status;
+      // RouteQuery's own error: not retryable here. The coordinator is
+      // either down or returning a hard error. Caller can retry the whole
+      // request later if they want.
+      return last_status;
+    }
+
+    // Pick the primary option. Prefer the per_shard_options list
+    // (carries primary_term) when present; fall back to the legacy
+    // parallel arrays for back-compat with older coordinators (the
+    // back-compat path stamps no term — older coordinators didn't
+    // generate them, so the data-node's old-proxy bypass logs+accepts).
+    std::string target_addr;
+    uint64_t primary_term = 0;
+    if (route_resp.per_shard_options_size() > 0 &&
+        route_resp.per_shard_options(0).options_size() > 0) {
+      const auto& opt = route_resp.per_shard_options(0).options(0);
+      target_addr = opt.node_address();
+      primary_term = opt.primary_term();
+    } else if (route_resp.target_node_addresses_size() > 0) {
+      target_addr = route_resp.target_node_addresses(0);
+    } else {
+      last_status = grpc::Status(grpc::StatusCode::UNAVAILABLE,
+                                  "RouteQuery returned no target");
+      return last_status;
+    }
+
+    using StubT = std::remove_pointer_t<decltype(dial_fn(std::string{}))>;
+    StubT* stub = dial_fn(target_addr);
+    if (!stub) {
+      last_status = grpc::Status(grpc::StatusCode::UNAVAILABLE,
+                                  "could not dial primary");
+      // Dialing failure is a transient routing problem; re-route.
+      utils::Logger::Instance().Warn(
+          "write_fallback[{}]: dial failed for {}; re-routing (attempt {}/{})",
+          operation_label, target_addr, attempt + 1, kRouteWriteMaxReroutes + 1);
+      continue;
+    }
+
+    grpc::ClientContext call_ctx;
+    call_ctx.set_deadline(std::chrono::system_clock::now() +
+                           per_attempt_deadline);
+    if (primary_term > 0) {
+      StampPrimaryTermHeader(&call_ctx, primary_term);
+    }
+
+    utils::Logger::Instance().Debug(
+        "write_fallback[{}]: attempt {}/{} target={} term={}",
+        operation_label, attempt + 1, kRouteWriteMaxReroutes + 1,
+        target_addr, primary_term);
+
+    grpc::Status status = call_fn(&call_ctx, stub);
+    last_status = status;
+
+    if (status.ok()) {
+      if (attempt > 0) {
+        // Surfaces in metrics so a primary-swap-induced retry is observable.
+        metrics.IncReadReplicaFallback(operation_label, "primary_term_swap");
+        utils::Logger::Instance().Info(
+            "write_fallback[{}]: succeeded after {} re-route(s) (term={})",
+            operation_label, attempt, primary_term);
+      }
+      return status;
+    }
+
+    // ABORTED is the canonical "primary swap, re-route" signal.
+    // Anything else is non-retryable here — a different primary won't
+    // fix a NOT_FOUND or INVALID_ARGUMENT, and UNAVAILABLE on a write
+    // is a real availability issue the caller should surface.
+    if (status.error_code() != grpc::StatusCode::ABORTED) {
+      utils::Logger::Instance().Debug(
+          "write_fallback[{}]: non-retryable status code={} on attempt {}; "
+          "short-circuiting",
+          operation_label, static_cast<int>(status.error_code()),
+          attempt + 1);
+      return status;
+    }
+
+    utils::Logger::Instance().Info(
+        "write_fallback[{}]: ABORTED from primary (term={}, msg=\"{}\"); "
+        "re-routing via fresh RouteQuery (attempt {}/{})",
+        operation_label, primary_term, status.error_message(),
+        attempt + 1, kRouteWriteMaxReroutes + 1);
+  }
+
+  // Exhausted re-routes. The cluster is presumably in the middle of a
+  // multi-swap storm; surface the last ABORTED and let the upstream
+  // client retry.
+  utils::Logger::Instance().Warn(
+      "write_fallback[{}]: exhausted {} re-route(s); last status code={} "
+      "message=\"{}\"",
+      operation_label, kRouteWriteMaxReroutes,
+      static_cast<int>(last_status.error_code()),
+      last_status.error_message());
+  return last_status;
 }
 
 }  // namespace network
