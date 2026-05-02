@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.32.0](https://github.com/JonathanBerhe/gvdb/compare/v0.31.0...v0.32.0) (2026-05-02)
+
+
+### Features
+
+* **cluster:** two-phase primary swap + write-side ABORTED retry ([7d12632](https://github.com/JonathanBerhe/gvdb/commit/7d126321ce7114f1d077b59ec0ca75a6db2c95f0))
+* **network:** primary-term write enforcement + two-phase swap ([53c66dc](https://github.com/JonathanBerhe/gvdb/commit/53c66dcfeb466274a1fc3a4770e1ed40b9e2e495))
+* **network:** write-path primary-term enforcement (0b.3 part 2 step 3) ([8d51d0c](https://github.com/JonathanBerhe/gvdb/commit/8d51d0cc62c453b984f38911a66bc23740bcefb5))
+
 ## [0.31.0](https://github.com/JonathanBerhe/gvdb/compare/v0.30.0...v0.31.0) (2026-04-29)
 
 
