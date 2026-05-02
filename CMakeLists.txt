@@ -41,10 +41,16 @@ endif()
 
 if(NOT absl_FOUND)
   message(STATUS "Fetching Abseil...")
+  # 20240722.0 LTS (was 20240116.2). Bumped because the older release
+  # hardcodes -msse4.1 in absl/random/internal/randen_hwaes regardless
+  # of target architecture, which apple-clang rejects on arm64. The
+  # 20240722 LTS gates that flag on x86_64 detection. gRPC v1.66.0
+  # (pinned below) lists this exact abseil commit in its bazel deps,
+  # so the bump doesn't ripple.
   FetchContent_Declare(
     abseil-cpp
     GIT_REPOSITORY https://github.com/abseil/abseil-cpp.git
-    GIT_TAG        20240116.2  # LTS 20240116, Patch 2
+    GIT_TAG        20240722.0
     GIT_SHALLOW    TRUE
   )
 
@@ -173,14 +179,32 @@ endif()
 
 if(NOT spdlog_FOUND)
   message(STATUS "Fetching spdlog...")
+  # 1.14.1 bundles fmt 10 cleanly. The 1.12 release pairs with an older
+  # fmt that triggers a consteval failure when re-evaluated by Apple's
+  # clang on macOS SDK 26.4+. We keep the bundled-fmt path (rather than
+  # enabling SPDLOG_USE_STD_FORMAT) because our utils/logger.h uses
+  # fmt::runtime to accept runtime format strings — std::format has no
+  # runtime-string adapter that matches that API.
   FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG        v1.12.0
+    GIT_TAG        v1.14.1
     GIT_SHALLOW    TRUE
   )
 
   set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+  # Apple clang on macOS SDK 26.4+ rejects consteval calls in contexts
+  # mainline clang/gcc accept (the front-end's constexpr propagation is
+  # narrower). fmt's `basic_format_string` ctor is consteval, and
+  # spdlog's fmt_helper.h calls it in places Apple clang flags. Empty-
+  # defining `FMT_CONSTEVAL` makes fmt fall back to plain constexpr — a
+  # no-op semantically (fmt uses consteval only for compile-time
+  # format-string validation, which the constexpr fallback still
+  # performs). Set as a project-wide compile definition so every TU
+  # that includes any spdlog/fmt header sees it.
+  if(APPLE)
+    add_compile_definitions(FMT_CONSTEVAL=)
+  endif()
   FetchContent_MakeAvailable(spdlog)
 endif()
 
@@ -321,6 +345,18 @@ set(gRPC_INSTALL OFF CACHE BOOL "" FORCE)
 set(gRPC_ABSL_PROVIDER "module" CACHE STRING "" FORCE)  # Use our FetchContent abseil
 set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
 set(utf8_range_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+
+# On macOS, use the system (brew) zlib instead of gRPC's vendored copy.
+# gRPC's bundled zlib unconditionally defines `fdopen(fd,mode) NULL` in
+# zutil.h on macOS, which collides with SDK 26.4+'s <stdio.h> and fails
+# the build before any of our code is parsed. brew zlib is keg-only at
+# /opt/homebrew/opt/zlib; expose it to find_package via ZLIB_ROOT.
+if(APPLE)
+  set(gRPC_ZLIB_PROVIDER "package" CACHE STRING "" FORCE)
+  if(EXISTS "/opt/homebrew/opt/zlib")
+    set(ZLIB_ROOT "/opt/homebrew/opt/zlib" CACHE PATH "" FORCE)
+  endif()
+endif()
 
 FetchContent_MakeAvailable(grpc)
 
