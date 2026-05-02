@@ -484,6 +484,59 @@ message TransferLeadershipResponse {
 }
 
 // ============================================================================
+// Two-Phase Primary Swap (Coordinator → Data Node)
+// ============================================================================
+//
+// Surgical RPCs the coordinator uses to migrate a shard's primary from
+// node A to node B without losing the linearizability guarantees that
+// the write-path primary-term gate provides.
+//
+// The orchestrator (Coordinator::TransferPrimary) runs:
+//   1. PausePrimary(A, shard, new_term, B) — A stops accepting writes
+//      for `shard`. Writes from a stale-routing proxy now bounce with
+//      ABORTED and the proxy retries via fresh RouteQuery.
+//   2. PreparePromote(B, shard, new_term) — B records itself as primary
+//      at the bumped term so it accepts writes the moment the proxy
+//      learns the new routing.
+//   3. Commit in ShardManager — RouteQuery now returns B@new_term.
+//
+// Both RPCs are idempotent so the coordinator's reconcile loop can
+// replay them after a transient failure without corrupting state.
+
+message PausePrimaryRequest {
+  // Shard whose primary is being transferred away from this node.
+  uint32 shard_id = 1;
+  // The term being promoted to. Equals (this node's current term + 1).
+  // Carried so the data-node can record `last_known_term = new_term - 1`
+  // and reject any subsequent stale-routing write with the right error
+  // message.
+  uint64 new_term = 2;
+  // Diagnostic: the node taking over as primary. Logged on the responding
+  // node so on-call has breadcrumbs without round-tripping the coordinator.
+  uint32 new_primary_node_id = 3;
+}
+
+message PausePrimaryResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message PreparePromoteRequest {
+  // Shard this node is being promoted to primary for.
+  uint32 shard_id = 1;
+  // Target term. Must be strictly greater than the responding node's
+  // currently-recorded term for this shard; the data-node returns
+  // success=false on regression so a buggy coordinator double-promote
+  // surfaces as a hard error rather than silently overwriting state.
+  uint64 new_term = 2;
+}
+
+message PreparePromoteResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// ============================================================================
 // InternalService - Node-to-Node Communication
 // ============================================================================
 
@@ -527,6 +580,13 @@ service InternalService {
   // Raft scale reconciliation (Operator → Coordinator; roadmap 1.8)
   rpc GetRaftMembership(GetRaftMembershipRequest) returns (GetRaftMembershipResponse);
   rpc TransferLeadership(TransferLeadershipRequest) returns (TransferLeadershipResponse);
+
+  // Two-phase primary swap (Coordinator → Data Node).
+  // PausePrimary stops the old primary accepting writes for the shard;
+  // PreparePromote brings the new primary online at the bumped term.
+  // Both calls are idempotent so the coordinator can replay on failure.
+  rpc PausePrimary(PausePrimaryRequest) returns (PausePrimaryResponse);
+  rpc PreparePromote(PreparePromoteRequest) returns (PreparePromoteResponse);
 
   // Timestamp oracle (All Nodes → Coordinator)
   rpc GetTimestamp(GetTimestampRequest) returns (GetTimestampResponse);

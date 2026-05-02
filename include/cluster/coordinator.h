@@ -292,6 +292,30 @@ class Coordinator {
       const ShardManager::RebalanceMove& move,
       core::CollectionId collection_id,
       uint32_t shard_index);
+
+  // Two-phase primary swap orchestrator. Drives the protocol that lets
+  // a write-in-flight survive a primary change without losing
+  // linearizability:
+  //   1. Read current term from ShardManager; new_term = current + 1.
+  //   2. PausePrimary(old_node, shard, new_term, new_node) — old node
+  //      stops accepting writes for this shard.
+  //   3. PreparePromote(new_node, shard, new_term) — new node starts
+  //      accepting writes at the bumped term.
+  //   4. ShardManager::SetPrimaryNode(shard, new_node, new_term) —
+  //      RouteQuery now points the proxy at new_node@new_term.
+  //
+  // On any RPC failure the state is recoverable: each step is
+  // idempotent and the ShardManager commit hasn't happened yet, so the
+  // next reconcile pass repeats the orchestration. Callers should
+  // surface the returned status to their reconcile loop and not retry
+  // synchronously — a stuck swap blocks all writes for the shard.
+  //
+  // `old_node` may equal `kInvalidNodeId` when no current primary
+  // exists (shard previously unowned, e.g. a cold-promote during
+  // recovery). PausePrimary is then skipped.
+  absl::Status TransferPrimary(core::ShardId shard_id,
+                               core::NodeId old_node,
+                               core::NodeId new_node);
   static constexpr size_t kMaxMovesPerCycle = 4;
   mutable std::mutex migration_mutex_;
   std::set<core::ShardId> shards_migrating_;
