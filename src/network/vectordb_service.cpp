@@ -4,7 +4,9 @@
 #include "network/vectordb_service.h"
 #include "network/proto_conversions.h"
 #include "network/collection_resolver.h"
+#include "network/primary_term_header.h"
 #include "network/replica_fallback.h"
+#include "cluster/primary_term_tracker.h"
 #include "auth/auth_context.h"
 #include "network/audit_context.h"
 #include "utils/logger.h"
@@ -77,6 +79,82 @@ grpc::Status VectorDBService::CheckPermission(
 // ============================================================================
 // Helpers
 // ============================================================================
+
+grpc::Status VectorDBService::EvaluateWriteGate(
+    grpc::ServerContext* context, const std::string& collection_name,
+    uint64_t sample_vector_id) {
+  // Single-node / tests / query-nodes: no tracker plumbed in, gate is
+  // a no-op. Distributed data-nodes always have one wired in by
+  // data_node_main (cluster::PrimaryTermTracker).
+  if (primary_term_tracker_ == nullptr) return grpc::Status::OK;
+
+  // Read the per-write term from the gRPC client metadata header. A
+  // client that doesn't send the header is either a pre-1.x proxy
+  // (rolling upgrade) or a single-node tool talking directly to the
+  // data-node. Accept silently with a debug log so a real misconfig
+  // is still observable in operator dashboards via metrics, not by
+  // breaking the request.
+  auto hdr = ReadPrimaryTermHeader(context);
+  if (!hdr.has_term) {
+    utils::Logger::Instance().Debug(
+        "Write to '{}' has no {} header; accepting (back-compat path)",
+        collection_name, kPrimaryTermHeader);
+    return grpc::Status::OK;
+  }
+  if (hdr.parse_error) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+        std::string("malformed ") + kPrimaryTermHeader +
+        " header (must be decimal uint64)");
+  }
+
+  // Map the request to a shard via the same hash the proxy uses
+  // (vid % num_shards). num_shards comes from the resolver's segment
+  // list — every shard owns one segment by the ShardSegmentId scheme.
+  // If the resolver can't answer (collection unknown locally), fall
+  // through and let the regular handler return its own error.
+  auto seg_ids = resolver_->GetSegmentIds(collection_name);
+  if (!seg_ids.ok() || seg_ids->empty()) {
+    utils::Logger::Instance().Debug(
+        "Write gate: resolver could not produce segment list for '{}'; "
+        "deferring to handler-level error", collection_name);
+    return grpc::Status::OK;
+  }
+  const uint32_t num_shards = static_cast<uint32_t>(seg_ids->size());
+  const uint32_t shard_id =
+      static_cast<uint32_t>(sample_vector_id % num_shards);
+
+  using D = cluster::PrimaryTermTracker::AcceptDecision;
+  const D decision = primary_term_tracker_->EvaluateWrite(shard_id, hdr.term);
+  switch (decision) {
+    case D::Accept:
+      return grpc::Status::OK;
+    case D::StaleTerm: {
+      // The proxy's cached routing has the wrong term. ABORTED tells
+      // the proxy to re-route via fresh RouteQuery and retry — the
+      // replica-fallback helper classifies ABORTED as transient.
+      auto snap = primary_term_tracker_->Get(shard_id);
+      return grpc::Status(grpc::StatusCode::ABORTED, absl::StrCat(
+          "stale shard term for shard ", shard_id,
+          " (request term=", hdr.term, ", current term=", snap.term, ")"));
+    }
+    case D::NotPrimary: {
+      auto snap = primary_term_tracker_->Get(shard_id);
+      return grpc::Status(grpc::StatusCode::ABORTED, absl::StrCat(
+          "not primary for shard ", shard_id,
+          " (current term=", snap.term, "); re-route via RouteQuery"));
+    }
+    case D::UnknownShard:
+      // Heartbeat hasn't synced yet, OR the proxy's routing genuinely
+      // points at a node that doesn't own the shard. Distinct code so
+      // observers can tell the two apart. Caller (proxy) should re-
+      // route via fresh RouteQuery; we don't tag it ABORTED because
+      // the cure is the same but the diagnosis is different.
+      return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, absl::StrCat(
+          "no primary record for shard ", shard_id,
+          " on this data-node; re-route via RouteQuery"));
+  }
+  return grpc::Status::OK;
+}
 
 storage::Segment* VectorDBService::GetOrReplicateSegment(core::SegmentId segment_id) {
   auto* segment = segment_store_->GetSegment(segment_id);
@@ -460,6 +538,16 @@ grpc::Status VectorDBService::Insert(
         "Send insert requests to data nodes instead.");
   }
 
+  // Primary-term gate. Use the first vector's id as the shard sample
+  // — the proxy splits per-shard before sending so all vectors in an
+  // RPC share a shard, but even if a malformed client sends mixed
+  // shards the gate at least catches the dominant case.
+  if (auto gate = EvaluateWriteGate(context, request->collection_name(),
+                                     request->vectors(0).id());
+      !gate.ok()) {
+    return gate;
+  }
+
   // Get all segment IDs for this collection
   auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
   if (!segment_ids_result.ok()) {
@@ -743,6 +831,14 @@ grpc::Status VectorDBService::Upsert(
   if (!resolver_->SupportsDataOps()) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
         "Upsert operations not supported on coordinator nodes");
+  }
+
+  // Primary-term gate. See ProxyService::Insert for the full
+  // rationale; this matches the contract on every write RPC.
+  if (auto gate = EvaluateWriteGate(context, request->collection_name(),
+                                     request->vectors(0).id());
+      !gate.ok()) {
+    return gate;
   }
 
   auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
@@ -1465,6 +1561,16 @@ grpc::Status VectorDBService::Delete(
         "Send delete requests to data nodes instead.");
   }
 
+  // Primary-term gate. See ProxyService::Insert for the full
+  // rationale; same contract on every write RPC.
+  if (auto gate = EvaluateWriteGate(context, request->collection_name(),
+                                     request->ids(0));
+      !gate.ok()) {
+    utils::MetricsRegistry::Instance().RecordDelete(
+        request->collection_name(), false);
+    return gate;
+  }
+
   auto segment_id_result = resolver_->GetSegmentId(request->collection_name());
   if (!segment_id_result.ok()) {
     utils::MetricsRegistry::Instance().RecordDelete(
@@ -1548,6 +1654,16 @@ grpc::Status VectorDBService::UpdateMetadata(
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
         "UpdateMetadata operations not supported on coordinator nodes. "
         "Send metadata update requests to data nodes instead.");
+  }
+
+  // Primary-term gate. See ProxyService::Insert for the full
+  // rationale; same contract on every write RPC.
+  if (auto gate = EvaluateWriteGate(context, request->collection_name(),
+                                     request->id());
+      !gate.ok()) {
+    utils::MetricsRegistry::Instance().RecordUpdateMetadata(
+        request->collection_name(), false);
+    return gate;
   }
 
   auto segment_id_result = resolver_->GetSegmentId(request->collection_name());
