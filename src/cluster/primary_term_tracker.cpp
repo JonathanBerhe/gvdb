@@ -40,12 +40,7 @@ bool PrimaryTermTracker::RecordNotPrimary(uint32_t shard_id,
     return true;
   }
   auto& entry = it->second;
-  // Asymmetric with RecordPrimary: same-term primary→not-primary is
-  // legitimate — during a swap the coordinator demotes the current
-  // primary at term T before bumping the successor to T+1, so the
-  // demoted slot correctly ends up at {is_primary=false, term=T}.
-  // Only a strictly older term indicates a stale demote and is
-  // rejected.
+  // Unlike RecordPrimary: same-term demote is legitimate (first half of a swap).
   if (last_known_term < entry.term) return false;
   entry.is_primary = false;
   entry.term = last_known_term;
