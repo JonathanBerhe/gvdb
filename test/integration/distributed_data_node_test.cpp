@@ -12,6 +12,7 @@
 #include "cluster/shard_manager.h"
 #include "cluster/node_registry.h"
 #include "cluster/internal_client.h"
+#include "cluster/primary_term_tracker.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "network/internal_service.h"
@@ -515,12 +516,34 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "ReplicateSegmentBetweenNodes") {
 
 // Test: Coordinator handles failed node by promoting replica
 TEST_CASE_FIXTURE(DistributedDataNodeTest, "FailoverPromotion") {
-  // Register a second data node
+  // Stand up a real second data node so PreparePromote during failover
+  // has a server to talk to. Mirrors ReplicateSegmentBetweenNodes.
+  auto dn2_segment_manager = std::make_shared<storage::SegmentManager>(
+      "/tmp/gvdb-distributed-dn-test/data_node_2", index_factory_.get());
+  auto dn2_query_executor = std::make_shared<compute::QueryExecutor>(
+      dn2_segment_manager.get());
+  auto dn2_shard_manager = std::make_shared<cluster::ShardManager>(
+      8, cluster::ShardingStrategy::HASH);
+  cluster::PrimaryTermTracker dn2_tracker;
+  auto dn2_internal_service = std::make_unique<network::InternalService>(
+      dn2_shard_manager, dn2_segment_manager, dn2_query_executor);
+  dn2_internal_service->SetPrimaryTermTracker(&dn2_tracker);
+
+  grpc::ServerBuilder dn2_builder;
+  int dn2_port = 0;
+  dn2_builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &dn2_port);
+  dn2_builder.RegisterService(dn2_internal_service.get());
+  dn2_builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
+  dn2_builder.SetMaxSendMessageSize(256 * 1024 * 1024);
+  auto dn2_server = dn2_builder.BuildAndStart();
+  REQUIRE_NE(dn2_server, nullptr);
+  std::string dn2_address = "localhost:" + std::to_string(dn2_port);
+
   proto::internal::NodeInfo proto_node2;
   proto_node2.set_node_id(200);
   proto_node2.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
   proto_node2.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
-  proto_node2.set_grpc_address("localhost:59999");
+  proto_node2.set_grpc_address(dn2_address);
   node_registry_->UpdateNode(proto_node2);
 
   // Assign shard with node 100 as primary, node 200 as replica
@@ -546,6 +569,9 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "FailoverPromotion") {
   auto primary_after = shard_manager_->GetPrimaryNode(shard);
   REQUIRE(primary_after.ok());
   CHECK_EQ(*primary_after, replica);
+
+  dn2_server->Shutdown();
+  dn2_server->Wait();
 }
 
 }  // namespace test
