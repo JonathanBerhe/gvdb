@@ -40,9 +40,8 @@ bool PrimaryTermTracker::RecordNotPrimary(uint32_t shard_id,
     return true;
   }
   auto& entry = it->second;
-  // Symmetric rule (see RecordPrimary).
+  // Unlike RecordPrimary: same-term demote is legitimate (first half of a swap).
   if (last_known_term < entry.term) return false;
-  if (last_known_term == entry.term && entry.is_primary) return false;
   entry.is_primary = false;
   entry.term = last_known_term;
   return true;
