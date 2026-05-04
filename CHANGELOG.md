@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.32.1](https://github.com/JonathanBerhe/gvdb/compare/v0.32.0...v0.32.1) (2026-05-04)
+
+
+### Bug Fixes
+
+* **cluster:** allow same-term primary→not-primary in RecordNotPrimary ([bf37f04](https://github.com/JonathanBerhe/gvdb/commit/bf37f04c4d23b2d3b97c3cf79b71ab395f267761))
+* **cluster:** allow same-term primary→not-primary; enable tests in CI ([600560f](https://github.com/JonathanBerhe/gvdb/commit/600560fb86d617c4ce25fbb5c36013fc6515be97))
+
 ## [0.32.0](https://github.com/JonathanBerhe/gvdb/compare/v0.31.0...v0.32.0) (2026-05-02)
 
 
