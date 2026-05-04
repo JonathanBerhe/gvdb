@@ -83,7 +83,7 @@ jobs:
         run: >
           make build
           BUILD_TYPE=Release
-          CMAKE_EXTRA="-DGVDB_WITH_S3=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          CMAKE_EXTRA="-DBUILD_TESTING=ON -DGVDB_WITH_S3=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}"
 
       - name: Test
