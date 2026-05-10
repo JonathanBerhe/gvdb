@@ -546,6 +546,32 @@ set_tests_properties(AuditInterceptorTests PROPERTIES
   TIMEOUT 60
 )
 
+# CUDA GPU smoke test (Linux + NVIDIA, skip elsewhere)
+if(GVDB_WITH_CUDA)
+  add_executable(cuda_smoke_tests
+    cuda_smoke_test.cpp
+  )
+
+  target_include_directories(cuda_smoke_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/index
+  )
+
+  target_link_libraries(cuda_smoke_tests
+    PRIVATE
+      gvdb_index
+      gvdb_core
+      faiss
+      doctest::doctest_with_main
+  )
+
+  add_test(NAME CudaSmokeTests COMMAND cuda_smoke_tests)
+
+  set_tests_properties(CudaSmokeTests PROPERTIES
+    TIMEOUT 120
+    LABELS "cuda"
+  )
+endif()
+
 # Metal GPU distance tests (macOS only, skip on Linux)
 if(APPLE AND GVDB_WITH_METAL)
   add_executable(metal_distance_tests

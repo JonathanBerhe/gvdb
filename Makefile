@@ -4,7 +4,7 @@
        undeploy clean-kind port-forward status \
        build-ui run-ui \
        lint-sdk test-sdk test-sdk-kind generate-python-stubs \
-       bench-metal \
+       bench-metal bench-cuda \
        build-connectors test-connectors \
        build-operator test-operator docker-build-operator \
        helm-install-operator helm-uninstall-operator \
@@ -43,6 +43,10 @@ build-release:
 bench-metal:
 	@$(MAKE) build CMAKE_EXTRA="-DGVDB_WITH_METAL=ON"
 	@cd $(BUILD_DIR) && ./bin/gvdb-metal-bench
+
+bench-cuda:
+	@$(MAKE) build BUILD_TYPE=Release CMAKE_EXTRA="-DGVDB_WITH_CUDA=ON"
+	@cd $(BUILD_DIR) && ./bin/gvdb-cuda-bench
 
 test:
 	@ctest --test-dir $(BUILD_DIR) --output-on-failure

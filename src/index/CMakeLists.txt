@@ -36,6 +36,14 @@ if(APPLE AND GVDB_WITH_METAL)
   )
 endif()
 
+# NVIDIA CUDA GPU acceleration (via faiss-gpu)
+if(GVDB_WITH_CUDA)
+  target_sources(gvdb_index PRIVATE
+    cuda/cuda_compute.cpp
+  )
+  target_link_libraries(gvdb_index PRIVATE CUDA::cudart)
+endif()
+
 # Set target properties
 set_target_properties(gvdb_index PROPERTIES
   CXX_STANDARD 20

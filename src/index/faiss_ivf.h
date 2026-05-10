@@ -28,6 +28,9 @@ class FaissIVFIndex : public FaissIndexBase {
 
   [[nodiscard]] int GetNProbe() const { return nprobe_; }
 
+ protected:
+  [[nodiscard]] bool SupportsGpu() const override { return true; }
+
  private:
   static std::unique_ptr<faiss::Index> CreateIVFIndex(
       core::Dimension dimension, core::MetricType metric, int nlist,
