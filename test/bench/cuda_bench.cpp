@@ -88,72 +88,38 @@ int main() {
   const int K = 10;
   const int RUNS = 10;
 
-  // Sweep vector count at dim=768.
-  {
-    const core::Dimension DIM = 768;
-    std::printf("IVF_FLAT L2 Search (top-k=%d, dim=%d)\n", K, DIM);
-    std::printf("  %12s  |  %13s  |  %11s  |  %s\n",
-                "Vectors", "CPU (faiss)", "CUDA GPU", "Speedup");
-    std::printf("  %12s--+--%13s--+--%11s--+--%s\n",
-                "------------", "-------------", "-----------", "-------");
+  // Cheap default sweep: small vector counts at dim=768. Total runtime
+  // ~1 min on A10G. To get production-class numbers, expand the counts
+  // array and/or add a dimension sweep below.
+  const core::Dimension DIM = 768;
+  std::printf("IVF_FLAT L2 Search (top-k=%d, dim=%d)\n", K, DIM);
+  std::printf("  %12s  |  %13s  |  %11s  |  %s\n",
+              "Vectors", "CPU (faiss)", "CUDA GPU", "Speedup");
+  std::printf("  %12s--+--%13s--+--%11s--+--%s\n",
+              "------------", "-------------", "-----------", "-------");
 
-    size_t counts[] = {10000, 50000, 100000, 500000, 1000000, 2000000};
-    for (size_t n : counts) {
-      auto vectors = RandomVectors(n, DIM);
-      auto ids = SequentialIds(n);
-      auto query = RandomVectors(1, DIM, 99)[0];
-      const int nlist = IvfNlist(n);
-      const int nprobe = std::max(1, nlist / 8);
-
-      index::FaissIVFIndex cpu_idx(DIM, core::MetricType::L2, nlist, nprobe);
-      cpu_idx.DisableGpuForBenchmark();
-      cpu_idx.Build(vectors, ids);
-      double cpu_ms = BenchSearch(&cpu_idx, query, K, RUNS);
-
-      index::FaissIVFIndex gpu_idx(DIM, core::MetricType::L2, nlist, nprobe);
-      gpu_idx.Build(vectors, ids);
-      double gpu_ms = BenchSearch(&gpu_idx, query, K, RUNS);
-
-      char label[32];
-      std::snprintf(label, sizeof(label), "%zu", n);
-      PrintRow(label, cpu_ms, gpu_ms);
-    }
-    std::printf("\n");
-  }
-
-  // Sweep dimension at 100K vectors.
-  {
-    const size_t N = 100000;
-    std::printf("IVF_FLAT L2 Search (top-k=%d, vectors=%zu, varying dim)\n",
-                K, N);
-    std::printf("  %12s  |  %13s  |  %11s  |  %s\n",
-                "Dimension", "CPU (faiss)", "CUDA GPU", "Speedup");
-    std::printf("  %12s--+--%13s--+--%11s--+--%s\n",
-                "------------", "-------------", "-----------", "-------");
-
-    core::Dimension dims[] = {128, 384, 768, 1536};
-    const int nlist = IvfNlist(N);
+  size_t counts[] = {10000, 50000, 100000};
+  for (size_t n : counts) {
+    auto vectors = RandomVectors(n, DIM);
+    auto ids = SequentialIds(n);
+    auto query = RandomVectors(1, DIM, 99)[0];
+    const int nlist = IvfNlist(n);
     const int nprobe = std::max(1, nlist / 8);
-    for (core::Dimension dim : dims) {
-      auto vectors = RandomVectors(N, dim);
-      auto ids = SequentialIds(N);
-      auto query = RandomVectors(1, dim, 99)[0];
 
-      index::FaissIVFIndex cpu_idx(dim, core::MetricType::L2, nlist, nprobe);
-      cpu_idx.DisableGpuForBenchmark();
-      cpu_idx.Build(vectors, ids);
-      double cpu_ms = BenchSearch(&cpu_idx, query, K, RUNS);
+    index::FaissIVFIndex cpu_idx(DIM, core::MetricType::L2, nlist, nprobe);
+    cpu_idx.DisableGpuForBenchmark();
+    cpu_idx.Build(vectors, ids);
+    double cpu_ms = BenchSearch(&cpu_idx, query, K, RUNS);
 
-      index::FaissIVFIndex gpu_idx(dim, core::MetricType::L2, nlist, nprobe);
-      gpu_idx.Build(vectors, ids);
-      double gpu_ms = BenchSearch(&gpu_idx, query, K, RUNS);
+    index::FaissIVFIndex gpu_idx(DIM, core::MetricType::L2, nlist, nprobe);
+    gpu_idx.Build(vectors, ids);
+    double gpu_ms = BenchSearch(&gpu_idx, query, K, RUNS);
 
-      char label[32];
-      std::snprintf(label, sizeof(label), "%d", dim);
-      PrintRow(label, cpu_ms, gpu_ms);
-    }
-    std::printf("\n");
+    char label[32];
+    std::snprintf(label, sizeof(label), "%zu", n);
+    PrintRow(label, cpu_ms, gpu_ms);
   }
+  std::printf("\n");
 
   std::printf("Done.\n");
   return 0;
