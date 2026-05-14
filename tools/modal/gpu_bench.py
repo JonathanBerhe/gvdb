@@ -72,7 +72,9 @@ ccache_volume = modal.Volume.from_name("gvdb-ccache", create_if_missing=True)
 @app.function(
     image=image,
     volumes={CCACHE_DIR: ccache_volume},
-    gpu="A100",
+    # Default A10G keeps the dev-loop cheap; bump to A100/H100 by editing
+    # this kwarg when you want production-class numbers.
+    gpu="A10G",
     timeout=3600,
 )
 def bench_cuda(jobs: int = 8) -> None:
