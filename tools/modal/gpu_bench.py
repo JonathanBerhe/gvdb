@@ -1,43 +1,106 @@
 # Run the GVDB CUDA bench on Modal.
 #
-# Examples:
-#   modal run tools/modal/gpu_bench.py
-#   modal run tools/modal/gpu_bench.py --gpu A100
-#   modal run tools/modal/gpu_bench.py --gpu H100
+# Example:
+#   uv run --project tools/modal modal run tools/modal/gpu_bench.py
+#
+# To switch GPU class, edit the gpu= kwarg on @app.function below. Modal 1.x
+# removed Function.with_options() so per-call overrides aren't supported.
 
 import os
+import subprocess
 
 import modal
 
-from app import (
-    BUILD_DIR,
-    REPO_REMOTE,
-    app,
-    build_cuda,
-    ccache_volume,
-    image,
+REPO_LOCAL = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+REPO_REMOTE = "/root/repo"
+BUILD_DIR = f"{REPO_REMOTE}/build"
+CCACHE_DIR = "/root/.ccache"
+
+_REPO_IGNORE = [
+    "**/build/**",
+    "**/build-*/**",
+    "**/.git/**",
+    "**/.venv/**",
+    "**/__pycache__/**",
+    "**/.cache/**",
+    "**/.tox/**",
+    "**/.pytest_cache/**",
+    "**/*.pyc",
+    "**/.DS_Store",
+    "clients/**",
+    "operator/**",
+    "ui/**",
+    "connectors/**",
+    "grafana/**",
+    "deploy/**",
+    "docs/**",
+    "scripts/**",
+    "outputs/**",
+    "test/e2e/**",
+]
+
+app = modal.App("gvdb-gpu-bench")
+
+image = (
+    # Ubuntu 24.04 ships cmake >= 3.28, satisfying faiss v1.8.0's requirement
+    # (Ubuntu 22.04's apt cmake is 3.22.1, too old).
+    modal.Image.from_registry(
+        "nvidia/cuda:12.6.2-devel-ubuntu24.04",
+        add_python="3.11",
+    )
+    .apt_install(
+        "build-essential",
+        "cmake",
+        "ccache",
+        "ninja-build",
+        "git",
+        "pkg-config",
+        "libomp-dev",
+        "libopenblas-dev",
+        "liblapack-dev",
+        "zlib1g-dev",
+        "libssl-dev",
+        "libcurl4-openssl-dev",
+    )
+    .env({"CCACHE_DIR": CCACHE_DIR})
+    .add_local_dir(REPO_LOCAL, remote_path=REPO_REMOTE, ignore=_REPO_IGNORE)
 )
 
-REPO_LOCAL = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+ccache_volume = modal.Volume.from_name("gvdb-ccache", create_if_missing=True)
 
 
 @app.function(
     image=image,
-    volumes={"/root/.ccache": ccache_volume},
-    mounts=[modal.Mount.from_local_dir(REPO_LOCAL, remote_path=REPO_REMOTE)],
+    volumes={CCACHE_DIR: ccache_volume},
+    gpu="A100",
     timeout=3600,
 )
 def bench_cuda(jobs: int = 8) -> None:
-    import subprocess
+    def _run(cmd: list[str]) -> None:
+        print(f"$ {' '.join(cmd)}", flush=True)
+        subprocess.run(cmd, check=True)
 
-    build_cuda(jobs=jobs)
+    _run(
+        [
+            "cmake",
+            "-S",
+            REPO_REMOTE,
+            "-B",
+            BUILD_DIR,
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DGVDB_WITH_CUDA=ON",
+            "-DBUILD_TESTING=ON",
+            "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+            "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
+            "-DCMAKE_CUDA_COMPILER_LAUNCHER=ccache",
+        ]
+    )
+    _run(["cmake", "--build", BUILD_DIR, "--target", "gvdb-cuda-bench", "-j", str(jobs)])
     binary = f"{BUILD_DIR}/bin/gvdb-cuda-bench"
     print(f"$ {binary}", flush=True)
     subprocess.run([binary], check=True)
 
 
 @app.local_entrypoint()
-def main(gpu: str = "A10G", jobs: int = 8) -> None:
-    """Default A10G keeps iteration cheap; override --gpu A100 / H100 for real
-    perf numbers."""
-    bench_cuda.with_options(gpu=gpu).remote(jobs=jobs)
+def main(jobs: int = 8) -> None:
+    bench_cuda.remote(jobs=jobs)

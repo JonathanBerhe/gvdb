@@ -56,7 +56,10 @@ class FaissIndexBase : public core::IVectorIndex {
  public:
   explicit FaissIndexBase(std::unique_ptr<faiss::Index> index,
                           core::MetricType metric);
-  virtual ~FaissIndexBase() = default;
+  // Out-of-line so unique_ptr<StandardGpuResources>'s deleter sees the
+  // complete type only in faiss_base.cpp (which includes the faiss-gpu
+  // header under GVDB_HAS_CUDA).
+  virtual ~FaissIndexBase();
 
   // IVectorIndex implementation
 
