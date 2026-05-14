@@ -27,6 +27,8 @@ FaissIndexBase::FaissIndexBase(std::unique_ptr<faiss::Index> index,
   is_trained_ = index_->is_trained;
 }
 
+FaissIndexBase::~FaissIndexBase() = default;
+
 core::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
                                     const std::vector<core::VectorId>& ids) {
   if (vectors.empty()) {

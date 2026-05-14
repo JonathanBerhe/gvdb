@@ -1,0 +1,8 @@
+[project]
+name = "gvdb-gpu-modal"
+version = "0.0.0"
+description = "Modal dev-loop scripts for the GVDB CUDA build (GVDB_WITH_CUDA=ON)."
+requires-python = ">=3.11"
+dependencies = [
+  "modal>=1.4",
+]

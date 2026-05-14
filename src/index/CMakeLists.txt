@@ -41,7 +41,7 @@ if(GVDB_WITH_CUDA)
   target_sources(gvdb_index PRIVATE
     cuda/cuda_compute.cpp
   )
-  target_link_libraries(gvdb_index PRIVATE CUDA::cudart)
+  target_link_libraries(gvdb_index PRIVATE CUDA::cudart CUDA::cublas)
 endif()
 
 # Set target properties
@@ -62,12 +62,26 @@ target_include_directories(gvdb_index
     /opt/homebrew/opt/libomp/include
 )
 
-# Link dependencies
-target_link_libraries(gvdb_index
-  PUBLIC
-    gvdb_core
-    faiss
-)
+# Link dependencies. faiss + faiss_gpu have circular references (faiss_gpu
+# calls back into faiss CPU symbols like ParameterSpace, IndexShardsIVF). A
+# single-pass static link can't resolve them; LINK_GROUP RESCAN emits
+# -Wl,--start-group/--end-group so ld multi-passes.
+if(GVDB_WITH_CUDA)
+  # faiss's interface adds faiss_gpu with WHOLE_ARCHIVE; we must use the
+  # same feature when including faiss_gpu inside the rescan group or CMake
+  # rejects the link with a "feature mismatch" error.
+  target_link_libraries(gvdb_index
+    PUBLIC
+      gvdb_core
+      "$<LINK_GROUP:RESCAN,faiss,$<LINK_LIBRARY:WHOLE_ARCHIVE,faiss_gpu>>"
+  )
+else()
+  target_link_libraries(gvdb_index
+    PUBLIC
+      gvdb_core
+      faiss
+  )
+endif()
 
 # Compiler warnings
 target_compile_options(gvdb_index PRIVATE
