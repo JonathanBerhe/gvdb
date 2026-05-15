@@ -327,6 +327,136 @@ message CancelImportResponse {
 }
 
 // ============================================================================
+// Backup and Restore
+// ============================================================================
+
+// BackupTarget selects where backup artifacts are written. Mirrors the
+// IObjectStore choice in the C++ runtime — S3 uses S3ObjectStore,
+// LocalPath uses FilesystemObjectStore.
+message BackupTarget {
+  oneof target {
+    S3Target s3 = 1;
+    LocalTarget local = 2;
+  }
+}
+
+message S3Target {
+  // Bucket the data-node uploads to. Credentials come from the data-node's
+  // configured object-store credentials (typically IRSA / Workload Identity).
+  string bucket = 1;
+  // Optional prefix under the bucket. Final key layout is
+  //   <prefix>/backups/<backup_id>/...
+  string prefix = 2;
+}
+
+message LocalTarget {
+  // Absolute path on the data-node. Must be under a server-side allow-list
+  // (see BackupConfig.local_backup_dir).
+  string path = 1;
+}
+
+enum BackupState {
+  BACKUP_PENDING = 0;
+  BACKUP_RUNNING = 1;
+  BACKUP_COMPLETED = 2;
+  BACKUP_FAILED = 3;
+  BACKUP_CANCELLED = 4;
+}
+
+message BackupCollectionRequest {
+  string collection_name = 1;
+  BackupTarget target = 2;
+  // Optional: parent backup_id for an incremental backup. The current
+  // implementation always takes a full backup and ignores this field;
+  // the seam is preserved for a later incremental implementation.
+  string incremental_from = 3;
+  // Optional: client-supplied backup_id for idempotency. Empty = server
+  // allocates one of the form "bk-<RFC3339>-<rand>".
+  string backup_id = 4;
+}
+
+message BackupCollectionResponse {
+  string backup_id = 1;
+  string message = 2;
+}
+
+message RestoreCollectionRequest {
+  BackupTarget source = 1;
+  string backup_id = 2;
+  // Where to restore into. Empty = use the collection name from the
+  // backup manifest. Fails if the target already exists unless
+  // overwrite=true.
+  string target_collection_name = 3;
+  // If true and the target collection exists, drop it then recreate
+  // from the backup. If false and it exists, the call fails.
+  bool overwrite = 4;
+}
+
+message RestoreCollectionResponse {
+  string restore_id = 1;
+  string message = 2;
+}
+
+message GetBackupStatusRequest {
+  string backup_id = 1;
+}
+
+message GetBackupStatusResponse {
+  string backup_id = 1;
+  BackupState state = 2;
+  uint32 shards_total = 3;
+  uint32 shards_completed = 4;
+  uint64 bytes_uploaded = 5;
+  string error_message = 6;
+  float elapsed_seconds = 7;
+  // Canonical URI of the top-level backup manifest, e.g.
+  //   "s3://bucket/prefix/backups/<id>/backup.manifest.json"
+  // Empty until the backup reaches BACKUP_COMPLETED.
+  string manifest_uri = 8;
+}
+
+message GetRestoreStatusRequest {
+  string restore_id = 1;
+}
+
+message GetRestoreStatusResponse {
+  string restore_id = 1;
+  // Reuses BackupState; CANCELLED is unused for restore.
+  BackupState state = 2;
+  uint32 shards_total = 3;
+  uint32 shards_completed = 4;
+  string error_message = 5;
+  float elapsed_seconds = 6;
+}
+
+message ListBackupsRequest {
+  BackupTarget source = 1;
+}
+
+message BackupInfo {
+  string backup_id = 1;
+  string collection_name = 2;
+  uint32 collection_id = 3;
+  int64 created_at_unix_ms = 4;
+  uint64 vector_count = 5;
+  uint64 size_bytes = 6;
+  uint32 manifest_version = 7;
+}
+
+message ListBackupsResponse {
+  repeated BackupInfo backups = 1;
+}
+
+message CancelBackupRequest {
+  string backup_id = 1;
+}
+
+message CancelBackupResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// ============================================================================
 // VectorDB Service
 // ============================================================================
 
@@ -354,6 +484,14 @@ service VectorDBService {
   rpc BulkImport(BulkImportRequest) returns (BulkImportResponse);
   rpc GetImportStatus(GetImportStatusRequest) returns (GetImportStatusResponse);
   rpc CancelImport(CancelImportRequest) returns (CancelImportResponse);
+
+  // Backup and restore
+  rpc BackupCollection(BackupCollectionRequest) returns (BackupCollectionResponse);
+  rpc RestoreCollection(RestoreCollectionRequest) returns (RestoreCollectionResponse);
+  rpc GetBackupStatus(GetBackupStatusRequest) returns (GetBackupStatusResponse);
+  rpc GetRestoreStatus(GetRestoreStatusRequest) returns (GetRestoreStatusResponse);
+  rpc ListBackups(ListBackupsRequest) returns (ListBackupsResponse);
+  rpc CancelBackup(CancelBackupRequest) returns (CancelBackupResponse);
 
   // Health and stats
   rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);

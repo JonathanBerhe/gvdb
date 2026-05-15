@@ -51,6 +51,26 @@ TEST_CASE("HasPermission - collection_admin like readwrite") {
   CHECK_FALSE(auth::HasPermission(auth::Role::COLLECTION_ADMIN, auth::Permission::DROP_COLLECTION));
 }
 
+TEST_CASE("HasPermission - backup is a read; restore is create-or-drop-equivalent") {
+  // BACKUP is structurally a read across every segment, so any role with
+  // collection-level write authority can also back it up. READONLY does
+  // not get BACKUP because backups are an operational primitive (they
+  // ship bytes off-node); a readonly client that needs the data can use
+  // Search/Get/ListVectors.
+  CHECK(auth::HasPermission(auth::Role::ADMIN, auth::Permission::BACKUP));
+  CHECK(auth::HasPermission(auth::Role::READWRITE, auth::Permission::BACKUP));
+  CHECK(auth::HasPermission(auth::Role::COLLECTION_ADMIN, auth::Permission::BACKUP));
+  CHECK_FALSE(auth::HasPermission(auth::Role::READONLY, auth::Permission::BACKUP));
+
+  // RESTORE materializes a collection (create) or replaces an existing
+  // one (drop+create), so it is gated like CREATE_COLLECTION /
+  // DROP_COLLECTION — admin-only.
+  CHECK(auth::HasPermission(auth::Role::ADMIN, auth::Permission::RESTORE));
+  CHECK_FALSE(auth::HasPermission(auth::Role::READWRITE, auth::Permission::RESTORE));
+  CHECK_FALSE(auth::HasPermission(auth::Role::COLLECTION_ADMIN, auth::Permission::RESTORE));
+  CHECK_FALSE(auth::HasPermission(auth::Role::READONLY, auth::Permission::RESTORE));
+}
+
 // ============================================================================
 // Collection access tests
 // ============================================================================

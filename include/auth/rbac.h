@@ -38,7 +38,14 @@ enum class Permission {
   DELETE,
   UPDATE_METADATA,
   UPSERT,
-  LIST_VECTORS
+  LIST_VECTORS,
+  // BACKUP captures a point-in-time copy of a collection — structurally
+  // a read across every segment plus an upload to a server-configured
+  // object store. RESTORE materializes a collection from such a copy
+  // and is gated like CREATE/DROP because it can create or destroy
+  // collections.
+  BACKUP,
+  RESTORE
 };
 
 struct ApiKeyRole {
