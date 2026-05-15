@@ -13,7 +13,14 @@
 #include <atomic>
 
 namespace gvdb {
-namespace cluster { class PrimaryTermTracker; }
+namespace cluster {
+class PrimaryTermTracker;
+class ShardWriteGate;
+}
+namespace storage {
+class BackupManager;
+class RestoreManager;
+}
 }
 
 namespace gvdb {
@@ -190,6 +197,30 @@ class InternalService final : public proto::internal::InternalService::Service {
       proto::internal::PreparePromoteResponse* response) override;
 
   // =========================================================================
+  // Backup / Restore Orchestration (Coordinator → Data Node)
+  // =========================================================================
+
+  grpc::Status BackupShard(
+      grpc::ServerContext* context,
+      const proto::internal::BackupShardRequest* request,
+      proto::internal::BackupShardResponse* response) override;
+
+  grpc::Status RestoreShard(
+      grpc::ServerContext* context,
+      const proto::internal::RestoreShardRequest* request,
+      proto::internal::RestoreShardResponse* response) override;
+
+  grpc::Status FreezeWrites(
+      grpc::ServerContext* context,
+      const proto::internal::FreezeWritesRequest* request,
+      proto::internal::FreezeWritesResponse* response) override;
+
+  grpc::Status UnfreezeWrites(
+      grpc::ServerContext* context,
+      const proto::internal::UnfreezeWritesRequest* request,
+      proto::internal::UnfreezeWritesResponse* response) override;
+
+  // =========================================================================
   // Timestamp Oracle (All Nodes → Coordinator)
   // =========================================================================
 
@@ -207,6 +238,23 @@ class InternalService final : public proto::internal::InternalService::Service {
     primary_term_tracker_ = tracker;
   }
 
+  // Wire the per-shard write fence used by FreezeWrites / UnfreezeWrites.
+  // Optional; if null, FreezeWrites returns UNIMPLEMENTED. Owned by the
+  // caller (data_node_main); must outlive this service.
+  void SetShardWriteGate(cluster::ShardWriteGate* gate) {
+    shard_write_gate_ = gate;
+  }
+
+  // Wire the storage-layer backup/restore engines. When non-null,
+  // BackupShard / RestoreShard dispatch into them; when null, those
+  // handlers return UNIMPLEMENTED.
+  void SetBackupManager(std::shared_ptr<storage::BackupManager> mgr) {
+    backup_manager_ = std::move(mgr);
+  }
+  void SetRestoreManager(std::shared_ptr<storage::RestoreManager> mgr) {
+    restore_manager_ = std::move(mgr);
+  }
+
  private:
   std::shared_ptr<cluster::ShardManager> shard_manager_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
@@ -222,6 +270,16 @@ class InternalService final : public proto::internal::InternalService::Service {
   // instances should never see these RPCs in production but we tolerate
   // the call by returning FAILED_PRECONDITION rather than crashing.
   cluster::PrimaryTermTracker* primary_term_tracker_ = nullptr;
+
+  // Per-shard pause-writes fence wired by FreezeWrites / UnfreezeWrites.
+  // Null on a binary that doesn't host backup orchestration.
+  cluster::ShardWriteGate* shard_write_gate_ = nullptr;
+
+  // Storage-layer engines that execute the per-shard backup/restore.
+  // Null on a binary that doesn't host them; the handlers return
+  // UNIMPLEMENTED in that case.
+  std::shared_ptr<storage::BackupManager> backup_manager_;
+  std::shared_ptr<storage::RestoreManager> restore_manager_;
 
   // Statistics
   std::atomic<uint64_t> total_requests_{0};

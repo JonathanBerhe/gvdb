@@ -64,6 +64,34 @@ grpc::Status GrpcInternalServiceClient::PreparePromote(
   return stub_->PreparePromote(context, request, response);
 }
 
+grpc::Status GrpcInternalServiceClient::BackupShard(
+    grpc::ClientContext* context,
+    const proto::internal::BackupShardRequest& request,
+    proto::internal::BackupShardResponse* response) {
+  return stub_->BackupShard(context, request, response);
+}
+
+grpc::Status GrpcInternalServiceClient::RestoreShard(
+    grpc::ClientContext* context,
+    const proto::internal::RestoreShardRequest& request,
+    proto::internal::RestoreShardResponse* response) {
+  return stub_->RestoreShard(context, request, response);
+}
+
+grpc::Status GrpcInternalServiceClient::FreezeWrites(
+    grpc::ClientContext* context,
+    const proto::internal::FreezeWritesRequest& request,
+    proto::internal::FreezeWritesResponse* response) {
+  return stub_->FreezeWrites(context, request, response);
+}
+
+grpc::Status GrpcInternalServiceClient::UnfreezeWrites(
+    grpc::ClientContext* context,
+    const proto::internal::UnfreezeWritesRequest& request,
+    proto::internal::UnfreezeWritesResponse* response) {
+  return stub_->UnfreezeWrites(context, request, response);
+}
+
 // ============================================================================
 // GrpcInternalServiceClientFactory Implementation
 // ============================================================================

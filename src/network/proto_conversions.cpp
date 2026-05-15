@@ -259,6 +259,46 @@ void toProto(const core::SparseVector& sparse, proto::SparseVector* proto_sparse
 }
 
 // ============================================================================
+// Backup / Restore
+// ============================================================================
+
+absl::StatusOr<storage::BackupTarget> fromProto(
+    const proto::BackupTarget& proto_target) {
+  switch (proto_target.target_case()) {
+    case proto::BackupTarget::kS3: {
+      const auto& s3 = proto_target.s3();
+      if (s3.bucket().empty()) {
+        return absl::InvalidArgumentError("S3 BackupTarget missing 'bucket'");
+      }
+      return storage::BackupTarget{
+          storage::S3BackupTarget{s3.bucket(), s3.prefix()}};
+    }
+    case proto::BackupTarget::kLocal: {
+      const auto& local = proto_target.local();
+      if (local.path().empty()) {
+        return absl::InvalidArgumentError("Local BackupTarget missing 'path'");
+      }
+      return storage::BackupTarget{storage::LocalBackupTarget{local.path()}};
+    }
+    case proto::BackupTarget::TARGET_NOT_SET:
+    default:
+      return absl::InvalidArgumentError(
+          "BackupTarget is unset (must select s3 or local)");
+  }
+}
+
+proto::BackupState toProto(storage::BackupState state) {
+  switch (state) {
+    case storage::BackupState::PENDING:   return proto::BACKUP_PENDING;
+    case storage::BackupState::RUNNING:   return proto::BACKUP_RUNNING;
+    case storage::BackupState::COMPLETED: return proto::BACKUP_COMPLETED;
+    case storage::BackupState::FAILED:    return proto::BACKUP_FAILED;
+    case storage::BackupState::CANCELLED: return proto::BACKUP_CANCELLED;
+  }
+  return proto::BACKUP_PENDING;
+}
+
+// ============================================================================
 
 grpc::Status toGrpcStatus(const absl::Status& status) {
   if (status.ok()) {

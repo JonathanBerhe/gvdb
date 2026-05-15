@@ -1121,6 +1121,33 @@ class MockClient : public IInternalServiceClient {
     resp->set_success(true);
     return grpc::Status::OK;
   }
+  // Read-repair tests don't drive a backup; default the backup-orchestration
+  // RPCs to OK so the abstract base contract is satisfied. A dedicated
+  // backup harness exercises them with assertions.
+  grpc::Status BackupShard(
+      grpc::ClientContext*, const proto::internal::BackupShardRequest&,
+      proto::internal::BackupShardResponse* resp) override {
+    resp->set_success(true);
+    return grpc::Status::OK;
+  }
+  grpc::Status RestoreShard(
+      grpc::ClientContext*, const proto::internal::RestoreShardRequest&,
+      proto::internal::RestoreShardResponse* resp) override {
+    resp->set_success(true);
+    return grpc::Status::OK;
+  }
+  grpc::Status FreezeWrites(
+      grpc::ClientContext*, const proto::internal::FreezeWritesRequest&,
+      proto::internal::FreezeWritesResponse* resp) override {
+    resp->set_success(true);
+    return grpc::Status::OK;
+  }
+  grpc::Status UnfreezeWrites(
+      grpc::ClientContext*, const proto::internal::UnfreezeWritesRequest&,
+      proto::internal::UnfreezeWritesResponse* resp) override {
+    resp->set_success(true);
+    return grpc::Status::OK;
+  }
 };
 
 // Factory that returns copies of pre-configured mock clients
