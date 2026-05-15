@@ -10,6 +10,14 @@
 
 #include <faiss/Index.h>
 
+#ifdef GVDB_HAS_CUDA
+namespace faiss {
+namespace gpu {
+class StandardGpuResources;
+}  // namespace gpu
+}  // namespace faiss
+#endif
+
 #include "core/interfaces.h"
 #include "core/status.h"
 #include "core/types.h"
@@ -48,7 +56,10 @@ class FaissIndexBase : public core::IVectorIndex {
  public:
   explicit FaissIndexBase(std::unique_ptr<faiss::Index> index,
                           core::MetricType metric);
-  virtual ~FaissIndexBase() = default;
+  // Out-of-line so unique_ptr<StandardGpuResources>'s deleter sees the
+  // complete type only in faiss_base.cpp (which includes the faiss-gpu
+  // header under GVDB_HAS_CUDA).
+  virtual ~FaissIndexBase();
 
   // IVectorIndex implementation
 
@@ -89,6 +100,13 @@ class FaissIndexBase : public core::IVectorIndex {
 
   [[nodiscard]] core::IndexType GetIndexType() const override = 0;
 
+  // Force the next Build/Deserialize to stay on CPU. Callers that need a
+  // CPU-only baseline (benchmarks, A/B correctness tests) set this before
+  // populating the index. No-op if GVDB_HAS_CUDA isn't defined. Must NOT
+  // be called once the index is already GPU-resident; defined out-of-line
+  // so the lock and the precondition check live in the .cpp.
+  void DisableGpu();
+
  protected:
   // Convert Vector to float array for Faiss
   [[nodiscard]] static std::vector<float> VectorToFloatArray(
@@ -104,8 +122,29 @@ class FaissIndexBase : public core::IVectorIndex {
   // Convert faiss idx_t to VectorId
   [[nodiscard]] static core::VectorId IdxToVectorId(faiss::idx_t idx);
 
-  // Underlying Faiss index
+  // Derived classes opt into the GPU clone path. Default: CPU only.
+  // FLAT stays CPU even when CUDA is available because faiss::gpu::GpuIndexFlat
+  // does not honor the add_with_ids contract this base class relies on; IVF
+  // variants override and return true.
+  [[nodiscard]] virtual bool SupportsGpu() const { return false; }
+
+  // Clone index_ from CPU to GPU when SupportsGpu() and a CUDA device is
+  // available. No-op without GVDB_HAS_CUDA. Safe to call multiple times.
+  void MaybeCloneToGpu();
+
+#ifdef GVDB_HAS_CUDA
+  // Owns the CUDA scratch resources backing index_ when gpu_resident_.
+  // Declared before index_ so it destructs last — the GPU index references
+  // these resources during its own destruction.
+  std::unique_ptr<faiss::gpu::StandardGpuResources> gpu_res_;
+  bool gpu_resident_ = false;
+#endif
+
+  // Underlying Faiss index. Holds either a CPU or GPU-resident faiss::Index
+  // depending on whether MaybeCloneToGpu() ran.
   std::unique_ptr<faiss::Index> index_;
+
+  bool disable_gpu_ = false;
 
   // Metric type
   core::MetricType metric_type_;
