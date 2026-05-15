@@ -100,10 +100,12 @@ class FaissIndexBase : public core::IVectorIndex {
 
   [[nodiscard]] core::IndexType GetIndexType() const override = 0;
 
-  // Bypass the GPU clone in the next Build/Deserialize. Callers that need a
+  // Force the next Build/Deserialize to stay on CPU. Callers that need a
   // CPU-only baseline (benchmarks, A/B correctness tests) set this before
-  // populating the index. No-op if GVDB_HAS_CUDA isn't defined.
-  void DisableGpuForBenchmark() { disable_gpu_ = true; }
+  // populating the index. No-op if GVDB_HAS_CUDA isn't defined. Must NOT
+  // be called once the index is already GPU-resident; defined out-of-line
+  // so the lock and the precondition check live in the .cpp.
+  void DisableGpu();
 
  protected:
   // Convert Vector to float array for Faiss
