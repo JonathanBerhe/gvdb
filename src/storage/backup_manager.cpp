@@ -361,9 +361,36 @@ void BackupManager::ExecuteSingleShardJob(
   }
   job->bytes_uploaded.fetch_add(shard_or->bytes_uploaded);
 
-  // Build and write the top-level manifest LAST. A restore that cannot
-  // find this object treats the backup as non-existent — so a partial
-  // (crashed mid-upload) backup is invisible.
+  uint64_t vector_count = 0;
+  uint64_t size_bytes = 0;
+  for (const auto& seg : shard_or->segments) {
+    vector_count += seg.vector_count;
+    size_bytes += seg.size_bytes;
+  }
+  std::vector<BackupShardRef> shard_refs;
+  shard_refs.push_back(
+      BackupShardRef{static_cast<uint32_t>(core::ToUInt16(shard_id)),
+                     shard_or->shard_manifest_key});
+
+  auto final_status = FinalizeTopManifest(
+      job, rt, dimension, metric, index_type, num_shards, replication_factor,
+      shard_refs, vector_count, size_bytes);
+  if (!final_status.ok()) return;  // FinalizeTopManifest already set FAILED.
+  job->shards_completed.store(1);
+  job->state.store(BackupState::COMPLETED);
+}
+
+core::Status BackupManager::FinalizeTopManifest(
+    std::shared_ptr<BackupJob> job,
+    const ResolvedTarget& rt,
+    core::Dimension dimension,
+    core::MetricType metric,
+    core::IndexType index_type,
+    uint32_t num_shards,
+    uint32_t replication_factor,
+    const std::vector<BackupShardRef>& shard_refs,
+    uint64_t vector_count,
+    uint64_t size_bytes) {
   BackupManifestV1 top;
   top.backup_id = job->id;
   top.collection.collection_id = job->collection_id;
@@ -374,17 +401,9 @@ void BackupManager::ExecuteSingleShardJob(
   top.collection.num_shards = num_shards;
   top.collection.replication_factor = replication_factor;
   top.created_at_unix_ms = UnixMillisNow();
-  uint64_t vector_count = 0;
-  uint64_t size_bytes = 0;
-  for (const auto& seg : shard_or->segments) {
-    vector_count += seg.vector_count;
-    size_bytes += seg.size_bytes;
-  }
   top.vector_count = vector_count;
   top.size_bytes = size_bytes;
-  top.shards.push_back(
-      BackupShardRef{static_cast<uint32_t>(core::ToUInt16(shard_id)),
-                     shard_or->shard_manifest_key});
+  top.shards = shard_refs;
   top.gvdb_version = opts_.gvdb_version;
 
   std::string s3_prefix;
@@ -399,11 +418,141 @@ void BackupManager::ExecuteSingleShardJob(
     job->SetError(std::string(put_status.message()));
     CleanupOnFailure(rt, job->id);
     job->state.store(BackupState::FAILED);
-    return;
+    return put_status;
   }
   job->bytes_uploaded.fetch_add(top_json.size());
   job->manifest_uri = absl::StrCat(rt.display_prefix, "/", rel_top_key);
-  job->shards_completed.store(1);
+  return core::OkStatus();
+}
+
+// ============================================================================
+// Distributed (multi-shard) backup
+// ============================================================================
+
+core::StatusOr<std::string> BackupManager::StartBackupDistributed(
+    const std::string& collection_name,
+    core::CollectionId collection_id,
+    core::Dimension dimension,
+    core::MetricType metric,
+    core::IndexType index_type,
+    uint32_t replication_factor,
+    const std::vector<core::ShardId>& shard_ids,
+    const std::vector<uint64_t>& primary_terms,
+    const BackupTarget& target,
+    ShardBackupExecutor executor,
+    const std::string& requested_backup_id) {
+  if (collection_name.empty()) {
+    return core::InvalidArgumentError("collection_name is required");
+  }
+  if (shard_ids.empty()) {
+    return core::InvalidArgumentError("shard_ids is empty");
+  }
+  if (shard_ids.size() != primary_terms.size()) {
+    return core::InvalidArgumentError(
+        "shard_ids and primary_terms must have the same length");
+  }
+  if (!executor) {
+    return core::InvalidArgumentError("executor is required");
+  }
+  auto rt = ResolveTarget(target);
+  if (!rt.ok()) return rt.status();
+
+  std::string id =
+      requested_backup_id.empty() ? AllocateBackupId() : requested_backup_id;
+  {
+    std::lock_guard<std::mutex> lk(jobs_mutex_);
+    auto it = jobs_.find(id);
+    if (it != jobs_.end()) {
+      auto s = it->second->state.load();
+      if (s == BackupState::PENDING || s == BackupState::RUNNING ||
+          s == BackupState::COMPLETED) {
+        return id;
+      }
+      jobs_.erase(it);
+    }
+  }
+
+  auto job = std::make_shared<BackupJob>();
+  job->id = id;
+  job->collection_name = collection_name;
+  job->collection_id = core::ToUInt32(collection_id);
+  job->target = target;
+  job->shards_total = static_cast<uint32_t>(shard_ids.size());
+  job->start_time = std::chrono::steady_clock::now();
+
+  {
+    std::lock_guard<std::mutex> lk(jobs_mutex_);
+    jobs_[id] = job;
+  }
+
+  (void)pool_->enqueue(
+      [this, job, dimension, metric, index_type, replication_factor,
+       shard_ids, primary_terms, executor]() mutable {
+        ExecuteDistributedJob(job, dimension, metric, index_type,
+                              replication_factor, std::move(shard_ids),
+                              std::move(primary_terms), std::move(executor));
+      });
+
+  return id;
+}
+
+void BackupManager::ExecuteDistributedJob(
+    std::shared_ptr<BackupJob> job,
+    core::Dimension dimension,
+    core::MetricType metric,
+    core::IndexType index_type,
+    uint32_t replication_factor,
+    std::vector<core::ShardId> shard_ids,
+    std::vector<uint64_t> primary_terms,
+    ShardBackupExecutor executor) {
+  job->state.store(BackupState::RUNNING);
+  if (job->cancelled.load()) {
+    job->state.store(BackupState::CANCELLED);
+    return;
+  }
+  auto rt_or = ResolveTarget(job->target);
+  if (!rt_or.ok()) {
+    job->SetError(std::string(rt_or.status().message()));
+    job->state.store(BackupState::FAILED);
+    return;
+  }
+  auto& rt = *rt_or;
+
+  std::vector<BackupShardRef> shard_refs;
+  shard_refs.reserve(shard_ids.size());
+  uint64_t vector_count = 0;
+  uint64_t size_bytes = 0;
+
+  for (size_t i = 0; i < shard_ids.size(); ++i) {
+    if (job->cancelled.load()) {
+      CleanupOnFailure(rt, job->id);
+      job->state.store(BackupState::CANCELLED);
+      return;
+    }
+    auto shard_result = executor(job->id, shard_ids[i], primary_terms[i],
+                                  job->target);
+    if (!shard_result.ok()) {
+      job->SetError(std::string(shard_result.status().message()));
+      CleanupOnFailure(rt, job->id);
+      job->state.store(BackupState::FAILED);
+      return;
+    }
+    for (const auto& seg : shard_result->segments) {
+      vector_count += seg.vector_count;
+      size_bytes += seg.size_bytes;
+    }
+    job->bytes_uploaded.fetch_add(shard_result->bytes_uploaded);
+    shard_refs.push_back(BackupShardRef{
+        static_cast<uint32_t>(core::ToUInt16(shard_ids[i])),
+        shard_result->shard_manifest_key});
+    job->shards_completed.fetch_add(1);
+  }
+
+  auto final_status = FinalizeTopManifest(
+      job, rt, dimension, metric, index_type,
+      static_cast<uint32_t>(shard_ids.size()), replication_factor,
+      shard_refs, vector_count, size_bytes);
+  if (!final_status.ok()) return;  // already FAILED inside helper
   job->state.store(BackupState::COMPLETED);
 }
 
@@ -613,11 +762,13 @@ core::Status RestoreManager::RunShardRestore(
       return seg_or.status();
     }
 
-    // NOTE (commit 2 scope): the restored Segment carries the original
-    // collection_id from the manifest. The caller is responsible for
-    // ensuring `target_collection_id` matches; cross-collection-id
-    // remap arrives with the coordinator orchestration commit.
-    (void)target_collection_id;
+    // Remap the segment's collection_id when restoring into a freshly
+    // recreated collection (drop+create allocates a new id). When the
+    // ids already match this is a no-op; otherwise this is the only
+    // place where the restored Segment is mutated post-construction.
+    if ((*seg_or)->GetCollectionId() != target_collection_id) {
+      (*seg_or)->SetCollectionIdForRestore(target_collection_id);
+    }
 
     auto add_status =
         segment_store->AddReplicatedSegment(std::move(*seg_or));
@@ -687,6 +838,72 @@ void RestoreManager::ExecuteSingleShardJob(
     return;
   }
   job->shards_completed.store(1);
+  job->state.store(BackupState::COMPLETED);
+}
+
+core::StatusOr<std::string> RestoreManager::StartRestoreDistributed(
+    const BackupTarget& source,
+    const std::string& backup_id,
+    core::CollectionId target_collection_id,
+    const std::vector<core::ShardId>& shard_ids,
+    ShardRestoreExecutor executor) {
+  if (backup_id.empty()) {
+    return core::InvalidArgumentError("backup_id is required");
+  }
+  if (shard_ids.empty()) {
+    return core::InvalidArgumentError("shard_ids is empty");
+  }
+  if (!executor) {
+    return core::InvalidArgumentError("executor is required");
+  }
+  auto rt = ResolveTarget(source);
+  if (!rt.ok()) return rt.status();
+
+  auto id = AllocateRestoreId();
+  auto job = std::make_shared<RestoreJob>();
+  job->id = id;
+  job->source = source;
+  job->backup_id = backup_id;
+  job->target_collection_id = core::ToUInt32(target_collection_id);
+  job->shards_total = static_cast<uint32_t>(shard_ids.size());
+  job->start_time = std::chrono::steady_clock::now();
+
+  {
+    std::lock_guard<std::mutex> lk(jobs_mutex_);
+    jobs_[id] = job;
+  }
+
+  std::vector<core::ShardId> shards_copy = shard_ids;
+  (void)pool_->enqueue(
+      [this, job, shards_copy = std::move(shards_copy),
+       executor = std::move(executor)]() mutable {
+        ExecuteDistributedJob(job, std::move(shards_copy),
+                              std::move(executor));
+      });
+
+  return id;
+}
+
+void RestoreManager::ExecuteDistributedJob(
+    std::shared_ptr<RestoreJob> job,
+    std::vector<core::ShardId> shard_ids,
+    ShardRestoreExecutor executor) {
+  job->state.store(BackupState::RUNNING);
+  if (job->cancelled.load()) {
+    job->state.store(BackupState::CANCELLED);
+    return;
+  }
+  for (auto shard_id : shard_ids) {
+    auto status = executor(
+        job->source, job->backup_id,
+        core::MakeCollectionId(job->target_collection_id), shard_id);
+    if (!status.ok()) {
+      job->SetError(std::string(status.message()));
+      job->state.store(BackupState::FAILED);
+      return;
+    }
+    job->shards_completed.fetch_add(1);
+  }
   job->state.store(BackupState::COMPLETED);
 }
 

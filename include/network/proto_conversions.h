@@ -77,6 +77,13 @@ void toProto(const core::SparseVector& sparse, proto::SparseVector* proto_sparse
 absl::StatusOr<storage::BackupTarget> fromProto(
     const proto::BackupTarget& proto_target);
 
+// Convert storage::BackupTarget variant back to proto. Used by the
+// coordinator's per-shard executor to pass the same target down to
+// each data-node's BackupShard handler. Returns InvalidArgumentError
+// if the variant is monostate (caller bug).
+absl::Status toProto(const storage::BackupTarget& target,
+                     proto::BackupTarget* proto_target);
+
 // Convert storage::BackupState to proto BackupState.
 proto::BackupState toProto(storage::BackupState state);
 

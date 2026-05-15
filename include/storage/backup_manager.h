@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -213,6 +214,33 @@ class BackupManager {
       std::shared_ptr<ISegmentStore> segment_store,
       const std::string& requested_backup_id = "");
 
+  // Per-shard executor used by the multi-shard orchestration path. The
+  // caller (Coordinator) supplies a callable that runs the equivalent
+  // of RunShardBackup on a remote data-node (via the BackupShard RPC)
+  // and returns the per-shard result. The manager handles job tracking,
+  // sequencing across shards, top-manifest write, and cleanup-on-failure.
+  using ShardBackupExecutor = std::function<core::StatusOr<ShardBackupResult>(
+      const std::string& backup_id, core::ShardId shard_id,
+      uint64_t primary_term, const BackupTarget& target)>;
+
+  // Schedule a distributed (multi-shard) backup asynchronously. Each
+  // shard's primary is called via `executor` in sequence; on failure
+  // the partial backup is cleaned up under the target prefix. The
+  // top-level manifest is written ONLY after every shard succeeds,
+  // so a restore that cannot find it treats the backup as nonexistent.
+  [[nodiscard]] core::StatusOr<std::string> StartBackupDistributed(
+      const std::string& collection_name,
+      core::CollectionId collection_id,
+      core::Dimension dimension,
+      core::MetricType metric,
+      core::IndexType index_type,
+      uint32_t replication_factor,
+      const std::vector<core::ShardId>& shard_ids,
+      const std::vector<uint64_t>& primary_terms,  // parallel to shard_ids
+      const BackupTarget& target,
+      ShardBackupExecutor executor,
+      const std::string& requested_backup_id = "");
+
   [[nodiscard]] core::StatusOr<BackupJobStatus> GetStatus(
       const std::string& backup_id) const;
 
@@ -256,6 +284,32 @@ class BackupManager {
                              uint64_t primary_term,
                              std::shared_ptr<ISegmentStore> segment_store);
 
+  void ExecuteDistributedJob(
+      std::shared_ptr<BackupJob> job,
+      core::Dimension dimension,
+      core::MetricType metric,
+      core::IndexType index_type,
+      uint32_t replication_factor,
+      std::vector<core::ShardId> shard_ids,
+      std::vector<uint64_t> primary_terms,
+      ShardBackupExecutor executor);
+
+  // Write the top-level manifest after every shard succeeded. Shared by
+  // both single- and multi-shard paths. Sets `job->manifest_uri` and
+  // returns OK on success; on failure the partial upload is cleaned up
+  // and the job is marked FAILED.
+  core::Status FinalizeTopManifest(
+      std::shared_ptr<BackupJob> job,
+      const ResolvedTarget& rt,
+      core::Dimension dimension,
+      core::MetricType metric,
+      core::IndexType index_type,
+      uint32_t num_shards,
+      uint32_t replication_factor,
+      const std::vector<BackupShardRef>& shard_refs,
+      uint64_t vector_count,
+      uint64_t size_bytes);
+
   void CleanupOnFailure(const ResolvedTarget& target,
                         const std::string& backup_id);
 
@@ -286,16 +340,34 @@ class RestoreManager {
       const std::string& backup_id);
 
   // Schedule a single-shard restore asynchronously.
-  // NOTE (commit 2 scope): the restored segments keep their original
-  // collection_id. The caller MUST ensure the restore-target collection's
-  // collection_id matches the one in the backup manifest. Commit 4/5
-  // adds the collection_id remap path.
+  // The restored segments keep their original collection_id from the
+  // backup manifest. The caller MUST ensure `target_collection_id`
+  // matches that id (the single-node path does not remap).
   [[nodiscard]] core::StatusOr<std::string> StartRestoreSingleShard(
       const BackupTarget& source,
       const std::string& backup_id,
       core::CollectionId target_collection_id,
       core::ShardId shard_id,
       std::shared_ptr<ISegmentStore> segment_store);
+
+  // Per-shard restore executor used by the multi-shard orchestration
+  // path. Caller (Coordinator) dispatches RestoreShard to the data-node
+  // hosting each shard's primary.
+  using ShardRestoreExecutor = std::function<core::Status(
+      const BackupTarget& source, const std::string& backup_id,
+      core::CollectionId target_collection_id, core::ShardId shard_id)>;
+
+  // Schedule a distributed restore asynchronously. Each shard is
+  // restored in sequence via `executor`; partial successes are tolerated
+  // only inasmuch as the restore is repeatable (segments are installed
+  // idempotently via AddReplicatedSegment), but the job's terminal
+  // state reflects the first failure.
+  [[nodiscard]] core::StatusOr<std::string> StartRestoreDistributed(
+      const BackupTarget& source,
+      const std::string& backup_id,
+      core::CollectionId target_collection_id,
+      const std::vector<core::ShardId>& shard_ids,
+      ShardRestoreExecutor executor);
 
   [[nodiscard]] core::StatusOr<RestoreJobStatus> GetStatus(
       const std::string& restore_id) const;
@@ -320,6 +392,10 @@ class RestoreManager {
   void ExecuteSingleShardJob(std::shared_ptr<RestoreJob> job,
                              core::ShardId shard_id,
                              std::shared_ptr<ISegmentStore> segment_store);
+
+  void ExecuteDistributedJob(std::shared_ptr<RestoreJob> job,
+                             std::vector<core::ShardId> shard_ids,
+                             ShardRestoreExecutor executor);
 
   static std::string AllocateRestoreId();
 
