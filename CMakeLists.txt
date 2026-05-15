@@ -32,6 +32,9 @@ if(APPLE)
   option(GVDB_WITH_METAL "Enable Apple Metal GPU acceleration" OFF)
 endif()
 
+# Option to enable NVIDIA CUDA GPU acceleration via faiss-gpu
+option(GVDB_WITH_CUDA "Enable NVIDIA CUDA GPU acceleration via faiss-gpu" OFF)
+
 # ============================================================================
 # Abseil C++ Library
 # ============================================================================
@@ -157,8 +160,23 @@ if(NOT faiss_FOUND)
     GIT_SHALLOW    TRUE
   )
 
-  # Configure Faiss with OpenMP enabled for parallel processing
-  set(FAISS_ENABLE_GPU OFF CACHE BOOL "" FORCE)
+  # Configure Faiss with OpenMP enabled for parallel processing.
+  # GPU is opt-in via GVDB_WITH_CUDA; the else-branch clamps the cache so
+  # an earlier ON value can't leak into a CPU build.
+  if(GVDB_WITH_CUDA)
+    # Default to common datacenter SMs: T4 (75), A100 (80), A10/A10G (86),
+    # L4/L40 (89), H100 (90). Overridable via -DCMAKE_CUDA_ARCHITECTURES=...
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+      set(CMAKE_CUDA_ARCHITECTURES "75;80;86;89;90" CACHE STRING
+          "CUDA SMs to compile for; default covers T4 through H100")
+    endif()
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    set(FAISS_ENABLE_GPU ON CACHE BOOL "" FORCE)
+    add_compile_definitions(GVDB_HAS_CUDA=1)
+  else()
+    set(FAISS_ENABLE_GPU OFF CACHE BOOL "" FORCE)
+  endif()
   set(FAISS_ENABLE_PYTHON OFF CACHE BOOL "" FORCE)
   set(FAISS_ENABLE_C_API OFF CACHE BOOL "" FORCE)
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)

@@ -9,16 +9,46 @@
 #include <faiss/index_io.h>
 #include <faiss/impl/AuxIndexStructures.h>
 
+#ifdef GVDB_HAS_CUDA
+#include <faiss/gpu/GpuCloner.h>
+#include <faiss/gpu/StandardGpuResources.h>
+#include "cuda/cuda_compute.h"
+#endif
+
 #include "absl/strings/str_cat.h"
 
 namespace gvdb {
 namespace index {
+
+// faiss-gpu's StandardGpuResources is not safe under concurrent search —
+// each search uses the shared scratch state. On CUDA builds we therefore
+// serialize all read paths; CPU-only builds keep multi-reader concurrency.
+#ifdef GVDB_HAS_CUDA
+using SearchLock = std::unique_lock<std::shared_mutex>;
+#else
+using SearchLock = std::shared_lock<std::shared_mutex>;
+#endif
 
 FaissIndexBase::FaissIndexBase(std::unique_ptr<faiss::Index> index,
                                core::MetricType metric)
     : index_(std::move(index)), metric_type_(metric), is_trained_(false) {
   // Check if index is already trained (FLAT doesn't need training)
   is_trained_ = index_->is_trained;
+}
+
+FaissIndexBase::~FaissIndexBase() = default;
+
+void FaissIndexBase::DisableGpu() {
+  std::unique_lock lock(mutex_);
+#ifdef GVDB_HAS_CUDA
+  // Guard against accidental use after the GPU clone already happened —
+  // toggling the flag after Build() ran would silently keep the GPU index
+  // alive while callers think they have a CPU baseline.
+  if (gpu_resident_) {
+    return;
+  }
+#endif
+  disable_gpu_ = true;
 }
 
 core::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
@@ -53,10 +83,16 @@ core::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
     faiss_ids[i] = VectorIdToIdx(ids[i]);
   }
 
-  return ExecuteFaissOperation(
+  auto add_status = ExecuteFaissOperation(
       [&]() { index_->add_with_ids(vectors.size(), float_data.data(),
                                    faiss_ids.data()); },
       "Build");
+  if (!add_status.ok()) {
+    return add_status;
+  }
+
+  MaybeCloneToGpu();
+  return core::OkStatus();
 }
 
 core::Status FaissIndexBase::Add(const core::Vector& vector,
@@ -118,7 +154,7 @@ core::StatusOr<core::SearchResult> FaissIndexBase::Search(
         absl::StrCat("k must be positive, got ", k));
   }
 
-  std::shared_lock lock(mutex_);
+  SearchLock lock(mutex_);
 
   if (index_->ntotal == 0) {
     return core::FailedPreconditionError("Cannot search empty index");
@@ -149,7 +185,7 @@ core::StatusOr<core::SearchResult> FaissIndexBase::Search(
 
 core::StatusOr<core::SearchResult> FaissIndexBase::SearchRange(
     const core::Vector& query, float radius) {
-  std::shared_lock lock(mutex_);
+  SearchLock lock(mutex_);
 
   if (index_->ntotal == 0) {
     return core::FailedPreconditionError("Cannot search empty index");
@@ -183,7 +219,7 @@ core::StatusOr<std::vector<core::SearchResult>> FaissIndexBase::SearchBatch(
     return core::InvalidArgumentError("k must be positive");
   }
 
-  std::shared_lock lock(mutex_);
+  SearchLock lock(mutex_);
 
   if (index_->ntotal == 0) {
     return core::FailedPreconditionError("Cannot search empty index");
@@ -258,8 +294,22 @@ bool FaissIndexBase::IsTrained() const {
 }
 
 core::Status FaissIndexBase::Serialize(const std::string& path) const {
-  std::shared_lock lock(mutex_);
+  // SearchLock because index_gpu_to_cpu reads the GPU index's scratch state.
+  SearchLock lock(mutex_);
 
+#ifdef GVDB_HAS_CUDA
+  if (gpu_resident_) {
+    // GPU faiss indices aren't serializable directly — round-trip to CPU
+    // for the write. The temporary CPU clone is discarded after the write.
+    return ExecuteFaissOperation(
+        [&]() {
+          std::unique_ptr<faiss::Index> cpu(
+              faiss::gpu::index_gpu_to_cpu(index_.get()));
+          faiss::write_index(cpu.get(), path.c_str());
+        },
+        "Serialize");
+  }
+#endif
   return ExecuteFaissOperation(
       [&]() { faiss::write_index(index_.get(), path.c_str()); }, "Serialize");
 }
@@ -267,12 +317,31 @@ core::Status FaissIndexBase::Serialize(const std::string& path) const {
 core::Status FaissIndexBase::Deserialize(const std::string& path) {
   std::unique_lock lock(mutex_);
 
-  return ExecuteFaissOperation(
+  auto status = ExecuteFaissOperation(
       [&]() {
         auto* loaded_index = faiss::read_index(path.c_str());
         index_.reset(loaded_index);
       },
       "Deserialize");
+  if (!status.ok()) {
+    return status;
+  }
+
+  MaybeCloneToGpu();
+  return core::OkStatus();
+}
+
+void FaissIndexBase::MaybeCloneToGpu() {
+#ifdef GVDB_HAS_CUDA
+  if (disable_gpu_ || gpu_resident_ || !SupportsGpu() || !cuda::IsAvailable()) {
+    return;
+  }
+  gpu_res_ = std::make_unique<faiss::gpu::StandardGpuResources>();
+  faiss::Index* gpu_idx =
+      faiss::gpu::index_cpu_to_gpu(gpu_res_.get(), 0, index_.get());
+  index_.reset(gpu_idx);
+  gpu_resident_ = true;
+#endif
 }
 
 // Helper implementations

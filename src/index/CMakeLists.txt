@@ -36,6 +36,14 @@ if(APPLE AND GVDB_WITH_METAL)
   )
 endif()
 
+# NVIDIA CUDA GPU acceleration (via faiss-gpu)
+if(GVDB_WITH_CUDA)
+  target_sources(gvdb_index PRIVATE
+    cuda/cuda_compute.cpp
+  )
+  target_link_libraries(gvdb_index PRIVATE CUDA::cudart CUDA::cublas)
+endif()
+
 # Set target properties
 set_target_properties(gvdb_index PROPERTIES
   CXX_STANDARD 20
@@ -54,12 +62,37 @@ target_include_directories(gvdb_index
     /opt/homebrew/opt/libomp/include
 )
 
-# Link dependencies
-target_link_libraries(gvdb_index
-  PUBLIC
-    gvdb_core
-    faiss
-)
+# Link dependencies.
+#
+# DO NOT simplify the LINK_GROUP / WHOLE_ARCHIVE expression below — it
+# papers over two real linker quirks in upstream faiss v1.8.0:
+#
+#   1. libfaiss_gpu.a contains code that calls back into CPU symbols
+#      (faiss::ParameterSpace, faiss::IndexShardsIVF, ...). The natural
+#      transitive order is `faiss faiss_gpu`, but ld processes archives in
+#      one pass: by the time faiss_gpu's references appear, faiss has
+#      already been scanned and discarded. LINK_GROUP RESCAN emits
+#      -Wl,--start-group / --end-group so ld multi-passes the group.
+#
+#   2. Upstream faiss attaches faiss_gpu via $<LINK_LIBRARY:WHOLE_ARCHIVE,...>
+#      on its own interface. If we mention faiss_gpu inside the group
+#      WITHOUT the same feature, CMake errors out with
+#      "specified with the feature 'WHOLE_ARCHIVE', has already occurred
+#      without any feature". Matching the WHOLE_ARCHIVE wrapping is what
+#      lets dedup keep both the group placement and the upstream attachment.
+if(GVDB_WITH_CUDA)
+  target_link_libraries(gvdb_index
+    PUBLIC
+      gvdb_core
+      "$<LINK_GROUP:RESCAN,faiss,$<LINK_LIBRARY:WHOLE_ARCHIVE,faiss_gpu>>"
+  )
+else()
+  target_link_libraries(gvdb_index
+    PUBLIC
+      gvdb_core
+      faiss
+  )
+endif()
 
 # Compiler warnings
 target_compile_options(gvdb_index PRIVATE
