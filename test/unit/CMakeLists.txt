@@ -708,6 +708,44 @@ set_tests_properties(BulkImportTests PROPERTIES
   TIMEOUT 120
 )
 
+# Backup manifest tests (pure JSON round-trip)
+add_executable(backup_manifest_tests
+  backup_manifest_test.cpp
+)
+
+target_link_libraries(backup_manifest_tests
+  PRIVATE
+    gvdb_storage
+    gvdb_core
+    doctest::doctest_with_main
+)
+
+add_test(NAME BackupManifestTests COMMAND backup_manifest_tests)
+
+set_tests_properties(BackupManifestTests PROPERTIES
+  TIMEOUT 30
+)
+
+# Backup / restore manager tests (single-shard async job, InMemoryObjectStore)
+add_executable(backup_manager_tests
+  backup_manager_test.cpp
+)
+
+target_link_libraries(backup_manager_tests
+  PRIVATE
+    gvdb_storage
+    gvdb_index
+    gvdb_utils
+    gvdb_core
+    doctest::doctest_with_main
+)
+
+add_test(NAME BackupManagerTests COMMAND backup_manager_tests)
+
+set_tests_properties(BackupManagerTests PROPERTIES
+  TIMEOUT 60
+)
+
 # QueryNode tests
 add_executable(query_node_tests
   query_node_test.cpp
