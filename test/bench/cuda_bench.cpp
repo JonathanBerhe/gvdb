@@ -45,7 +45,7 @@ std::vector<core::VectorId> SequentialIds(size_t n) {
 
 double BenchSearch(core::IVectorIndex* idx, const core::Vector& query,
                    int k, int runs) {
-  for (int i = 0; i < 3; ++i) idx->Search(query, k);
+  for (int i = 0; i < 3; ++i) (void)idx->Search(query, k);
   std::vector<double> times;
   times.reserve(runs);
   for (int i = 0; i < runs; ++i) {
@@ -107,7 +107,7 @@ int main() {
     const int nprobe = std::max(1, nlist / 8);
 
     index::FaissIVFIndex cpu_idx(DIM, core::MetricType::L2, nlist, nprobe);
-    cpu_idx.DisableGpuForBenchmark();
+    cpu_idx.DisableGpu();
     cpu_idx.Build(vectors, ids);
     double cpu_ms = BenchSearch(&cpu_idx, query, K, RUNS);
 

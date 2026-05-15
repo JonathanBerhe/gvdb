@@ -20,6 +20,15 @@
 namespace gvdb {
 namespace index {
 
+// faiss-gpu's StandardGpuResources is not safe under concurrent search —
+// each search uses the shared scratch state. On CUDA builds we therefore
+// serialize all read paths; CPU-only builds keep multi-reader concurrency.
+#ifdef GVDB_HAS_CUDA
+using SearchLock = std::unique_lock<std::shared_mutex>;
+#else
+using SearchLock = std::shared_lock<std::shared_mutex>;
+#endif
+
 FaissIndexBase::FaissIndexBase(std::unique_ptr<faiss::Index> index,
                                core::MetricType metric)
     : index_(std::move(index)), metric_type_(metric), is_trained_(false) {
@@ -28,6 +37,19 @@ FaissIndexBase::FaissIndexBase(std::unique_ptr<faiss::Index> index,
 }
 
 FaissIndexBase::~FaissIndexBase() = default;
+
+void FaissIndexBase::DisableGpu() {
+  std::unique_lock lock(mutex_);
+#ifdef GVDB_HAS_CUDA
+  // Guard against accidental use after the GPU clone already happened —
+  // toggling the flag after Build() ran would silently keep the GPU index
+  // alive while callers think they have a CPU baseline.
+  if (gpu_resident_) {
+    return;
+  }
+#endif
+  disable_gpu_ = true;
+}
 
 core::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
                                     const std::vector<core::VectorId>& ids) {
@@ -132,7 +154,7 @@ core::StatusOr<core::SearchResult> FaissIndexBase::Search(
         absl::StrCat("k must be positive, got ", k));
   }
 
-  std::shared_lock lock(mutex_);
+  SearchLock lock(mutex_);
 
   if (index_->ntotal == 0) {
     return core::FailedPreconditionError("Cannot search empty index");
@@ -163,7 +185,7 @@ core::StatusOr<core::SearchResult> FaissIndexBase::Search(
 
 core::StatusOr<core::SearchResult> FaissIndexBase::SearchRange(
     const core::Vector& query, float radius) {
-  std::shared_lock lock(mutex_);
+  SearchLock lock(mutex_);
 
   if (index_->ntotal == 0) {
     return core::FailedPreconditionError("Cannot search empty index");
@@ -197,7 +219,7 @@ core::StatusOr<std::vector<core::SearchResult>> FaissIndexBase::SearchBatch(
     return core::InvalidArgumentError("k must be positive");
   }
 
-  std::shared_lock lock(mutex_);
+  SearchLock lock(mutex_);
 
   if (index_->ntotal == 0) {
     return core::FailedPreconditionError("Cannot search empty index");
@@ -272,7 +294,8 @@ bool FaissIndexBase::IsTrained() const {
 }
 
 core::Status FaissIndexBase::Serialize(const std::string& path) const {
-  std::shared_lock lock(mutex_);
+  // SearchLock because index_gpu_to_cpu reads the GPU index's scratch state.
+  SearchLock lock(mutex_);
 
 #ifdef GVDB_HAS_CUDA
   if (gpu_resident_) {

@@ -8,7 +8,11 @@
 
 #include <doctest/doctest.h>
 
+#include <unistd.h>
+
+#include <filesystem>
 #include <random>
+#include <string>
 #include <unordered_set>
 #include <vector>
 
@@ -121,7 +125,11 @@ TEST_CASE("CUDA IVF_FLAT smoke: serialize/deserialize round-trip") {
   auto ids = SequentialIds(N);
   auto query = RandomVectors(1, DIM, /*seed=*/7).front();
 
-  const std::string path = "/tmp/gvdb-cuda-smoke-roundtrip.faiss";
+  // Unique per-process path so parallel ctest runs don't collide.
+  const std::string path =
+      (std::filesystem::temp_directory_path() /
+       ("gvdb-cuda-smoke-" + std::to_string(::getpid()) + ".faiss"))
+          .string();
 
   // Build + serialize from a GPU-resident index.
   {
@@ -141,5 +149,45 @@ TEST_CASE("CUDA IVF_FLAT smoke: serialize/deserialize round-trip") {
     const uint64_t v = core::ToUInt64(e.id);
     CHECK_GE(v, 1u);
     CHECK_LE(v, static_cast<uint64_t>(N));
+  }
+
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+}
+
+// AddBatch after Build exercises the post-clone add_with_ids path on a
+// GPU-resident IVF index. Newly inserted IDs must be findable.
+TEST_CASE("CUDA IVF_FLAT smoke: AddBatch after Build on GPU index") {
+  if (!CudaAvailable()) return;
+
+  constexpr size_t N_INIT = 2'000;
+  constexpr size_t N_ADD = 500;
+  constexpr core::Dimension DIM = 64;
+  constexpr int NLIST = 16;
+  constexpr int NPROBE = 8;
+  constexpr int K = 5;
+
+  auto init_vectors = RandomVectors(N_INIT, DIM, /*seed=*/1);
+  auto init_ids = SequentialIds(N_INIT);
+  auto extra_vectors = RandomVectors(N_ADD, DIM, /*seed=*/2);
+
+  // IDs for the extra batch don't overlap the initial range.
+  std::vector<core::VectorId> extra_ids;
+  extra_ids.reserve(N_ADD);
+  for (size_t i = 0; i < N_ADD; ++i) {
+    extra_ids.push_back(core::MakeVectorId(N_INIT + i + 1));
+  }
+
+  index::FaissIVFIndex idx(DIM, core::MetricType::L2, NLIST, NPROBE);
+  REQUIRE(idx.Build(init_vectors, init_ids).ok());
+  REQUIRE(idx.AddBatch(extra_vectors, extra_ids).ok());
+
+  // Each extra vector should be its own nearest neighbor.
+  for (size_t i = 0; i < N_ADD; ++i) {
+    auto result = idx.Search(extra_vectors[i], K);
+    REQUIRE(result.ok());
+    CHECK_GT(result->entries.size(), 0u);
+    const uint64_t expected = N_INIT + i + 1;
+    CHECK_EQ(core::ToUInt64(result->entries.front().id), expected);
   }
 }
