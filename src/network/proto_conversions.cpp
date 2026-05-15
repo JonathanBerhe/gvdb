@@ -287,6 +287,28 @@ absl::StatusOr<storage::BackupTarget> fromProto(
   }
 }
 
+absl::Status toProto(const storage::BackupTarget& target,
+                     proto::BackupTarget* proto_target) {
+  if (proto_target == nullptr) {
+    return absl::InvalidArgumentError("proto_target is null");
+  }
+  if (std::holds_alternative<std::monostate>(target)) {
+    return absl::InvalidArgumentError("BackupTarget variant is unset");
+  }
+  if (auto* s3 = std::get_if<storage::S3BackupTarget>(&target)) {
+    auto* p = proto_target->mutable_s3();
+    p->set_bucket(s3->bucket);
+    p->set_prefix(s3->prefix);
+    return absl::OkStatus();
+  }
+  if (auto* loc = std::get_if<storage::LocalBackupTarget>(&target)) {
+    auto* p = proto_target->mutable_local();
+    p->set_path(loc->path);
+    return absl::OkStatus();
+  }
+  return absl::InvalidArgumentError("Unknown BackupTarget variant");
+}
+
 proto::BackupState toProto(storage::BackupState state) {
   switch (state) {
     case storage::BackupState::PENDING:   return proto::BACKUP_PENDING;

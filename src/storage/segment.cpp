@@ -1459,6 +1459,13 @@ std::vector<core::VectorId> Segment::GetAllVectorIds() const {
 
 // ========== Accessors ==========
 
+void Segment::SetCollectionIdForRestore(core::CollectionId collection_id) {
+  // Mutates a member that's normally immutable post-construction. Only
+  // the restore path uses this — see the header for the precondition.
+  std::unique_lock lock(mutex_);
+  collection_id_ = collection_id;
+}
+
 core::SegmentState Segment::GetState() const {
   std::shared_lock lock(mutex_);
   return state_;

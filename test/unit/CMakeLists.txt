@@ -764,6 +764,28 @@ set_tests_properties(ShardWriteGateTests PROPERTIES
   TIMEOUT 30
 )
 
+# Coordinator-orchestrated backup/restore tests
+add_executable(coordinator_backup_tests
+  coordinator_backup_test.cpp
+)
+
+target_link_libraries(coordinator_backup_tests
+  PRIVATE
+    gvdb_cluster
+    gvdb_storage
+    gvdb_network
+    gvdb_consensus
+    gvdb_core
+    proto_lib
+    doctest::doctest_with_main
+)
+
+add_test(NAME CoordinatorBackupTests COMMAND coordinator_backup_tests)
+
+set_tests_properties(CoordinatorBackupTests PROPERTIES
+  TIMEOUT 60
+)
+
 # QueryNode tests
 add_executable(query_node_tests
   query_node_test.cpp

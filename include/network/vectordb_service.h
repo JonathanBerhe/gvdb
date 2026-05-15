@@ -15,7 +15,11 @@
 #include <string>
 
 namespace gvdb {
-namespace cluster { class PrimaryTermTracker; }
+namespace cluster {
+class PrimaryTermTracker;
+class ShardWriteGate;
+class Coordinator;
+}
 namespace storage {
 class BackupManager;
 class RestoreManager;
@@ -46,6 +50,24 @@ class VectorDBService final : public proto::VectorDBService::Service {
   // data_node_main); must outlive this service.
   void SetPrimaryTermTracker(cluster::PrimaryTermTracker* tracker) {
     primary_term_tracker_ = tracker;
+  }
+
+  // Wire the per-shard backup write fence. When set, EvaluateWriteGate
+  // additionally returns ABORTED while a shard is frozen by an in-flight
+  // backup. Optional; null on a single-node binary or a node not
+  // participating in backups. Owned by the caller; must outlive this
+  // service.
+  void SetShardWriteGate(cluster::ShardWriteGate* gate) {
+    shard_write_gate_ = gate;
+  }
+
+  // Wire the coordinator so backup/restore RPCs dispatch through it for
+  // multi-shard fan-out. Optional; on a coordinator binary this is set
+  // and routes via Coordinator::Start*Distributed. On a single-node or
+  // data-node binary this stays null and the RPCs fall back to the
+  // local single-shard BackupManager / RestoreManager path.
+  void SetCoordinator(std::shared_ptr<cluster::Coordinator> coordinator) {
+    coordinator_ = std::move(coordinator);
   }
 
   // Collection management
@@ -227,6 +249,14 @@ class VectorDBService final : public proto::VectorDBService::Service {
   // nodes / tests; non-null on a real distributed data-node, populated
   // via SetPrimaryTermTracker before serving begins.
   cluster::PrimaryTermTracker* primary_term_tracker_ = nullptr;
+
+  // Optional per-shard backup-freeze fence. When non-null,
+  // EvaluateWriteGate returns ABORTED while the shard is frozen.
+  cluster::ShardWriteGate* shard_write_gate_ = nullptr;
+
+  // Optional coordinator pointer for multi-shard backup orchestration.
+  // When non-null, the backup/restore handlers dispatch through it.
+  std::shared_ptr<cluster::Coordinator> coordinator_;
 
   // Statistics
   std::atomic<uint64_t> total_queries_{0};

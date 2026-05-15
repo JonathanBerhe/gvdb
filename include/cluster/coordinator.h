@@ -7,6 +7,7 @@
 #include "cluster/shard_manager.h"
 #include "cluster/node_registry.h"
 #include "cluster/internal_client.h"
+#include "storage/backup_manager.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include <chrono>
@@ -253,6 +254,50 @@ class Coordinator {
   // Reset shards stuck in MIGRATING state (called on startup / after crash)
   void RecoverMigratingShards();
 
+  // =========================================================================
+  // Backup / Restore orchestration
+  // =========================================================================
+  //
+  // Wire the storage-layer engines used to drive the multi-shard fan-out.
+  // Setters (rather than constructor params) keep the existing Coordinator
+  // constructor signature stable — main_*.cpp calls these after both
+  // objects are built. Either or both may stay unset on a coordinator
+  // binary not configured for backups; the public Start* methods then
+  // return UNIMPLEMENTED.
+  void SetBackupManager(std::shared_ptr<storage::BackupManager> mgr);
+  void SetRestoreManager(std::shared_ptr<storage::RestoreManager> mgr);
+
+  // Start a distributed backup of the collection. Returns the backup_id
+  // immediately; the multi-shard fan-out runs asynchronously and is
+  // observable via GetBackupStatus. Each shard is backed up by:
+  //   1. FreezeWrites on the shard's primary
+  //   2. BackupShard on the shard's primary
+  //   3. UnfreezeWrites on the shard's primary
+  // On any per-shard failure the partial backup is cleaned up under the
+  // target prefix and the job transitions to FAILED.
+  absl::StatusOr<std::string> StartBackupDistributed(
+      const std::string& collection_name,
+      const storage::BackupTarget& target,
+      const std::string& requested_backup_id = "");
+
+  // Start a distributed restore. If `overwrite` is true and a collection
+  // with `target_collection_name` already exists, it is dropped before a
+  // fresh collection is created from the backup manifest. If `overwrite`
+  // is false and the target name exists, the call fails with
+  // ALREADY_EXISTS.
+  absl::StatusOr<std::string> StartRestoreDistributed(
+      const storage::BackupTarget& source,
+      const std::string& backup_id,
+      const std::string& target_collection_name,
+      bool overwrite);
+
+  // Status queries — pass through to the underlying BackupManager /
+  // RestoreManager. Returns NotFound when the id is unknown.
+  absl::StatusOr<storage::BackupJobStatus>
+      GetDistributedBackupStatus(const std::string& backup_id) const;
+  absl::StatusOr<storage::RestoreJobStatus>
+      GetDistributedRestoreStatus(const std::string& restore_id) const;
+
  private:
   // Shard manager
   std::shared_ptr<ShardManager> shard_manager_;
@@ -363,6 +408,11 @@ class Coordinator {
 
   // Get or create client for a data node
   IInternalServiceClient* GetOrCreateDataNodeClient(core::NodeId node_id);
+
+  // Backup / restore engines. Null on a coordinator that doesn't host
+  // backups; the public Start* methods return UNIMPLEMENTED in that case.
+  std::shared_ptr<storage::BackupManager> backup_manager_;
+  std::shared_ptr<storage::RestoreManager> restore_manager_;
 };
 
 }  // namespace cluster

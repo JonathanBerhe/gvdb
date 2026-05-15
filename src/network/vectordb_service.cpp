@@ -7,6 +7,8 @@
 #include "network/primary_term_header.h"
 #include "network/replica_fallback.h"
 #include "cluster/primary_term_tracker.h"
+#include "cluster/shard_write_gate.h"
+#include "cluster/coordinator.h"
 #include "auth/auth_context.h"
 #include "network/audit_context.h"
 #include "storage/backup_manager.h"
@@ -92,9 +94,12 @@ grpc::Status VectorDBService::EvaluateWriteGate(
     grpc::ServerContext* context, const std::string& collection_name,
     uint64_t sample_vector_id) {
   // Single-node / tests / query-nodes: no tracker plumbed in, gate is
-  // a no-op. Distributed data-nodes always have one wired in by
-  // data_node_main (cluster::PrimaryTermTracker).
-  if (primary_term_tracker_ == nullptr) return grpc::Status::OK;
+  // a no-op for the primary-term check. The shard-freeze fence is
+  // consulted independently — a single-node BackupManager binary can
+  // still freeze writes during a snapshot even without a tracker.
+  const bool has_tracker = primary_term_tracker_ != nullptr;
+  const bool has_freeze_gate = shard_write_gate_ != nullptr;
+  if (!has_tracker && !has_freeze_gate) return grpc::Status::OK;
 
   // Read the per-write term from the gRPC client metadata header. A
   // client that doesn't send the header is either a pre-1.x proxy
@@ -103,17 +108,6 @@ grpc::Status VectorDBService::EvaluateWriteGate(
   // is still observable in operator dashboards via metrics, not by
   // breaking the request.
   auto hdr = ReadPrimaryTermHeader(context);
-  if (!hdr.has_term) {
-    utils::Logger::Instance().Debug(
-        "Write to '{}' has no {} header; accepting (back-compat path)",
-        collection_name, kPrimaryTermHeader);
-    return grpc::Status::OK;
-  }
-  if (hdr.parse_error) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-        std::string("malformed ") + kPrimaryTermHeader +
-        " header (must be decimal uint64)");
-  }
 
   // Map the request to a shard via the same hash the proxy uses
   // (vid % num_shards). num_shards comes from the resolver's segment
@@ -130,6 +124,31 @@ grpc::Status VectorDBService::EvaluateWriteGate(
   const uint32_t num_shards = static_cast<uint32_t>(seg_ids->size());
   const uint32_t shard_id =
       static_cast<uint32_t>(sample_vector_id % num_shards);
+
+  // Per-shard backup freeze: a frozen shard rejects writes for the
+  // duration of an in-flight backup, regardless of primary-term state.
+  // Checked BEFORE the primary-term check because a frozen shard's
+  // term is fine — we just need writes to back off briefly.
+  if (has_freeze_gate &&
+      shard_write_gate_->IsFrozen(core::MakeShardId(
+          static_cast<uint16_t>(shard_id)))) {
+    return grpc::Status(grpc::StatusCode::RESOURCE_EXHAUSTED, absl::StrCat(
+        "shard ", shard_id,
+        " is frozen for backup; retry after the backup completes"));
+  }
+
+  if (!has_tracker) return grpc::Status::OK;
+  if (!hdr.has_term) {
+    utils::Logger::Instance().Debug(
+        "Write to '{}' has no {} header; accepting (back-compat path)",
+        collection_name, kPrimaryTermHeader);
+    return grpc::Status::OK;
+  }
+  if (hdr.parse_error) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+        std::string("malformed ") + kPrimaryTermHeader +
+        " header (must be decimal uint64)");
+  }
 
   using D = cluster::PrimaryTermTracker::AcceptDecision;
   const D decision = primary_term_tracker_->EvaluateWrite(shard_id, hdr.term);
@@ -1923,18 +1942,32 @@ grpc::Status VectorDBService::BackupCollection(
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
                         "collection_name is required");
   }
-  if (!backup_manager_) {
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Backup is not configured on this server");
-  }
 
   auto target = fromProto(request->target());
   if (!target.ok()) {
     return toGrpcStatus(target.status());
   }
 
-  // Resolve collection metadata for the manifest. The resolver knows the
-  // collection's id, dimension, metric, index type, and shard count.
+  // Dispatch to coordinator-side multi-shard orchestration when wired
+  // (coordinator binary). Falls through to the local single-shard path
+  // on a single-node binary.
+  if (coordinator_) {
+    auto result = coordinator_->StartBackupDistributed(
+        request->collection_name(), *target, request->backup_id());
+    if (!result.ok()) return toGrpcStatus(result.status());
+    response->set_backup_id(*result);
+    response->set_message("Backup job started (distributed)");
+    return grpc::Status::OK;
+  }
+
+  if (!backup_manager_) {
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+        "Backup is not configured on this server");
+  }
+
+  // Single-shard path: resolve collection metadata for the manifest.
+  // The resolver knows the collection's id, dimension, metric, index
+  // type, and shard count.
   auto collections = resolver_->ListCollections();
   const network::CollectionInfo* coll_info = nullptr;
   for (const auto& c : collections) {
@@ -1982,20 +2015,32 @@ grpc::Status VectorDBService::RestoreCollection(
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
                         "backup_id is required");
   }
-  if (!restore_manager_) {
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Restore is not configured on this server");
-  }
 
   auto source = fromProto(request->source());
   if (!source.ok()) {
     return toGrpcStatus(source.status());
   }
 
-  // Read the backup's top manifest to learn the original collection's
-  // metadata. The single-node path in this commit restores under the
-  // original collection_id (no remap). Coordinator-orchestrated restore
-  // (later commit) handles target-side CreateCollection.
+  // Coordinator path: it reads the manifest, creates/overwrites the
+  // target collection, and fans out RestoreShard. Single-node path
+  // (below) restores into the original collection_id since there's no
+  // coordinator to allocate a new id.
+  if (coordinator_) {
+    auto result = coordinator_->StartRestoreDistributed(
+        *source, request->backup_id(),
+        request->target_collection_name(),
+        request->overwrite());
+    if (!result.ok()) return toGrpcStatus(result.status());
+    response->set_restore_id(*result);
+    response->set_message("Restore job started (distributed)");
+    return grpc::Status::OK;
+  }
+
+  if (!restore_manager_) {
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+        "Restore is not configured on this server");
+  }
+
   auto manifest = restore_manager_->ReadManifest(*source, request->backup_id());
   if (!manifest.ok()) {
     return toGrpcStatus(manifest.status());
@@ -2023,11 +2068,15 @@ grpc::Status VectorDBService::GetBackupStatus(
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
                         "backup_id is required");
   }
-  if (!backup_manager_) {
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Backup is not configured on this server");
-  }
-  auto status = backup_manager_->GetStatus(request->backup_id());
+  // Coordinator owns the multi-shard job state; query it when wired.
+  // Otherwise consult the local single-shard BackupManager.
+  absl::StatusOr<storage::BackupJobStatus> status =
+      coordinator_
+          ? coordinator_->GetDistributedBackupStatus(request->backup_id())
+          : (backup_manager_
+                 ? backup_manager_->GetStatus(request->backup_id())
+                 : absl::UnimplementedError(
+                       "Backup is not configured on this server"));
   if (!status.ok()) {
     return toGrpcStatus(status.status());
   }
@@ -2050,11 +2099,13 @@ grpc::Status VectorDBService::GetRestoreStatus(
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
                         "restore_id is required");
   }
-  if (!restore_manager_) {
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Restore is not configured on this server");
-  }
-  auto status = restore_manager_->GetStatus(request->restore_id());
+  absl::StatusOr<storage::RestoreJobStatus> status =
+      coordinator_
+          ? coordinator_->GetDistributedRestoreStatus(request->restore_id())
+          : (restore_manager_
+                 ? restore_manager_->GetStatus(request->restore_id())
+                 : absl::UnimplementedError(
+                       "Restore is not configured on this server"));
   if (!status.ok()) {
     return toGrpcStatus(status.status());
   }
