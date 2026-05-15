@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.33.0](https://github.com/JonathanBerhe/gvdb/compare/v0.32.1...v0.33.0) (2026-05-15)
+
+
+### Features
+
+* **index:** CUDA acceleration via faiss-gpu + Modal dev-loop harness ([026486d](https://github.com/JonathanBerhe/gvdb/commit/026486df81f973e8f5cf88451d37168eaada9e70))
+* **index:** CUDA acceleration via faiss-gpu + Modal dev-loop harness ([d81729f](https://github.com/JonathanBerhe/gvdb/commit/d81729f810bde7686cb85678bf76329f72e5d237))
+
+
+### Bug Fixes
+
+* **cuda:** apply review feedback (serialize GPU search, AddBatch coverage, secrets ignore) ([5d5f439](https://github.com/JonathanBerhe/gvdb/commit/5d5f439d2307c5a8f98756e8f1418c8a319f4861))
+* **cuda:** unblock Modal A10G smoke test (link order, CUDA archs, Modal 1.x API) ([79ee0b8](https://github.com/JonathanBerhe/gvdb/commit/79ee0b89ef54678ca5f3ef286c67330ebe17c9a4))
+
+
+### Performance
+
+* **bench:** default cuda_bench to A10G and trim sweep to 10K-100K ([f825006](https://github.com/JonathanBerhe/gvdb/commit/f825006c7af6901e7f700ee3015fa90ade985d52))
+
 ## [0.32.1](https://github.com/JonathanBerhe/gvdb/compare/v0.32.0...v0.32.1) (2026-05-04)
 
 
