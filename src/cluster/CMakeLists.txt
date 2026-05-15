@@ -11,6 +11,7 @@ add_library(gvdb_cluster
   internal_client.cpp
   heartbeat_sender.cpp
   primary_term_tracker.cpp
+  shard_write_gate.cpp
 )
 
 target_include_directories(gvdb_cluster

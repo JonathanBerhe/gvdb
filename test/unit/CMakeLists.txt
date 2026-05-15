@@ -746,6 +746,24 @@ set_tests_properties(BackupManagerTests PROPERTIES
   TIMEOUT 60
 )
 
+# ShardWriteGate tests — per-shard backup freeze fence
+add_executable(shard_write_gate_tests
+  shard_write_gate_test.cpp
+)
+
+target_link_libraries(shard_write_gate_tests
+  PRIVATE
+    gvdb_cluster
+    gvdb_core
+    doctest::doctest_with_main
+)
+
+add_test(NAME ShardWriteGateTests COMMAND shard_write_gate_tests)
+
+set_tests_properties(ShardWriteGateTests PROPERTIES
+  TIMEOUT 30
+)
+
 # QueryNode tests
 add_executable(query_node_tests
   query_node_test.cpp

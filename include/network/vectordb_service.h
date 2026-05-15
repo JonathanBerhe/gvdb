@@ -16,6 +16,10 @@
 
 namespace gvdb {
 namespace cluster { class PrimaryTermTracker; }
+namespace storage {
+class BackupManager;
+class RestoreManager;
+}
 
 namespace network {
 
@@ -29,7 +33,9 @@ class VectorDBService final : public proto::VectorDBService::Service {
       std::shared_ptr<compute::QueryExecutor> query_executor,
       std::unique_ptr<ICollectionResolver> resolver,
       std::shared_ptr<auth::RbacStore> rbac_store = nullptr,
-      std::shared_ptr<storage::BulkImporter> bulk_importer = nullptr);
+      std::shared_ptr<storage::BulkImporter> bulk_importer = nullptr,
+      std::shared_ptr<storage::BackupManager> backup_manager = nullptr,
+      std::shared_ptr<storage::RestoreManager> restore_manager = nullptr);
 
   ~VectorDBService();
 
@@ -126,6 +132,37 @@ class VectorDBService final : public proto::VectorDBService::Service {
       const proto::CancelImportRequest* request,
       proto::CancelImportResponse* response) override;
 
+  // Backup and restore
+  grpc::Status BackupCollection(
+      grpc::ServerContext* context,
+      const proto::BackupCollectionRequest* request,
+      proto::BackupCollectionResponse* response) override;
+
+  grpc::Status RestoreCollection(
+      grpc::ServerContext* context,
+      const proto::RestoreCollectionRequest* request,
+      proto::RestoreCollectionResponse* response) override;
+
+  grpc::Status GetBackupStatus(
+      grpc::ServerContext* context,
+      const proto::GetBackupStatusRequest* request,
+      proto::GetBackupStatusResponse* response) override;
+
+  grpc::Status GetRestoreStatus(
+      grpc::ServerContext* context,
+      const proto::GetRestoreStatusRequest* request,
+      proto::GetRestoreStatusResponse* response) override;
+
+  grpc::Status ListBackups(
+      grpc::ServerContext* context,
+      const proto::ListBackupsRequest* request,
+      proto::ListBackupsResponse* response) override;
+
+  grpc::Status CancelBackup(
+      grpc::ServerContext* context,
+      const proto::CancelBackupRequest* request,
+      proto::CancelBackupResponse* response) override;
+
   // Health and stats
   grpc::Status HealthCheck(
       grpc::ServerContext* context,
@@ -181,6 +218,10 @@ class VectorDBService final : public proto::VectorDBService::Service {
   std::unique_ptr<ICollectionResolver> resolver_;
   std::shared_ptr<auth::RbacStore> rbac_store_;
   std::shared_ptr<storage::BulkImporter> bulk_importer_;
+  // Optional storage-layer engines. Null on a binary that doesn't host
+  // backup orchestration; the handlers return UNIMPLEMENTED in that case.
+  std::shared_ptr<storage::BackupManager> backup_manager_;
+  std::shared_ptr<storage::RestoreManager> restore_manager_;
 
   // Optional write-path primary-term gate. Null on single-node / query-
   // nodes / tests; non-null on a real distributed data-node, populated

@@ -587,12 +587,13 @@ message BackupShardResponse {
 }
 
 message RestoreShardRequest {
-  string restore_id = 1;
+  // Identifier of the backup to restore from. The data-node derives the
+  // shard manifest key as
+  //   <prefix>/backups/<backup_id>/shards/<shard_id>/shard.manifest.json.
+  string backup_id = 1;
   uint32 target_collection_id = 2;
   uint32 shard_id = 3;
   gvdb.proto.BackupTarget source = 4;
-  // Object key of the per-shard manifest produced at backup time.
-  string shard_manifest_key = 5;
 }
 
 message RestoreShardResponse {
