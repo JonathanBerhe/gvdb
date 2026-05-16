@@ -14,7 +14,9 @@
 #include "storage/segment_manager.h"
 #include "storage/tiered_segment_manager.h"
 #include "storage/segment_cache.h"
+#include "storage/backup_manager.h"
 #include "storage/bulk_importer.h"
+#include "cluster/shard_write_gate.h"
 #ifdef GVDB_HAS_S3
 #include "storage/s3_object_store.h"
 #endif
@@ -238,11 +240,44 @@ int main(int argc, char** argv) {
           segment_store, object_store_ptr, data_dir + "/tmp", 2);
     }
 
-    // 7. gRPC service
+    // 7. Backup / restore engines. Single-node has no cluster fan-out;
+    // BackupManager runs the single-shard path against the local
+    // segment store. Requires either an S3 store (for S3 targets) or a
+    // local backup directory (for LocalBackupTarget); we configure both
+    // when available so operators can choose at request time.
+    std::shared_ptr<storage::BackupManager> backup_manager;
+    std::shared_ptr<storage::RestoreManager> restore_manager;
+    {
+      storage::BackupManagerOptions bopts;
+      bopts.default_object_store = object_store_ptr;
+      bopts.s3_bucket = config.storage.object_store_bucket;
+      bopts.local_root_allowlist = config.storage.local_backup_dir;
+      bopts.flushed_segments_root = data_dir + "/segments";
+      bopts.tmp_dir = data_dir + "/tmp/backup";
+      bopts.gvdb_version = "single-node";
+      bopts.node_id = node_id;
+      backup_manager = std::make_shared<storage::BackupManager>(std::move(bopts));
+
+      storage::RestoreManagerOptions ropts;
+      ropts.default_object_store = object_store_ptr;
+      ropts.s3_bucket = config.storage.object_store_bucket;
+      ropts.local_root_allowlist = config.storage.local_backup_dir;
+      ropts.staging_dir = data_dir + "/tmp/restore";
+      restore_manager = std::make_shared<storage::RestoreManager>(
+          std::move(ropts));
+    }
+
+    // Per-shard backup write fence. Single-node uses a single shard but
+    // the gate plumbing is the same — FreezeWrites against shard 0
+    // works identically.
+    auto shard_write_gate = std::make_unique<cluster::ShardWriteGate>();
+
+    // 8. gRPC service
     auto resolver = network::MakeLocalResolver(segment_store);
     auto service = std::make_unique<network::VectorDBService>(
         segment_store, query_executor, std::move(resolver), rbac_store,
-        bulk_importer);
+        bulk_importer, backup_manager, restore_manager);
+    service->SetShardWriteGate(shard_write_gate.get());
 
     // 6. Start server
     std::string server_address = absl::StrCat("0.0.0.0:", port);
