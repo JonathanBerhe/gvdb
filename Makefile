@@ -140,8 +140,8 @@ generate-operator-pb:
 		--go-grpc_opt=Minternal.proto=gvdb/operator/internal/gvdbpb \
 		--go-grpc_opt=Mvectordb.proto=gvdb/operator/internal/gvdbpb \
 		internal.proto
-	@cp test/e2e/pb/vectordb.pb.go $(OPERATOR_DIR)/internal/gvdbpb/vectordb.pb.go
-	@cp test/e2e/pb/vectordb_grpc.pb.go $(OPERATOR_DIR)/internal/gvdbpb/vectordb_grpc.pb.go
+	@cp test/e2e/vectordb.pb.go $(OPERATOR_DIR)/internal/gvdbpb/vectordb.pb.go
+	@cp test/e2e/vectordb_grpc.pb.go $(OPERATOR_DIR)/internal/gvdbpb/vectordb_grpc.pb.go
 	@cp /tmp/gvdb-pbgen/internal.pb.go $(OPERATOR_DIR)/internal/gvdbpb/internal.pb.go
 	@cp /tmp/gvdb-pbgen/internal_grpc.pb.go $(OPERATOR_DIR)/internal/gvdbpb/internal_grpc.pb.go
 	@sed -i.bak 's|^package pb$$|package gvdbpb|' \

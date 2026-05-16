@@ -1,0 +1,277 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: gvdbbackups.gvdb.io
+spec:
+  group: gvdb.io
+  names:
+    kind: GVDBBackup
+    listKind: GVDBBackupList
+    plural: gvdbbackups
+    shortNames:
+    - gvdbbkp
+    singular: gvdbbackup
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.collection
+      name: Collection
+      type: string
+    - jsonPath: .status.shardsCompleted
+      name: Shards
+      type: string
+    - jsonPath: .status.sizeBytes
+      name: Size
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          GVDBBackup captures a point-in-time backup of one collection in a
+          GVDBCluster. The reconciler dials the cluster's proxy, calls
+          VectorDBService.BackupCollection, then polls GetBackupStatus until the
+          job reaches a terminal state. Idempotent across reconciles: an existing
+          status.backupID is reused as the client-supplied backup_id so a
+          controller restart never kicks off a duplicate run.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: GVDBBackupSpec is the desired state of a GVDBBackup.
+            properties:
+              clusterRef:
+                description: |-
+                  ClusterRef points at the GVDBCluster to back up. The CR must live
+                  in the same namespace as the cluster.
+                properties:
+                  name:
+                    description: Name is the metadata.name of the referenced object.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+              collection:
+                description: Collection is the name of the collection to back up.
+                minLength: 1
+                type: string
+              incrementalFromRef:
+                description: |-
+                  IncrementalFromRef optionally names a parent GVDBBackup. v1alpha1
+                  accepts the field but the C++ runtime currently always performs a
+                  full backup; the seam is preserved for a later incremental
+                  implementation.
+                properties:
+                  name:
+                    description: Name is the metadata.name of the referenced object.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+              retentionDays:
+                default: 0
+                description: |-
+                  RetentionDays caps how long the produced backup artifacts are kept
+                  by the operator's reaper. v1alpha1 records the field but reaping
+                  lands in a follow-up; 0 means "retain indefinitely".
+                format: int32
+                type: integer
+              target:
+                description: |-
+                  Target picks the backup destination. Exactly one of s3 / local
+                  must be set; the reconciler rejects empty or doubly-set targets.
+                properties:
+                  local:
+                    description: |-
+                      LocalBackupTarget identifies a filesystem path the data-nodes can write to.
+                      The path must lie under the server-side allowlist configured in
+                      `StorageConfig.local_backup_dir`; the data-node rejects paths that escape it.
+                    properties:
+                      path:
+                        description: |-
+                          Path is the absolute filesystem path on the data-node pod (typically
+                          a PVC mount such as `/var/lib/gvdb/backups`). Must lie under the
+                          server-configured allowlist root.
+                        pattern: ^/.+
+                        type: string
+                    required:
+                    - path
+                    type: object
+                  s3:
+                    description: S3BackupTarget identifies an S3-compatible bucket
+                      the data nodes upload to.
+                    properties:
+                      bucket:
+                        description: |-
+                          Bucket is the destination bucket. The cluster's data-nodes and
+                          coordinator must be configured with credentials for this bucket
+                          (typically via IRSA / Workload Identity); the operator does not
+                          pass credentials in the CR.
+                        minLength: 1
+                        type: string
+                      prefix:
+                        description: |-
+                          Prefix is an optional key prefix under the bucket. Final layout
+                          is `<prefix>/backups/<backup_id>/...`. Empty places artifacts at
+                          the bucket root.
+                        type: string
+                    required:
+                    - bucket
+                    type: object
+                type: object
+            required:
+            - clusterRef
+            - collection
+            - target
+            type: object
+          status:
+            description: GVDBBackupStatus is the observed state of a GVDBBackup.
+            properties:
+              backupID:
+                description: |-
+                  BackupID is the server-allocated id. Set once the first
+                  BackupCollection RPC succeeds; reused as the idempotency key on
+                  subsequent reconciles so a controller restart doesn't kick off a
+                  duplicate backup.
+                type: string
+              completedAt:
+                description: |-
+                  CompletedAt is set when the backup reaches a terminal state
+                  (Completed, Failed, or Cancelled).
+                format: date-time
+                type: string
+              conditions:
+                description: |-
+                  Conditions surfaces the Kubernetes-standard condition set. The
+                  reconciler maintains a single "Ready" condition whose status
+                  mirrors Phase: True on Completed, False on Failed/Cancelled,
+                  Unknown while Pending/Running.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              manifestURI:
+                description: |-
+                  ManifestURI is the canonical pointer to the top-level backup
+                  manifest, e.g. `s3://bucket/prefix/backups/<id>/backup.manifest.json`.
+                  Empty until the backup reaches Completed.
+                type: string
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the metadata.generation the operator last
+                  reconciled. Callers diff this against metadata.generation to
+                  detect whether status is fresh.
+                format: int64
+                type: integer
+              phase:
+                description: Phase is the high-level lifecycle stage.
+                type: string
+              shardsCompleted:
+                description: |-
+                  ShardsCompleted counts shards whose per-shard manifest has been
+                  uploaded successfully.
+                format: int32
+                type: integer
+              shardsTotal:
+                description: |-
+                  ShardsTotal is the number of shards in the collection the
+                  coordinator is fanning out to. Reported by GetBackupStatus once
+                  orchestration is under way.
+                format: int32
+                type: integer
+              sizeBytes:
+                description: |-
+                  SizeBytes is the cumulative bytes uploaded so far. Final value is
+                  approximate (a few KiB of manifest overhead).
+                format: int64
+                type: integer
+              startedAt:
+                description: StartedAt is set on the first successful BackupCollection
+                  call.
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

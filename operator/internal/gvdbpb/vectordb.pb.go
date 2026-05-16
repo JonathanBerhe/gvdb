@@ -125,6 +125,61 @@ func (ImportState) EnumDescriptor() ([]byte, []int) {
 	return file_vectordb_proto_rawDescGZIP(), []int{1}
 }
 
+type BackupState int32
+
+const (
+	BackupState_BACKUP_PENDING   BackupState = 0
+	BackupState_BACKUP_RUNNING   BackupState = 1
+	BackupState_BACKUP_COMPLETED BackupState = 2
+	BackupState_BACKUP_FAILED    BackupState = 3
+	BackupState_BACKUP_CANCELLED BackupState = 4
+)
+
+// Enum value maps for BackupState.
+var (
+	BackupState_name = map[int32]string{
+		0: "BACKUP_PENDING",
+		1: "BACKUP_RUNNING",
+		2: "BACKUP_COMPLETED",
+		3: "BACKUP_FAILED",
+		4: "BACKUP_CANCELLED",
+	}
+	BackupState_value = map[string]int32{
+		"BACKUP_PENDING":   0,
+		"BACKUP_RUNNING":   1,
+		"BACKUP_COMPLETED": 2,
+		"BACKUP_FAILED":    3,
+		"BACKUP_CANCELLED": 4,
+	}
+)
+
+func (x BackupState) Enum() *BackupState {
+	p := new(BackupState)
+	*p = x
+	return p
+}
+
+func (x BackupState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BackupState) Descriptor() protoreflect.EnumDescriptor {
+	return file_vectordb_proto_enumTypes[2].Descriptor()
+}
+
+func (BackupState) Type() protoreflect.EnumType {
+	return &file_vectordb_proto_enumTypes[2]
+}
+
+func (x BackupState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use BackupState.Descriptor instead.
+func (BackupState) EnumDescriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{2}
+}
+
 type CreateCollectionRequest_MetricType int32
 
 const (
@@ -158,11 +213,11 @@ func (x CreateCollectionRequest_MetricType) String() string {
 }
 
 func (CreateCollectionRequest_MetricType) Descriptor() protoreflect.EnumDescriptor {
-	return file_vectordb_proto_enumTypes[2].Descriptor()
+	return file_vectordb_proto_enumTypes[3].Descriptor()
 }
 
 func (CreateCollectionRequest_MetricType) Type() protoreflect.EnumType {
-	return &file_vectordb_proto_enumTypes[2]
+	return &file_vectordb_proto_enumTypes[3]
 }
 
 func (x CreateCollectionRequest_MetricType) Number() protoreflect.EnumNumber {
@@ -222,11 +277,11 @@ func (x CreateCollectionRequest_IndexType) String() string {
 }
 
 func (CreateCollectionRequest_IndexType) Descriptor() protoreflect.EnumDescriptor {
-	return file_vectordb_proto_enumTypes[3].Descriptor()
+	return file_vectordb_proto_enumTypes[4].Descriptor()
 }
 
 func (CreateCollectionRequest_IndexType) Type() protoreflect.EnumType {
-	return &file_vectordb_proto_enumTypes[3]
+	return &file_vectordb_proto_enumTypes[4]
 }
 
 func (x CreateCollectionRequest_IndexType) Number() protoreflect.EnumNumber {
@@ -271,11 +326,11 @@ func (x HealthCheckResponse_Status) String() string {
 }
 
 func (HealthCheckResponse_Status) Descriptor() protoreflect.EnumDescriptor {
-	return file_vectordb_proto_enumTypes[4].Descriptor()
+	return file_vectordb_proto_enumTypes[5].Descriptor()
 }
 
 func (HealthCheckResponse_Status) Type() protoreflect.EnumType {
-	return &file_vectordb_proto_enumTypes[4]
+	return &file_vectordb_proto_enumTypes[5]
 }
 
 func (x HealthCheckResponse_Status) Number() protoreflect.EnumNumber {
@@ -2756,6 +2811,998 @@ func (x *CancelImportResponse) GetMessage() string {
 	return ""
 }
 
+// BackupTarget selects where backup artifacts are written. Mirrors the
+// IObjectStore choice in the C++ runtime — S3 uses S3ObjectStore,
+// LocalPath uses FilesystemObjectStore.
+type BackupTarget struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Target:
+	//
+	//	*BackupTarget_S3
+	//	*BackupTarget_Local
+	Target        isBackupTarget_Target `protobuf_oneof:"target"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackupTarget) Reset() {
+	*x = BackupTarget{}
+	mi := &file_vectordb_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackupTarget) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackupTarget) ProtoMessage() {}
+
+func (x *BackupTarget) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackupTarget.ProtoReflect.Descriptor instead.
+func (*BackupTarget) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *BackupTarget) GetTarget() isBackupTarget_Target {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *BackupTarget) GetS3() *S3Target {
+	if x != nil {
+		if x, ok := x.Target.(*BackupTarget_S3); ok {
+			return x.S3
+		}
+	}
+	return nil
+}
+
+func (x *BackupTarget) GetLocal() *LocalTarget {
+	if x != nil {
+		if x, ok := x.Target.(*BackupTarget_Local); ok {
+			return x.Local
+		}
+	}
+	return nil
+}
+
+type isBackupTarget_Target interface {
+	isBackupTarget_Target()
+}
+
+type BackupTarget_S3 struct {
+	S3 *S3Target `protobuf:"bytes,1,opt,name=s3,proto3,oneof"`
+}
+
+type BackupTarget_Local struct {
+	Local *LocalTarget `protobuf:"bytes,2,opt,name=local,proto3,oneof"`
+}
+
+func (*BackupTarget_S3) isBackupTarget_Target() {}
+
+func (*BackupTarget_Local) isBackupTarget_Target() {}
+
+type S3Target struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Bucket the data-node uploads to. Credentials come from the data-node's
+	// configured object-store credentials (typically IRSA / Workload Identity).
+	Bucket string `protobuf:"bytes,1,opt,name=bucket,proto3" json:"bucket,omitempty"`
+	// Optional prefix under the bucket. Final key layout is
+	//
+	//	<prefix>/backups/<backup_id>/...
+	Prefix        string `protobuf:"bytes,2,opt,name=prefix,proto3" json:"prefix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *S3Target) Reset() {
+	*x = S3Target{}
+	mi := &file_vectordb_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *S3Target) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*S3Target) ProtoMessage() {}
+
+func (x *S3Target) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use S3Target.ProtoReflect.Descriptor instead.
+func (*S3Target) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *S3Target) GetBucket() string {
+	if x != nil {
+		return x.Bucket
+	}
+	return ""
+}
+
+func (x *S3Target) GetPrefix() string {
+	if x != nil {
+		return x.Prefix
+	}
+	return ""
+}
+
+type LocalTarget struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Absolute path on the data-node. Must be under a server-side allow-list
+	// (see BackupConfig.local_backup_dir).
+	Path          string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LocalTarget) Reset() {
+	*x = LocalTarget{}
+	mi := &file_vectordb_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LocalTarget) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LocalTarget) ProtoMessage() {}
+
+func (x *LocalTarget) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LocalTarget.ProtoReflect.Descriptor instead.
+func (*LocalTarget) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *LocalTarget) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+type BackupCollectionRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	CollectionName string                 `protobuf:"bytes,1,opt,name=collection_name,json=collectionName,proto3" json:"collection_name,omitempty"`
+	Target         *BackupTarget          `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	// Optional: parent backup_id for an incremental backup. The current
+	// implementation always takes a full backup and ignores this field;
+	// the seam is preserved for a later incremental implementation.
+	IncrementalFrom string `protobuf:"bytes,3,opt,name=incremental_from,json=incrementalFrom,proto3" json:"incremental_from,omitempty"`
+	// Optional: client-supplied backup_id for idempotency. Empty = server
+	// allocates one of the form "bk-<RFC3339>-<rand>".
+	BackupId      string `protobuf:"bytes,4,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackupCollectionRequest) Reset() {
+	*x = BackupCollectionRequest{}
+	mi := &file_vectordb_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackupCollectionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackupCollectionRequest) ProtoMessage() {}
+
+func (x *BackupCollectionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackupCollectionRequest.ProtoReflect.Descriptor instead.
+func (*BackupCollectionRequest) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *BackupCollectionRequest) GetCollectionName() string {
+	if x != nil {
+		return x.CollectionName
+	}
+	return ""
+}
+
+func (x *BackupCollectionRequest) GetTarget() *BackupTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *BackupCollectionRequest) GetIncrementalFrom() string {
+	if x != nil {
+		return x.IncrementalFrom
+	}
+	return ""
+}
+
+func (x *BackupCollectionRequest) GetBackupId() string {
+	if x != nil {
+		return x.BackupId
+	}
+	return ""
+}
+
+type BackupCollectionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BackupId      string                 `protobuf:"bytes,1,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackupCollectionResponse) Reset() {
+	*x = BackupCollectionResponse{}
+	mi := &file_vectordb_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackupCollectionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackupCollectionResponse) ProtoMessage() {}
+
+func (x *BackupCollectionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackupCollectionResponse.ProtoReflect.Descriptor instead.
+func (*BackupCollectionResponse) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *BackupCollectionResponse) GetBackupId() string {
+	if x != nil {
+		return x.BackupId
+	}
+	return ""
+}
+
+func (x *BackupCollectionResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type RestoreCollectionRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Source   *BackupTarget          `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	BackupId string                 `protobuf:"bytes,2,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	// Where to restore into. Empty = use the collection name from the
+	// backup manifest. Fails if the target already exists unless
+	// overwrite=true.
+	TargetCollectionName string `protobuf:"bytes,3,opt,name=target_collection_name,json=targetCollectionName,proto3" json:"target_collection_name,omitempty"`
+	// If true and the target collection exists, drop it then recreate
+	// from the backup. If false and it exists, the call fails.
+	Overwrite     bool `protobuf:"varint,4,opt,name=overwrite,proto3" json:"overwrite,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RestoreCollectionRequest) Reset() {
+	*x = RestoreCollectionRequest{}
+	mi := &file_vectordb_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestoreCollectionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestoreCollectionRequest) ProtoMessage() {}
+
+func (x *RestoreCollectionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestoreCollectionRequest.ProtoReflect.Descriptor instead.
+func (*RestoreCollectionRequest) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *RestoreCollectionRequest) GetSource() *BackupTarget {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+func (x *RestoreCollectionRequest) GetBackupId() string {
+	if x != nil {
+		return x.BackupId
+	}
+	return ""
+}
+
+func (x *RestoreCollectionRequest) GetTargetCollectionName() string {
+	if x != nil {
+		return x.TargetCollectionName
+	}
+	return ""
+}
+
+func (x *RestoreCollectionRequest) GetOverwrite() bool {
+	if x != nil {
+		return x.Overwrite
+	}
+	return false
+}
+
+type RestoreCollectionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RestoreId     string                 `protobuf:"bytes,1,opt,name=restore_id,json=restoreId,proto3" json:"restore_id,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RestoreCollectionResponse) Reset() {
+	*x = RestoreCollectionResponse{}
+	mi := &file_vectordb_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestoreCollectionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestoreCollectionResponse) ProtoMessage() {}
+
+func (x *RestoreCollectionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestoreCollectionResponse.ProtoReflect.Descriptor instead.
+func (*RestoreCollectionResponse) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *RestoreCollectionResponse) GetRestoreId() string {
+	if x != nil {
+		return x.RestoreId
+	}
+	return ""
+}
+
+func (x *RestoreCollectionResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type GetBackupStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BackupId      string                 `protobuf:"bytes,1,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetBackupStatusRequest) Reset() {
+	*x = GetBackupStatusRequest{}
+	mi := &file_vectordb_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetBackupStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetBackupStatusRequest) ProtoMessage() {}
+
+func (x *GetBackupStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetBackupStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetBackupStatusRequest) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *GetBackupStatusRequest) GetBackupId() string {
+	if x != nil {
+		return x.BackupId
+	}
+	return ""
+}
+
+type GetBackupStatusResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	BackupId        string                 `protobuf:"bytes,1,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	State           BackupState            `protobuf:"varint,2,opt,name=state,proto3,enum=gvdb.proto.BackupState" json:"state,omitempty"`
+	ShardsTotal     uint32                 `protobuf:"varint,3,opt,name=shards_total,json=shardsTotal,proto3" json:"shards_total,omitempty"`
+	ShardsCompleted uint32                 `protobuf:"varint,4,opt,name=shards_completed,json=shardsCompleted,proto3" json:"shards_completed,omitempty"`
+	BytesUploaded   uint64                 `protobuf:"varint,5,opt,name=bytes_uploaded,json=bytesUploaded,proto3" json:"bytes_uploaded,omitempty"`
+	ErrorMessage    string                 `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	ElapsedSeconds  float32                `protobuf:"fixed32,7,opt,name=elapsed_seconds,json=elapsedSeconds,proto3" json:"elapsed_seconds,omitempty"`
+	// Canonical URI of the top-level backup manifest, e.g.
+	//
+	//	"s3://bucket/prefix/backups/<id>/backup.manifest.json"
+	//
+	// Empty until the backup reaches BACKUP_COMPLETED.
+	ManifestUri   string `protobuf:"bytes,8,opt,name=manifest_uri,json=manifestUri,proto3" json:"manifest_uri,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetBackupStatusResponse) Reset() {
+	*x = GetBackupStatusResponse{}
+	mi := &file_vectordb_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetBackupStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetBackupStatusResponse) ProtoMessage() {}
+
+func (x *GetBackupStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetBackupStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetBackupStatusResponse) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *GetBackupStatusResponse) GetBackupId() string {
+	if x != nil {
+		return x.BackupId
+	}
+	return ""
+}
+
+func (x *GetBackupStatusResponse) GetState() BackupState {
+	if x != nil {
+		return x.State
+	}
+	return BackupState_BACKUP_PENDING
+}
+
+func (x *GetBackupStatusResponse) GetShardsTotal() uint32 {
+	if x != nil {
+		return x.ShardsTotal
+	}
+	return 0
+}
+
+func (x *GetBackupStatusResponse) GetShardsCompleted() uint32 {
+	if x != nil {
+		return x.ShardsCompleted
+	}
+	return 0
+}
+
+func (x *GetBackupStatusResponse) GetBytesUploaded() uint64 {
+	if x != nil {
+		return x.BytesUploaded
+	}
+	return 0
+}
+
+func (x *GetBackupStatusResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *GetBackupStatusResponse) GetElapsedSeconds() float32 {
+	if x != nil {
+		return x.ElapsedSeconds
+	}
+	return 0
+}
+
+func (x *GetBackupStatusResponse) GetManifestUri() string {
+	if x != nil {
+		return x.ManifestUri
+	}
+	return ""
+}
+
+type GetRestoreStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RestoreId     string                 `protobuf:"bytes,1,opt,name=restore_id,json=restoreId,proto3" json:"restore_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetRestoreStatusRequest) Reset() {
+	*x = GetRestoreStatusRequest{}
+	mi := &file_vectordb_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRestoreStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRestoreStatusRequest) ProtoMessage() {}
+
+func (x *GetRestoreStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRestoreStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetRestoreStatusRequest) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *GetRestoreStatusRequest) GetRestoreId() string {
+	if x != nil {
+		return x.RestoreId
+	}
+	return ""
+}
+
+type GetRestoreStatusResponse struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RestoreId string                 `protobuf:"bytes,1,opt,name=restore_id,json=restoreId,proto3" json:"restore_id,omitempty"`
+	// Reuses BackupState; CANCELLED is unused for restore.
+	State           BackupState `protobuf:"varint,2,opt,name=state,proto3,enum=gvdb.proto.BackupState" json:"state,omitempty"`
+	ShardsTotal     uint32      `protobuf:"varint,3,opt,name=shards_total,json=shardsTotal,proto3" json:"shards_total,omitempty"`
+	ShardsCompleted uint32      `protobuf:"varint,4,opt,name=shards_completed,json=shardsCompleted,proto3" json:"shards_completed,omitempty"`
+	ErrorMessage    string      `protobuf:"bytes,5,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	ElapsedSeconds  float32     `protobuf:"fixed32,6,opt,name=elapsed_seconds,json=elapsedSeconds,proto3" json:"elapsed_seconds,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetRestoreStatusResponse) Reset() {
+	*x = GetRestoreStatusResponse{}
+	mi := &file_vectordb_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRestoreStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRestoreStatusResponse) ProtoMessage() {}
+
+func (x *GetRestoreStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRestoreStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetRestoreStatusResponse) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *GetRestoreStatusResponse) GetRestoreId() string {
+	if x != nil {
+		return x.RestoreId
+	}
+	return ""
+}
+
+func (x *GetRestoreStatusResponse) GetState() BackupState {
+	if x != nil {
+		return x.State
+	}
+	return BackupState_BACKUP_PENDING
+}
+
+func (x *GetRestoreStatusResponse) GetShardsTotal() uint32 {
+	if x != nil {
+		return x.ShardsTotal
+	}
+	return 0
+}
+
+func (x *GetRestoreStatusResponse) GetShardsCompleted() uint32 {
+	if x != nil {
+		return x.ShardsCompleted
+	}
+	return 0
+}
+
+func (x *GetRestoreStatusResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *GetRestoreStatusResponse) GetElapsedSeconds() float32 {
+	if x != nil {
+		return x.ElapsedSeconds
+	}
+	return 0
+}
+
+type ListBackupsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Source        *BackupTarget          `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBackupsRequest) Reset() {
+	*x = ListBackupsRequest{}
+	mi := &file_vectordb_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBackupsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBackupsRequest) ProtoMessage() {}
+
+func (x *ListBackupsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBackupsRequest.ProtoReflect.Descriptor instead.
+func (*ListBackupsRequest) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *ListBackupsRequest) GetSource() *BackupTarget {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+type BackupInfo struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	BackupId        string                 `protobuf:"bytes,1,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	CollectionName  string                 `protobuf:"bytes,2,opt,name=collection_name,json=collectionName,proto3" json:"collection_name,omitempty"`
+	CollectionId    uint32                 `protobuf:"varint,3,opt,name=collection_id,json=collectionId,proto3" json:"collection_id,omitempty"`
+	CreatedAtUnixMs int64                  `protobuf:"varint,4,opt,name=created_at_unix_ms,json=createdAtUnixMs,proto3" json:"created_at_unix_ms,omitempty"`
+	VectorCount     uint64                 `protobuf:"varint,5,opt,name=vector_count,json=vectorCount,proto3" json:"vector_count,omitempty"`
+	SizeBytes       uint64                 `protobuf:"varint,6,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	ManifestVersion uint32                 `protobuf:"varint,7,opt,name=manifest_version,json=manifestVersion,proto3" json:"manifest_version,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *BackupInfo) Reset() {
+	*x = BackupInfo{}
+	mi := &file_vectordb_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackupInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackupInfo) ProtoMessage() {}
+
+func (x *BackupInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackupInfo.ProtoReflect.Descriptor instead.
+func (*BackupInfo) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *BackupInfo) GetBackupId() string {
+	if x != nil {
+		return x.BackupId
+	}
+	return ""
+}
+
+func (x *BackupInfo) GetCollectionName() string {
+	if x != nil {
+		return x.CollectionName
+	}
+	return ""
+}
+
+func (x *BackupInfo) GetCollectionId() uint32 {
+	if x != nil {
+		return x.CollectionId
+	}
+	return 0
+}
+
+func (x *BackupInfo) GetCreatedAtUnixMs() int64 {
+	if x != nil {
+		return x.CreatedAtUnixMs
+	}
+	return 0
+}
+
+func (x *BackupInfo) GetVectorCount() uint64 {
+	if x != nil {
+		return x.VectorCount
+	}
+	return 0
+}
+
+func (x *BackupInfo) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *BackupInfo) GetManifestVersion() uint32 {
+	if x != nil {
+		return x.ManifestVersion
+	}
+	return 0
+}
+
+type ListBackupsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Backups       []*BackupInfo          `protobuf:"bytes,1,rep,name=backups,proto3" json:"backups,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBackupsResponse) Reset() {
+	*x = ListBackupsResponse{}
+	mi := &file_vectordb_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBackupsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBackupsResponse) ProtoMessage() {}
+
+func (x *ListBackupsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBackupsResponse.ProtoReflect.Descriptor instead.
+func (*ListBackupsResponse) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *ListBackupsResponse) GetBackups() []*BackupInfo {
+	if x != nil {
+		return x.Backups
+	}
+	return nil
+}
+
+type CancelBackupRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BackupId      string                 `protobuf:"bytes,1,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelBackupRequest) Reset() {
+	*x = CancelBackupRequest{}
+	mi := &file_vectordb_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelBackupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelBackupRequest) ProtoMessage() {}
+
+func (x *CancelBackupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelBackupRequest.ProtoReflect.Descriptor instead.
+func (*CancelBackupRequest) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *CancelBackupRequest) GetBackupId() string {
+	if x != nil {
+		return x.BackupId
+	}
+	return ""
+}
+
+type CancelBackupResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelBackupResponse) Reset() {
+	*x = CancelBackupResponse{}
+	mi := &file_vectordb_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelBackupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelBackupResponse) ProtoMessage() {}
+
+func (x *CancelBackupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vectordb_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelBackupResponse.ProtoReflect.Descriptor instead.
+func (*CancelBackupResponse) Descriptor() ([]byte, []int) {
+	return file_vectordb_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *CancelBackupResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *CancelBackupResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 var File_vectordb_proto protoreflect.FileDescriptor
 
 const file_vectordb_proto_rawDesc = "" +
@@ -2959,6 +4006,73 @@ const file_vectordb_proto_rawDesc = "" +
 	"\timport_id\x18\x01 \x01(\tR\bimportId\"J\n" +
 	"\x14CancelImportResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"q\n" +
+	"\fBackupTarget\x12&\n" +
+	"\x02s3\x18\x01 \x01(\v2\x14.gvdb.proto.S3TargetH\x00R\x02s3\x12/\n" +
+	"\x05local\x18\x02 \x01(\v2\x17.gvdb.proto.LocalTargetH\x00R\x05localB\b\n" +
+	"\x06target\":\n" +
+	"\bS3Target\x12\x16\n" +
+	"\x06bucket\x18\x01 \x01(\tR\x06bucket\x12\x16\n" +
+	"\x06prefix\x18\x02 \x01(\tR\x06prefix\"!\n" +
+	"\vLocalTarget\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\"\xbc\x01\n" +
+	"\x17BackupCollectionRequest\x12'\n" +
+	"\x0fcollection_name\x18\x01 \x01(\tR\x0ecollectionName\x120\n" +
+	"\x06target\x18\x02 \x01(\v2\x18.gvdb.proto.BackupTargetR\x06target\x12)\n" +
+	"\x10incremental_from\x18\x03 \x01(\tR\x0fincrementalFrom\x12\x1b\n" +
+	"\tbackup_id\x18\x04 \x01(\tR\bbackupId\"Q\n" +
+	"\x18BackupCollectionResponse\x12\x1b\n" +
+	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xbd\x01\n" +
+	"\x18RestoreCollectionRequest\x120\n" +
+	"\x06source\x18\x01 \x01(\v2\x18.gvdb.proto.BackupTargetR\x06source\x12\x1b\n" +
+	"\tbackup_id\x18\x02 \x01(\tR\bbackupId\x124\n" +
+	"\x16target_collection_name\x18\x03 \x01(\tR\x14targetCollectionName\x12\x1c\n" +
+	"\toverwrite\x18\x04 \x01(\bR\toverwrite\"T\n" +
+	"\x19RestoreCollectionResponse\x12\x1d\n" +
+	"\n" +
+	"restore_id\x18\x01 \x01(\tR\trestoreId\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"5\n" +
+	"\x16GetBackupStatusRequest\x12\x1b\n" +
+	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\"\xcb\x02\n" +
+	"\x17GetBackupStatusResponse\x12\x1b\n" +
+	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\x12-\n" +
+	"\x05state\x18\x02 \x01(\x0e2\x17.gvdb.proto.BackupStateR\x05state\x12!\n" +
+	"\fshards_total\x18\x03 \x01(\rR\vshardsTotal\x12)\n" +
+	"\x10shards_completed\x18\x04 \x01(\rR\x0fshardsCompleted\x12%\n" +
+	"\x0ebytes_uploaded\x18\x05 \x01(\x04R\rbytesUploaded\x12#\n" +
+	"\rerror_message\x18\x06 \x01(\tR\ferrorMessage\x12'\n" +
+	"\x0felapsed_seconds\x18\a \x01(\x02R\x0eelapsedSeconds\x12!\n" +
+	"\fmanifest_uri\x18\b \x01(\tR\vmanifestUri\"8\n" +
+	"\x17GetRestoreStatusRequest\x12\x1d\n" +
+	"\n" +
+	"restore_id\x18\x01 \x01(\tR\trestoreId\"\x84\x02\n" +
+	"\x18GetRestoreStatusResponse\x12\x1d\n" +
+	"\n" +
+	"restore_id\x18\x01 \x01(\tR\trestoreId\x12-\n" +
+	"\x05state\x18\x02 \x01(\x0e2\x17.gvdb.proto.BackupStateR\x05state\x12!\n" +
+	"\fshards_total\x18\x03 \x01(\rR\vshardsTotal\x12)\n" +
+	"\x10shards_completed\x18\x04 \x01(\rR\x0fshardsCompleted\x12#\n" +
+	"\rerror_message\x18\x05 \x01(\tR\ferrorMessage\x12'\n" +
+	"\x0felapsed_seconds\x18\x06 \x01(\x02R\x0eelapsedSeconds\"F\n" +
+	"\x12ListBackupsRequest\x120\n" +
+	"\x06source\x18\x01 \x01(\v2\x18.gvdb.proto.BackupTargetR\x06source\"\x91\x02\n" +
+	"\n" +
+	"BackupInfo\x12\x1b\n" +
+	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\x12'\n" +
+	"\x0fcollection_name\x18\x02 \x01(\tR\x0ecollectionName\x12#\n" +
+	"\rcollection_id\x18\x03 \x01(\rR\fcollectionId\x12+\n" +
+	"\x12created_at_unix_ms\x18\x04 \x01(\x03R\x0fcreatedAtUnixMs\x12!\n" +
+	"\fvector_count\x18\x05 \x01(\x04R\vvectorCount\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x06 \x01(\x04R\tsizeBytes\x12)\n" +
+	"\x10manifest_version\x18\a \x01(\rR\x0fmanifestVersion\"G\n" +
+	"\x13ListBackupsResponse\x120\n" +
+	"\abackups\x18\x01 \x03(\v2\x16.gvdb.proto.BackupInfoR\abackups\"2\n" +
+	"\x13CancelBackupRequest\x12\x1b\n" +
+	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\"J\n" +
+	"\x14CancelBackupResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage*&\n" +
 	"\fImportFormat\x12\v\n" +
 	"\aPARQUET\x10\x00\x12\t\n" +
@@ -2968,7 +4082,13 @@ const file_vectordb_proto_rawDesc = "" +
 	"\x0eIMPORT_RUNNING\x10\x01\x12\x14\n" +
 	"\x10IMPORT_COMPLETED\x10\x02\x12\x11\n" +
 	"\rIMPORT_FAILED\x10\x03\x12\x14\n" +
-	"\x10IMPORT_CANCELLED\x10\x042\x89\v\n" +
+	"\x10IMPORT_CANCELLED\x10\x04*t\n" +
+	"\vBackupState\x12\x12\n" +
+	"\x0eBACKUP_PENDING\x10\x00\x12\x12\n" +
+	"\x0eBACKUP_RUNNING\x10\x01\x12\x14\n" +
+	"\x10BACKUP_COMPLETED\x10\x02\x12\x11\n" +
+	"\rBACKUP_FAILED\x10\x03\x12\x14\n" +
+	"\x10BACKUP_CANCELLED\x10\x042\xa8\x0f\n" +
 	"\x0fVectorDBService\x12]\n" +
 	"\x10CreateCollection\x12#.gvdb.proto.CreateCollectionRequest\x1a$.gvdb.proto.CreateCollectionResponse\x12W\n" +
 	"\x0eDropCollection\x12!.gvdb.proto.DropCollectionRequest\x1a\".gvdb.proto.DropCollectionResponse\x12Z\n" +
@@ -2986,7 +4106,13 @@ const file_vectordb_proto_rawDesc = "" +
 	"\n" +
 	"BulkImport\x12\x1d.gvdb.proto.BulkImportRequest\x1a\x1e.gvdb.proto.BulkImportResponse\x12Z\n" +
 	"\x0fGetImportStatus\x12\".gvdb.proto.GetImportStatusRequest\x1a#.gvdb.proto.GetImportStatusResponse\x12Q\n" +
-	"\fCancelImport\x12\x1f.gvdb.proto.CancelImportRequest\x1a .gvdb.proto.CancelImportResponse\x12N\n" +
+	"\fCancelImport\x12\x1f.gvdb.proto.CancelImportRequest\x1a .gvdb.proto.CancelImportResponse\x12]\n" +
+	"\x10BackupCollection\x12#.gvdb.proto.BackupCollectionRequest\x1a$.gvdb.proto.BackupCollectionResponse\x12`\n" +
+	"\x11RestoreCollection\x12$.gvdb.proto.RestoreCollectionRequest\x1a%.gvdb.proto.RestoreCollectionResponse\x12Z\n" +
+	"\x0fGetBackupStatus\x12\".gvdb.proto.GetBackupStatusRequest\x1a#.gvdb.proto.GetBackupStatusResponse\x12]\n" +
+	"\x10GetRestoreStatus\x12#.gvdb.proto.GetRestoreStatusRequest\x1a$.gvdb.proto.GetRestoreStatusResponse\x12N\n" +
+	"\vListBackups\x12\x1e.gvdb.proto.ListBackupsRequest\x1a\x1f.gvdb.proto.ListBackupsResponse\x12Q\n" +
+	"\fCancelBackup\x12\x1f.gvdb.proto.CancelBackupRequest\x1a .gvdb.proto.CancelBackupResponse\x12N\n" +
 	"\vHealthCheck\x12\x1e.gvdb.proto.HealthCheckRequest\x1a\x1f.gvdb.proto.HealthCheckResponse\x12E\n" +
 	"\bGetStats\x12\x1b.gvdb.proto.GetStatsRequest\x1a\x1c.gvdb.proto.GetStatsResponseB;\n" +
 	"\rio.gvdb.protoB\rVectorDbProtoP\x01Z\x19gvdb/integration-tests/pbb\x06proto3"
@@ -3003,123 +4129,160 @@ func file_vectordb_proto_rawDescGZIP() []byte {
 	return file_vectordb_proto_rawDescData
 }
 
-var file_vectordb_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_vectordb_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
+var file_vectordb_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_vectordb_proto_msgTypes = make([]protoimpl.MessageInfo, 58)
 var file_vectordb_proto_goTypes = []any{
 	(ImportFormat)(0),                       // 0: gvdb.proto.ImportFormat
 	(ImportState)(0),                        // 1: gvdb.proto.ImportState
-	(CreateCollectionRequest_MetricType)(0), // 2: gvdb.proto.CreateCollectionRequest.MetricType
-	(CreateCollectionRequest_IndexType)(0),  // 3: gvdb.proto.CreateCollectionRequest.IndexType
-	(HealthCheckResponse_Status)(0),         // 4: gvdb.proto.HealthCheckResponse.Status
-	(*Vector)(nil),                          // 5: gvdb.proto.Vector
-	(*SparseVector)(nil),                    // 6: gvdb.proto.SparseVector
-	(*MetadataValue)(nil),                   // 7: gvdb.proto.MetadataValue
-	(*Metadata)(nil),                        // 8: gvdb.proto.Metadata
-	(*VectorWithId)(nil),                    // 9: gvdb.proto.VectorWithId
-	(*SearchResultEntry)(nil),               // 10: gvdb.proto.SearchResultEntry
-	(*CreateCollectionRequest)(nil),         // 11: gvdb.proto.CreateCollectionRequest
-	(*CreateCollectionResponse)(nil),        // 12: gvdb.proto.CreateCollectionResponse
-	(*DropCollectionRequest)(nil),           // 13: gvdb.proto.DropCollectionRequest
-	(*DropCollectionResponse)(nil),          // 14: gvdb.proto.DropCollectionResponse
-	(*ListCollectionsRequest)(nil),          // 15: gvdb.proto.ListCollectionsRequest
-	(*CollectionInfo)(nil),                  // 16: gvdb.proto.CollectionInfo
-	(*ListCollectionsResponse)(nil),         // 17: gvdb.proto.ListCollectionsResponse
-	(*InsertRequest)(nil),                   // 18: gvdb.proto.InsertRequest
-	(*InsertResponse)(nil),                  // 19: gvdb.proto.InsertResponse
-	(*SearchRequest)(nil),                   // 20: gvdb.proto.SearchRequest
-	(*SearchResponse)(nil),                  // 21: gvdb.proto.SearchResponse
-	(*GetRequest)(nil),                      // 22: gvdb.proto.GetRequest
-	(*GetResponse)(nil),                     // 23: gvdb.proto.GetResponse
-	(*DeleteRequest)(nil),                   // 24: gvdb.proto.DeleteRequest
-	(*DeleteResponse)(nil),                  // 25: gvdb.proto.DeleteResponse
-	(*UpdateMetadataRequest)(nil),           // 26: gvdb.proto.UpdateMetadataRequest
-	(*UpdateMetadataResponse)(nil),          // 27: gvdb.proto.UpdateMetadataResponse
-	(*ListVectorsRequest)(nil),              // 28: gvdb.proto.ListVectorsRequest
-	(*ListVectorsResponse)(nil),             // 29: gvdb.proto.ListVectorsResponse
-	(*HealthCheckRequest)(nil),              // 30: gvdb.proto.HealthCheckRequest
-	(*HealthCheckResponse)(nil),             // 31: gvdb.proto.HealthCheckResponse
-	(*GetStatsRequest)(nil),                 // 32: gvdb.proto.GetStatsRequest
-	(*GetStatsResponse)(nil),                // 33: gvdb.proto.GetStatsResponse
-	(*UpsertRequest)(nil),                   // 34: gvdb.proto.UpsertRequest
-	(*UpsertResponse)(nil),                  // 35: gvdb.proto.UpsertResponse
-	(*RangeSearchRequest)(nil),              // 36: gvdb.proto.RangeSearchRequest
-	(*RangeSearchResponse)(nil),             // 37: gvdb.proto.RangeSearchResponse
-	(*HybridSearchRequest)(nil),             // 38: gvdb.proto.HybridSearchRequest
-	(*HybridSearchResponse)(nil),            // 39: gvdb.proto.HybridSearchResponse
-	(*BulkImportRequest)(nil),               // 40: gvdb.proto.BulkImportRequest
-	(*BulkImportResponse)(nil),              // 41: gvdb.proto.BulkImportResponse
-	(*GetImportStatusRequest)(nil),          // 42: gvdb.proto.GetImportStatusRequest
-	(*GetImportStatusResponse)(nil),         // 43: gvdb.proto.GetImportStatusResponse
-	(*CancelImportRequest)(nil),             // 44: gvdb.proto.CancelImportRequest
-	(*CancelImportResponse)(nil),            // 45: gvdb.proto.CancelImportResponse
-	nil,                                     // 46: gvdb.proto.Metadata.FieldsEntry
+	(BackupState)(0),                        // 2: gvdb.proto.BackupState
+	(CreateCollectionRequest_MetricType)(0), // 3: gvdb.proto.CreateCollectionRequest.MetricType
+	(CreateCollectionRequest_IndexType)(0),  // 4: gvdb.proto.CreateCollectionRequest.IndexType
+	(HealthCheckResponse_Status)(0),         // 5: gvdb.proto.HealthCheckResponse.Status
+	(*Vector)(nil),                          // 6: gvdb.proto.Vector
+	(*SparseVector)(nil),                    // 7: gvdb.proto.SparseVector
+	(*MetadataValue)(nil),                   // 8: gvdb.proto.MetadataValue
+	(*Metadata)(nil),                        // 9: gvdb.proto.Metadata
+	(*VectorWithId)(nil),                    // 10: gvdb.proto.VectorWithId
+	(*SearchResultEntry)(nil),               // 11: gvdb.proto.SearchResultEntry
+	(*CreateCollectionRequest)(nil),         // 12: gvdb.proto.CreateCollectionRequest
+	(*CreateCollectionResponse)(nil),        // 13: gvdb.proto.CreateCollectionResponse
+	(*DropCollectionRequest)(nil),           // 14: gvdb.proto.DropCollectionRequest
+	(*DropCollectionResponse)(nil),          // 15: gvdb.proto.DropCollectionResponse
+	(*ListCollectionsRequest)(nil),          // 16: gvdb.proto.ListCollectionsRequest
+	(*CollectionInfo)(nil),                  // 17: gvdb.proto.CollectionInfo
+	(*ListCollectionsResponse)(nil),         // 18: gvdb.proto.ListCollectionsResponse
+	(*InsertRequest)(nil),                   // 19: gvdb.proto.InsertRequest
+	(*InsertResponse)(nil),                  // 20: gvdb.proto.InsertResponse
+	(*SearchRequest)(nil),                   // 21: gvdb.proto.SearchRequest
+	(*SearchResponse)(nil),                  // 22: gvdb.proto.SearchResponse
+	(*GetRequest)(nil),                      // 23: gvdb.proto.GetRequest
+	(*GetResponse)(nil),                     // 24: gvdb.proto.GetResponse
+	(*DeleteRequest)(nil),                   // 25: gvdb.proto.DeleteRequest
+	(*DeleteResponse)(nil),                  // 26: gvdb.proto.DeleteResponse
+	(*UpdateMetadataRequest)(nil),           // 27: gvdb.proto.UpdateMetadataRequest
+	(*UpdateMetadataResponse)(nil),          // 28: gvdb.proto.UpdateMetadataResponse
+	(*ListVectorsRequest)(nil),              // 29: gvdb.proto.ListVectorsRequest
+	(*ListVectorsResponse)(nil),             // 30: gvdb.proto.ListVectorsResponse
+	(*HealthCheckRequest)(nil),              // 31: gvdb.proto.HealthCheckRequest
+	(*HealthCheckResponse)(nil),             // 32: gvdb.proto.HealthCheckResponse
+	(*GetStatsRequest)(nil),                 // 33: gvdb.proto.GetStatsRequest
+	(*GetStatsResponse)(nil),                // 34: gvdb.proto.GetStatsResponse
+	(*UpsertRequest)(nil),                   // 35: gvdb.proto.UpsertRequest
+	(*UpsertResponse)(nil),                  // 36: gvdb.proto.UpsertResponse
+	(*RangeSearchRequest)(nil),              // 37: gvdb.proto.RangeSearchRequest
+	(*RangeSearchResponse)(nil),             // 38: gvdb.proto.RangeSearchResponse
+	(*HybridSearchRequest)(nil),             // 39: gvdb.proto.HybridSearchRequest
+	(*HybridSearchResponse)(nil),            // 40: gvdb.proto.HybridSearchResponse
+	(*BulkImportRequest)(nil),               // 41: gvdb.proto.BulkImportRequest
+	(*BulkImportResponse)(nil),              // 42: gvdb.proto.BulkImportResponse
+	(*GetImportStatusRequest)(nil),          // 43: gvdb.proto.GetImportStatusRequest
+	(*GetImportStatusResponse)(nil),         // 44: gvdb.proto.GetImportStatusResponse
+	(*CancelImportRequest)(nil),             // 45: gvdb.proto.CancelImportRequest
+	(*CancelImportResponse)(nil),            // 46: gvdb.proto.CancelImportResponse
+	(*BackupTarget)(nil),                    // 47: gvdb.proto.BackupTarget
+	(*S3Target)(nil),                        // 48: gvdb.proto.S3Target
+	(*LocalTarget)(nil),                     // 49: gvdb.proto.LocalTarget
+	(*BackupCollectionRequest)(nil),         // 50: gvdb.proto.BackupCollectionRequest
+	(*BackupCollectionResponse)(nil),        // 51: gvdb.proto.BackupCollectionResponse
+	(*RestoreCollectionRequest)(nil),        // 52: gvdb.proto.RestoreCollectionRequest
+	(*RestoreCollectionResponse)(nil),       // 53: gvdb.proto.RestoreCollectionResponse
+	(*GetBackupStatusRequest)(nil),          // 54: gvdb.proto.GetBackupStatusRequest
+	(*GetBackupStatusResponse)(nil),         // 55: gvdb.proto.GetBackupStatusResponse
+	(*GetRestoreStatusRequest)(nil),         // 56: gvdb.proto.GetRestoreStatusRequest
+	(*GetRestoreStatusResponse)(nil),        // 57: gvdb.proto.GetRestoreStatusResponse
+	(*ListBackupsRequest)(nil),              // 58: gvdb.proto.ListBackupsRequest
+	(*BackupInfo)(nil),                      // 59: gvdb.proto.BackupInfo
+	(*ListBackupsResponse)(nil),             // 60: gvdb.proto.ListBackupsResponse
+	(*CancelBackupRequest)(nil),             // 61: gvdb.proto.CancelBackupRequest
+	(*CancelBackupResponse)(nil),            // 62: gvdb.proto.CancelBackupResponse
+	nil,                                     // 63: gvdb.proto.Metadata.FieldsEntry
 }
 var file_vectordb_proto_depIdxs = []int32{
-	46, // 0: gvdb.proto.Metadata.fields:type_name -> gvdb.proto.Metadata.FieldsEntry
-	5,  // 1: gvdb.proto.VectorWithId.vector:type_name -> gvdb.proto.Vector
-	8,  // 2: gvdb.proto.VectorWithId.metadata:type_name -> gvdb.proto.Metadata
-	6,  // 3: gvdb.proto.VectorWithId.sparse_vector:type_name -> gvdb.proto.SparseVector
-	8,  // 4: gvdb.proto.SearchResultEntry.metadata:type_name -> gvdb.proto.Metadata
-	2,  // 5: gvdb.proto.CreateCollectionRequest.metric:type_name -> gvdb.proto.CreateCollectionRequest.MetricType
-	3,  // 6: gvdb.proto.CreateCollectionRequest.index_type:type_name -> gvdb.proto.CreateCollectionRequest.IndexType
-	16, // 7: gvdb.proto.ListCollectionsResponse.collections:type_name -> gvdb.proto.CollectionInfo
-	9,  // 8: gvdb.proto.InsertRequest.vectors:type_name -> gvdb.proto.VectorWithId
-	5,  // 9: gvdb.proto.SearchRequest.query_vector:type_name -> gvdb.proto.Vector
-	10, // 10: gvdb.proto.SearchResponse.results:type_name -> gvdb.proto.SearchResultEntry
-	9,  // 11: gvdb.proto.GetResponse.vectors:type_name -> gvdb.proto.VectorWithId
-	8,  // 12: gvdb.proto.UpdateMetadataRequest.metadata:type_name -> gvdb.proto.Metadata
-	9,  // 13: gvdb.proto.ListVectorsResponse.vectors:type_name -> gvdb.proto.VectorWithId
-	4,  // 14: gvdb.proto.HealthCheckResponse.status:type_name -> gvdb.proto.HealthCheckResponse.Status
-	9,  // 15: gvdb.proto.UpsertRequest.vectors:type_name -> gvdb.proto.VectorWithId
-	5,  // 16: gvdb.proto.RangeSearchRequest.query_vector:type_name -> gvdb.proto.Vector
-	10, // 17: gvdb.proto.RangeSearchResponse.results:type_name -> gvdb.proto.SearchResultEntry
-	5,  // 18: gvdb.proto.HybridSearchRequest.query_vector:type_name -> gvdb.proto.Vector
-	6,  // 19: gvdb.proto.HybridSearchRequest.sparse_query:type_name -> gvdb.proto.SparseVector
-	10, // 20: gvdb.proto.HybridSearchResponse.results:type_name -> gvdb.proto.SearchResultEntry
+	63, // 0: gvdb.proto.Metadata.fields:type_name -> gvdb.proto.Metadata.FieldsEntry
+	6,  // 1: gvdb.proto.VectorWithId.vector:type_name -> gvdb.proto.Vector
+	9,  // 2: gvdb.proto.VectorWithId.metadata:type_name -> gvdb.proto.Metadata
+	7,  // 3: gvdb.proto.VectorWithId.sparse_vector:type_name -> gvdb.proto.SparseVector
+	9,  // 4: gvdb.proto.SearchResultEntry.metadata:type_name -> gvdb.proto.Metadata
+	3,  // 5: gvdb.proto.CreateCollectionRequest.metric:type_name -> gvdb.proto.CreateCollectionRequest.MetricType
+	4,  // 6: gvdb.proto.CreateCollectionRequest.index_type:type_name -> gvdb.proto.CreateCollectionRequest.IndexType
+	17, // 7: gvdb.proto.ListCollectionsResponse.collections:type_name -> gvdb.proto.CollectionInfo
+	10, // 8: gvdb.proto.InsertRequest.vectors:type_name -> gvdb.proto.VectorWithId
+	6,  // 9: gvdb.proto.SearchRequest.query_vector:type_name -> gvdb.proto.Vector
+	11, // 10: gvdb.proto.SearchResponse.results:type_name -> gvdb.proto.SearchResultEntry
+	10, // 11: gvdb.proto.GetResponse.vectors:type_name -> gvdb.proto.VectorWithId
+	9,  // 12: gvdb.proto.UpdateMetadataRequest.metadata:type_name -> gvdb.proto.Metadata
+	10, // 13: gvdb.proto.ListVectorsResponse.vectors:type_name -> gvdb.proto.VectorWithId
+	5,  // 14: gvdb.proto.HealthCheckResponse.status:type_name -> gvdb.proto.HealthCheckResponse.Status
+	10, // 15: gvdb.proto.UpsertRequest.vectors:type_name -> gvdb.proto.VectorWithId
+	6,  // 16: gvdb.proto.RangeSearchRequest.query_vector:type_name -> gvdb.proto.Vector
+	11, // 17: gvdb.proto.RangeSearchResponse.results:type_name -> gvdb.proto.SearchResultEntry
+	6,  // 18: gvdb.proto.HybridSearchRequest.query_vector:type_name -> gvdb.proto.Vector
+	7,  // 19: gvdb.proto.HybridSearchRequest.sparse_query:type_name -> gvdb.proto.SparseVector
+	11, // 20: gvdb.proto.HybridSearchResponse.results:type_name -> gvdb.proto.SearchResultEntry
 	0,  // 21: gvdb.proto.BulkImportRequest.format:type_name -> gvdb.proto.ImportFormat
 	1,  // 22: gvdb.proto.GetImportStatusResponse.state:type_name -> gvdb.proto.ImportState
-	7,  // 23: gvdb.proto.Metadata.FieldsEntry.value:type_name -> gvdb.proto.MetadataValue
-	11, // 24: gvdb.proto.VectorDBService.CreateCollection:input_type -> gvdb.proto.CreateCollectionRequest
-	13, // 25: gvdb.proto.VectorDBService.DropCollection:input_type -> gvdb.proto.DropCollectionRequest
-	15, // 26: gvdb.proto.VectorDBService.ListCollections:input_type -> gvdb.proto.ListCollectionsRequest
-	18, // 27: gvdb.proto.VectorDBService.Insert:input_type -> gvdb.proto.InsertRequest
-	18, // 28: gvdb.proto.VectorDBService.StreamInsert:input_type -> gvdb.proto.InsertRequest
-	34, // 29: gvdb.proto.VectorDBService.Upsert:input_type -> gvdb.proto.UpsertRequest
-	20, // 30: gvdb.proto.VectorDBService.Search:input_type -> gvdb.proto.SearchRequest
-	36, // 31: gvdb.proto.VectorDBService.RangeSearch:input_type -> gvdb.proto.RangeSearchRequest
-	22, // 32: gvdb.proto.VectorDBService.Get:input_type -> gvdb.proto.GetRequest
-	24, // 33: gvdb.proto.VectorDBService.Delete:input_type -> gvdb.proto.DeleteRequest
-	26, // 34: gvdb.proto.VectorDBService.UpdateMetadata:input_type -> gvdb.proto.UpdateMetadataRequest
-	28, // 35: gvdb.proto.VectorDBService.ListVectors:input_type -> gvdb.proto.ListVectorsRequest
-	38, // 36: gvdb.proto.VectorDBService.HybridSearch:input_type -> gvdb.proto.HybridSearchRequest
-	40, // 37: gvdb.proto.VectorDBService.BulkImport:input_type -> gvdb.proto.BulkImportRequest
-	42, // 38: gvdb.proto.VectorDBService.GetImportStatus:input_type -> gvdb.proto.GetImportStatusRequest
-	44, // 39: gvdb.proto.VectorDBService.CancelImport:input_type -> gvdb.proto.CancelImportRequest
-	30, // 40: gvdb.proto.VectorDBService.HealthCheck:input_type -> gvdb.proto.HealthCheckRequest
-	32, // 41: gvdb.proto.VectorDBService.GetStats:input_type -> gvdb.proto.GetStatsRequest
-	12, // 42: gvdb.proto.VectorDBService.CreateCollection:output_type -> gvdb.proto.CreateCollectionResponse
-	14, // 43: gvdb.proto.VectorDBService.DropCollection:output_type -> gvdb.proto.DropCollectionResponse
-	17, // 44: gvdb.proto.VectorDBService.ListCollections:output_type -> gvdb.proto.ListCollectionsResponse
-	19, // 45: gvdb.proto.VectorDBService.Insert:output_type -> gvdb.proto.InsertResponse
-	19, // 46: gvdb.proto.VectorDBService.StreamInsert:output_type -> gvdb.proto.InsertResponse
-	35, // 47: gvdb.proto.VectorDBService.Upsert:output_type -> gvdb.proto.UpsertResponse
-	21, // 48: gvdb.proto.VectorDBService.Search:output_type -> gvdb.proto.SearchResponse
-	37, // 49: gvdb.proto.VectorDBService.RangeSearch:output_type -> gvdb.proto.RangeSearchResponse
-	23, // 50: gvdb.proto.VectorDBService.Get:output_type -> gvdb.proto.GetResponse
-	25, // 51: gvdb.proto.VectorDBService.Delete:output_type -> gvdb.proto.DeleteResponse
-	27, // 52: gvdb.proto.VectorDBService.UpdateMetadata:output_type -> gvdb.proto.UpdateMetadataResponse
-	29, // 53: gvdb.proto.VectorDBService.ListVectors:output_type -> gvdb.proto.ListVectorsResponse
-	39, // 54: gvdb.proto.VectorDBService.HybridSearch:output_type -> gvdb.proto.HybridSearchResponse
-	41, // 55: gvdb.proto.VectorDBService.BulkImport:output_type -> gvdb.proto.BulkImportResponse
-	43, // 56: gvdb.proto.VectorDBService.GetImportStatus:output_type -> gvdb.proto.GetImportStatusResponse
-	45, // 57: gvdb.proto.VectorDBService.CancelImport:output_type -> gvdb.proto.CancelImportResponse
-	31, // 58: gvdb.proto.VectorDBService.HealthCheck:output_type -> gvdb.proto.HealthCheckResponse
-	33, // 59: gvdb.proto.VectorDBService.GetStats:output_type -> gvdb.proto.GetStatsResponse
-	42, // [42:60] is the sub-list for method output_type
-	24, // [24:42] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	48, // 23: gvdb.proto.BackupTarget.s3:type_name -> gvdb.proto.S3Target
+	49, // 24: gvdb.proto.BackupTarget.local:type_name -> gvdb.proto.LocalTarget
+	47, // 25: gvdb.proto.BackupCollectionRequest.target:type_name -> gvdb.proto.BackupTarget
+	47, // 26: gvdb.proto.RestoreCollectionRequest.source:type_name -> gvdb.proto.BackupTarget
+	2,  // 27: gvdb.proto.GetBackupStatusResponse.state:type_name -> gvdb.proto.BackupState
+	2,  // 28: gvdb.proto.GetRestoreStatusResponse.state:type_name -> gvdb.proto.BackupState
+	47, // 29: gvdb.proto.ListBackupsRequest.source:type_name -> gvdb.proto.BackupTarget
+	59, // 30: gvdb.proto.ListBackupsResponse.backups:type_name -> gvdb.proto.BackupInfo
+	8,  // 31: gvdb.proto.Metadata.FieldsEntry.value:type_name -> gvdb.proto.MetadataValue
+	12, // 32: gvdb.proto.VectorDBService.CreateCollection:input_type -> gvdb.proto.CreateCollectionRequest
+	14, // 33: gvdb.proto.VectorDBService.DropCollection:input_type -> gvdb.proto.DropCollectionRequest
+	16, // 34: gvdb.proto.VectorDBService.ListCollections:input_type -> gvdb.proto.ListCollectionsRequest
+	19, // 35: gvdb.proto.VectorDBService.Insert:input_type -> gvdb.proto.InsertRequest
+	19, // 36: gvdb.proto.VectorDBService.StreamInsert:input_type -> gvdb.proto.InsertRequest
+	35, // 37: gvdb.proto.VectorDBService.Upsert:input_type -> gvdb.proto.UpsertRequest
+	21, // 38: gvdb.proto.VectorDBService.Search:input_type -> gvdb.proto.SearchRequest
+	37, // 39: gvdb.proto.VectorDBService.RangeSearch:input_type -> gvdb.proto.RangeSearchRequest
+	23, // 40: gvdb.proto.VectorDBService.Get:input_type -> gvdb.proto.GetRequest
+	25, // 41: gvdb.proto.VectorDBService.Delete:input_type -> gvdb.proto.DeleteRequest
+	27, // 42: gvdb.proto.VectorDBService.UpdateMetadata:input_type -> gvdb.proto.UpdateMetadataRequest
+	29, // 43: gvdb.proto.VectorDBService.ListVectors:input_type -> gvdb.proto.ListVectorsRequest
+	39, // 44: gvdb.proto.VectorDBService.HybridSearch:input_type -> gvdb.proto.HybridSearchRequest
+	41, // 45: gvdb.proto.VectorDBService.BulkImport:input_type -> gvdb.proto.BulkImportRequest
+	43, // 46: gvdb.proto.VectorDBService.GetImportStatus:input_type -> gvdb.proto.GetImportStatusRequest
+	45, // 47: gvdb.proto.VectorDBService.CancelImport:input_type -> gvdb.proto.CancelImportRequest
+	50, // 48: gvdb.proto.VectorDBService.BackupCollection:input_type -> gvdb.proto.BackupCollectionRequest
+	52, // 49: gvdb.proto.VectorDBService.RestoreCollection:input_type -> gvdb.proto.RestoreCollectionRequest
+	54, // 50: gvdb.proto.VectorDBService.GetBackupStatus:input_type -> gvdb.proto.GetBackupStatusRequest
+	56, // 51: gvdb.proto.VectorDBService.GetRestoreStatus:input_type -> gvdb.proto.GetRestoreStatusRequest
+	58, // 52: gvdb.proto.VectorDBService.ListBackups:input_type -> gvdb.proto.ListBackupsRequest
+	61, // 53: gvdb.proto.VectorDBService.CancelBackup:input_type -> gvdb.proto.CancelBackupRequest
+	31, // 54: gvdb.proto.VectorDBService.HealthCheck:input_type -> gvdb.proto.HealthCheckRequest
+	33, // 55: gvdb.proto.VectorDBService.GetStats:input_type -> gvdb.proto.GetStatsRequest
+	13, // 56: gvdb.proto.VectorDBService.CreateCollection:output_type -> gvdb.proto.CreateCollectionResponse
+	15, // 57: gvdb.proto.VectorDBService.DropCollection:output_type -> gvdb.proto.DropCollectionResponse
+	18, // 58: gvdb.proto.VectorDBService.ListCollections:output_type -> gvdb.proto.ListCollectionsResponse
+	20, // 59: gvdb.proto.VectorDBService.Insert:output_type -> gvdb.proto.InsertResponse
+	20, // 60: gvdb.proto.VectorDBService.StreamInsert:output_type -> gvdb.proto.InsertResponse
+	36, // 61: gvdb.proto.VectorDBService.Upsert:output_type -> gvdb.proto.UpsertResponse
+	22, // 62: gvdb.proto.VectorDBService.Search:output_type -> gvdb.proto.SearchResponse
+	38, // 63: gvdb.proto.VectorDBService.RangeSearch:output_type -> gvdb.proto.RangeSearchResponse
+	24, // 64: gvdb.proto.VectorDBService.Get:output_type -> gvdb.proto.GetResponse
+	26, // 65: gvdb.proto.VectorDBService.Delete:output_type -> gvdb.proto.DeleteResponse
+	28, // 66: gvdb.proto.VectorDBService.UpdateMetadata:output_type -> gvdb.proto.UpdateMetadataResponse
+	30, // 67: gvdb.proto.VectorDBService.ListVectors:output_type -> gvdb.proto.ListVectorsResponse
+	40, // 68: gvdb.proto.VectorDBService.HybridSearch:output_type -> gvdb.proto.HybridSearchResponse
+	42, // 69: gvdb.proto.VectorDBService.BulkImport:output_type -> gvdb.proto.BulkImportResponse
+	44, // 70: gvdb.proto.VectorDBService.GetImportStatus:output_type -> gvdb.proto.GetImportStatusResponse
+	46, // 71: gvdb.proto.VectorDBService.CancelImport:output_type -> gvdb.proto.CancelImportResponse
+	51, // 72: gvdb.proto.VectorDBService.BackupCollection:output_type -> gvdb.proto.BackupCollectionResponse
+	53, // 73: gvdb.proto.VectorDBService.RestoreCollection:output_type -> gvdb.proto.RestoreCollectionResponse
+	55, // 74: gvdb.proto.VectorDBService.GetBackupStatus:output_type -> gvdb.proto.GetBackupStatusResponse
+	57, // 75: gvdb.proto.VectorDBService.GetRestoreStatus:output_type -> gvdb.proto.GetRestoreStatusResponse
+	60, // 76: gvdb.proto.VectorDBService.ListBackups:output_type -> gvdb.proto.ListBackupsResponse
+	62, // 77: gvdb.proto.VectorDBService.CancelBackup:output_type -> gvdb.proto.CancelBackupResponse
+	32, // 78: gvdb.proto.VectorDBService.HealthCheck:output_type -> gvdb.proto.HealthCheckResponse
+	34, // 79: gvdb.proto.VectorDBService.GetStats:output_type -> gvdb.proto.GetStatsResponse
+	56, // [56:80] is the sub-list for method output_type
+	32, // [32:56] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_vectordb_proto_init() }
@@ -3133,13 +4296,17 @@ func file_vectordb_proto_init() {
 		(*MetadataValue_StringValue)(nil),
 		(*MetadataValue_BoolValue)(nil),
 	}
+	file_vectordb_proto_msgTypes[41].OneofWrappers = []any{
+		(*BackupTarget_S3)(nil),
+		(*BackupTarget_Local)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_vectordb_proto_rawDesc), len(file_vectordb_proto_rawDesc)),
-			NumEnums:      5,
-			NumMessages:   42,
+			NumEnums:      6,
+			NumMessages:   58,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
