@@ -132,10 +132,5 @@ ui/gateway/gvdb-ui*
 test/e2e/repair_test_bin
 test/e2e/sparse_search_test
 test/e2e/TTL_test
-# Intermediate Go protobuf stubs produced by `make generate-operator-pb`
-# (the operator copy lives in operator/internal/gvdbpb/; the canonical
-# Go test stubs live under test/e2e/pb/ and ARE tracked).
-test/e2e/vectordb.pb.go
-test/e2e/vectordb_grpc.pb.go
 CLAUDE.md
 ROADMAP.md
