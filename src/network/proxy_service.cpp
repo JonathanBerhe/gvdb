@@ -560,5 +560,95 @@ grpc::Status ProxyService::GetStats(
   return client->GetStats(&client_ctx, internal_req, response);
 }
 
+// =============================================================================
+// Backup / Restore — forward to coordinator (admin-level, multi-shard)
+// =============================================================================
+
+grpc::Status ProxyService::BackupCollection(
+    grpc::ServerContext* /*context*/,
+    const proto::BackupCollectionRequest* request,
+    proto::BackupCollectionResponse* response) {
+  AuditContext::SetCollection(request->collection_name());
+  auto* client = GetCoordinatorClient();
+  if (!client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
+                        "No coordinator available");
+  }
+  proto::BackupCollectionRequest req = *request;
+  grpc::ClientContext ctx;
+  return client->BackupCollection(&ctx, req, response);
+}
+
+grpc::Status ProxyService::RestoreCollection(
+    grpc::ServerContext* /*context*/,
+    const proto::RestoreCollectionRequest* request,
+    proto::RestoreCollectionResponse* response) {
+  AuditContext::SetCollection(request->target_collection_name());
+  auto* client = GetCoordinatorClient();
+  if (!client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
+                        "No coordinator available");
+  }
+  proto::RestoreCollectionRequest req = *request;
+  grpc::ClientContext ctx;
+  return client->RestoreCollection(&ctx, req, response);
+}
+
+grpc::Status ProxyService::GetBackupStatus(
+    grpc::ServerContext* /*context*/,
+    const proto::GetBackupStatusRequest* request,
+    proto::GetBackupStatusResponse* response) {
+  auto* client = GetCoordinatorClient();
+  if (!client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
+                        "No coordinator available");
+  }
+  proto::GetBackupStatusRequest req = *request;
+  grpc::ClientContext ctx;
+  return client->GetBackupStatus(&ctx, req, response);
+}
+
+grpc::Status ProxyService::GetRestoreStatus(
+    grpc::ServerContext* /*context*/,
+    const proto::GetRestoreStatusRequest* request,
+    proto::GetRestoreStatusResponse* response) {
+  auto* client = GetCoordinatorClient();
+  if (!client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
+                        "No coordinator available");
+  }
+  proto::GetRestoreStatusRequest req = *request;
+  grpc::ClientContext ctx;
+  return client->GetRestoreStatus(&ctx, req, response);
+}
+
+grpc::Status ProxyService::ListBackups(
+    grpc::ServerContext* /*context*/,
+    const proto::ListBackupsRequest* request,
+    proto::ListBackupsResponse* response) {
+  auto* client = GetCoordinatorClient();
+  if (!client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
+                        "No coordinator available");
+  }
+  proto::ListBackupsRequest req = *request;
+  grpc::ClientContext ctx;
+  return client->ListBackups(&ctx, req, response);
+}
+
+grpc::Status ProxyService::CancelBackup(
+    grpc::ServerContext* /*context*/,
+    const proto::CancelBackupRequest* request,
+    proto::CancelBackupResponse* response) {
+  auto* client = GetCoordinatorClient();
+  if (!client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
+                        "No coordinator available");
+  }
+  proto::CancelBackupRequest req = *request;
+  grpc::ClientContext ctx;
+  return client->CancelBackup(&ctx, req, response);
+}
+
 }  // namespace network
 }  // namespace gvdb

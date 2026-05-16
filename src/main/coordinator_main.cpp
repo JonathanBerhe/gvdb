@@ -15,6 +15,8 @@
 #include "cluster/shard_manager.h"
 #include "cluster/node_registry.h"
 #include "cluster/internal_client.h"
+#include "storage/backup_manager.h"
+#include "storage/s3_object_store.h"
 #include "storage/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
@@ -258,6 +260,54 @@ int main(int argc, char** argv) {
       if (cfg_result.ok()) config = std::move(*cfg_result);
     }
 
+    // 5.1. Backup / restore engines on the coordinator. The coordinator
+    // needs its own IObjectStore to write the top-level manifest — same
+    // bucket the data-nodes upload per-shard objects to. When no S3
+    // store is configured, only LocalBackupTarget is available (and
+    // only if local_backup_dir is set).
+    std::unique_ptr<storage::IObjectStore> coord_object_store;
+#ifdef GVDB_HAS_S3
+    if (!config.storage.object_store_endpoint.empty()) {
+      storage::S3Config s3_config;
+      s3_config.endpoint = config.storage.object_store_endpoint;
+      s3_config.access_key = config.storage.object_store_access_key;
+      s3_config.secret_key = config.storage.object_store_secret_key;
+      s3_config.bucket = config.storage.object_store_bucket;
+      s3_config.region = config.storage.object_store_region;
+      s3_config.use_ssl = config.storage.object_store_use_ssl;
+      s3_config.path_style = (config.storage.object_store_type == "minio");
+      auto s3_result = storage::S3ObjectStore::Create(s3_config);
+      if (s3_result.ok()) {
+        coord_object_store = std::move(*s3_result);
+      }
+    }
+#endif
+    std::shared_ptr<storage::BackupManager> backup_manager;
+    std::shared_ptr<storage::RestoreManager> restore_manager;
+    {
+      storage::BackupManagerOptions bopts;
+      bopts.default_object_store = coord_object_store.get();
+      bopts.s3_bucket = config.storage.object_store_bucket;
+      bopts.local_root_allowlist = config.storage.local_backup_dir;
+      // flushed_segments_root is unused on the coordinator (the
+      // coordinator never runs RunShardBackup against a local store —
+      // it dispatches BackupShard via RPC to data-nodes).
+      bopts.tmp_dir = args.data_dir + "/tmp/backup";
+      bopts.gvdb_version = "coordinator";
+      bopts.node_id = args.node_id;
+      backup_manager = std::make_shared<storage::BackupManager>(std::move(bopts));
+
+      storage::RestoreManagerOptions ropts;
+      ropts.default_object_store = coord_object_store.get();
+      ropts.s3_bucket = config.storage.object_store_bucket;
+      ropts.local_root_allowlist = config.storage.local_backup_dir;
+      ropts.staging_dir = args.data_dir + "/tmp/restore";
+      restore_manager = std::make_shared<storage::RestoreManager>(
+          std::move(ropts));
+    }
+    coordinator->SetBackupManager(backup_manager);
+    coordinator->SetRestoreManager(restore_manager);
+
     // RBAC
     std::shared_ptr<auth::RbacStore> rbac_store;
     std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors;
@@ -282,6 +332,11 @@ int main(int argc, char** argv) {
     auto coord_resolver = network::MakeCoordinatorResolver(coordinator);
     auto vectordb_service = std::make_unique<network::VectorDBService>(
         segment_manager, query_executor, std::move(coord_resolver), rbac_store);
+    // Route the client-facing backup/restore RPCs through the
+    // coordinator's per-shard fan-out instead of the local single-shard
+    // path. Without this, BackupCollection on the coordinator binary
+    // would try to back up the coordinator's empty local segment store.
+    vectordb_service->SetCoordinator(coordinator);
 
     // 6. Start gRPC server
     auto credentials = utils::ServerBootstrap::MakeServerCredentials(config.server.tls);
