@@ -92,6 +92,7 @@ StorageConfig Config::parse_storage_config(const YAML::Node& node) {
   config.wal_buffer_size_mb = get_or_default(node, "wal_buffer_size_mb", config.wal_buffer_size_mb);
   config.enable_compression = get_or_default(node, "enable_compression", config.enable_compression);
   config.compaction_threads = get_or_default(node, "compaction_threads", config.compaction_threads);
+  config.local_backup_dir = get_or_default(node, "local_backup_dir", config.local_backup_dir);
 
   // Object store (S3/MinIO) configuration
   if (node["object_store"]) {

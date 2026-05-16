@@ -742,7 +742,26 @@ core::Status RestoreManager::RunShardRestore(
     std::filesystem::remove_all(staging_root, rec);
   };
 
-  for (const auto& seg : mani_or->segments) {
+  // Restoring into a fresh target collection (different collection_id
+  // than the backup recorded) requires remapping segment_ids too — the
+  // original ids may still be live under the source collection on the
+  // same data-node. Mirrors the cluster::ShardSegmentId scheme
+  // (collection_id * 1000 + shard_index) so restored segments live in
+  // the same id space the resolver hands out for fresh segments;
+  // inlined here to keep the storage layer free of cluster/ deps.
+  // The remap is a no-op when the manifest's collection_id already
+  // matches the target.
+  auto shard_segment_base = [](core::CollectionId cid, uint16_t shard) {
+    return core::MakeSegmentId(core::ToUInt32(cid) * 1000 + shard);
+  };
+  const bool remap_needed = !mani_or->segments.empty() &&
+      mani_or->segments.front().segment_id !=
+          core::ToUInt32(shard_segment_base(target_collection_id,
+                                            core::ToUInt16(shard_id)));
+
+  for (size_t seg_index = 0; seg_index < mani_or->segments.size();
+       ++seg_index) {
+    const auto& seg = mani_or->segments[seg_index];
     auto seg_dir = staging_root / absl::StrCat("segment_", seg.segment_id);
     std::filesystem::create_directories(seg_dir, ec);
 
@@ -762,12 +781,24 @@ core::Status RestoreManager::RunShardRestore(
       return seg_or.status();
     }
 
-    // Remap the segment's collection_id when restoring into a freshly
-    // recreated collection (drop+create allocates a new id). When the
-    // ids already match this is a no-op; otherwise this is the only
-    // place where the restored Segment is mutated post-construction.
     if ((*seg_or)->GetCollectionId() != target_collection_id) {
       (*seg_or)->SetCollectionIdForRestore(target_collection_id);
+    }
+
+    if (remap_needed) {
+      // seg_index=0 overwrites the empty segment the resolver may have
+      // eagerly created on CreateCollection — that's exactly what we
+      // want for the common one-segment-per-shard restore.
+      auto new_seg_id = core::MakeSegmentId(
+          core::ToUInt32(shard_segment_base(target_collection_id,
+                                            core::ToUInt16(shard_id))) +
+          static_cast<uint32_t>(seg_index));
+      (*seg_or)->SetSegmentIdForRestore(new_seg_id);
+      // Drop any existing segment at this id (the empty
+      // CreateCollection-allocated one) so AddReplicatedSegment doesn't
+      // see AlreadyExists. Idempotent — NotFound is treated as OK.
+      (void)segment_store->DropSegment(new_seg_id,
+                                       /*delete_files=*/false);
     }
 
     auto add_status =

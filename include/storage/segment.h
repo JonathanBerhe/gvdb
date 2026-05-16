@@ -186,6 +186,13 @@ class Segment {
   // serves queries.
   void SetCollectionIdForRestore(core::CollectionId collection_id);
 
+  // Rebind this segment to a different segment_id. Same restore-only
+  // contract as SetCollectionIdForRestore: callable on a yet-uninstalled
+  // segment so a restored backup doesn't collide with segment_ids that
+  // are still in use on the target node (a different live collection
+  // can occupy the original id space).
+  void SetSegmentIdForRestore(core::SegmentId segment_id);
+
   // Get all vector IDs in this segment
   [[nodiscard]] std::vector<core::VectorId> GetAllVectorIds() const;
 

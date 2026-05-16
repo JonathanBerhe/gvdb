@@ -22,24 +22,30 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	VectorDBService_CreateCollection_FullMethodName = "/gvdb.proto.VectorDBService/CreateCollection"
-	VectorDBService_DropCollection_FullMethodName   = "/gvdb.proto.VectorDBService/DropCollection"
-	VectorDBService_ListCollections_FullMethodName  = "/gvdb.proto.VectorDBService/ListCollections"
-	VectorDBService_Insert_FullMethodName           = "/gvdb.proto.VectorDBService/Insert"
-	VectorDBService_StreamInsert_FullMethodName     = "/gvdb.proto.VectorDBService/StreamInsert"
-	VectorDBService_Upsert_FullMethodName           = "/gvdb.proto.VectorDBService/Upsert"
-	VectorDBService_Search_FullMethodName           = "/gvdb.proto.VectorDBService/Search"
-	VectorDBService_RangeSearch_FullMethodName      = "/gvdb.proto.VectorDBService/RangeSearch"
-	VectorDBService_Get_FullMethodName              = "/gvdb.proto.VectorDBService/Get"
-	VectorDBService_Delete_FullMethodName           = "/gvdb.proto.VectorDBService/Delete"
-	VectorDBService_UpdateMetadata_FullMethodName   = "/gvdb.proto.VectorDBService/UpdateMetadata"
-	VectorDBService_ListVectors_FullMethodName      = "/gvdb.proto.VectorDBService/ListVectors"
-	VectorDBService_HybridSearch_FullMethodName     = "/gvdb.proto.VectorDBService/HybridSearch"
-	VectorDBService_BulkImport_FullMethodName       = "/gvdb.proto.VectorDBService/BulkImport"
-	VectorDBService_GetImportStatus_FullMethodName  = "/gvdb.proto.VectorDBService/GetImportStatus"
-	VectorDBService_CancelImport_FullMethodName     = "/gvdb.proto.VectorDBService/CancelImport"
-	VectorDBService_HealthCheck_FullMethodName      = "/gvdb.proto.VectorDBService/HealthCheck"
-	VectorDBService_GetStats_FullMethodName         = "/gvdb.proto.VectorDBService/GetStats"
+	VectorDBService_CreateCollection_FullMethodName  = "/gvdb.proto.VectorDBService/CreateCollection"
+	VectorDBService_DropCollection_FullMethodName    = "/gvdb.proto.VectorDBService/DropCollection"
+	VectorDBService_ListCollections_FullMethodName   = "/gvdb.proto.VectorDBService/ListCollections"
+	VectorDBService_Insert_FullMethodName            = "/gvdb.proto.VectorDBService/Insert"
+	VectorDBService_StreamInsert_FullMethodName      = "/gvdb.proto.VectorDBService/StreamInsert"
+	VectorDBService_Upsert_FullMethodName            = "/gvdb.proto.VectorDBService/Upsert"
+	VectorDBService_Search_FullMethodName            = "/gvdb.proto.VectorDBService/Search"
+	VectorDBService_RangeSearch_FullMethodName       = "/gvdb.proto.VectorDBService/RangeSearch"
+	VectorDBService_Get_FullMethodName               = "/gvdb.proto.VectorDBService/Get"
+	VectorDBService_Delete_FullMethodName            = "/gvdb.proto.VectorDBService/Delete"
+	VectorDBService_UpdateMetadata_FullMethodName    = "/gvdb.proto.VectorDBService/UpdateMetadata"
+	VectorDBService_ListVectors_FullMethodName       = "/gvdb.proto.VectorDBService/ListVectors"
+	VectorDBService_HybridSearch_FullMethodName      = "/gvdb.proto.VectorDBService/HybridSearch"
+	VectorDBService_BulkImport_FullMethodName        = "/gvdb.proto.VectorDBService/BulkImport"
+	VectorDBService_GetImportStatus_FullMethodName   = "/gvdb.proto.VectorDBService/GetImportStatus"
+	VectorDBService_CancelImport_FullMethodName      = "/gvdb.proto.VectorDBService/CancelImport"
+	VectorDBService_BackupCollection_FullMethodName  = "/gvdb.proto.VectorDBService/BackupCollection"
+	VectorDBService_RestoreCollection_FullMethodName = "/gvdb.proto.VectorDBService/RestoreCollection"
+	VectorDBService_GetBackupStatus_FullMethodName   = "/gvdb.proto.VectorDBService/GetBackupStatus"
+	VectorDBService_GetRestoreStatus_FullMethodName  = "/gvdb.proto.VectorDBService/GetRestoreStatus"
+	VectorDBService_ListBackups_FullMethodName       = "/gvdb.proto.VectorDBService/ListBackups"
+	VectorDBService_CancelBackup_FullMethodName      = "/gvdb.proto.VectorDBService/CancelBackup"
+	VectorDBService_HealthCheck_FullMethodName       = "/gvdb.proto.VectorDBService/HealthCheck"
+	VectorDBService_GetStats_FullMethodName          = "/gvdb.proto.VectorDBService/GetStats"
 )
 
 // VectorDBServiceClient is the client API for VectorDBService service.
@@ -66,6 +72,13 @@ type VectorDBServiceClient interface {
 	BulkImport(ctx context.Context, in *BulkImportRequest, opts ...grpc.CallOption) (*BulkImportResponse, error)
 	GetImportStatus(ctx context.Context, in *GetImportStatusRequest, opts ...grpc.CallOption) (*GetImportStatusResponse, error)
 	CancelImport(ctx context.Context, in *CancelImportRequest, opts ...grpc.CallOption) (*CancelImportResponse, error)
+	// Backup and restore
+	BackupCollection(ctx context.Context, in *BackupCollectionRequest, opts ...grpc.CallOption) (*BackupCollectionResponse, error)
+	RestoreCollection(ctx context.Context, in *RestoreCollectionRequest, opts ...grpc.CallOption) (*RestoreCollectionResponse, error)
+	GetBackupStatus(ctx context.Context, in *GetBackupStatusRequest, opts ...grpc.CallOption) (*GetBackupStatusResponse, error)
+	GetRestoreStatus(ctx context.Context, in *GetRestoreStatusRequest, opts ...grpc.CallOption) (*GetRestoreStatusResponse, error)
+	ListBackups(ctx context.Context, in *ListBackupsRequest, opts ...grpc.CallOption) (*ListBackupsResponse, error)
+	CancelBackup(ctx context.Context, in *CancelBackupRequest, opts ...grpc.CallOption) (*CancelBackupResponse, error)
 	// Health and stats
 	HealthCheck(ctx context.Context, in *HealthCheckRequest, opts ...grpc.CallOption) (*HealthCheckResponse, error)
 	GetStats(ctx context.Context, in *GetStatsRequest, opts ...grpc.CallOption) (*GetStatsResponse, error)
@@ -242,6 +255,66 @@ func (c *vectorDBServiceClient) CancelImport(ctx context.Context, in *CancelImpo
 	return out, nil
 }
 
+func (c *vectorDBServiceClient) BackupCollection(ctx context.Context, in *BackupCollectionRequest, opts ...grpc.CallOption) (*BackupCollectionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BackupCollectionResponse)
+	err := c.cc.Invoke(ctx, VectorDBService_BackupCollection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorDBServiceClient) RestoreCollection(ctx context.Context, in *RestoreCollectionRequest, opts ...grpc.CallOption) (*RestoreCollectionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestoreCollectionResponse)
+	err := c.cc.Invoke(ctx, VectorDBService_RestoreCollection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorDBServiceClient) GetBackupStatus(ctx context.Context, in *GetBackupStatusRequest, opts ...grpc.CallOption) (*GetBackupStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetBackupStatusResponse)
+	err := c.cc.Invoke(ctx, VectorDBService_GetBackupStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorDBServiceClient) GetRestoreStatus(ctx context.Context, in *GetRestoreStatusRequest, opts ...grpc.CallOption) (*GetRestoreStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRestoreStatusResponse)
+	err := c.cc.Invoke(ctx, VectorDBService_GetRestoreStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorDBServiceClient) ListBackups(ctx context.Context, in *ListBackupsRequest, opts ...grpc.CallOption) (*ListBackupsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListBackupsResponse)
+	err := c.cc.Invoke(ctx, VectorDBService_ListBackups_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorDBServiceClient) CancelBackup(ctx context.Context, in *CancelBackupRequest, opts ...grpc.CallOption) (*CancelBackupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelBackupResponse)
+	err := c.cc.Invoke(ctx, VectorDBService_CancelBackup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *vectorDBServiceClient) HealthCheck(ctx context.Context, in *HealthCheckRequest, opts ...grpc.CallOption) (*HealthCheckResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HealthCheckResponse)
@@ -286,6 +359,13 @@ type VectorDBServiceServer interface {
 	BulkImport(context.Context, *BulkImportRequest) (*BulkImportResponse, error)
 	GetImportStatus(context.Context, *GetImportStatusRequest) (*GetImportStatusResponse, error)
 	CancelImport(context.Context, *CancelImportRequest) (*CancelImportResponse, error)
+	// Backup and restore
+	BackupCollection(context.Context, *BackupCollectionRequest) (*BackupCollectionResponse, error)
+	RestoreCollection(context.Context, *RestoreCollectionRequest) (*RestoreCollectionResponse, error)
+	GetBackupStatus(context.Context, *GetBackupStatusRequest) (*GetBackupStatusResponse, error)
+	GetRestoreStatus(context.Context, *GetRestoreStatusRequest) (*GetRestoreStatusResponse, error)
+	ListBackups(context.Context, *ListBackupsRequest) (*ListBackupsResponse, error)
+	CancelBackup(context.Context, *CancelBackupRequest) (*CancelBackupResponse, error)
 	// Health and stats
 	HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error)
 	GetStats(context.Context, *GetStatsRequest) (*GetStatsResponse, error)
@@ -346,6 +426,24 @@ func (UnimplementedVectorDBServiceServer) GetImportStatus(context.Context, *GetI
 }
 func (UnimplementedVectorDBServiceServer) CancelImport(context.Context, *CancelImportRequest) (*CancelImportResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelImport not implemented")
+}
+func (UnimplementedVectorDBServiceServer) BackupCollection(context.Context, *BackupCollectionRequest) (*BackupCollectionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BackupCollection not implemented")
+}
+func (UnimplementedVectorDBServiceServer) RestoreCollection(context.Context, *RestoreCollectionRequest) (*RestoreCollectionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestoreCollection not implemented")
+}
+func (UnimplementedVectorDBServiceServer) GetBackupStatus(context.Context, *GetBackupStatusRequest) (*GetBackupStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetBackupStatus not implemented")
+}
+func (UnimplementedVectorDBServiceServer) GetRestoreStatus(context.Context, *GetRestoreStatusRequest) (*GetRestoreStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetRestoreStatus not implemented")
+}
+func (UnimplementedVectorDBServiceServer) ListBackups(context.Context, *ListBackupsRequest) (*ListBackupsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListBackups not implemented")
+}
+func (UnimplementedVectorDBServiceServer) CancelBackup(context.Context, *CancelBackupRequest) (*CancelBackupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelBackup not implemented")
 }
 func (UnimplementedVectorDBServiceServer) HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method HealthCheck not implemented")
@@ -651,6 +749,114 @@ func _VectorDBService_CancelImport_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _VectorDBService_BackupCollection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BackupCollectionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorDBServiceServer).BackupCollection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VectorDBService_BackupCollection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorDBServiceServer).BackupCollection(ctx, req.(*BackupCollectionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VectorDBService_RestoreCollection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreCollectionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorDBServiceServer).RestoreCollection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VectorDBService_RestoreCollection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorDBServiceServer).RestoreCollection(ctx, req.(*RestoreCollectionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VectorDBService_GetBackupStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBackupStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorDBServiceServer).GetBackupStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VectorDBService_GetBackupStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorDBServiceServer).GetBackupStatus(ctx, req.(*GetBackupStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VectorDBService_GetRestoreStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRestoreStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorDBServiceServer).GetRestoreStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VectorDBService_GetRestoreStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorDBServiceServer).GetRestoreStatus(ctx, req.(*GetRestoreStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VectorDBService_ListBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBackupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorDBServiceServer).ListBackups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VectorDBService_ListBackups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorDBServiceServer).ListBackups(ctx, req.(*ListBackupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VectorDBService_CancelBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelBackupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorDBServiceServer).CancelBackup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VectorDBService_CancelBackup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorDBServiceServer).CancelBackup(ctx, req.(*CancelBackupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _VectorDBService_HealthCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(HealthCheckRequest)
 	if err := dec(in); err != nil {
@@ -753,6 +959,30 @@ var VectorDBService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CancelImport",
 			Handler:    _VectorDBService_CancelImport_Handler,
+		},
+		{
+			MethodName: "BackupCollection",
+			Handler:    _VectorDBService_BackupCollection_Handler,
+		},
+		{
+			MethodName: "RestoreCollection",
+			Handler:    _VectorDBService_RestoreCollection_Handler,
+		},
+		{
+			MethodName: "GetBackupStatus",
+			Handler:    _VectorDBService_GetBackupStatus_Handler,
+		},
+		{
+			MethodName: "GetRestoreStatus",
+			Handler:    _VectorDBService_GetRestoreStatus_Handler,
+		},
+		{
+			MethodName: "ListBackups",
+			Handler:    _VectorDBService_ListBackups_Handler,
+		},
+		{
+			MethodName: "CancelBackup",
+			Handler:    _VectorDBService_CancelBackup_Handler,
 		},
 		{
 			MethodName: "HealthCheck",
