@@ -2046,10 +2046,41 @@ grpc::Status VectorDBService::RestoreCollection(
     return toGrpcStatus(manifest.status());
   }
 
+  // Mirror the coordinator-orchestrated path: drop the target if
+  // overwrite is set, then create a fresh collection entry from the
+  // manifest's metadata. Without this the restored segments would
+  // install via AddReplicatedSegment but the resolver would have no
+  // collection entry — Search / Get would return NotFound. The
+  // segment-id remap inside RestoreManager::RunShardRestore reconciles
+  // ids when the freshly-created collection's id differs from the
+  // backup's.
+  const std::string target_name =
+      !request->target_collection_name().empty()
+          ? request->target_collection_name()
+          : manifest->collection.collection_name;
+
+  auto existing = resolver_->GetCollectionId(target_name);
+  if (existing.ok()) {
+    if (!request->overwrite()) {
+      return grpc::Status(grpc::StatusCode::ALREADY_EXISTS,
+          "Target collection '" + target_name +
+          "' already exists; set overwrite=true to drop and recreate");
+    }
+    auto drop_status = resolver_->DropCollection(target_name);
+    if (!drop_status.ok()) return toGrpcStatus(drop_status);
+  }
+  auto create_or = resolver_->CreateCollection(
+      target_name,
+      static_cast<core::Dimension>(manifest->collection.dimension),
+      static_cast<core::MetricType>(manifest->collection.metric),
+      static_cast<core::IndexType>(manifest->collection.index_type),
+      manifest->collection.num_shards);
+  if (!create_or.ok()) return toGrpcStatus(create_or.status());
+
   auto result = restore_manager_->StartRestoreSingleShard(
       *source,
       request->backup_id(),
-      core::MakeCollectionId(manifest->collection.collection_id),
+      *create_or,
       core::MakeShardId(0),
       segment_store_);
   if (!result.ok()) {

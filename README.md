@@ -20,6 +20,8 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 - **Persistence**: Vectors flushed to disk, index rebuilt on startup recovery
 - **S3/MinIO Tiered Storage**: Sealed segments uploaded to S3/MinIO asynchronously. LRU local cache, lazy download on read, manifest-based discovery on startup. Build with `-DGVDB_WITH_S3=ON`
 - **RBAC**: Role-based access control (admin, readwrite, readonly, collection_admin) with per-collection scoping and YAML config
+- **GPU Acceleration**: Apple Metal FLAT kernels on Apple Silicon (16-24× over faiss CPU); NVIDIA CUDA FLAT/IVF via faiss-gpu (opt-in, build with `-DGVDB_WITH_CUDA=ON`)
+- **Backup and Restore**: Point-in-time backup of a collection to S3/MinIO or a local PVC with `BackupCollection` / `RestoreCollection` gRPC and the operator's `GVDBBackup` / `GVDBRestore` CRDs
 - **gRPC API**: Protobuf-based client/server with TLS and API key authentication
 - **Python SDK**: `pip install gvdb` — full API with hybrid search, streaming inserts, metadata, TTL
 - **Web UI**: Collection browser, search playground, metrics dashboard — single binary (`gvdb-ui`)

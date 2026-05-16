@@ -1466,6 +1466,11 @@ void Segment::SetCollectionIdForRestore(core::CollectionId collection_id) {
   collection_id_ = collection_id;
 }
 
+void Segment::SetSegmentIdForRestore(core::SegmentId segment_id) {
+  std::unique_lock lock(mutex_);
+  id_ = segment_id;
+}
+
 core::SegmentState Segment::GetState() const {
   std::shared_lock lock(mutex_);
   return state_;
