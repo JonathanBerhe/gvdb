@@ -42,6 +42,12 @@ const (
 	InternalService_RemovePeer_FullMethodName            = "/gvdb.proto.internal.InternalService/RemovePeer"
 	InternalService_GetRaftMembership_FullMethodName     = "/gvdb.proto.internal.InternalService/GetRaftMembership"
 	InternalService_TransferLeadership_FullMethodName    = "/gvdb.proto.internal.InternalService/TransferLeadership"
+	InternalService_PausePrimary_FullMethodName          = "/gvdb.proto.internal.InternalService/PausePrimary"
+	InternalService_PreparePromote_FullMethodName        = "/gvdb.proto.internal.InternalService/PreparePromote"
+	InternalService_BackupShard_FullMethodName           = "/gvdb.proto.internal.InternalService/BackupShard"
+	InternalService_RestoreShard_FullMethodName          = "/gvdb.proto.internal.InternalService/RestoreShard"
+	InternalService_FreezeWrites_FullMethodName          = "/gvdb.proto.internal.InternalService/FreezeWrites"
+	InternalService_UnfreezeWrites_FullMethodName        = "/gvdb.proto.internal.InternalService/UnfreezeWrites"
 	InternalService_GetTimestamp_FullMethodName          = "/gvdb.proto.internal.InternalService/GetTimestamp"
 )
 
@@ -79,6 +85,21 @@ type InternalServiceClient interface {
 	// Raft scale reconciliation (Operator → Coordinator; roadmap 1.8)
 	GetRaftMembership(ctx context.Context, in *GetRaftMembershipRequest, opts ...grpc.CallOption) (*GetRaftMembershipResponse, error)
 	TransferLeadership(ctx context.Context, in *TransferLeadershipRequest, opts ...grpc.CallOption) (*TransferLeadershipResponse, error)
+	// Two-phase primary swap (Coordinator → Data Node).
+	// PausePrimary stops the old primary accepting writes for the shard;
+	// PreparePromote brings the new primary online at the bumped term.
+	// Both calls are idempotent so the coordinator can replay on failure.
+	PausePrimary(ctx context.Context, in *PausePrimaryRequest, opts ...grpc.CallOption) (*PausePrimaryResponse, error)
+	PreparePromote(ctx context.Context, in *PreparePromoteRequest, opts ...grpc.CallOption) (*PreparePromoteResponse, error)
+	// Backup and restore orchestration (Coordinator → Data Node).
+	// BackupShard / RestoreShard execute the per-shard half of a backup
+	// or restore against the data-node's local segment store and the
+	// configured IObjectStore. FreezeWrites / UnfreezeWrites bracket the
+	// BackupShard call so segment contents are stable for the upload.
+	BackupShard(ctx context.Context, in *BackupShardRequest, opts ...grpc.CallOption) (*BackupShardResponse, error)
+	RestoreShard(ctx context.Context, in *RestoreShardRequest, opts ...grpc.CallOption) (*RestoreShardResponse, error)
+	FreezeWrites(ctx context.Context, in *FreezeWritesRequest, opts ...grpc.CallOption) (*FreezeWritesResponse, error)
+	UnfreezeWrites(ctx context.Context, in *UnfreezeWritesRequest, opts ...grpc.CallOption) (*UnfreezeWritesResponse, error)
 	// Timestamp oracle (All Nodes → Coordinator)
 	GetTimestamp(ctx context.Context, in *GetTimestampRequest, opts ...grpc.CallOption) (*GetTimestampResponse, error)
 }
@@ -291,6 +312,66 @@ func (c *internalServiceClient) TransferLeadership(ctx context.Context, in *Tran
 	return out, nil
 }
 
+func (c *internalServiceClient) PausePrimary(ctx context.Context, in *PausePrimaryRequest, opts ...grpc.CallOption) (*PausePrimaryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PausePrimaryResponse)
+	err := c.cc.Invoke(ctx, InternalService_PausePrimary_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *internalServiceClient) PreparePromote(ctx context.Context, in *PreparePromoteRequest, opts ...grpc.CallOption) (*PreparePromoteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PreparePromoteResponse)
+	err := c.cc.Invoke(ctx, InternalService_PreparePromote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *internalServiceClient) BackupShard(ctx context.Context, in *BackupShardRequest, opts ...grpc.CallOption) (*BackupShardResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BackupShardResponse)
+	err := c.cc.Invoke(ctx, InternalService_BackupShard_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *internalServiceClient) RestoreShard(ctx context.Context, in *RestoreShardRequest, opts ...grpc.CallOption) (*RestoreShardResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RestoreShardResponse)
+	err := c.cc.Invoke(ctx, InternalService_RestoreShard_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *internalServiceClient) FreezeWrites(ctx context.Context, in *FreezeWritesRequest, opts ...grpc.CallOption) (*FreezeWritesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FreezeWritesResponse)
+	err := c.cc.Invoke(ctx, InternalService_FreezeWrites_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *internalServiceClient) UnfreezeWrites(ctx context.Context, in *UnfreezeWritesRequest, opts ...grpc.CallOption) (*UnfreezeWritesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UnfreezeWritesResponse)
+	err := c.cc.Invoke(ctx, InternalService_UnfreezeWrites_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *internalServiceClient) GetTimestamp(ctx context.Context, in *GetTimestampRequest, opts ...grpc.CallOption) (*GetTimestampResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetTimestampResponse)
@@ -335,6 +416,21 @@ type InternalServiceServer interface {
 	// Raft scale reconciliation (Operator → Coordinator; roadmap 1.8)
 	GetRaftMembership(context.Context, *GetRaftMembershipRequest) (*GetRaftMembershipResponse, error)
 	TransferLeadership(context.Context, *TransferLeadershipRequest) (*TransferLeadershipResponse, error)
+	// Two-phase primary swap (Coordinator → Data Node).
+	// PausePrimary stops the old primary accepting writes for the shard;
+	// PreparePromote brings the new primary online at the bumped term.
+	// Both calls are idempotent so the coordinator can replay on failure.
+	PausePrimary(context.Context, *PausePrimaryRequest) (*PausePrimaryResponse, error)
+	PreparePromote(context.Context, *PreparePromoteRequest) (*PreparePromoteResponse, error)
+	// Backup and restore orchestration (Coordinator → Data Node).
+	// BackupShard / RestoreShard execute the per-shard half of a backup
+	// or restore against the data-node's local segment store and the
+	// configured IObjectStore. FreezeWrites / UnfreezeWrites bracket the
+	// BackupShard call so segment contents are stable for the upload.
+	BackupShard(context.Context, *BackupShardRequest) (*BackupShardResponse, error)
+	RestoreShard(context.Context, *RestoreShardRequest) (*RestoreShardResponse, error)
+	FreezeWrites(context.Context, *FreezeWritesRequest) (*FreezeWritesResponse, error)
+	UnfreezeWrites(context.Context, *UnfreezeWritesRequest) (*UnfreezeWritesResponse, error)
 	// Timestamp oracle (All Nodes → Coordinator)
 	GetTimestamp(context.Context, *GetTimestampRequest) (*GetTimestampResponse, error)
 	mustEmbedUnimplementedInternalServiceServer()
@@ -406,6 +502,24 @@ func (UnimplementedInternalServiceServer) GetRaftMembership(context.Context, *Ge
 }
 func (UnimplementedInternalServiceServer) TransferLeadership(context.Context, *TransferLeadershipRequest) (*TransferLeadershipResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method TransferLeadership not implemented")
+}
+func (UnimplementedInternalServiceServer) PausePrimary(context.Context, *PausePrimaryRequest) (*PausePrimaryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PausePrimary not implemented")
+}
+func (UnimplementedInternalServiceServer) PreparePromote(context.Context, *PreparePromoteRequest) (*PreparePromoteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PreparePromote not implemented")
+}
+func (UnimplementedInternalServiceServer) BackupShard(context.Context, *BackupShardRequest) (*BackupShardResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BackupShard not implemented")
+}
+func (UnimplementedInternalServiceServer) RestoreShard(context.Context, *RestoreShardRequest) (*RestoreShardResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RestoreShard not implemented")
+}
+func (UnimplementedInternalServiceServer) FreezeWrites(context.Context, *FreezeWritesRequest) (*FreezeWritesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FreezeWrites not implemented")
+}
+func (UnimplementedInternalServiceServer) UnfreezeWrites(context.Context, *UnfreezeWritesRequest) (*UnfreezeWritesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UnfreezeWrites not implemented")
 }
 func (UnimplementedInternalServiceServer) GetTimestamp(context.Context, *GetTimestampRequest) (*GetTimestampResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetTimestamp not implemented")
@@ -791,6 +905,114 @@ func _InternalService_TransferLeadership_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InternalService_PausePrimary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PausePrimaryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).PausePrimary(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_PausePrimary_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).PausePrimary(ctx, req.(*PausePrimaryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InternalService_PreparePromote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PreparePromoteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).PreparePromote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_PreparePromote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).PreparePromote(ctx, req.(*PreparePromoteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InternalService_BackupShard_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BackupShardRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).BackupShard(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_BackupShard_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).BackupShard(ctx, req.(*BackupShardRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InternalService_RestoreShard_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RestoreShardRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).RestoreShard(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_RestoreShard_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).RestoreShard(ctx, req.(*RestoreShardRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InternalService_FreezeWrites_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FreezeWritesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).FreezeWrites(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_FreezeWrites_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).FreezeWrites(ctx, req.(*FreezeWritesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InternalService_UnfreezeWrites_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnfreezeWritesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InternalServiceServer).UnfreezeWrites(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InternalService_UnfreezeWrites_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InternalServiceServer).UnfreezeWrites(ctx, req.(*UnfreezeWritesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _InternalService_GetTimestamp_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetTimestampRequest)
 	if err := dec(in); err != nil {
@@ -895,6 +1117,30 @@ var InternalService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TransferLeadership",
 			Handler:    _InternalService_TransferLeadership_Handler,
+		},
+		{
+			MethodName: "PausePrimary",
+			Handler:    _InternalService_PausePrimary_Handler,
+		},
+		{
+			MethodName: "PreparePromote",
+			Handler:    _InternalService_PreparePromote_Handler,
+		},
+		{
+			MethodName: "BackupShard",
+			Handler:    _InternalService_BackupShard_Handler,
+		},
+		{
+			MethodName: "RestoreShard",
+			Handler:    _InternalService_RestoreShard_Handler,
+		},
+		{
+			MethodName: "FreezeWrites",
+			Handler:    _InternalService_FreezeWrites_Handler,
+		},
+		{
+			MethodName: "UnfreezeWrites",
+			Handler:    _InternalService_UnfreezeWrites_Handler,
 		},
 		{
 			MethodName: "GetTimestamp",
