@@ -64,6 +64,7 @@ exec /usr/local/bin/gvdb-coordinator \
   --raft-address 0.0.0.0:%d \
   --raft-advertise-address $RAFT_ADVERTISE \
   --data-dir /data/gvdb/coordinator \
+  --config /etc/gvdb/config.yaml \
   %s
 `,
 		svcName, cluster.Namespace, domain, CoordinatorGRPCPort,
