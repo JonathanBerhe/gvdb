@@ -72,6 +72,22 @@ var _ = Describe("Backup and Restore via CRs", Ordered, func() {
 					"at repo root first): %v", err))
 		}
 
+		By("waiting for any in-flight manager-namespace termination to finish")
+		// The Manager test (kubebuilder boilerplate) runs first in this
+		// suite and its AfterAll deletes `gvdb-operator-system` with
+		// --wait=false. If we `make deploy` into a still-Terminating
+		// namespace, K8s silently refuses to create the Deployment
+		// (NamespaceTerminating admission denial) and the controller
+		// pod never appears. Wait until the namespace is gone or back
+		// to Active before proceeding.
+		Eventually(func() string {
+			out, _ := utils.Run(exec.Command("kubectl", "get", "ns",
+				namespace, "--ignore-not-found",
+				"-o", "jsonpath={.status.phase}"))
+			return strings.TrimSpace(out)
+		}, 90*time.Second, 2*time.Second).ShouldNot(Equal("Terminating"),
+			"manager namespace stuck Terminating after prior test cleanup")
+
 		By("installing CRDs")
 		_, err = utils.Run(exec.Command("make", "install"))
 		Expect(err).NotTo(HaveOccurred())
@@ -97,18 +113,20 @@ var _ = Describe("Backup and Restore via CRs", Ordered, func() {
 		_, _ = utils.Run(exec.Command("kubectl", "create", "ns", clusterNS))
 
 		By("applying the GVDBCluster manifest")
+		// utils.Run chdir's to the operator project root before
+		// invoking the command, so the path is rooted there.
 		_, err = utils.Run(exec.Command("kubectl", "apply",
-			"-f", "manifests/gvdbcluster.yaml"))
+			"-f", "test/e2e/manifests/gvdbcluster.yaml"))
 		Expect(err).NotTo(HaveOccurred())
 
 		By("waiting for cluster pods to be Ready")
-		// The operator reconciles the GVDBCluster into a StatefulSet
-		// per role + a Deployment for the proxy + a ConfigMap. Pods
-		// start sequentially; allow 4 min on a cold image-load path.
+		// The operator labels pods with `app=<cluster>-<component>`
+		// (see render.SelectorLabels). Pods start sequentially; allow
+		// 4 min on a cold image-load path.
 		for _, role := range []string{
 			"coordinator", "data-node", "query-node", "proxy",
 		} {
-			label := fmt.Sprintf("app.kubernetes.io/component=%s", role)
+			label := fmt.Sprintf("app=%s-%s", clusterName, role)
 			Eventually(func() error {
 				out, err := utils.Run(exec.Command("kubectl", "wait",
 					"--for=condition=Ready", "pod",
@@ -128,7 +146,7 @@ var _ = Describe("Backup and Restore via CRs", Ordered, func() {
 		port, err := pickFreeLocalPort()
 		Expect(err).NotTo(HaveOccurred())
 		proxyAddr = fmt.Sprintf("127.0.0.1:%d", port)
-		svcName := fmt.Sprintf("gvdbcluster-%s-proxy", clusterName)
+		svcName := fmt.Sprintf("%s-proxy", clusterName)
 		proxyForwardCmd = exec.Command("kubectl", "port-forward",
 			"-n", clusterNS, "svc/"+svcName,
 			fmt.Sprintf("%d:50050", port))
@@ -154,13 +172,38 @@ var _ = Describe("Backup and Restore via CRs", Ordered, func() {
 				"all,gvdbcluster,gvdbbackup,gvdbrestore",
 				"-n", clusterNS, "-o", "wide"))
 			fmt.Fprintf(GinkgoWriter, "Cluster state:\n%s\n", out)
+			// CR status conditions hold the actual failure reason
+			// (e.g. StartBackupFailed, server ErrorMessage). The
+			// "-o wide" view above shows phase only.
+			for _, kind := range []string{"gvdbbackup", "gvdbrestore"} {
+				out, _ = utils.Run(exec.Command("kubectl", "get", kind,
+					"-n", clusterNS, "-o", "yaml"))
+				fmt.Fprintf(GinkgoWriter, "%s yaml:\n%s\n", kind, out)
+			}
+			// Operator logs: backup/restore reconciler emits the
+			// underlying error before it transitions the CR to Failed.
+			out, _ = utils.Run(exec.Command("kubectl", "logs",
+				"deployment/gvdb-operator-controller-manager",
+				"-n", namespace, "--tail=200"))
+			fmt.Fprintf(GinkgoWriter, "Operator logs:\n%s\n", out)
+			// Coordinator drives the backup; its logs name the failing
+			// shard / target. Data-node logs show write-path errors.
+			for _, role := range []string{"coordinator", "data-node", "proxy"} {
+				out, _ = utils.Run(exec.Command("kubectl", "logs",
+					"-l", fmt.Sprintf("app=%s-%s", clusterName, role),
+					"-n", clusterNS, "--tail=100"))
+				fmt.Fprintf(GinkgoWriter, "%s logs:\n%s\n", role, out)
+			}
 		}
 		By("deleting the GVDBCluster + test namespace")
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "ns", clusterNS,
-			"--wait=false"))
-		By("undeploying the controller-manager")
-		_, _ = utils.Run(exec.Command("make", "undeploy"))
-		_, _ = utils.Run(exec.Command("make", "uninstall"))
+			"--wait=false", "--timeout=30s"))
+		By("undeploying the controller-manager (bounded)")
+		// Without explicit timeouts, `kubectl delete` here will block
+		// for the default --grace-period=30s × every-resource window
+		// and can hang for minutes if any pod's finalizer is slow.
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "ns",
+			"gvdb-operator-system", "--wait=false", "--timeout=30s"))
 	})
 
 	It("backs up a collection via GVDBBackup and restores it via GVDBRestore", func() {
@@ -174,15 +217,37 @@ var _ = Describe("Backup and Restore via CRs", Ordered, func() {
 		defer conn.Close()
 		client := pb.NewVectorDBServiceClient(conn)
 
-		By("creating a collection and inserting vectors")
-		_, err = client.CreateCollection(ctx, &pb.CreateCollectionRequest{
-			CollectionName: collectionName,
-			Dimension:      dimension,
-			Metric:         pb.CreateCollectionRequest_L2,
-			IndexType:      pb.CreateCollectionRequest_FLAT,
-		})
-		Expect(err).NotTo(HaveOccurred())
+		By("creating a collection (retry to absorb port-forward race)")
+		// kubectl port-forward accepts the local TCP connection
+		// before the upstream bridge is ready, so the first gRPC
+		// call after Dial often hits a connection-refused or
+		// upstream-EOF. Retry for up to 30 s.
+		Eventually(func() error {
+			rpcCtx, rpcCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer rpcCancel()
+			_, callErr := client.CreateCollection(rpcCtx,
+				&pb.CreateCollectionRequest{
+					CollectionName: collectionName,
+					Dimension:      dimension,
+					Metric:         pb.CreateCollectionRequest_L2,
+					IndexType:      pb.CreateCollectionRequest_FLAT,
+				})
+			if callErr != nil {
+				fmt.Fprintf(GinkgoWriter,
+					"CreateCollection retry: %v\n", callErr)
+			}
+			return callErr
+		}, 30*time.Second, 2*time.Second).Should(Succeed(),
+			"CreateCollection never succeeded through port-forward")
 
+		By("inserting vectors (retry to absorb heartbeat propagation)")
+		// CreateCollection returns once the coordinator allocates shards,
+		// but the data-node only learns it is primary for shard 0 on the
+		// next heartbeat — heartbeat_sender sleeps 10 s between ticks. An
+		// Insert fired in the gap hits an empty PrimaryTermTracker and is
+		// rejected with FAILED_PRECONDITION ("no primary record for shard
+		// 0; re-route via RouteQuery"), which the proxy does not retry.
+		// Retry from the client until the heartbeat populates the tracker.
 		vectors := make([]*pb.VectorWithId, vectorCount)
 		for i := uint64(0); i < uint64(vectorCount); i++ {
 			values := make([]float32, dimension)
@@ -194,11 +259,20 @@ var _ = Describe("Backup and Restore via CRs", Ordered, func() {
 				Vector: &pb.Vector{Values: values, Dimension: dimension},
 			}
 		}
-		_, err = client.Insert(ctx, &pb.InsertRequest{
-			CollectionName: collectionName,
-			Vectors:        vectors,
-		})
-		Expect(err).NotTo(HaveOccurred())
+		Eventually(func() error {
+			rpcCtx, rpcCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer rpcCancel()
+			_, callErr := client.Insert(rpcCtx, &pb.InsertRequest{
+				CollectionName: collectionName,
+				Vectors:        vectors,
+			})
+			if callErr != nil {
+				fmt.Fprintf(GinkgoWriter,
+					"Insert retry: %v\n", callErr)
+			}
+			return callErr
+		}, 30*time.Second, 2*time.Second).Should(Succeed(),
+			"Insert never succeeded after primary-term sync")
 
 		By("applying a GVDBBackup CR with a local target on the data PVC")
 		backupYAML := fmt.Sprintf(`apiVersion: gvdb.io/v1alpha1
@@ -253,18 +327,35 @@ spec:
 			return strings.TrimSpace(out), err
 		}, 2*time.Minute, 5*time.Second).Should(Equal("Completed"))
 
-		By("verifying the restored collection is searchable")
+		By("verifying the restored collection is searchable (retry for heartbeat sync)")
+		// GVDBRestore reaches Completed when the server reports the
+		// restore done, but the data-node only learns it owns the new
+		// (restored) collection's shards on the next heartbeat tick —
+		// same race as Insert after CreateCollection. Retry until the
+		// tracker is populated.
 		queryValues := make([]float32, dimension)
 		queryID := uint64(3)
 		for d := uint32(0); d < dimension; d++ {
 			queryValues[d] = float32((queryID-1)*10) + float32(d)
 		}
-		searchResp, err := client.Search(ctx, &pb.SearchRequest{
-			CollectionName: collectionName + "_restored",
-			QueryVector:    &pb.Vector{Values: queryValues, Dimension: dimension},
-			TopK:           1,
-		})
-		Expect(err).NotTo(HaveOccurred())
+		var searchResp *pb.SearchResponse
+		Eventually(func() error {
+			rpcCtx, rpcCancel := context.WithTimeout(ctx, 5*time.Second)
+			defer rpcCancel()
+			resp, callErr := client.Search(rpcCtx, &pb.SearchRequest{
+				CollectionName: collectionName + "_restored",
+				QueryVector:    &pb.Vector{Values: queryValues, Dimension: dimension},
+				TopK:           1,
+			})
+			if callErr != nil {
+				fmt.Fprintf(GinkgoWriter,
+					"Search retry: %v\n", callErr)
+				return callErr
+			}
+			searchResp = resp
+			return nil
+		}, 30*time.Second, 2*time.Second).Should(Succeed(),
+			"Search never succeeded on restored collection")
 		Expect(searchResp.Results).NotTo(BeEmpty())
 		Expect(searchResp.Results[0].Id).To(Equal(queryID),
 			"top result should be the inserted vector")

@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -52,10 +53,30 @@ var _ = Describe("Manager", Ordered, func() {
 	// enforce the restricted security policy to the namespace, installing CRDs,
 	// and deploying the controller.
 	BeforeAll(func() {
+		By("waiting for any in-flight manager-namespace termination")
+		// Ginkgo runs top-level Describe blocks in registration order
+		// but Go's file init order isn't strictly alphabetical, so
+		// either the backup test or this one can land first. Whichever
+		// runs second sees the manager namespace mid-Terminating from
+		// the first AfterAll's bounded delete.
+		Eventually(func() string {
+			out, _ := utils.Run(exec.Command("kubectl", "get", "ns",
+				namespace, "--ignore-not-found",
+				"-o", "jsonpath={.status.phase}"))
+			return strings.TrimSpace(out)
+		}, 90*time.Second, 2*time.Second).ShouldNot(Equal("Terminating"),
+			"manager namespace stuck Terminating after prior test cleanup")
+
 		By("creating manager namespace")
 		cmd := exec.Command("kubectl", "create", "ns", namespace)
-		_, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
+		out, err := utils.Run(cmd)
+		// The backup test BeforeAll's `make deploy` (kustomize) also
+		// creates this namespace, so it may already exist when this
+		// test runs second. AlreadyExists is fine — `kubectl label`
+		// and `make install`/`make deploy` below are idempotent.
+		if err != nil && !strings.Contains(out+err.Error(), "AlreadyExists") {
+			Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
+		}
 
 		By("labeling the namespace to enforce the restricted security policy")
 		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
@@ -75,22 +96,19 @@ var _ = Describe("Manager", Ordered, func() {
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
-	// and deleting the namespace.
+	// and deleting the namespace. Each command is bounded — the default
+	// `make undeploy` blocks on every resource finalizer and can wedge
+	// for the rest of the 10-min test timeout when the backup-test
+	// AfterAll has already removed the namespace from underneath it.
 	AfterAll(func() {
 		By("cleaning up the curl pod for metrics")
-		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
+		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics",
+			"-n", namespace, "--ignore-not-found", "--timeout=30s")
 		_, _ = utils.Run(cmd)
 
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
-		_, _ = utils.Run(cmd)
-
-		By("uninstalling CRDs")
-		cmd = exec.Command("make", "uninstall")
-		_, _ = utils.Run(cmd)
-
-		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace)
+		By("removing manager namespace (bounded)")
+		cmd = exec.Command("kubectl", "delete", "ns", namespace,
+			"--ignore-not-found", "--wait=false", "--timeout=30s")
 		_, _ = utils.Run(cmd)
 	})
 
