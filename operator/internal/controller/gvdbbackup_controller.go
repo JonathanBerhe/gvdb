@@ -105,6 +105,14 @@ func (r *GVDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			ctx, bkp.Spec.Collection, target, idempotencyKey)
 		if err != nil {
 			log.Error(err, "StartBackup failed")
+			// A freshly-created cluster's proxy may be Ready as a pod
+			// while kube-proxy is still programming its service endpoint,
+			// so the first reconcile after the CR lands can hit
+			// UNAVAILABLE/connection-refused. Requeue rather than
+			// permanently failing the CR on a startup race.
+			if isTransientGRPCError(err) {
+				return ctrl.Result{RequeueAfter: backupPollInterval}, nil
+			}
 			return r.failBackup(ctx, &bkp, "StartBackupFailed", err.Error())
 		}
 		bkp.Status.BackupID = backupID
@@ -126,6 +134,12 @@ func (r *GVDBBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if err != nil {
 		log.Error(err, "GetBackupStatus failed",
 			"backupID", bkp.Status.BackupID)
+		// Proxy may briefly disappear (rolling restart, drain) without
+		// invalidating the in-flight backup. Treat transient gRPC
+		// failures as worth re-polling rather than poisoning the CR.
+		if isTransientGRPCError(err) {
+			return ctrl.Result{RequeueAfter: backupPollInterval}, nil
+		}
 		return r.failBackup(ctx, &bkp, "StatusUnavailable", err.Error())
 	}
 

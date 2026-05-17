@@ -90,6 +90,11 @@ func (r *GVDBRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			rst.Spec.TargetCollection, overwrite)
 		if err != nil {
 			log.Error(err, "StartRestore failed")
+			// Same startup-race rationale as backup: proxy pod can be
+			// Ready while the service endpoint isn't programmed yet.
+			if isTransientGRPCError(err) {
+				return ctrl.Result{RequeueAfter: restorePollInterval}, nil
+			}
 			return r.failRestore(ctx, &rst, "StartRestoreFailed", err.Error())
 		}
 		rst.Status.RestoreID = restoreID
@@ -109,6 +114,9 @@ func (r *GVDBRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		log.Error(err, "GetRestoreStatus failed",
 			"restoreID", rst.Status.RestoreID)
+		if isTransientGRPCError(err) {
+			return ctrl.Result{RequeueAfter: restorePollInterval}, nil
+		}
 		return r.failRestore(ctx, &rst, "StatusUnavailable", err.Error())
 	}
 
