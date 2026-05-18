@@ -19,7 +19,9 @@
 #include "storage/segment_manager.h"
 #include "storage/tiered_segment_manager.h"
 #include "storage/segment_cache.h"
+#include "storage/backup_manager.h"
 #include "storage/bulk_importer.h"
+#include "cluster/shard_write_gate.h"
 #ifdef GVDB_HAS_S3
 #include "storage/s3_object_store.h"
 #endif
@@ -318,6 +320,39 @@ int main(int argc, char** argv) {
           segment_store, object_store_ptr, args.data_dir + "/tmp", 2);
     }
 
+    // 3.1. Backup / restore engines + per-shard write fence. The fence
+    // is consulted by the write path (VectorDBService::EvaluateWriteGate)
+    // and toggled by the coordinator's BackupShard fan-out via the
+    // FreezeWrites / UnfreezeWrites RPCs hosted on InternalService.
+    //
+    // LIFETIME ORDER MATTERS: shard_write_gate is held by two services
+    // via raw pointer; declare it before either service.
+    auto shard_write_gate = std::make_unique<cluster::ShardWriteGate>();
+    std::shared_ptr<storage::BackupManager> backup_manager;
+    std::shared_ptr<storage::RestoreManager> restore_manager;
+    {
+      storage::BackupManagerOptions bopts;
+      bopts.default_object_store = object_store_ptr;
+      bopts.s3_bucket = config.storage.object_store_bucket;
+      bopts.local_root_allowlist = config.storage.local_backup_dir;
+      bopts.flushed_segments_root = args.data_dir + "/segments";
+      bopts.tmp_dir = args.data_dir + "/tmp/backup";
+      bopts.gvdb_version = "data-node";
+      bopts.node_id = args.node_id;
+      backup_manager = std::make_shared<storage::BackupManager>(std::move(bopts));
+
+      storage::RestoreManagerOptions ropts;
+      ropts.default_object_store = object_store_ptr;
+      ropts.s3_bucket = config.storage.object_store_bucket;
+      ropts.local_root_allowlist = config.storage.local_backup_dir;
+      ropts.staging_dir = args.data_dir + "/tmp/restore";
+      restore_manager = std::make_shared<storage::RestoreManager>(
+          std::move(ropts));
+    }
+    internal_service->SetShardWriteGate(shard_write_gate.get());
+    internal_service->SetBackupManager(backup_manager);
+    internal_service->SetRestoreManager(restore_manager);
+
     // 3.5. Primary-term tracker — local view of "am I primary for shard
     // X at term T?". Populated by HeartbeatSender each cycle from the
     // coordinator's authoritative shard_primaries list. The write-path
@@ -342,7 +377,8 @@ int main(int argc, char** argv) {
     }
     auto service = std::make_unique<network::VectorDBService>(
         segment_store, query_executor, std::move(resolver), nullptr,
-        bulk_importer);
+        bulk_importer, backup_manager, restore_manager);
+    service->SetShardWriteGate(shard_write_gate.get());
     // Wire the tracker so write paths consult it AND so the two-phase
     // swap RPCs (PausePrimary / PreparePromote, hosted on InternalService)
     // can mutate it. Distributed mode only — single-node has no

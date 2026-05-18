@@ -15,7 +15,15 @@
 #include <string>
 
 namespace gvdb {
-namespace cluster { class PrimaryTermTracker; }
+namespace cluster {
+class PrimaryTermTracker;
+class ShardWriteGate;
+class Coordinator;
+}
+namespace storage {
+class BackupManager;
+class RestoreManager;
+}
 
 namespace network {
 
@@ -29,7 +37,9 @@ class VectorDBService final : public proto::VectorDBService::Service {
       std::shared_ptr<compute::QueryExecutor> query_executor,
       std::unique_ptr<ICollectionResolver> resolver,
       std::shared_ptr<auth::RbacStore> rbac_store = nullptr,
-      std::shared_ptr<storage::BulkImporter> bulk_importer = nullptr);
+      std::shared_ptr<storage::BulkImporter> bulk_importer = nullptr,
+      std::shared_ptr<storage::BackupManager> backup_manager = nullptr,
+      std::shared_ptr<storage::RestoreManager> restore_manager = nullptr);
 
   ~VectorDBService();
 
@@ -40,6 +50,24 @@ class VectorDBService final : public proto::VectorDBService::Service {
   // data_node_main); must outlive this service.
   void SetPrimaryTermTracker(cluster::PrimaryTermTracker* tracker) {
     primary_term_tracker_ = tracker;
+  }
+
+  // Wire the per-shard backup write fence. When set, EvaluateWriteGate
+  // additionally returns ABORTED while a shard is frozen by an in-flight
+  // backup. Optional; null on a single-node binary or a node not
+  // participating in backups. Owned by the caller; must outlive this
+  // service.
+  void SetShardWriteGate(cluster::ShardWriteGate* gate) {
+    shard_write_gate_ = gate;
+  }
+
+  // Wire the coordinator so backup/restore RPCs dispatch through it for
+  // multi-shard fan-out. Optional; on a coordinator binary this is set
+  // and routes via Coordinator::Start*Distributed. On a single-node or
+  // data-node binary this stays null and the RPCs fall back to the
+  // local single-shard BackupManager / RestoreManager path.
+  void SetCoordinator(std::shared_ptr<cluster::Coordinator> coordinator) {
+    coordinator_ = std::move(coordinator);
   }
 
   // Collection management
@@ -126,6 +154,37 @@ class VectorDBService final : public proto::VectorDBService::Service {
       const proto::CancelImportRequest* request,
       proto::CancelImportResponse* response) override;
 
+  // Backup and restore
+  grpc::Status BackupCollection(
+      grpc::ServerContext* context,
+      const proto::BackupCollectionRequest* request,
+      proto::BackupCollectionResponse* response) override;
+
+  grpc::Status RestoreCollection(
+      grpc::ServerContext* context,
+      const proto::RestoreCollectionRequest* request,
+      proto::RestoreCollectionResponse* response) override;
+
+  grpc::Status GetBackupStatus(
+      grpc::ServerContext* context,
+      const proto::GetBackupStatusRequest* request,
+      proto::GetBackupStatusResponse* response) override;
+
+  grpc::Status GetRestoreStatus(
+      grpc::ServerContext* context,
+      const proto::GetRestoreStatusRequest* request,
+      proto::GetRestoreStatusResponse* response) override;
+
+  grpc::Status ListBackups(
+      grpc::ServerContext* context,
+      const proto::ListBackupsRequest* request,
+      proto::ListBackupsResponse* response) override;
+
+  grpc::Status CancelBackup(
+      grpc::ServerContext* context,
+      const proto::CancelBackupRequest* request,
+      proto::CancelBackupResponse* response) override;
+
   // Health and stats
   grpc::Status HealthCheck(
       grpc::ServerContext* context,
@@ -181,11 +240,23 @@ class VectorDBService final : public proto::VectorDBService::Service {
   std::unique_ptr<ICollectionResolver> resolver_;
   std::shared_ptr<auth::RbacStore> rbac_store_;
   std::shared_ptr<storage::BulkImporter> bulk_importer_;
+  // Optional storage-layer engines. Null on a binary that doesn't host
+  // backup orchestration; the handlers return UNIMPLEMENTED in that case.
+  std::shared_ptr<storage::BackupManager> backup_manager_;
+  std::shared_ptr<storage::RestoreManager> restore_manager_;
 
   // Optional write-path primary-term gate. Null on single-node / query-
   // nodes / tests; non-null on a real distributed data-node, populated
   // via SetPrimaryTermTracker before serving begins.
   cluster::PrimaryTermTracker* primary_term_tracker_ = nullptr;
+
+  // Optional per-shard backup-freeze fence. When non-null,
+  // EvaluateWriteGate returns ABORTED while the shard is frozen.
+  cluster::ShardWriteGate* shard_write_gate_ = nullptr;
+
+  // Optional coordinator pointer for multi-shard backup orchestration.
+  // When non-null, the backup/restore handlers dispatch through it.
+  std::shared_ptr<cluster::Coordinator> coordinator_;
 
   // Statistics
   std::atomic<uint64_t> total_queries_{0};

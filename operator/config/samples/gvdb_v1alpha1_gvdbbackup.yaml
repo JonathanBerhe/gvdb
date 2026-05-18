@@ -1,0 +1,25 @@
+apiVersion: gvdb.io/v1alpha1
+kind: GVDBBackup
+metadata:
+  name: products-nightly
+  namespace: default
+spec:
+  # GVDBCluster this backup is taken against. Same-namespace.
+  clusterRef:
+    name: gvdb-prod
+  # The collection to back up. Must exist in the cluster at the time
+  # the operator first reconciles the CR.
+  collection: products
+  # Backup destination. Exactly one of s3 or local is set; both being
+  # set or neither set fails reconciliation with InvalidTarget.
+  target:
+    s3:
+      bucket: gvdb-backups
+      prefix: prod
+    # Or, to a PVC mounted on the data-node pods (server must be
+    # configured with `storage.local_backup_dir` covering this path):
+    # local:
+    #   path: /var/lib/gvdb/backups
+  # Optional: 0 (default) retains the backup data indefinitely. The
+  # operator's reaper (planned follow-up) honors this field.
+  retentionDays: 0

@@ -259,6 +259,68 @@ void toProto(const core::SparseVector& sparse, proto::SparseVector* proto_sparse
 }
 
 // ============================================================================
+// Backup / Restore
+// ============================================================================
+
+absl::StatusOr<storage::BackupTarget> fromProto(
+    const proto::BackupTarget& proto_target) {
+  switch (proto_target.target_case()) {
+    case proto::BackupTarget::kS3: {
+      const auto& s3 = proto_target.s3();
+      if (s3.bucket().empty()) {
+        return absl::InvalidArgumentError("S3 BackupTarget missing 'bucket'");
+      }
+      return storage::BackupTarget{
+          storage::S3BackupTarget{s3.bucket(), s3.prefix()}};
+    }
+    case proto::BackupTarget::kLocal: {
+      const auto& local = proto_target.local();
+      if (local.path().empty()) {
+        return absl::InvalidArgumentError("Local BackupTarget missing 'path'");
+      }
+      return storage::BackupTarget{storage::LocalBackupTarget{local.path()}};
+    }
+    case proto::BackupTarget::TARGET_NOT_SET:
+    default:
+      return absl::InvalidArgumentError(
+          "BackupTarget is unset (must select s3 or local)");
+  }
+}
+
+absl::Status toProto(const storage::BackupTarget& target,
+                     proto::BackupTarget* proto_target) {
+  if (proto_target == nullptr) {
+    return absl::InvalidArgumentError("proto_target is null");
+  }
+  if (std::holds_alternative<std::monostate>(target)) {
+    return absl::InvalidArgumentError("BackupTarget variant is unset");
+  }
+  if (auto* s3 = std::get_if<storage::S3BackupTarget>(&target)) {
+    auto* p = proto_target->mutable_s3();
+    p->set_bucket(s3->bucket);
+    p->set_prefix(s3->prefix);
+    return absl::OkStatus();
+  }
+  if (auto* loc = std::get_if<storage::LocalBackupTarget>(&target)) {
+    auto* p = proto_target->mutable_local();
+    p->set_path(loc->path);
+    return absl::OkStatus();
+  }
+  return absl::InvalidArgumentError("Unknown BackupTarget variant");
+}
+
+proto::BackupState toProto(storage::BackupState state) {
+  switch (state) {
+    case storage::BackupState::PENDING:   return proto::BACKUP_PENDING;
+    case storage::BackupState::RUNNING:   return proto::BACKUP_RUNNING;
+    case storage::BackupState::COMPLETED: return proto::BACKUP_COMPLETED;
+    case storage::BackupState::FAILED:    return proto::BACKUP_FAILED;
+    case storage::BackupState::CANCELLED: return proto::BACKUP_CANCELLED;
+  }
+  return proto::BACKUP_PENDING;
+}
+
+// ============================================================================
 
 grpc::Status toGrpcStatus(const absl::Status& status) {
   if (status.ok()) {

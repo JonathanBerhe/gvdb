@@ -7,6 +7,7 @@
 #include "core/sparse_vector.h"
 #include "core/types.h"
 #include "core/vector.h"
+#include "storage/backup_manager.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "vectordb.pb.h"
@@ -66,6 +67,25 @@ void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata);
 // Sparse vector conversions
 absl::StatusOr<core::SparseVector> fromProto(const proto::SparseVector& proto_sparse);
 void toProto(const core::SparseVector& sparse, proto::SparseVector* proto_sparse);
+
+// ============================================================================
+// Backup / Restore conversions
+// ============================================================================
+
+// Convert proto BackupTarget oneof to storage::BackupTarget variant.
+// Returns InvalidArgumentError if the proto oneof is unset.
+absl::StatusOr<storage::BackupTarget> fromProto(
+    const proto::BackupTarget& proto_target);
+
+// Convert storage::BackupTarget variant back to proto. Used by the
+// coordinator's per-shard executor to pass the same target down to
+// each data-node's BackupShard handler. Returns InvalidArgumentError
+// if the variant is monostate (caller bug).
+absl::Status toProto(const storage::BackupTarget& target,
+                     proto::BackupTarget* proto_target);
+
+// Convert storage::BackupState to proto BackupState.
+proto::BackupState toProto(storage::BackupState state);
 
 // ============================================================================
 // Status Conversions

@@ -37,6 +37,7 @@ exec /usr/local/bin/gvdb-data-node \
   --bind-address 0.0.0.0:%d \
   --advertise-address $ADVERTISE \
   --data-dir /data/gvdb/data_node \
+  --config /etc/gvdb/config.yaml \
   --coordinator %s \
   --memory-limit-gb %d
 `,

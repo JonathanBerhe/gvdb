@@ -1735,7 +1735,15 @@ type RouteQueryNodeOption struct {
 	// True iff this option is the shard's primary in the current
 	// assignment. Distinguishes "first-attempt was primary" from
 	// "first-attempt was already a replica because primary was draining".
-	IsPrimary     bool `protobuf:"varint,3,opt,name=is_primary,json=isPrimary,proto3" json:"is_primary,omitempty"`
+	IsPrimary bool `protobuf:"varint,3,opt,name=is_primary,json=isPrimary,proto3" json:"is_primary,omitempty"`
+	// Monotonic per-shard primary term at routing time. Stamped onto
+	// every write RPC by the proxy as the `gvdb-shard-term` gRPC
+	// metadata header; the data-node rejects writes whose term doesn't
+	// match its locally-recorded term so a write routed just before a
+	// primary swap can't commit on the demoted node. Reads ignore this
+	// (any term-tagged read is fine; staleness is bounded by the
+	// replica-lag invariant which is a separate concern).
+	PrimaryTerm   uint64 `protobuf:"varint,4,opt,name=primary_term,json=primaryTerm,proto3" json:"primary_term,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1789,6 +1797,13 @@ func (x *RouteQueryNodeOption) GetIsPrimary() bool {
 		return x.IsPrimary
 	}
 	return false
+}
+
+func (x *RouteQueryNodeOption) GetPrimaryTerm() uint64 {
+	if x != nil {
+		return x.PrimaryTerm
+	}
+	return 0
 }
 
 // Per-shard prioritized list of candidate target nodes. The first entry
@@ -3265,6 +3280,832 @@ func (x *TransferLeadershipResponse) GetCurrentLeaderId() int32 {
 	return 0
 }
 
+type PausePrimaryRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Shard whose primary is being transferred away from this node.
+	ShardId uint32 `protobuf:"varint,1,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
+	// The term being promoted to. Equals (this node's current term + 1).
+	// Carried so the data-node can record `last_known_term = new_term - 1`
+	// and reject any subsequent stale-routing write with the right error
+	// message.
+	NewTerm uint64 `protobuf:"varint,2,opt,name=new_term,json=newTerm,proto3" json:"new_term,omitempty"`
+	// Diagnostic: the node taking over as primary. Logged on the responding
+	// node so on-call has breadcrumbs without round-tripping the coordinator.
+	NewPrimaryNodeId uint32 `protobuf:"varint,3,opt,name=new_primary_node_id,json=newPrimaryNodeId,proto3" json:"new_primary_node_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *PausePrimaryRequest) Reset() {
+	*x = PausePrimaryRequest{}
+	mi := &file_internal_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PausePrimaryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PausePrimaryRequest) ProtoMessage() {}
+
+func (x *PausePrimaryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PausePrimaryRequest.ProtoReflect.Descriptor instead.
+func (*PausePrimaryRequest) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *PausePrimaryRequest) GetShardId() uint32 {
+	if x != nil {
+		return x.ShardId
+	}
+	return 0
+}
+
+func (x *PausePrimaryRequest) GetNewTerm() uint64 {
+	if x != nil {
+		return x.NewTerm
+	}
+	return 0
+}
+
+func (x *PausePrimaryRequest) GetNewPrimaryNodeId() uint32 {
+	if x != nil {
+		return x.NewPrimaryNodeId
+	}
+	return 0
+}
+
+type PausePrimaryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PausePrimaryResponse) Reset() {
+	*x = PausePrimaryResponse{}
+	mi := &file_internal_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PausePrimaryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PausePrimaryResponse) ProtoMessage() {}
+
+func (x *PausePrimaryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PausePrimaryResponse.ProtoReflect.Descriptor instead.
+func (*PausePrimaryResponse) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *PausePrimaryResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *PausePrimaryResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type PreparePromoteRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Shard this node is being promoted to primary for.
+	ShardId uint32 `protobuf:"varint,1,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
+	// Target term. Must be strictly greater than the responding node's
+	// currently-recorded term for this shard; the data-node returns
+	// success=false on regression so a buggy coordinator double-promote
+	// surfaces as a hard error rather than silently overwriting state.
+	NewTerm       uint64 `protobuf:"varint,2,opt,name=new_term,json=newTerm,proto3" json:"new_term,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PreparePromoteRequest) Reset() {
+	*x = PreparePromoteRequest{}
+	mi := &file_internal_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PreparePromoteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PreparePromoteRequest) ProtoMessage() {}
+
+func (x *PreparePromoteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PreparePromoteRequest.ProtoReflect.Descriptor instead.
+func (*PreparePromoteRequest) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *PreparePromoteRequest) GetShardId() uint32 {
+	if x != nil {
+		return x.ShardId
+	}
+	return 0
+}
+
+func (x *PreparePromoteRequest) GetNewTerm() uint64 {
+	if x != nil {
+		return x.NewTerm
+	}
+	return 0
+}
+
+type PreparePromoteResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PreparePromoteResponse) Reset() {
+	*x = PreparePromoteResponse{}
+	mi := &file_internal_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PreparePromoteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PreparePromoteResponse) ProtoMessage() {}
+
+func (x *PreparePromoteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PreparePromoteResponse.ProtoReflect.Descriptor instead.
+func (*PreparePromoteResponse) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *PreparePromoteResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *PreparePromoteResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type BackupShardRequest struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	BackupId     string                 `protobuf:"bytes,1,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	CollectionId uint32                 `protobuf:"varint,2,opt,name=collection_id,json=collectionId,proto3" json:"collection_id,omitempty"`
+	ShardId      uint32                 `protobuf:"varint,3,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
+	Target       *BackupTarget          `protobuf:"bytes,4,opt,name=target,proto3" json:"target,omitempty"`
+	// For incremental backup: list of segment_ids already captured by the
+	// parent backup. The current implementation leaves this empty (full
+	// backup every time); see BackupCollectionRequest.incremental_from.
+	ParentSegmentIds []uint64 `protobuf:"varint,5,rep,packed,name=parent_segment_ids,json=parentSegmentIds,proto3" json:"parent_segment_ids,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *BackupShardRequest) Reset() {
+	*x = BackupShardRequest{}
+	mi := &file_internal_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackupShardRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackupShardRequest) ProtoMessage() {}
+
+func (x *BackupShardRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackupShardRequest.ProtoReflect.Descriptor instead.
+func (*BackupShardRequest) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *BackupShardRequest) GetBackupId() string {
+	if x != nil {
+		return x.BackupId
+	}
+	return ""
+}
+
+func (x *BackupShardRequest) GetCollectionId() uint32 {
+	if x != nil {
+		return x.CollectionId
+	}
+	return 0
+}
+
+func (x *BackupShardRequest) GetShardId() uint32 {
+	if x != nil {
+		return x.ShardId
+	}
+	return 0
+}
+
+func (x *BackupShardRequest) GetTarget() *BackupTarget {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *BackupShardRequest) GetParentSegmentIds() []uint64 {
+	if x != nil {
+		return x.ParentSegmentIds
+	}
+	return nil
+}
+
+type ShardBackupSegmentEntry struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SegmentId uint64                 `protobuf:"varint,1,opt,name=segment_id,json=segmentId,proto3" json:"segment_id,omitempty"`
+	// True iff the segment was in GROWING state at backup time and the
+	// data-node serialized it via Segment::SerializeToBytes under a
+	// shared_lock rather than copying a flushed file.
+	IsGrowing   bool   `protobuf:"varint,2,opt,name=is_growing,json=isGrowing,proto3" json:"is_growing,omitempty"`
+	VectorCount uint64 `protobuf:"varint,3,opt,name=vector_count,json=vectorCount,proto3" json:"vector_count,omitempty"`
+	SizeBytes   uint64 `protobuf:"varint,4,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	// Object keys (or filesystem paths) of every file belonging to this
+	// segment in the target. Restore downloads all of them.
+	ObjectKeys    []string `protobuf:"bytes,5,rep,name=object_keys,json=objectKeys,proto3" json:"object_keys,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ShardBackupSegmentEntry) Reset() {
+	*x = ShardBackupSegmentEntry{}
+	mi := &file_internal_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShardBackupSegmentEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShardBackupSegmentEntry) ProtoMessage() {}
+
+func (x *ShardBackupSegmentEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShardBackupSegmentEntry.ProtoReflect.Descriptor instead.
+func (*ShardBackupSegmentEntry) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *ShardBackupSegmentEntry) GetSegmentId() uint64 {
+	if x != nil {
+		return x.SegmentId
+	}
+	return 0
+}
+
+func (x *ShardBackupSegmentEntry) GetIsGrowing() bool {
+	if x != nil {
+		return x.IsGrowing
+	}
+	return false
+}
+
+func (x *ShardBackupSegmentEntry) GetVectorCount() uint64 {
+	if x != nil {
+		return x.VectorCount
+	}
+	return 0
+}
+
+func (x *ShardBackupSegmentEntry) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *ShardBackupSegmentEntry) GetObjectKeys() []string {
+	if x != nil {
+		return x.ObjectKeys
+	}
+	return nil
+}
+
+type BackupShardResponse struct {
+	state    protoimpl.MessageState     `protogen:"open.v1"`
+	Success  bool                       `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message  string                     `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Segments []*ShardBackupSegmentEntry `protobuf:"bytes,3,rep,name=segments,proto3" json:"segments,omitempty"`
+	// Object key of the per-shard manifest written by this data-node.
+	// The coordinator records it in the top-level backup manifest.
+	ShardManifestKey string `protobuf:"bytes,4,opt,name=shard_manifest_key,json=shardManifestKey,proto3" json:"shard_manifest_key,omitempty"`
+	BytesUploaded    uint64 `protobuf:"varint,5,opt,name=bytes_uploaded,json=bytesUploaded,proto3" json:"bytes_uploaded,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *BackupShardResponse) Reset() {
+	*x = BackupShardResponse{}
+	mi := &file_internal_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackupShardResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackupShardResponse) ProtoMessage() {}
+
+func (x *BackupShardResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackupShardResponse.ProtoReflect.Descriptor instead.
+func (*BackupShardResponse) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *BackupShardResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *BackupShardResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *BackupShardResponse) GetSegments() []*ShardBackupSegmentEntry {
+	if x != nil {
+		return x.Segments
+	}
+	return nil
+}
+
+func (x *BackupShardResponse) GetShardManifestKey() string {
+	if x != nil {
+		return x.ShardManifestKey
+	}
+	return ""
+}
+
+func (x *BackupShardResponse) GetBytesUploaded() uint64 {
+	if x != nil {
+		return x.BytesUploaded
+	}
+	return 0
+}
+
+type RestoreShardRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Identifier of the backup to restore from. The data-node derives the
+	// shard manifest key as
+	//
+	//	<prefix>/backups/<backup_id>/shards/<shard_id>/shard.manifest.json.
+	BackupId           string        `protobuf:"bytes,1,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
+	TargetCollectionId uint32        `protobuf:"varint,2,opt,name=target_collection_id,json=targetCollectionId,proto3" json:"target_collection_id,omitempty"`
+	ShardId            uint32        `protobuf:"varint,3,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
+	Source             *BackupTarget `protobuf:"bytes,4,opt,name=source,proto3" json:"source,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *RestoreShardRequest) Reset() {
+	*x = RestoreShardRequest{}
+	mi := &file_internal_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestoreShardRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestoreShardRequest) ProtoMessage() {}
+
+func (x *RestoreShardRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestoreShardRequest.ProtoReflect.Descriptor instead.
+func (*RestoreShardRequest) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{58}
+}
+
+func (x *RestoreShardRequest) GetBackupId() string {
+	if x != nil {
+		return x.BackupId
+	}
+	return ""
+}
+
+func (x *RestoreShardRequest) GetTargetCollectionId() uint32 {
+	if x != nil {
+		return x.TargetCollectionId
+	}
+	return 0
+}
+
+func (x *RestoreShardRequest) GetShardId() uint32 {
+	if x != nil {
+		return x.ShardId
+	}
+	return 0
+}
+
+func (x *RestoreShardRequest) GetSource() *BackupTarget {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+type RestoreShardResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Success          bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message          string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	SegmentsRestored uint32                 `protobuf:"varint,3,opt,name=segments_restored,json=segmentsRestored,proto3" json:"segments_restored,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *RestoreShardResponse) Reset() {
+	*x = RestoreShardResponse{}
+	mi := &file_internal_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RestoreShardResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RestoreShardResponse) ProtoMessage() {}
+
+func (x *RestoreShardResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RestoreShardResponse.ProtoReflect.Descriptor instead.
+func (*RestoreShardResponse) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{59}
+}
+
+func (x *RestoreShardResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *RestoreShardResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *RestoreShardResponse) GetSegmentsRestored() uint32 {
+	if x != nil {
+		return x.SegmentsRestored
+	}
+	return 0
+}
+
+// Per-shard write fence. Toggled by the coordinator around the
+// BackupShard call so SEALED segment file mtimes and GROWING segment
+// contents are stable for the duration of the upload. Writes that
+// arrive during a freeze return RESOURCE_EXHAUSTED so clients retry.
+//
+// The freeze auto-expires after lease_ms even if UnfreezeWrites is
+// never called — this caps the blast radius of a coordinator crash
+// mid-backup. The coordinator extends the lease by re-calling
+// FreezeWrites with the same fence_token if the upload exceeds it.
+type FreezeWritesRequest struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	ShardId uint32                 `protobuf:"varint,1,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
+	// Opaque token chosen by the coordinator. UnfreezeWrites must present
+	// the same token, so a stale (e.g. retried) Unfreeze cannot drop a
+	// newer freeze.
+	FenceToken    string `protobuf:"bytes,2,opt,name=fence_token,json=fenceToken,proto3" json:"fence_token,omitempty"`
+	LeaseMs       int64  `protobuf:"varint,3,opt,name=lease_ms,json=leaseMs,proto3" json:"lease_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FreezeWritesRequest) Reset() {
+	*x = FreezeWritesRequest{}
+	mi := &file_internal_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FreezeWritesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FreezeWritesRequest) ProtoMessage() {}
+
+func (x *FreezeWritesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FreezeWritesRequest.ProtoReflect.Descriptor instead.
+func (*FreezeWritesRequest) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *FreezeWritesRequest) GetShardId() uint32 {
+	if x != nil {
+		return x.ShardId
+	}
+	return 0
+}
+
+func (x *FreezeWritesRequest) GetFenceToken() string {
+	if x != nil {
+		return x.FenceToken
+	}
+	return ""
+}
+
+func (x *FreezeWritesRequest) GetLeaseMs() int64 {
+	if x != nil {
+		return x.LeaseMs
+	}
+	return 0
+}
+
+type FreezeWritesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FreezeWritesResponse) Reset() {
+	*x = FreezeWritesResponse{}
+	mi := &file_internal_proto_msgTypes[61]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FreezeWritesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FreezeWritesResponse) ProtoMessage() {}
+
+func (x *FreezeWritesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[61]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FreezeWritesResponse.ProtoReflect.Descriptor instead.
+func (*FreezeWritesResponse) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{61}
+}
+
+func (x *FreezeWritesResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *FreezeWritesResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type UnfreezeWritesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ShardId       uint32                 `protobuf:"varint,1,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
+	FenceToken    string                 `protobuf:"bytes,2,opt,name=fence_token,json=fenceToken,proto3" json:"fence_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnfreezeWritesRequest) Reset() {
+	*x = UnfreezeWritesRequest{}
+	mi := &file_internal_proto_msgTypes[62]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnfreezeWritesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnfreezeWritesRequest) ProtoMessage() {}
+
+func (x *UnfreezeWritesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[62]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnfreezeWritesRequest.ProtoReflect.Descriptor instead.
+func (*UnfreezeWritesRequest) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{62}
+}
+
+func (x *UnfreezeWritesRequest) GetShardId() uint32 {
+	if x != nil {
+		return x.ShardId
+	}
+	return 0
+}
+
+func (x *UnfreezeWritesRequest) GetFenceToken() string {
+	if x != nil {
+		return x.FenceToken
+	}
+	return ""
+}
+
+type UnfreezeWritesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnfreezeWritesResponse) Reset() {
+	*x = UnfreezeWritesResponse{}
+	mi := &file_internal_proto_msgTypes[63]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnfreezeWritesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnfreezeWritesResponse) ProtoMessage() {}
+
+func (x *UnfreezeWritesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_proto_msgTypes[63]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnfreezeWritesResponse.ProtoReflect.Descriptor instead.
+func (*UnfreezeWritesResponse) Descriptor() ([]byte, []int) {
+	return file_internal_proto_rawDescGZIP(), []int{63}
+}
+
+func (x *UnfreezeWritesResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *UnfreezeWritesResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 var File_internal_proto protoreflect.FileDescriptor
 
 const file_internal_proto_rawDesc = "" +
@@ -3392,12 +4233,13 @@ const file_internal_proto_rawDesc = "" +
 	"\x05top_k\x18\x03 \x01(\rR\x04topK\x12\x16\n" +
 	"\x06filter\x18\x04 \x01(\tR\x06filter\x12'\n" +
 	"\x0freturn_metadata\x18\x05 \x01(\bR\x0ereturnMetadata\x126\n" +
-	"\x17prefer_routable_replica\x18\x06 \x01(\bR\x15preferRoutableReplica\"q\n" +
+	"\x17prefer_routable_replica\x18\x06 \x01(\bR\x15preferRoutableReplica\"\x94\x01\n" +
 	"\x14RouteQueryNodeOption\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\rR\x06nodeId\x12!\n" +
 	"\fnode_address\x18\x02 \x01(\tR\vnodeAddress\x12\x1d\n" +
 	"\n" +
-	"is_primary\x18\x03 \x01(\bR\tisPrimary\"x\n" +
+	"is_primary\x18\x03 \x01(\bR\tisPrimary\x12!\n" +
+	"\fprimary_term\x18\x04 \x01(\x04R\vprimaryTerm\"x\n" +
 	"\x16RouteQueryShardOptions\x12\x19\n" +
 	"\bshard_id\x18\x01 \x01(\rR\ashardId\x12C\n" +
 	"\aoptions\x18\x02 \x03(\v2).gvdb.proto.internal.RouteQueryNodeOptionR\aoptions\"\x98\x02\n" +
@@ -3490,7 +4332,66 @@ const file_internal_proto_rawDesc = "" +
 	"\x1aTransferLeadershipResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12*\n" +
-	"\x11current_leader_id\x18\x03 \x01(\x05R\x0fcurrentLeaderId*\x84\x01\n" +
+	"\x11current_leader_id\x18\x03 \x01(\x05R\x0fcurrentLeaderId\"z\n" +
+	"\x13PausePrimaryRequest\x12\x19\n" +
+	"\bshard_id\x18\x01 \x01(\rR\ashardId\x12\x19\n" +
+	"\bnew_term\x18\x02 \x01(\x04R\anewTerm\x12-\n" +
+	"\x13new_primary_node_id\x18\x03 \x01(\rR\x10newPrimaryNodeId\"J\n" +
+	"\x14PausePrimaryResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"M\n" +
+	"\x15PreparePromoteRequest\x12\x19\n" +
+	"\bshard_id\x18\x01 \x01(\rR\ashardId\x12\x19\n" +
+	"\bnew_term\x18\x02 \x01(\x04R\anewTerm\"L\n" +
+	"\x16PreparePromoteResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xd1\x01\n" +
+	"\x12BackupShardRequest\x12\x1b\n" +
+	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\x12#\n" +
+	"\rcollection_id\x18\x02 \x01(\rR\fcollectionId\x12\x19\n" +
+	"\bshard_id\x18\x03 \x01(\rR\ashardId\x120\n" +
+	"\x06target\x18\x04 \x01(\v2\x18.gvdb.proto.BackupTargetR\x06target\x12,\n" +
+	"\x12parent_segment_ids\x18\x05 \x03(\x04R\x10parentSegmentIds\"\xba\x01\n" +
+	"\x17ShardBackupSegmentEntry\x12\x1d\n" +
+	"\n" +
+	"segment_id\x18\x01 \x01(\x04R\tsegmentId\x12\x1d\n" +
+	"\n" +
+	"is_growing\x18\x02 \x01(\bR\tisGrowing\x12!\n" +
+	"\fvector_count\x18\x03 \x01(\x04R\vvectorCount\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x04 \x01(\x04R\tsizeBytes\x12\x1f\n" +
+	"\vobject_keys\x18\x05 \x03(\tR\n" +
+	"objectKeys\"\xe8\x01\n" +
+	"\x13BackupShardResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12H\n" +
+	"\bsegments\x18\x03 \x03(\v2,.gvdb.proto.internal.ShardBackupSegmentEntryR\bsegments\x12,\n" +
+	"\x12shard_manifest_key\x18\x04 \x01(\tR\x10shardManifestKey\x12%\n" +
+	"\x0ebytes_uploaded\x18\x05 \x01(\x04R\rbytesUploaded\"\xb1\x01\n" +
+	"\x13RestoreShardRequest\x12\x1b\n" +
+	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\x120\n" +
+	"\x14target_collection_id\x18\x02 \x01(\rR\x12targetCollectionId\x12\x19\n" +
+	"\bshard_id\x18\x03 \x01(\rR\ashardId\x120\n" +
+	"\x06source\x18\x04 \x01(\v2\x18.gvdb.proto.BackupTargetR\x06source\"w\n" +
+	"\x14RestoreShardResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12+\n" +
+	"\x11segments_restored\x18\x03 \x01(\rR\x10segmentsRestored\"l\n" +
+	"\x13FreezeWritesRequest\x12\x19\n" +
+	"\bshard_id\x18\x01 \x01(\rR\ashardId\x12\x1f\n" +
+	"\vfence_token\x18\x02 \x01(\tR\n" +
+	"fenceToken\x12\x19\n" +
+	"\blease_ms\x18\x03 \x01(\x03R\aleaseMs\"J\n" +
+	"\x14FreezeWritesResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"S\n" +
+	"\x15UnfreezeWritesRequest\x12\x19\n" +
+	"\bshard_id\x18\x01 \x01(\rR\ashardId\x12\x1f\n" +
+	"\vfence_token\x18\x02 \x01(\tR\n" +
+	"fenceToken\"L\n" +
+	"\x16UnfreezeWritesResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage*\x84\x01\n" +
 	"\bNodeType\x12\x15\n" +
 	"\x11NODE_TYPE_UNKNOWN\x10\x00\x12\x19\n" +
 	"\x15NODE_TYPE_COORDINATOR\x10\x01\x12\x17\n" +
@@ -3505,7 +4406,7 @@ const file_internal_proto_rawDesc = "" +
 	"\x10NODE_STATUS_BUSY\x10\x03\x12\x18\n" +
 	"\x14NODE_STATUS_DEGRADED\x10\x04\x12\x14\n" +
 	"\x10NODE_STATUS_DOWN\x10\x05\x12\x18\n" +
-	"\x14NODE_STATUS_DRAINING\x10\x062\xc3\x11\n" +
+	"\x14NODE_STATUS_DRAINING\x10\x062\xaa\x16\n" +
 	"\x0fInternalService\x12`\n" +
 	"\vAssignShard\x12'.gvdb.proto.internal.AssignShardRequest\x1a(.gvdb.proto.internal.AssignShardResponse\x12x\n" +
 	"\x13GetShardAssignments\x12/.gvdb.proto.internal.GetShardAssignmentsRequest\x1a0.gvdb.proto.internal.GetShardAssignmentsResponse\x12l\n" +
@@ -3530,6 +4431,12 @@ const file_internal_proto_rawDesc = "" +
 	"RemovePeer\x12&.gvdb.proto.internal.RemovePeerRequest\x1a'.gvdb.proto.internal.RemovePeerResponse\x12r\n" +
 	"\x11GetRaftMembership\x12-.gvdb.proto.internal.GetRaftMembershipRequest\x1a..gvdb.proto.internal.GetRaftMembershipResponse\x12u\n" +
 	"\x12TransferLeadership\x12..gvdb.proto.internal.TransferLeadershipRequest\x1a/.gvdb.proto.internal.TransferLeadershipResponse\x12c\n" +
+	"\fPausePrimary\x12(.gvdb.proto.internal.PausePrimaryRequest\x1a).gvdb.proto.internal.PausePrimaryResponse\x12i\n" +
+	"\x0ePreparePromote\x12*.gvdb.proto.internal.PreparePromoteRequest\x1a+.gvdb.proto.internal.PreparePromoteResponse\x12`\n" +
+	"\vBackupShard\x12'.gvdb.proto.internal.BackupShardRequest\x1a(.gvdb.proto.internal.BackupShardResponse\x12c\n" +
+	"\fRestoreShard\x12(.gvdb.proto.internal.RestoreShardRequest\x1a).gvdb.proto.internal.RestoreShardResponse\x12c\n" +
+	"\fFreezeWrites\x12(.gvdb.proto.internal.FreezeWritesRequest\x1a).gvdb.proto.internal.FreezeWritesResponse\x12i\n" +
+	"\x0eUnfreezeWrites\x12*.gvdb.proto.internal.UnfreezeWritesRequest\x1a+.gvdb.proto.internal.UnfreezeWritesResponse\x12c\n" +
 	"\fGetTimestamp\x12(.gvdb.proto.internal.GetTimestampRequest\x1a).gvdb.proto.internal.GetTimestampResponseB\x12Z\x10gvdb/internal/pbb\x06proto3"
 
 var (
@@ -3545,7 +4452,7 @@ func file_internal_proto_rawDescGZIP() []byte {
 }
 
 var file_internal_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
+var file_internal_proto_msgTypes = make([]protoimpl.MessageInfo, 64)
 var file_internal_proto_goTypes = []any{
 	(NodeType)(0),                         // 0: gvdb.proto.internal.NodeType
 	(NodeStatus)(0),                       // 1: gvdb.proto.internal.NodeStatus
@@ -3600,7 +4507,21 @@ var file_internal_proto_goTypes = []any{
 	(*GetRaftMembershipResponse)(nil),     // 50: gvdb.proto.internal.GetRaftMembershipResponse
 	(*TransferLeadershipRequest)(nil),     // 51: gvdb.proto.internal.TransferLeadershipRequest
 	(*TransferLeadershipResponse)(nil),    // 52: gvdb.proto.internal.TransferLeadershipResponse
-	(*Metadata)(nil),                      // 53: gvdb.proto.Metadata
+	(*PausePrimaryRequest)(nil),           // 53: gvdb.proto.internal.PausePrimaryRequest
+	(*PausePrimaryResponse)(nil),          // 54: gvdb.proto.internal.PausePrimaryResponse
+	(*PreparePromoteRequest)(nil),         // 55: gvdb.proto.internal.PreparePromoteRequest
+	(*PreparePromoteResponse)(nil),        // 56: gvdb.proto.internal.PreparePromoteResponse
+	(*BackupShardRequest)(nil),            // 57: gvdb.proto.internal.BackupShardRequest
+	(*ShardBackupSegmentEntry)(nil),       // 58: gvdb.proto.internal.ShardBackupSegmentEntry
+	(*BackupShardResponse)(nil),           // 59: gvdb.proto.internal.BackupShardResponse
+	(*RestoreShardRequest)(nil),           // 60: gvdb.proto.internal.RestoreShardRequest
+	(*RestoreShardResponse)(nil),          // 61: gvdb.proto.internal.RestoreShardResponse
+	(*FreezeWritesRequest)(nil),           // 62: gvdb.proto.internal.FreezeWritesRequest
+	(*FreezeWritesResponse)(nil),          // 63: gvdb.proto.internal.FreezeWritesResponse
+	(*UnfreezeWritesRequest)(nil),         // 64: gvdb.proto.internal.UnfreezeWritesRequest
+	(*UnfreezeWritesResponse)(nil),        // 65: gvdb.proto.internal.UnfreezeWritesResponse
+	(*Metadata)(nil),                      // 66: gvdb.proto.Metadata
+	(*BackupTarget)(nil),                  // 67: gvdb.proto.BackupTarget
 }
 var file_internal_proto_depIdxs = []int32{
 	0,  // 0: gvdb.proto.internal.NodeInfo.node_type:type_name -> gvdb.proto.internal.NodeType
@@ -3615,59 +4536,74 @@ var file_internal_proto_depIdxs = []int32{
 	21, // 9: gvdb.proto.internal.GetCollectionMetadataResponse.metadata:type_name -> gvdb.proto.internal.CollectionMetadata
 	27, // 10: gvdb.proto.internal.RouteQueryShardOptions.options:type_name -> gvdb.proto.internal.RouteQueryNodeOption
 	28, // 11: gvdb.proto.internal.RouteQueryResponse.per_shard_options:type_name -> gvdb.proto.internal.RouteQueryShardOptions
-	53, // 12: gvdb.proto.internal.SearchResult.metadata:type_name -> gvdb.proto.Metadata
+	66, // 12: gvdb.proto.internal.SearchResult.metadata:type_name -> gvdb.proto.Metadata
 	31, // 13: gvdb.proto.internal.ExecuteShardQueryResponse.results:type_name -> gvdb.proto.internal.SearchResult
 	2,  // 14: gvdb.proto.internal.HeartbeatRequest.node_info:type_name -> gvdb.proto.internal.NodeInfo
 	36, // 15: gvdb.proto.internal.HeartbeatResponse.shard_primaries:type_name -> gvdb.proto.internal.ShardPrimaryAssignment
 	2,  // 16: gvdb.proto.internal.GetClusterHealthResponse.nodes:type_name -> gvdb.proto.internal.NodeInfo
 	49, // 17: gvdb.proto.internal.GetRaftMembershipResponse.members:type_name -> gvdb.proto.internal.RaftMember
-	4,  // 18: gvdb.proto.internal.InternalService.AssignShard:input_type -> gvdb.proto.internal.AssignShardRequest
-	6,  // 19: gvdb.proto.internal.InternalService.GetShardAssignments:input_type -> gvdb.proto.internal.GetShardAssignmentsRequest
-	8,  // 20: gvdb.proto.internal.InternalService.RebalanceShards:input_type -> gvdb.proto.internal.RebalanceShardsRequest
-	11, // 21: gvdb.proto.internal.InternalService.ReplicateSegment:input_type -> gvdb.proto.internal.ReplicateSegmentRequest
-	13, // 22: gvdb.proto.internal.InternalService.GetSegment:input_type -> gvdb.proto.internal.GetSegmentRequest
-	15, // 23: gvdb.proto.internal.InternalService.ListSegments:input_type -> gvdb.proto.internal.ListSegmentsRequest
-	17, // 24: gvdb.proto.internal.InternalService.DeleteSegment:input_type -> gvdb.proto.internal.DeleteSegmentRequest
-	19, // 25: gvdb.proto.internal.InternalService.CreateSegment:input_type -> gvdb.proto.internal.CreateSegmentRequest
-	22, // 26: gvdb.proto.internal.InternalService.SyncMetadata:input_type -> gvdb.proto.internal.SyncMetadataRequest
-	24, // 27: gvdb.proto.internal.InternalService.GetCollectionMetadata:input_type -> gvdb.proto.internal.GetCollectionMetadataRequest
-	26, // 28: gvdb.proto.internal.InternalService.RouteQuery:input_type -> gvdb.proto.internal.RouteQueryRequest
-	30, // 29: gvdb.proto.internal.InternalService.ExecuteShardQuery:input_type -> gvdb.proto.internal.ExecuteShardQueryRequest
-	33, // 30: gvdb.proto.internal.InternalService.TransferData:input_type -> gvdb.proto.internal.TransferDataRequest
-	35, // 31: gvdb.proto.internal.InternalService.Heartbeat:input_type -> gvdb.proto.internal.HeartbeatRequest
-	38, // 32: gvdb.proto.internal.InternalService.GetClusterHealth:input_type -> gvdb.proto.internal.GetClusterHealthRequest
-	40, // 33: gvdb.proto.internal.InternalService.GetLeaderInfo:input_type -> gvdb.proto.internal.GetLeaderInfoRequest
-	44, // 34: gvdb.proto.internal.InternalService.JoinCluster:input_type -> gvdb.proto.internal.JoinClusterRequest
-	46, // 35: gvdb.proto.internal.InternalService.RemovePeer:input_type -> gvdb.proto.internal.RemovePeerRequest
-	48, // 36: gvdb.proto.internal.InternalService.GetRaftMembership:input_type -> gvdb.proto.internal.GetRaftMembershipRequest
-	51, // 37: gvdb.proto.internal.InternalService.TransferLeadership:input_type -> gvdb.proto.internal.TransferLeadershipRequest
-	42, // 38: gvdb.proto.internal.InternalService.GetTimestamp:input_type -> gvdb.proto.internal.GetTimestampRequest
-	5,  // 39: gvdb.proto.internal.InternalService.AssignShard:output_type -> gvdb.proto.internal.AssignShardResponse
-	7,  // 40: gvdb.proto.internal.InternalService.GetShardAssignments:output_type -> gvdb.proto.internal.GetShardAssignmentsResponse
-	9,  // 41: gvdb.proto.internal.InternalService.RebalanceShards:output_type -> gvdb.proto.internal.RebalanceShardsResponse
-	12, // 42: gvdb.proto.internal.InternalService.ReplicateSegment:output_type -> gvdb.proto.internal.ReplicateSegmentResponse
-	14, // 43: gvdb.proto.internal.InternalService.GetSegment:output_type -> gvdb.proto.internal.GetSegmentResponse
-	16, // 44: gvdb.proto.internal.InternalService.ListSegments:output_type -> gvdb.proto.internal.ListSegmentsResponse
-	18, // 45: gvdb.proto.internal.InternalService.DeleteSegment:output_type -> gvdb.proto.internal.DeleteSegmentResponse
-	20, // 46: gvdb.proto.internal.InternalService.CreateSegment:output_type -> gvdb.proto.internal.CreateSegmentResponse
-	23, // 47: gvdb.proto.internal.InternalService.SyncMetadata:output_type -> gvdb.proto.internal.SyncMetadataResponse
-	25, // 48: gvdb.proto.internal.InternalService.GetCollectionMetadata:output_type -> gvdb.proto.internal.GetCollectionMetadataResponse
-	29, // 49: gvdb.proto.internal.InternalService.RouteQuery:output_type -> gvdb.proto.internal.RouteQueryResponse
-	32, // 50: gvdb.proto.internal.InternalService.ExecuteShardQuery:output_type -> gvdb.proto.internal.ExecuteShardQueryResponse
-	34, // 51: gvdb.proto.internal.InternalService.TransferData:output_type -> gvdb.proto.internal.TransferDataResponse
-	37, // 52: gvdb.proto.internal.InternalService.Heartbeat:output_type -> gvdb.proto.internal.HeartbeatResponse
-	39, // 53: gvdb.proto.internal.InternalService.GetClusterHealth:output_type -> gvdb.proto.internal.GetClusterHealthResponse
-	41, // 54: gvdb.proto.internal.InternalService.GetLeaderInfo:output_type -> gvdb.proto.internal.GetLeaderInfoResponse
-	45, // 55: gvdb.proto.internal.InternalService.JoinCluster:output_type -> gvdb.proto.internal.JoinClusterResponse
-	47, // 56: gvdb.proto.internal.InternalService.RemovePeer:output_type -> gvdb.proto.internal.RemovePeerResponse
-	50, // 57: gvdb.proto.internal.InternalService.GetRaftMembership:output_type -> gvdb.proto.internal.GetRaftMembershipResponse
-	52, // 58: gvdb.proto.internal.InternalService.TransferLeadership:output_type -> gvdb.proto.internal.TransferLeadershipResponse
-	43, // 59: gvdb.proto.internal.InternalService.GetTimestamp:output_type -> gvdb.proto.internal.GetTimestampResponse
-	39, // [39:60] is the sub-list for method output_type
-	18, // [18:39] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	67, // 18: gvdb.proto.internal.BackupShardRequest.target:type_name -> gvdb.proto.BackupTarget
+	58, // 19: gvdb.proto.internal.BackupShardResponse.segments:type_name -> gvdb.proto.internal.ShardBackupSegmentEntry
+	67, // 20: gvdb.proto.internal.RestoreShardRequest.source:type_name -> gvdb.proto.BackupTarget
+	4,  // 21: gvdb.proto.internal.InternalService.AssignShard:input_type -> gvdb.proto.internal.AssignShardRequest
+	6,  // 22: gvdb.proto.internal.InternalService.GetShardAssignments:input_type -> gvdb.proto.internal.GetShardAssignmentsRequest
+	8,  // 23: gvdb.proto.internal.InternalService.RebalanceShards:input_type -> gvdb.proto.internal.RebalanceShardsRequest
+	11, // 24: gvdb.proto.internal.InternalService.ReplicateSegment:input_type -> gvdb.proto.internal.ReplicateSegmentRequest
+	13, // 25: gvdb.proto.internal.InternalService.GetSegment:input_type -> gvdb.proto.internal.GetSegmentRequest
+	15, // 26: gvdb.proto.internal.InternalService.ListSegments:input_type -> gvdb.proto.internal.ListSegmentsRequest
+	17, // 27: gvdb.proto.internal.InternalService.DeleteSegment:input_type -> gvdb.proto.internal.DeleteSegmentRequest
+	19, // 28: gvdb.proto.internal.InternalService.CreateSegment:input_type -> gvdb.proto.internal.CreateSegmentRequest
+	22, // 29: gvdb.proto.internal.InternalService.SyncMetadata:input_type -> gvdb.proto.internal.SyncMetadataRequest
+	24, // 30: gvdb.proto.internal.InternalService.GetCollectionMetadata:input_type -> gvdb.proto.internal.GetCollectionMetadataRequest
+	26, // 31: gvdb.proto.internal.InternalService.RouteQuery:input_type -> gvdb.proto.internal.RouteQueryRequest
+	30, // 32: gvdb.proto.internal.InternalService.ExecuteShardQuery:input_type -> gvdb.proto.internal.ExecuteShardQueryRequest
+	33, // 33: gvdb.proto.internal.InternalService.TransferData:input_type -> gvdb.proto.internal.TransferDataRequest
+	35, // 34: gvdb.proto.internal.InternalService.Heartbeat:input_type -> gvdb.proto.internal.HeartbeatRequest
+	38, // 35: gvdb.proto.internal.InternalService.GetClusterHealth:input_type -> gvdb.proto.internal.GetClusterHealthRequest
+	40, // 36: gvdb.proto.internal.InternalService.GetLeaderInfo:input_type -> gvdb.proto.internal.GetLeaderInfoRequest
+	44, // 37: gvdb.proto.internal.InternalService.JoinCluster:input_type -> gvdb.proto.internal.JoinClusterRequest
+	46, // 38: gvdb.proto.internal.InternalService.RemovePeer:input_type -> gvdb.proto.internal.RemovePeerRequest
+	48, // 39: gvdb.proto.internal.InternalService.GetRaftMembership:input_type -> gvdb.proto.internal.GetRaftMembershipRequest
+	51, // 40: gvdb.proto.internal.InternalService.TransferLeadership:input_type -> gvdb.proto.internal.TransferLeadershipRequest
+	53, // 41: gvdb.proto.internal.InternalService.PausePrimary:input_type -> gvdb.proto.internal.PausePrimaryRequest
+	55, // 42: gvdb.proto.internal.InternalService.PreparePromote:input_type -> gvdb.proto.internal.PreparePromoteRequest
+	57, // 43: gvdb.proto.internal.InternalService.BackupShard:input_type -> gvdb.proto.internal.BackupShardRequest
+	60, // 44: gvdb.proto.internal.InternalService.RestoreShard:input_type -> gvdb.proto.internal.RestoreShardRequest
+	62, // 45: gvdb.proto.internal.InternalService.FreezeWrites:input_type -> gvdb.proto.internal.FreezeWritesRequest
+	64, // 46: gvdb.proto.internal.InternalService.UnfreezeWrites:input_type -> gvdb.proto.internal.UnfreezeWritesRequest
+	42, // 47: gvdb.proto.internal.InternalService.GetTimestamp:input_type -> gvdb.proto.internal.GetTimestampRequest
+	5,  // 48: gvdb.proto.internal.InternalService.AssignShard:output_type -> gvdb.proto.internal.AssignShardResponse
+	7,  // 49: gvdb.proto.internal.InternalService.GetShardAssignments:output_type -> gvdb.proto.internal.GetShardAssignmentsResponse
+	9,  // 50: gvdb.proto.internal.InternalService.RebalanceShards:output_type -> gvdb.proto.internal.RebalanceShardsResponse
+	12, // 51: gvdb.proto.internal.InternalService.ReplicateSegment:output_type -> gvdb.proto.internal.ReplicateSegmentResponse
+	14, // 52: gvdb.proto.internal.InternalService.GetSegment:output_type -> gvdb.proto.internal.GetSegmentResponse
+	16, // 53: gvdb.proto.internal.InternalService.ListSegments:output_type -> gvdb.proto.internal.ListSegmentsResponse
+	18, // 54: gvdb.proto.internal.InternalService.DeleteSegment:output_type -> gvdb.proto.internal.DeleteSegmentResponse
+	20, // 55: gvdb.proto.internal.InternalService.CreateSegment:output_type -> gvdb.proto.internal.CreateSegmentResponse
+	23, // 56: gvdb.proto.internal.InternalService.SyncMetadata:output_type -> gvdb.proto.internal.SyncMetadataResponse
+	25, // 57: gvdb.proto.internal.InternalService.GetCollectionMetadata:output_type -> gvdb.proto.internal.GetCollectionMetadataResponse
+	29, // 58: gvdb.proto.internal.InternalService.RouteQuery:output_type -> gvdb.proto.internal.RouteQueryResponse
+	32, // 59: gvdb.proto.internal.InternalService.ExecuteShardQuery:output_type -> gvdb.proto.internal.ExecuteShardQueryResponse
+	34, // 60: gvdb.proto.internal.InternalService.TransferData:output_type -> gvdb.proto.internal.TransferDataResponse
+	37, // 61: gvdb.proto.internal.InternalService.Heartbeat:output_type -> gvdb.proto.internal.HeartbeatResponse
+	39, // 62: gvdb.proto.internal.InternalService.GetClusterHealth:output_type -> gvdb.proto.internal.GetClusterHealthResponse
+	41, // 63: gvdb.proto.internal.InternalService.GetLeaderInfo:output_type -> gvdb.proto.internal.GetLeaderInfoResponse
+	45, // 64: gvdb.proto.internal.InternalService.JoinCluster:output_type -> gvdb.proto.internal.JoinClusterResponse
+	47, // 65: gvdb.proto.internal.InternalService.RemovePeer:output_type -> gvdb.proto.internal.RemovePeerResponse
+	50, // 66: gvdb.proto.internal.InternalService.GetRaftMembership:output_type -> gvdb.proto.internal.GetRaftMembershipResponse
+	52, // 67: gvdb.proto.internal.InternalService.TransferLeadership:output_type -> gvdb.proto.internal.TransferLeadershipResponse
+	54, // 68: gvdb.proto.internal.InternalService.PausePrimary:output_type -> gvdb.proto.internal.PausePrimaryResponse
+	56, // 69: gvdb.proto.internal.InternalService.PreparePromote:output_type -> gvdb.proto.internal.PreparePromoteResponse
+	59, // 70: gvdb.proto.internal.InternalService.BackupShard:output_type -> gvdb.proto.internal.BackupShardResponse
+	61, // 71: gvdb.proto.internal.InternalService.RestoreShard:output_type -> gvdb.proto.internal.RestoreShardResponse
+	63, // 72: gvdb.proto.internal.InternalService.FreezeWrites:output_type -> gvdb.proto.internal.FreezeWritesResponse
+	65, // 73: gvdb.proto.internal.InternalService.UnfreezeWrites:output_type -> gvdb.proto.internal.UnfreezeWritesResponse
+	43, // 74: gvdb.proto.internal.InternalService.GetTimestamp:output_type -> gvdb.proto.internal.GetTimestampResponse
+	48, // [48:75] is the sub-list for method output_type
+	21, // [21:48] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_internal_proto_init() }
@@ -3686,7 +4622,7 @@ func file_internal_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_proto_rawDesc), len(file_internal_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   51,
+			NumMessages:   64,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

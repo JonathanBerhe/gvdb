@@ -58,6 +58,31 @@ class IInternalServiceClient {
       grpc::ClientContext* context,
       const proto::internal::PreparePromoteRequest& request,
       proto::internal::PreparePromoteResponse* response) = 0;
+
+  // Backup / restore orchestration RPCs. Per-shard fan-out from the
+  // coordinator: FreezeWrites brackets BackupShard; UnfreezeWrites
+  // matches the freeze token. RestoreShard runs the inverse path on
+  // the receiving data-node. All four are idempotent on the data-node
+  // side so coordinator retries are safe.
+  virtual grpc::Status BackupShard(
+      grpc::ClientContext* context,
+      const proto::internal::BackupShardRequest& request,
+      proto::internal::BackupShardResponse* response) = 0;
+
+  virtual grpc::Status RestoreShard(
+      grpc::ClientContext* context,
+      const proto::internal::RestoreShardRequest& request,
+      proto::internal::RestoreShardResponse* response) = 0;
+
+  virtual grpc::Status FreezeWrites(
+      grpc::ClientContext* context,
+      const proto::internal::FreezeWritesRequest& request,
+      proto::internal::FreezeWritesResponse* response) = 0;
+
+  virtual grpc::Status UnfreezeWrites(
+      grpc::ClientContext* context,
+      const proto::internal::UnfreezeWritesRequest& request,
+      proto::internal::UnfreezeWritesResponse* response) = 0;
 };
 
 // Abstract factory for creating IInternalServiceClient instances
@@ -111,6 +136,26 @@ class GrpcInternalServiceClient : public IInternalServiceClient {
       grpc::ClientContext* context,
       const proto::internal::PreparePromoteRequest& request,
       proto::internal::PreparePromoteResponse* response) override;
+
+  grpc::Status BackupShard(
+      grpc::ClientContext* context,
+      const proto::internal::BackupShardRequest& request,
+      proto::internal::BackupShardResponse* response) override;
+
+  grpc::Status RestoreShard(
+      grpc::ClientContext* context,
+      const proto::internal::RestoreShardRequest& request,
+      proto::internal::RestoreShardResponse* response) override;
+
+  grpc::Status FreezeWrites(
+      grpc::ClientContext* context,
+      const proto::internal::FreezeWritesRequest& request,
+      proto::internal::FreezeWritesResponse* response) override;
+
+  grpc::Status UnfreezeWrites(
+      grpc::ClientContext* context,
+      const proto::internal::UnfreezeWritesRequest& request,
+      proto::internal::UnfreezeWritesResponse* response) override;
 
  private:
   std::unique_ptr<proto::internal::InternalService::Stub> stub_;

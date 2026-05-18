@@ -103,6 +103,37 @@ class ProxyService final : public proto::VectorDBService::Service {
                        const proto::GetStatsRequest* request,
                        proto::GetStatsResponse* response) override;
 
+  // Backup and restore → Coordinator (admin-level, multi-shard fan-out)
+  grpc::Status BackupCollection(
+      grpc::ServerContext* context,
+      const proto::BackupCollectionRequest* request,
+      proto::BackupCollectionResponse* response) override;
+
+  grpc::Status RestoreCollection(
+      grpc::ServerContext* context,
+      const proto::RestoreCollectionRequest* request,
+      proto::RestoreCollectionResponse* response) override;
+
+  grpc::Status GetBackupStatus(
+      grpc::ServerContext* context,
+      const proto::GetBackupStatusRequest* request,
+      proto::GetBackupStatusResponse* response) override;
+
+  grpc::Status GetRestoreStatus(
+      grpc::ServerContext* context,
+      const proto::GetRestoreStatusRequest* request,
+      proto::GetRestoreStatusResponse* response) override;
+
+  grpc::Status ListBackups(
+      grpc::ServerContext* context,
+      const proto::ListBackupsRequest* request,
+      proto::ListBackupsResponse* response) override;
+
+  grpc::Status CancelBackup(
+      grpc::ServerContext* context,
+      const proto::CancelBackupRequest* request,
+      proto::CancelBackupResponse* response) override;
+
  private:
   // Backend targets
   std::vector<std::string> coordinator_addrs_;

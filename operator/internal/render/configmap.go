@@ -44,6 +44,12 @@ func ConfigMap(cluster *gvdbv1alpha1.GVDBCluster) *corev1.ConfigMap {
 	fmt.Fprintf(&b, "  wal_buffer_size_mb: %d\n", storage.WalBufferSizeMb)
 	fmt.Fprintf(&b, "  enable_compression: %t\n", storage.EnableCompression)
 	fmt.Fprintf(&b, "  compaction_threads: %d\n", storage.CompactionThreads)
+	// Default LocalBackupTarget allowlist: a subdirectory of the data
+	// PVC so GVDBBackup CRs with a local target work out of the box. A
+	// production deployment should mount a dedicated PVC and override
+	// this via a future CRD field; the current value keeps the
+	// happy-path operator-driven backup useable on a fresh cluster.
+	fmt.Fprintf(&b, "  local_backup_dir: \"/data/gvdb/backups\"\n")
 	fmt.Fprintf(&b, "index:\n")
 	fmt.Fprintf(&b, "  default_index_type: %q\n", index.DefaultIndexType)
 	fmt.Fprintf(&b, "  hnsw_m: %d\n", index.HnswM)

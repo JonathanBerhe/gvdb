@@ -6,8 +6,10 @@
 #include "cluster/node_registry.h"
 #include "cluster/coordinator.h"
 #include "cluster/primary_term_tracker.h"
+#include "cluster/shard_write_gate.h"
 #include "consensus/raft_node.h"
 #include "consensus/timestamp_oracle.h"
+#include "storage/backup_manager.h"
 #include "utils/logger.h"
 #include "utils/timer.h"
 #include "core/types.h"
@@ -1286,6 +1288,155 @@ grpc::Status InternalService::PreparePromote(
 
   response->set_success(true);
   response->set_message("promoted");
+  return grpc::Status::OK;
+}
+
+// =============================================================================
+// Backup / Restore Orchestration (Coordinator → Data Node)
+// =============================================================================
+
+grpc::Status InternalService::BackupShard(
+    grpc::ServerContext* /*context*/,
+    const proto::internal::BackupShardRequest* request,
+    proto::internal::BackupShardResponse* response) {
+  total_requests_++;
+
+  if (!backup_manager_) {
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+        "Backup is not configured on this server");
+  }
+  if (!segment_store_) {
+    return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+        "BackupShard requires a segment store");
+  }
+
+  auto target = fromProto(request->target());
+  if (!target.ok()) {
+    return toGrpcStatus(target.status());
+  }
+
+  auto result = backup_manager_->RunShardBackup(
+      request->backup_id(),
+      core::MakeCollectionId(request->collection_id()),
+      core::MakeShardId(static_cast<uint16_t>(request->shard_id())),
+      /*primary_term=*/0,
+      *target,
+      segment_store_);
+  if (!result.ok()) {
+    total_errors_++;
+    response->set_success(false);
+    response->set_message(std::string(result.status().message()));
+    return toGrpcStatus(result.status());
+  }
+
+  response->set_success(true);
+  response->set_message("Shard backup complete");
+  response->set_shard_manifest_key(result->shard_manifest_key);
+  response->set_bytes_uploaded(result->bytes_uploaded);
+  for (const auto& seg : result->segments) {
+    auto* entry = response->add_segments();
+    entry->set_segment_id(seg.segment_id);
+    entry->set_is_growing(seg.is_growing);
+    entry->set_vector_count(seg.vector_count);
+    entry->set_size_bytes(seg.size_bytes);
+    for (const auto& k : seg.object_keys) entry->add_object_keys(k);
+  }
+  return grpc::Status::OK;
+}
+
+grpc::Status InternalService::RestoreShard(
+    grpc::ServerContext* /*context*/,
+    const proto::internal::RestoreShardRequest* request,
+    proto::internal::RestoreShardResponse* response) {
+  total_requests_++;
+
+  if (!restore_manager_) {
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+        "Restore is not configured on this server");
+  }
+  if (!segment_store_) {
+    return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+        "RestoreShard requires a segment store");
+  }
+
+  auto source = fromProto(request->source());
+  if (!source.ok()) {
+    return toGrpcStatus(source.status());
+  }
+
+  auto status = restore_manager_->RunShardRestore(
+      *source,
+      request->backup_id(),
+      core::MakeCollectionId(request->target_collection_id()),
+      core::MakeShardId(static_cast<uint16_t>(request->shard_id())),
+      segment_store_);
+  if (!status.ok()) {
+    total_errors_++;
+    response->set_success(false);
+    response->set_message(std::string(status.message()));
+    return toGrpcStatus(status);
+  }
+  response->set_success(true);
+  response->set_message("Shard restore complete");
+  // Segment count is captured by the per-shard manifest the caller already
+  // wrote at backup time; we surface zero here and rely on GetRestoreStatus
+  // for progress reporting in a multi-shard restore.
+  return grpc::Status::OK;
+}
+
+grpc::Status InternalService::FreezeWrites(
+    grpc::ServerContext* /*context*/,
+    const proto::internal::FreezeWritesRequest* request,
+    proto::internal::FreezeWritesResponse* response) {
+  total_requests_++;
+
+  if (!shard_write_gate_) {
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+        "Write fence is not configured on this server");
+  }
+  if (request->fence_token().empty()) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+        "fence_token is required");
+  }
+  if (request->lease_ms() <= 0) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+        "lease_ms must be positive");
+  }
+  const auto shard_id =
+      core::MakeShardId(static_cast<uint16_t>(request->shard_id()));
+  const bool ok = shard_write_gate_->Freeze(
+      shard_id, request->fence_token(), request->lease_ms());
+  response->set_success(ok);
+  if (!ok) {
+    response->set_message(
+        "Shard already frozen by another backup token");
+    return grpc::Status::OK;
+  }
+  response->set_message("Writes frozen");
+  return grpc::Status::OK;
+}
+
+grpc::Status InternalService::UnfreezeWrites(
+    grpc::ServerContext* /*context*/,
+    const proto::internal::UnfreezeWritesRequest* request,
+    proto::internal::UnfreezeWritesResponse* response) {
+  total_requests_++;
+
+  if (!shard_write_gate_) {
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
+        "Write fence is not configured on this server");
+  }
+  if (request->fence_token().empty()) {
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+        "fence_token is required");
+  }
+  const auto shard_id =
+      core::MakeShardId(static_cast<uint16_t>(request->shard_id()));
+  const bool ok = shard_write_gate_->Unfreeze(
+      shard_id, request->fence_token());
+  response->set_success(ok);
+  response->set_message(ok ? "Writes unfrozen"
+                            : "No matching freeze for token");
   return grpc::Status::OK;
 }
 

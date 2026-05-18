@@ -1,0 +1,27 @@
+apiVersion: gvdb.io/v1alpha1
+kind: GVDBRestore
+metadata:
+  name: products-restore
+  namespace: default
+spec:
+  clusterRef:
+    name: gvdb-prod
+  # Either reference a sibling GVDBBackup (common case)…
+  fromBackupRef:
+    name: products-nightly
+  # …or specify the source explicitly for DR scenarios where the
+  # backup came from a different cluster:
+  # target:
+  #   s3:
+  #     bucket: gvdb-backups
+  #     prefix: prod
+  # backupID: bk-20260101T000000Z-abc123
+  #
+  # Where to restore into. Empty means "use the collection name from
+  # the backup manifest".
+  targetCollection: products
+  # NewCollection (default): refuses if the target name already exists.
+  # Overwrite: drops the existing collection before recreating from
+  # the backup. In-flight writes during the drop+create window return
+  # NotFound and clients retry.
+  mode: NewCollection

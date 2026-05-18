@@ -708,6 +708,84 @@ set_tests_properties(BulkImportTests PROPERTIES
   TIMEOUT 120
 )
 
+# Backup manifest tests (pure JSON round-trip)
+add_executable(backup_manifest_tests
+  backup_manifest_test.cpp
+)
+
+target_link_libraries(backup_manifest_tests
+  PRIVATE
+    gvdb_storage
+    gvdb_core
+    doctest::doctest_with_main
+)
+
+add_test(NAME BackupManifestTests COMMAND backup_manifest_tests)
+
+set_tests_properties(BackupManifestTests PROPERTIES
+  TIMEOUT 30
+)
+
+# Backup / restore manager tests (single-shard async job, InMemoryObjectStore)
+add_executable(backup_manager_tests
+  backup_manager_test.cpp
+)
+
+target_link_libraries(backup_manager_tests
+  PRIVATE
+    gvdb_storage
+    gvdb_index
+    gvdb_utils
+    gvdb_core
+    doctest::doctest_with_main
+)
+
+add_test(NAME BackupManagerTests COMMAND backup_manager_tests)
+
+set_tests_properties(BackupManagerTests PROPERTIES
+  TIMEOUT 60
+)
+
+# ShardWriteGate tests — per-shard backup freeze fence
+add_executable(shard_write_gate_tests
+  shard_write_gate_test.cpp
+)
+
+target_link_libraries(shard_write_gate_tests
+  PRIVATE
+    gvdb_cluster
+    gvdb_core
+    doctest::doctest_with_main
+)
+
+add_test(NAME ShardWriteGateTests COMMAND shard_write_gate_tests)
+
+set_tests_properties(ShardWriteGateTests PROPERTIES
+  TIMEOUT 30
+)
+
+# Coordinator-orchestrated backup/restore tests
+add_executable(coordinator_backup_tests
+  coordinator_backup_test.cpp
+)
+
+target_link_libraries(coordinator_backup_tests
+  PRIVATE
+    gvdb_cluster
+    gvdb_storage
+    gvdb_network
+    gvdb_consensus
+    gvdb_core
+    proto_lib
+    doctest::doctest_with_main
+)
+
+add_test(NAME CoordinatorBackupTests COMMAND coordinator_backup_tests)
+
+set_tests_properties(CoordinatorBackupTests PROPERTIES
+  TIMEOUT 60
+)
+
 # QueryNode tests
 add_executable(query_node_tests
   query_node_test.cpp

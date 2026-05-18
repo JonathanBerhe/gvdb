@@ -106,6 +106,7 @@ nav:
       - Tiered Storage: features/tiered-storage.md
       - GPU Acceleration: features/gpu-acceleration.md
       - Persistence: features/persistence.md
+      - Backup and Restore: features/backup-restore.md
   - Use Cases:
       - RAG: use-cases/rag.md
       - Semantic Search: use-cases/semantic-search.md
