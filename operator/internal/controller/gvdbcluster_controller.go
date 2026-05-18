@@ -23,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	appsv1apply "k8s.io/client-go/applyconfigurations/apps/v1"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -322,7 +323,7 @@ func (r *GVDBClusterReconciler) reconcileCoordinatorRollout(
 	needsWrite := r.rolloutNeedsWrite(&sts, step, leader.CurrentTerm, observedTerm)
 	if needsWrite {
 		patch := rolloutPatch(&sts, step.Partition, leader.CurrentTerm)
-		if err := r.Patch(ctx, patch, client.Apply,
+		if err := r.Apply(ctx, patch,
 			client.FieldOwner(rolloutFieldManager),
 			client.ForceOwnership,
 		); err != nil {
@@ -377,29 +378,27 @@ func (r *GVDBClusterReconciler) rolloutNeedsWrite(
 	return newTerm != 0 && newTerm != observedTerm
 }
 
-// rolloutPatch builds the minimal SSA fragment the rollout owns.
+// rolloutPatch builds the minimal SSA fragment the rollout owns. We use the
+// generated apply-configuration builders rather than appsv1.StatefulSet —
+// the typed API's Selector and Template fields have no `omitempty`, so
+// marshaling a partial StatefulSet emits `selector: null` and an empty
+// template, which the StatefulSet validator rejects (selector is immutable
+// and required; the empty template's labels don't match the live selector).
 func rolloutPatch(
 	sts *appsv1.StatefulSet, partition *int32, term uint64,
-) *appsv1.StatefulSet {
-	p := &appsv1.StatefulSet{
-		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      sts.Name,
-			Namespace: sts.Namespace,
-		},
-	}
+) *appsv1apply.StatefulSetApplyConfiguration {
+	p := appsv1apply.StatefulSet(sts.Name, sts.Namespace)
 	if partition != nil {
-		p.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{
-			Type: appsv1.RollingUpdateStatefulSetStrategyType,
-			RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{
-				Partition: partition,
-			},
-		}
+		p.WithSpec(appsv1apply.StatefulSetSpec().
+			WithUpdateStrategy(appsv1apply.StatefulSetUpdateStrategy().
+				WithType(appsv1.RollingUpdateStatefulSetStrategyType).
+				WithRollingUpdate(appsv1apply.RollingUpdateStatefulSetStrategy().
+					WithPartition(*partition))))
 	}
 	if term != 0 {
-		p.Annotations = map[string]string{
+		p.WithAnnotations(map[string]string{
 			RolloutObservedTermAnnotation: strconv.FormatUint(term, 10),
-		}
+		})
 	}
 	return p
 }
@@ -488,7 +487,7 @@ func (r *GVDBClusterReconciler) reconcileDataNodeRollout(
 	needsWrite := datanodeRolloutNeedsWrite(&sts, step, newObserved, observedRebalance)
 	if needsWrite {
 		patch := datanodeRolloutPatch(&sts, step.Partition, newObserved)
-		if err := r.Patch(ctx, patch, client.Apply,
+		if err := r.Apply(ctx, patch,
 			client.FieldOwner(datanodeRolloutFieldManager),
 			client.ForceOwnership,
 		); err != nil {
@@ -542,29 +541,24 @@ func datanodeRolloutNeedsWrite(
 }
 
 // datanodeRolloutPatch builds the minimal SSA fragment the data-node
-// rollout owns (partition + observed-rebalance annotation).
+// rollout owns (partition + observed-rebalance annotation). See rolloutPatch
+// for why this uses the apply-configuration builders instead of the typed
+// appsv1.StatefulSet.
 func datanodeRolloutPatch(
 	sts *appsv1.StatefulSet, partition *int32, observedRebalance int64,
-) *appsv1.StatefulSet {
-	p := &appsv1.StatefulSet{
-		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      sts.Name,
-			Namespace: sts.Namespace,
-		},
-	}
+) *appsv1apply.StatefulSetApplyConfiguration {
+	p := appsv1apply.StatefulSet(sts.Name, sts.Namespace)
 	if partition != nil {
-		p.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{
-			Type: appsv1.RollingUpdateStatefulSetStrategyType,
-			RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{
-				Partition: partition,
-			},
-		}
+		p.WithSpec(appsv1apply.StatefulSetSpec().
+			WithUpdateStrategy(appsv1apply.StatefulSetUpdateStrategy().
+				WithType(appsv1.RollingUpdateStatefulSetStrategyType).
+				WithRollingUpdate(appsv1apply.RollingUpdateStatefulSetStrategy().
+					WithPartition(*partition))))
 	}
 	if observedRebalance > 0 {
-		p.Annotations = map[string]string{
+		p.WithAnnotations(map[string]string{
 			DataNodeRolloutObservedRebalanceAnnotation: strconv.FormatInt(observedRebalance, 10),
-		}
+		})
 	}
 	return p
 }
@@ -625,7 +619,7 @@ func (r *GVDBClusterReconciler) reconcileQueryNodeRollout(
 
 	if querynodeRolloutNeedsWrite(&sts, step) {
 		patch := querynodeRolloutPatch(&sts, step.Partition)
-		if err := r.Patch(ctx, patch, client.Apply,
+		if err := r.Apply(ctx, patch,
 			client.FieldOwner(querynodeRolloutFieldManager),
 			client.ForceOwnership,
 		); err != nil {
@@ -657,22 +651,18 @@ func querynodeRolloutNeedsWrite(sts *appsv1.StatefulSet, step QueryNodeRolloutSt
 
 // querynodeRolloutPatch builds the minimal SSA fragment the query-node
 // rollout owns (partition only — no annotation state to persist because
-// the state machine has no ratcheted gates).
-func querynodeRolloutPatch(sts *appsv1.StatefulSet, partition *int32) *appsv1.StatefulSet {
-	p := &appsv1.StatefulSet{
-		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      sts.Name,
-			Namespace: sts.Namespace,
-		},
-	}
+// the state machine has no ratcheted gates). See rolloutPatch for why this
+// uses the apply-configuration builders instead of the typed appsv1.StatefulSet.
+func querynodeRolloutPatch(
+	sts *appsv1.StatefulSet, partition *int32,
+) *appsv1apply.StatefulSetApplyConfiguration {
+	p := appsv1apply.StatefulSet(sts.Name, sts.Namespace)
 	if partition != nil {
-		p.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{
-			Type: appsv1.RollingUpdateStatefulSetStrategyType,
-			RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{
-				Partition: partition,
-			},
-		}
+		p.WithSpec(appsv1apply.StatefulSetSpec().
+			WithUpdateStrategy(appsv1apply.StatefulSetUpdateStrategy().
+				WithType(appsv1.RollingUpdateStatefulSetStrategyType).
+				WithRollingUpdate(appsv1apply.RollingUpdateStatefulSetStrategy().
+					WithPartition(*partition))))
 	}
 	return p
 }
@@ -1123,22 +1113,16 @@ func (r *GVDBClusterReconciler) applyDataNodeScalePatch(
 	ctx context.Context, cluster *gvdbv1alpha1.GVDBCluster,
 	replicas int32, rebalanceTriggerAtMs int64,
 ) error {
-	patch := &appsv1.StatefulSet{
-		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: cluster.Namespace,
-			Name:      render.WorkloadName(cluster, render.DataNodeComponent),
-		},
-		Spec: appsv1.StatefulSetSpec{
-			Replicas: &replicas,
-		},
-	}
+	patch := appsv1apply.StatefulSet(
+		render.WorkloadName(cluster, render.DataNodeComponent),
+		cluster.Namespace,
+	).WithSpec(appsv1apply.StatefulSetSpec().WithReplicas(replicas))
 	if rebalanceTriggerAtMs > 0 {
-		patch.ObjectMeta.Annotations = map[string]string{
+		patch.WithAnnotations(map[string]string{
 			DataNodeScaleLastRebalanceAnnotation: strconv.FormatInt(rebalanceTriggerAtMs, 10),
-		}
+		})
 	}
-	return r.Patch(ctx, patch, client.Apply,
+	return r.Apply(ctx, patch,
 		client.FieldOwner(datanodeScaleFieldManager),
 		client.ForceOwnership,
 	)
