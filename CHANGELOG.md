@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.34.0](https://github.com/JonathanBerhe/gvdb/compare/v0.33.0...v0.34.0) (2026-05-18)
+
+
+### Features
+
+* **backup:** add backup/restore docs, e2e tests, and final wiring fixes ([59df25d](https://github.com/JonathanBerhe/gvdb/commit/59df25d2366bbc4679c468c228800555dbe371ba))
+* **backup:** add backup/restore managers and manifest serialization ([869f80e](https://github.com/JonathanBerhe/gvdb/commit/869f80e73a99a7f6aba66e7b1e6970f255a251ab))
+* **backup:** add backup/restore proto contract and Permission enum entries ([1fdfec0](https://github.com/JonathanBerhe/gvdb/commit/1fdfec00e4a736237c6d80fade9c577c0f73cc5e))
+* **backup:** add GVDBBackup and GVDBRestore CRDs and reconcilers ([7489aa9](https://github.com/JonathanBerhe/gvdb/commit/7489aa9c73779ef2c010b791a51d9875754ef7fe))
+* **backup:** construct backup managers in single-node, data-node, and coordinator binaries ([af5a96a](https://github.com/JonathanBerhe/gvdb/commit/af5a96a6da79d0c2abe63c6d6f88f63736e95505))
+* **backup:** kind+operator e2e test for GVDBBackup and GVDBRestore CRs ([c141ce0](https://github.com/JonathanBerhe/gvdb/commit/c141ce01a98661590fcbf96dbdafb8153178c920))
+* **backup:** orchestrate per-shard backup and restore from coordinator ([cecd237](https://github.com/JonathanBerhe/gvdb/commit/cecd2374bc95477802ccc80d6bad2b671c570169))
+* **backup:** wire backup/restore RPCs in vectordb and internal services ([1263366](https://github.com/JonathanBerhe/gvdb/commit/126336658766118841deb1c52b04f1b5a8b8e34c))
+
+
+### Bug Fixes
+
+* **makefile:** generate-operator-pb cleans up after itself instead of leaving stale stubs ([da4a6de](https://github.com/JonathanBerhe/gvdb/commit/da4a6dec32ef0d88a371f110b4e08ebd6c6c3166))
+* **operator:** retry transient gRPC errors in backup/restore reconcilers ([3343081](https://github.com/JonathanBerhe/gvdb/commit/33430811a0a845507617f7dff99ef8db85771008))
+* **operator:** stop SSA rollout patches from clearing StatefulSet selector ([19d4dae](https://github.com/JonathanBerhe/gvdb/commit/19d4dae69ebc1d5d6cc905ae0845e26c9de63c56))
+* **operator:** unblock kind+CR backup/restore e2e ([5288dd0](https://github.com/JonathanBerhe/gvdb/commit/5288dd0bd22061e3cc4c57a85697ae2818670fbd))
+* **operator:** wire --config /etc/gvdb/config.yaml in coordinator+data-node startup ([86add1b](https://github.com/JonathanBerhe/gvdb/commit/86add1be5875dd6b26ab1af50ca6f0d933d95d35))
+
 ## [0.33.0](https://github.com/JonathanBerhe/gvdb/compare/v0.32.1...v0.33.0) (2026-05-15)
 
 
