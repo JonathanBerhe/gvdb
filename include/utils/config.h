@@ -71,6 +71,12 @@ struct StorageConfig {
   bool object_store_use_ssl = true;
   int object_store_cache_size_mb = 256;
   int object_store_upload_threads = 2;
+
+  // Filesystem path under which LocalBackupTarget paths must live.
+  // Empty (default) disables LocalBackupTarget — only S3 targets work.
+  // Typical production setting: a dedicated PVC the operator mounts at
+  // /var/lib/gvdb/backups, separate from the segment data directory.
+  std::string local_backup_dir;
 };
 
 /**

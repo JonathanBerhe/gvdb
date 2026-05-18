@@ -3,6 +3,8 @@
 # It should be run by config/default
 resources:
 - bases/gvdb.io_gvdbclusters.yaml
+- bases/gvdb.io_gvdbbackups.yaml
+- bases/gvdb.io_gvdbrestores.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

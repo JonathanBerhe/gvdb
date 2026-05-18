@@ -178,6 +178,21 @@ class Segment {
   [[nodiscard]] static core::StatusOr<std::unique_ptr<Segment>> DeserializeFromBytes(
       const std::string& bytes_data);
 
+  // Rebind this segment to a different collection_id. ONLY valid in the
+  // restore path, where a freshly-recreated target collection has a
+  // different collection_id than the one captured in the backup. Must
+  // be called before AddReplicatedSegment (segment is not yet installed
+  // anywhere), and must not be called on a SEALED segment that already
+  // serves queries.
+  void SetCollectionIdForRestore(core::CollectionId collection_id);
+
+  // Rebind this segment to a different segment_id. Same restore-only
+  // contract as SetCollectionIdForRestore: callable on a yet-uninstalled
+  // segment so a restored backup doesn't collide with segment_ids that
+  // are still in use on the target node (a different live collection
+  // can occupy the original id space).
+  void SetSegmentIdForRestore(core::SegmentId segment_id);
+
   // Get all vector IDs in this segment
   [[nodiscard]] std::vector<core::VectorId> GetAllVectorIds() const;
 

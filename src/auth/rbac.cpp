@@ -19,6 +19,9 @@ bool HasPermission(Role role, Permission permission) {
       switch (permission) {
         case Permission::CREATE_COLLECTION:
         case Permission::DROP_COLLECTION:
+        case Permission::RESTORE:
+          // RESTORE materializes a collection (create) or replaces an
+          // existing one (drop+create); gated like CREATE/DROP.
           return false;
         default:
           return true;
@@ -41,6 +44,7 @@ bool HasPermission(Role role, Permission permission) {
       switch (permission) {
         case Permission::CREATE_COLLECTION:
         case Permission::DROP_COLLECTION:
+        case Permission::RESTORE:
           return false;
         default:
           return true;

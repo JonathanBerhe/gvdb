@@ -11,6 +11,9 @@ add_library(gvdb_storage
   tiered_segment_manager.cpp
   npy_reader.cpp
   bulk_importer.cpp
+  backup_manifest.cpp
+  segment_export.cpp
+  backup_manager.cpp
 )
 
 target_include_directories(gvdb_storage

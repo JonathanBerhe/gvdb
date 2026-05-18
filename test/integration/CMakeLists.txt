@@ -158,6 +158,35 @@ set_tests_properties(ProxyIntegrationTests PROPERTIES
   LABELS "integration"
 )
 
+# Backup / restore end-to-end (coord + data-node + proxy)
+add_executable(backup_restore_integration_tests
+  backup_restore_integration_test.cpp
+)
+
+target_link_libraries(backup_restore_integration_tests
+  PRIVATE
+    gvdb_network
+    gvdb_cluster
+    gvdb_consensus
+    gvdb_compute
+    gvdb_storage
+    gvdb_index
+    gvdb_core
+    gvdb_utils
+    proto_lib
+    ${_GRPC_GRPCPP}
+    ${_PROTOBUF_LIBPROTOBUF}
+    doctest::doctest_with_main
+)
+
+add_test(NAME BackupRestoreIntegrationTests
+         COMMAND backup_restore_integration_tests)
+
+set_tests_properties(BackupRestoreIntegrationTests PROPERTIES
+  TIMEOUT 120
+  LABELS "integration"
+)
+
 # Drain-era replica fallback wire-level integration tests
 add_executable(drain_read_fallback_tests
   drain_read_fallback_test.cpp

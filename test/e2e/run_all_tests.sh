@@ -227,6 +227,13 @@ main() {
     if [ -n "$GVDB_S3_ENDPOINT" ]; then
         build_test "S3_Storage" "s3_storage.go" || exit 1
     fi
+    # Backup/restore e2e: only built when a target backend is available
+    # (S3/MinIO via GVDB_S3_ENDPOINT, or a local path via
+    # GVDB_LOCAL_BACKUP_DIR). Skipped on the bare run_all_tests.sh
+    # invocation so the default no-credential lane stays green.
+    if [ -n "$GVDB_S3_ENDPOINT" ] || [ -n "$GVDB_LOCAL_BACKUP_DIR" ]; then
+        build_test "Backup_Restore" "backup_restore.go" || exit 1
+    fi
     log_success "All tests built"
     echo ""
 
@@ -257,6 +264,9 @@ main() {
     # Add S3 test if endpoint is configured
     if [ -n "$GVDB_S3_ENDPOINT" ]; then
         TESTS+=("S3 Storage Test:S3_Storage_test")
+    fi
+    if [ -n "$GVDB_S3_ENDPOINT" ] || [ -n "$GVDB_LOCAL_BACKUP_DIR" ]; then
+        TESTS+=("Backup_Restore Test:Backup_Restore_test")
     fi
 
     for TEST in "${TESTS[@]}"; do

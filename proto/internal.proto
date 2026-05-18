@@ -537,6 +537,105 @@ message PreparePromoteResponse {
 }
 
 // ============================================================================
+// Backup orchestration (Coordinator → Data Node)
+// ============================================================================
+//
+// Backups are coordinator-orchestrated and data-node-local: per shard,
+// the coordinator picks the primary data-node and dispatches BackupShard.
+// The data-node uploads its shard's segments through its already-wired
+// IObjectStore and returns the per-shard manifest's object key plus a
+// flat segment list. The coordinator stitches the top-level manifest
+// only after every shard has succeeded — a partial backup is therefore
+// invisible to a restore (the top-level manifest does not exist).
+//
+// Idempotency: BackupShard and RestoreShard are idempotent on the same
+// (backup_id, shard_id) / (restore_id, shard_id) pair so coordinator
+// retries on transient RPC failure are safe.
+
+message BackupShardRequest {
+  string backup_id = 1;
+  uint32 collection_id = 2;
+  uint32 shard_id = 3;
+  gvdb.proto.BackupTarget target = 4;
+  // For incremental backup: list of segment_ids already captured by the
+  // parent backup. The current implementation leaves this empty (full
+  // backup every time); see BackupCollectionRequest.incremental_from.
+  repeated uint64 parent_segment_ids = 5;
+}
+
+message ShardBackupSegmentEntry {
+  uint64 segment_id = 1;
+  // True iff the segment was in GROWING state at backup time and the
+  // data-node serialized it via Segment::SerializeToBytes under a
+  // shared_lock rather than copying a flushed file.
+  bool is_growing = 2;
+  uint64 vector_count = 3;
+  uint64 size_bytes = 4;
+  // Object keys (or filesystem paths) of every file belonging to this
+  // segment in the target. Restore downloads all of them.
+  repeated string object_keys = 5;
+}
+
+message BackupShardResponse {
+  bool success = 1;
+  string message = 2;
+  repeated ShardBackupSegmentEntry segments = 3;
+  // Object key of the per-shard manifest written by this data-node.
+  // The coordinator records it in the top-level backup manifest.
+  string shard_manifest_key = 4;
+  uint64 bytes_uploaded = 5;
+}
+
+message RestoreShardRequest {
+  // Identifier of the backup to restore from. The data-node derives the
+  // shard manifest key as
+  //   <prefix>/backups/<backup_id>/shards/<shard_id>/shard.manifest.json.
+  string backup_id = 1;
+  uint32 target_collection_id = 2;
+  uint32 shard_id = 3;
+  gvdb.proto.BackupTarget source = 4;
+}
+
+message RestoreShardResponse {
+  bool success = 1;
+  string message = 2;
+  uint32 segments_restored = 3;
+}
+
+// Per-shard write fence. Toggled by the coordinator around the
+// BackupShard call so SEALED segment file mtimes and GROWING segment
+// contents are stable for the duration of the upload. Writes that
+// arrive during a freeze return RESOURCE_EXHAUSTED so clients retry.
+//
+// The freeze auto-expires after lease_ms even if UnfreezeWrites is
+// never called — this caps the blast radius of a coordinator crash
+// mid-backup. The coordinator extends the lease by re-calling
+// FreezeWrites with the same fence_token if the upload exceeds it.
+message FreezeWritesRequest {
+  uint32 shard_id = 1;
+  // Opaque token chosen by the coordinator. UnfreezeWrites must present
+  // the same token, so a stale (e.g. retried) Unfreeze cannot drop a
+  // newer freeze.
+  string fence_token = 2;
+  int64 lease_ms = 3;
+}
+
+message FreezeWritesResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message UnfreezeWritesRequest {
+  uint32 shard_id = 1;
+  string fence_token = 2;
+}
+
+message UnfreezeWritesResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// ============================================================================
 // InternalService - Node-to-Node Communication
 // ============================================================================
 
@@ -587,6 +686,16 @@ service InternalService {
   // Both calls are idempotent so the coordinator can replay on failure.
   rpc PausePrimary(PausePrimaryRequest) returns (PausePrimaryResponse);
   rpc PreparePromote(PreparePromoteRequest) returns (PreparePromoteResponse);
+
+  // Backup and restore orchestration (Coordinator → Data Node).
+  // BackupShard / RestoreShard execute the per-shard half of a backup
+  // or restore against the data-node's local segment store and the
+  // configured IObjectStore. FreezeWrites / UnfreezeWrites bracket the
+  // BackupShard call so segment contents are stable for the upload.
+  rpc BackupShard(BackupShardRequest) returns (BackupShardResponse);
+  rpc RestoreShard(RestoreShardRequest) returns (RestoreShardResponse);
+  rpc FreezeWrites(FreezeWritesRequest) returns (FreezeWritesResponse);
+  rpc UnfreezeWrites(UnfreezeWritesRequest) returns (UnfreezeWritesResponse);
 
   // Timestamp oracle (All Nodes → Coordinator)
   rpc GetTimestamp(GetTimestampRequest) returns (GetTimestampResponse);

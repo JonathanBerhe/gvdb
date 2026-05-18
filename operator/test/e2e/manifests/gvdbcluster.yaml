@@ -1,0 +1,40 @@
+# Minimal GVDBCluster used by the backup/restore e2e. Single coordinator,
+# single data-node, single query-node, single proxy. Image must already
+# be loaded into the kind cluster (the test's BeforeAll does this from
+# the host's `gvdb:latest`).
+#
+# `storage.local_backup_dir` is set via the cluster's ConfigMap so the
+# data-node accepts a LocalBackupTarget pointing at /var/lib/gvdb/backups.
+# The data-node mounts a PVC there; the operator-rendered StatefulSet
+# already provisions per-pod data PVCs and the path lives under the
+# data dir.
+apiVersion: gvdb.io/v1alpha1
+kind: GVDBCluster
+metadata:
+  name: e2e
+  namespace: gvdb-e2e
+spec:
+  image:
+    repository: gvdb
+    tag: latest
+    pullPolicy: IfNotPresent
+  coordinator:
+    replicas: 1
+    storage:
+      size: 200Mi
+  dataNode:
+    replicas: 1
+    memoryLimitGb: 1
+    terminationGracePeriodSeconds: 30
+    storage:
+      size: 500Mi
+  queryNode:
+    replicas: 1
+    memoryLimitGb: 1
+    storage:
+      size: 200Mi
+  proxy:
+    replicas: 1
+    service:
+      type: ClusterIP
+      port: 50050

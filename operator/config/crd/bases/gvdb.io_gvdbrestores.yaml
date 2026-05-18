@@ -1,0 +1,252 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: gvdbrestores.gvdb.io
+spec:
+  group: gvdb.io
+  names:
+    kind: GVDBRestore
+    listKind: GVDBRestoreList
+    plural: gvdbrestores
+    shortNames:
+    - gvdbrst
+    singular: gvdbrestore
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.restoreID
+      name: BackupID
+      type: string
+    - jsonPath: .spec.targetCollection
+      name: Target
+      type: string
+    - jsonPath: .status.shardsCompleted
+      name: Shards
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          GVDBRestore materializes a previously-captured GVDBBackup into a
+          collection in a GVDBCluster. The reconciler dereferences the source
+          (a sibling GVDBBackup or an explicit target+backup_id), dials the
+          cluster's proxy, calls RestoreCollection, and polls GetRestoreStatus
+          until terminal.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: GVDBRestoreSpec is the desired state of a GVDBRestore.
+            properties:
+              backupID:
+                description: |-
+                  BackupID is the server-allocated id from the source backup. Set
+                  alongside Target for DR scenarios. Mutually exclusive with
+                  FromBackupRef.
+                type: string
+              clusterRef:
+                description: ClusterRef points at the GVDBCluster to restore into.
+                  Same-namespace.
+                properties:
+                  name:
+                    description: Name is the metadata.name of the referenced object.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+              fromBackupRef:
+                description: |-
+                  FromBackupRef optionally names a sibling GVDBBackup. When set, the
+                  reconciler dereferences it to its Target+BackupID, so an operator
+                  can restore by saying "this Backup CR" instead of pasting the
+                  target+id manually. Mutually exclusive with `target` + `backupID`
+                  below.
+                properties:
+                  name:
+                    description: Name is the metadata.name of the referenced object.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+              mode:
+                default: NewCollection
+                description: |-
+                  Mode controls drop-and-recreate behavior when the target name
+                  already exists. Defaults to NewCollection (fail on conflict).
+                enum:
+                - NewCollection
+                - Overwrite
+                type: string
+              target:
+                description: |-
+                  Target identifies where the backup artifacts live. Set this for
+                  DR scenarios where the backup was produced by a different cluster
+                  (and so there's no GVDBBackup CR to reference). Mutually exclusive
+                  with FromBackupRef.
+                properties:
+                  local:
+                    description: |-
+                      LocalBackupTarget identifies a filesystem path the data-nodes can write to.
+                      The path must lie under the server-side allowlist configured in
+                      `StorageConfig.local_backup_dir`; the data-node rejects paths that escape it.
+                    properties:
+                      path:
+                        description: |-
+                          Path is the absolute filesystem path on the data-node pod (typically
+                          a PVC mount such as `/var/lib/gvdb/backups`). Must lie under the
+                          server-configured allowlist root.
+                        pattern: ^/.+
+                        type: string
+                    required:
+                    - path
+                    type: object
+                  s3:
+                    description: S3BackupTarget identifies an S3-compatible bucket
+                      the data nodes upload to.
+                    properties:
+                      bucket:
+                        description: |-
+                          Bucket is the destination bucket. The cluster's data-nodes and
+                          coordinator must be configured with credentials for this bucket
+                          (typically via IRSA / Workload Identity); the operator does not
+                          pass credentials in the CR.
+                        minLength: 1
+                        type: string
+                      prefix:
+                        description: |-
+                          Prefix is an optional key prefix under the bucket. Final layout
+                          is `<prefix>/backups/<backup_id>/...`. Empty places artifacts at
+                          the bucket root.
+                        type: string
+                    required:
+                    - bucket
+                    type: object
+                type: object
+              targetCollection:
+                description: |-
+                  TargetCollection names the collection to restore into. Empty
+                  means "use the collection name from the backup manifest".
+                type: string
+            required:
+            - clusterRef
+            type: object
+          status:
+            description: GVDBRestoreStatus is the observed state of a GVDBRestore.
+            properties:
+              completedAt:
+                format: date-time
+                type: string
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                description: |-
+                  Phase reuses GVDBBackupPhase values (Pending / Running / Completed /
+                  Failed). Cancelled is not produced for restores — once the
+                  coordinator's StartRestoreDistributed returns a restore_id, the
+                  operator polls until terminal.
+                type: string
+              restoreID:
+                description: RestoreID is the server-allocated id, set once StartRestore
+                  succeeds.
+                type: string
+              shardsCompleted:
+                format: int32
+                type: integer
+              shardsTotal:
+                format: int32
+                type: integer
+              startedAt:
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

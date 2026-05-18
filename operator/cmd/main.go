@@ -37,6 +37,7 @@ import (
 
 	gvdbv1alpha1 "gvdb/operator/api/v1alpha1"
 	"gvdb/operator/internal/controller"
+	"gvdb/operator/internal/gvdbclient"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -184,6 +185,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Shared gRPC client pool used by every reconciler. Owned by main —
+	// the GVDBCluster reconciler is the historical creator but the
+	// backup/restore reconcilers share the pool so each cluster has one
+	// underlying connection regardless of how many CRs reference it.
+	pool := gvdbclient.NewPool()
+	defer pool.Close()
+
 	if err := (&controller.GVDBClusterReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -191,9 +199,26 @@ func main() {
 		// '-X gvdb/operator/cmd/main.operatorVersion=<ver>' in CI.
 		// Unset here so `go run` falls through to "latest" in ImageRef.
 		DefaultImageTag: operatorVersion,
+		StatsPool:       pool,
 		Recorder:        mgr.GetEventRecorderFor("gvdbcluster-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "GVDBCluster")
+		os.Exit(1)
+	}
+	if err := (&controller.GVDBBackupReconciler{
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		StatsPool: pool,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "GVDBBackup")
+		os.Exit(1)
+	}
+	if err := (&controller.GVDBRestoreReconciler{
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		StatsPool: pool,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "GVDBRestore")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
