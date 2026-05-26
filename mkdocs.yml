@@ -123,6 +123,7 @@ nav:
       - Java Client: connectors/java-client.md
   - Operations:
       - Deploy with Helm: operations/deploy-helm.md
+      - Deploy with the Operator: operations/deploy-operator.md
       - Deploy with Docker: operations/deploy-docker.md
       - Configuration: operations/configuration.md
       - Monitoring: operations/monitoring.md
