@@ -146,9 +146,14 @@ make build-ui
 ./build/bin/gvdb-data-node --node-id 101 --bind-address 0.0.0.0:50060 \
   --coordinator localhost:50051
 
-# Proxy
+# Query node
+./build/bin/gvdb-query-node --node-id 201 --bind-address 0.0.0.0:50070 \
+  --coordinator localhost:50051
+
+# Proxy (data-node routing goes through the coordinator's RouteQuery RPC,
+# so the proxy only needs to know coordinators + query nodes)
 ./build/bin/gvdb-proxy --coordinators localhost:50051 \
-  --data-nodes localhost:50060
+  --query-nodes localhost:50070
 ```
 
 ## Helm Chart Configuration
