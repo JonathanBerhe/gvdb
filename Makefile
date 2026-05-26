@@ -17,7 +17,7 @@
 BUILD_DIR       ?= build
 BUILD_TYPE      ?= Debug
 CLUSTER_NAME    ?= gvdb
-IMAGE_NAME      ?= gvdb:latest
+IMAGE_NAME      ?= ghcr.io/jonathanberhe/gvdb:latest
 HELM_CHART       = deploy/helm/gvdb
 HELM_RELEASE    ?= gvdb
 HELM_NAMESPACE  ?= gvdb
@@ -98,7 +98,7 @@ test-connectors:
 # Kubernetes Operator (Tier 0b.6)
 # ---------------------------------------------------------------------------
 OPERATOR_DIR        ?= operator
-OPERATOR_IMAGE_NAME ?= gvdb-operator:latest
+OPERATOR_IMAGE_NAME ?= ghcr.io/jonathanberhe/gvdb-operator:latest
 HELM_OPERATOR_CHART  = deploy/helm/gvdb-operator
 HELM_OPERATOR_RELEASE ?= gvdb-operator
 HELM_OPERATOR_NAMESPACE ?= gvdb-operator-system
@@ -118,7 +118,8 @@ docker-build-operator:
 
 helm-install-operator:
 	helm install $(HELM_OPERATOR_RELEASE) $(HELM_OPERATOR_CHART) \
-		-n $(HELM_OPERATOR_NAMESPACE) --create-namespace
+		-n $(HELM_OPERATOR_NAMESPACE) --create-namespace \
+		--set image.tag=latest
 
 helm-uninstall-operator:
 	helm uninstall $(HELM_OPERATOR_RELEASE) -n $(HELM_OPERATOR_NAMESPACE)
@@ -160,10 +161,12 @@ docker-build:
 # Helm
 # ---------------------------------------------------------------------------
 helm-install:
-	helm install $(HELM_RELEASE) $(HELM_CHART) -n $(HELM_NAMESPACE) --create-namespace
+	helm install $(HELM_RELEASE) $(HELM_CHART) -n $(HELM_NAMESPACE) --create-namespace \
+		--set image.tag=latest
 
 helm-upgrade:
-	helm upgrade $(HELM_RELEASE) $(HELM_CHART) -n $(HELM_NAMESPACE)
+	helm upgrade $(HELM_RELEASE) $(HELM_CHART) -n $(HELM_NAMESPACE) \
+		--set image.tag=latest
 
 helm-uninstall:
 	helm uninstall $(HELM_RELEASE) -n $(HELM_NAMESPACE)
