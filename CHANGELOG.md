@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.34.1](https://github.com/JonathanBerhe/gvdb/compare/v0.34.0...v0.34.1) (2026-05-26)
+
+
+### Bug Fixes
+
+* **chart:** use full ghcr.io path for default image so public install works ([949ee6e](https://github.com/JonathanBerhe/gvdb/commit/949ee6eef0694bf3fd4c2bef4435f883ed8c09ad))
+* **chart:** use full ghcr.io path for default image so public install works ([de7fe96](https://github.com/JonathanBerhe/gvdb/commit/de7fe96b1bbe0a2e4017343c201a6b013635753c))
+* **readme:** replace removed --data-nodes flag in bare-metal proxy example ([8bcb1a9](https://github.com/JonathanBerhe/gvdb/commit/8bcb1a9c5f5bb00940ce710ff9d49a94ad601a5b))
+* **readme:** replace removed --data-nodes flag in bare-metal proxy example ([12f1d54](https://github.com/JonathanBerhe/gvdb/commit/12f1d54b224b1f52dc2463845bd79539b3f2a829))
+
 ## [0.34.0](https://github.com/JonathanBerhe/gvdb/compare/v0.33.0...v0.34.0) (2026-05-18)
 
 
