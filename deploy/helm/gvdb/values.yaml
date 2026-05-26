@@ -1,5 +1,10 @@
 image:
-  repository: gvdb
+  # Full registry path so `helm install oci://ghcr.io/...` on a fresh
+  # cluster resolves the image without ImagePullBackOff. Override
+  # `image.repository` for forks or air-gapped registries. The Makefile's
+  # `make deploy` (kind) builds and loads `ghcr.io/jonathanberhe/gvdb:latest`
+  # and passes `--set image.tag=latest` so the local image is found.
+  repository: ghcr.io/jonathanberhe/gvdb
   tag: ""          # defaults to Chart appVersion
   pullPolicy: IfNotPresent
 
