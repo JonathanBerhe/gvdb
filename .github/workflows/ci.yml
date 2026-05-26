@@ -254,6 +254,18 @@ jobs:
         if: steps.filter.outputs.gvdb-chart == 'true'
         run: helm template gvdb deploy/helm/gvdb > /dev/null
 
+      # Guard against image.repository regressing to a registry-less
+      # string. A bare `gvdb:tag` resolves to docker.io/library/gvdb on
+      # any fresh cluster and breaks the published `helm install
+      # oci://ghcr.io/...` path with ImagePullBackOff.
+      - name: helm template default image has registry
+        if: steps.filter.outputs.gvdb-chart == 'true'
+        run: |
+          if helm template gvdb deploy/helm/gvdb | grep -E '^\s+image: "[^/]+:'; then
+            echo "ERROR: rendered image lacks a registry prefix"
+            exit 1
+          fi
+
       # Render with every hardening gate flipped on, mimicking a
       # production overlay. Catches regressions in the new
       # NetworkPolicy / PodMonitor / zoneSpread paths.
