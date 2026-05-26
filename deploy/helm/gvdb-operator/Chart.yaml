@@ -2,8 +2,8 @@ apiVersion: v2
 name: gvdb-operator
 description: Kubernetes Operator for the GVDB distributed vector database.
 type: application
-version: 0.34.1 # x-release-please-version
-appVersion: "0.34.1" # x-release-please-version
+version: 0.34.2 # x-release-please-version
+appVersion: "0.34.2" # x-release-please-version
 kubeVersion: ">=1.25.0-0"
 keywords:
   - operator
