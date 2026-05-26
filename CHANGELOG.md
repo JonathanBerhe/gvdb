@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.34.2](https://github.com/JonathanBerhe/gvdb/compare/v0.34.1...v0.34.2) (2026-05-26)
+
+
+### Bug Fixes
+
+* **operator-chart:** use full ghcr.io path for default image ([b56ab14](https://github.com/JonathanBerhe/gvdb/commit/b56ab14e84e4fb8d554e49e937d8746d909de062))
+* **operator-chart:** use full ghcr.io path for default image ([9e0b962](https://github.com/JonathanBerhe/gvdb/commit/9e0b96231804675b3508b29ba9dfd683b074aa55))
+
 ## [0.34.1](https://github.com/JonathanBerhe/gvdb/compare/v0.34.0...v0.34.1) (2026-05-26)
 
 
