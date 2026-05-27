@@ -27,7 +27,17 @@ jobs:
   docker:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
 
@@ -43,17 +53,71 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ steps.meta.outputs.owner }}/gvdb:${{ needs.release-please.outputs.version }}
-            ghcr.io/${{ steps.meta.outputs.owner }}/gvdb:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: ${{ matrix.platform }}
+          provenance: false
+          outputs: type=image,name=ghcr.io/${{ steps.meta.outputs.owner }}/gvdb,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=gvdb-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=gvdb-${{ matrix.arch }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-gvdb-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  docker-merge:
+    needs: [release-please, docker]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lowercase owner
+        id: meta
+        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-gvdb-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push manifest list
+        working-directory: /tmp/digests
+        run: |
+          OWNER='${{ steps.meta.outputs.owner }}'
+          VERSION='${{ needs.release-please.outputs.version }}'
+          docker buildx imagetools create \
+            -t "ghcr.io/${OWNER}/gvdb:${VERSION}" \
+            -t "ghcr.io/${OWNER}/gvdb:latest" \
+            $(printf "ghcr.io/${OWNER}/gvdb@sha256:%s " *)
+
+      - name: Inspect
+        run: |
+          OWNER='${{ steps.meta.outputs.owner }}'
+          VERSION='${{ needs.release-please.outputs.version }}'
+          docker buildx imagetools inspect "ghcr.io/${OWNER}/gvdb:${VERSION}"
 
   helm:
     needs: release-please
@@ -107,6 +171,8 @@ jobs:
         with:
           context: operator
           file: operator/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          provenance: false
           push: true
           tags: |
             ghcr.io/${{ steps.meta.outputs.owner }}/gvdb-operator:${{ needs.release-please.outputs.version }}
