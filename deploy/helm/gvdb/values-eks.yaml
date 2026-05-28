@@ -16,22 +16,24 @@
 #   - A `gp3` StorageClass defined (the EBS CSI add-on installs gp2 by
 #     default on EKS 1.23+; create a gp3 SC and mark it default for the
 #     best price/perf, or override `<workload>.storage.storageClass`).
-#   - IRSA OIDC provider configured for the cluster, with IAM roles for
-#     the data-node and (optionally) coordinator that grant the S3 access
-#     they need for tiered storage / backups.
+#   - An IAM-to-SA binding mechanism for any pods that need AWS access:
+#       - EKS Pod Identity (recommended on new clusters): no annotation
+#         needed, just create the ServiceAccount and run
+#         `aws eks create-pod-identity-association` to bind the role.
+#       - IRSA (legacy): OIDC provider on the cluster plus an
+#         `eks.amazonaws.com/role-arn` annotation on the ServiceAccount.
+#     The data-node typically needs S3 access for tiered storage; the
+#     coordinator needs it only when backup manifests live in S3.
 
 coordinator:
   storage:
     storageClass: gp3
   zoneSpread:
     enabled: true
-  serviceAccount:
-    create: true
-    annotations:
-      # Fill in for coordinator-side backup destination access if you put
-      # backup manifests in S3:
-      # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/gvdb-coordinator
-      {}
+  # The coordinator does not need an AWS-bound ServiceAccount unless you
+  # put backup manifests on S3. If you do, flip create to true and
+  # either annotate with an IRSA role-arn or create a Pod Identity
+  # association against the SA the chart creates.
 
 dataNode:
   storage:
@@ -41,12 +43,12 @@ dataNode:
   zoneSpread:
     enabled: true
   serviceAccount:
+    # Tiered storage to S3 / MinIO usually needs an AWS identity on the
+    # data-node SA. Pod Identity needs no annotation. For IRSA, set:
+    #   annotations:
+    #     eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/gvdb-data-node
     create: true
-    annotations:
-      # Required when tiered storage points at S3 / MinIO running on
-      # S3. Fill in the IRSA role:
-      # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/gvdb-data-node
-      {}
+    annotations: {}
 
 queryNode:
   storage:
