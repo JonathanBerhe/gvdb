@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.36.0](https://github.com/JonathanBerhe/gvdb/compare/v0.35.0...v0.36.0) (2026-05-28)
+
+
+### Features
+
+* **chart:** add opt-in pre-upgrade health-check hook ([b33ba23](https://github.com/JonathanBerhe/gvdb/commit/b33ba23107e468230e20277d1962b8d00ae4150b))
+* **chart:** add opt-in pre-upgrade health-check hook ([1324bab](https://github.com/JonathanBerhe/gvdb/commit/1324bab13f0271294e03de1f2eb122abdd171814))
+
 ## [0.35.0](https://github.com/JonathanBerhe/gvdb/compare/v0.34.2...v0.35.0) (2026-05-28)
 
 
