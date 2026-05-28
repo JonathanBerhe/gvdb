@@ -21,7 +21,11 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "gvdb.coordinator.selectorLabels" . | nindent 8 }}
+        {{- include "gvdb.coordinator.labels" . | nindent 8 }}
+      {{- with .Values.coordinator.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       {{- if or .Values.coordinator.serviceAccount.create .Values.coordinator.serviceAccount.name }}
       serviceAccountName: {{ include "gvdb.coordinator.serviceAccountName" . }}
@@ -51,6 +55,14 @@ spec:
         {{- with .Values.coordinator.topologySpreadConstraints }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+      {{- end }}
+      {{- with .Values.coordinator.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.coordinator.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
         - name: coordinator

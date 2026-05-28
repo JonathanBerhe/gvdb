@@ -14,7 +14,11 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "gvdb.queryNode.selectorLabels" . | nindent 8 }}
+        {{- include "gvdb.queryNode.labels" . | nindent 8 }}
+      {{- with .Values.queryNode.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       {{- if or .Values.queryNode.serviceAccount.create .Values.queryNode.serviceAccount.name }}
       serviceAccountName: {{ include "gvdb.queryNode.serviceAccountName" . }}
@@ -44,6 +48,14 @@ spec:
         {{- with .Values.queryNode.topologySpreadConstraints }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+      {{- end }}
+      {{- with .Values.queryNode.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.queryNode.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
       {{- end }}
       # Give the pod time to send a drain heartbeat to the coordinator and
       # finish in-flight work before K8s sends SIGKILL.
