@@ -250,6 +250,19 @@ security:
     readOnlyRootFilesystem: true
 ```
 
+## Cloud overlays
+
+A starter overlay for AWS EKS ships with the chart at [`deploy/helm/gvdb/values-eks.yaml`](https://github.com/JonathanBerhe/gvdb/blob/main/deploy/helm/gvdb/values-eks.yaml). It sets only the AWS-specific knobs (gp3 storage classes, AWS Load Balancer Controller NLB annotations on the proxy service with an internal scheme, per-workload ServiceAccounts ready for an IRSA `eks.amazonaws.com/role-arn`, zone spread on all stateful workloads). Compose it with your prod values overlay:
+
+```bash
+helm install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
+  --namespace gvdb --create-namespace \
+  -f deploy/helm/gvdb/values-eks.yaml \
+  -f values.prod.yaml
+```
+
+GKE and AKS overlays are not yet shipped.
+
 ## What the chart does **not** surface (yet)
 
 The following are **not Helm-parameterized**. Configure them by mounting a custom `gvdb-config.yaml` ConfigMap / Secret that overrides the values the chart renders, or patch the StatefulSet directly:
