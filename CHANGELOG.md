@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.35.0](https://github.com/JonathanBerhe/gvdb/compare/v0.34.2...v0.35.0) (2026-05-28)
+
+
+### Features
+
+* **chart:** add EKS values overlay with NLB, gp3, and IRSA defaults ([1401397](https://github.com/JonathanBerhe/gvdb/commit/1401397b2f04cd643a74983f9d90e37de35762bd))
+* **chart:** add EKS values overlay with NLB, gp3, and IRSA defaults ([8b73e94](https://github.com/JonathanBerhe/gvdb/commit/8b73e94c636207d42b2cfa218e03efcbe23f3d24))
+
 ## [0.34.2](https://github.com/JonathanBerhe/gvdb/compare/v0.34.1...v0.34.2) (2026-05-26)
 
 
