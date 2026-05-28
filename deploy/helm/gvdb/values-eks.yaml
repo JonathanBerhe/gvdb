@@ -1,0 +1,73 @@
+# AWS EKS overlay for the gvdb chart.
+#
+# Compose with your workload-sizing values to install on EKS:
+#   helm install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
+#     -f values-eks.yaml -f my-prod.yaml
+#
+# Scope: only AWS/EKS specifics (storage classes, NLB annotations, IRSA
+# ServiceAccount placeholders, zone spread). Replica counts, resource
+# sizing, and security contexts belong in your prod values overlay since
+# they are workload-driven, not cloud-driven.
+#
+# Prerequisites on the cluster:
+#   - AWS Load Balancer Controller installed (for the NLB annotations to
+#     take effect; the in-tree cloud controller works too but the
+#     annotation set differs).
+#   - A `gp3` StorageClass defined (the EBS CSI add-on installs gp2 by
+#     default on EKS 1.23+; create a gp3 SC and mark it default for the
+#     best price/perf, or override `<workload>.storage.storageClass`).
+#   - An IAM-to-SA binding mechanism for any pods that need AWS access:
+#       - EKS Pod Identity (recommended on new clusters): no annotation
+#         needed, just create the ServiceAccount and run
+#         `aws eks create-pod-identity-association` to bind the role.
+#       - IRSA (legacy): OIDC provider on the cluster plus an
+#         `eks.amazonaws.com/role-arn` annotation on the ServiceAccount.
+#     The data-node typically needs S3 access for tiered storage; the
+#     coordinator needs it only when backup manifests live in S3.
+
+coordinator:
+  storage:
+    storageClass: gp3
+  zoneSpread:
+    enabled: true
+  # The coordinator does not need an AWS-bound ServiceAccount unless you
+  # put backup manifests on S3. If you do, flip create to true and
+  # either annotate with an IRSA role-arn or create a Pod Identity
+  # association against the SA the chart creates.
+
+dataNode:
+  storage:
+    # gp3 is the price/perf default. Swap to io2 (or io2-block-express)
+    # for very write-heavy clusters that need sustained >16K IOPS.
+    storageClass: gp3
+  zoneSpread:
+    enabled: true
+  serviceAccount:
+    # Tiered storage to S3 / MinIO usually needs an AWS identity on the
+    # data-node SA. Pod Identity needs no annotation. For IRSA, set:
+    #   annotations:
+    #     eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/gvdb-data-node
+    create: true
+    annotations: {}
+
+queryNode:
+  storage:
+    storageClass: gp3
+  zoneSpread:
+    enabled: true
+
+proxy:
+  service:
+    type: LoadBalancer
+    annotations:
+      # AWS Load Balancer Controller annotations. `external` opts out of
+      # the in-tree controller; `ip` targets pod ENIs directly (works
+      # with the VPC CNI and avoids a hop through node ports). Defaults
+      # to an internal-only LB. Flip the scheme to `internet-facing` if
+      # you really want the proxy reachable from the public internet
+      # (combine with TLS + RBAC).
+      service.beta.kubernetes.io/aws-load-balancer-type: external
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+  zoneSpread:
+    enabled: true
