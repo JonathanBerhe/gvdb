@@ -278,6 +278,22 @@ jobs:
             exit 1
           fi
 
+      - name: helm template smoke (EKS overlay)
+        if: steps.filter.outputs.gvdb-chart == 'true'
+        run: |
+          out=$(helm template gvdb deploy/helm/gvdb \
+            -f deploy/helm/gvdb/values-eks.yaml)
+          echo "$out" > /dev/null
+          # The overlay's whole point is that NLB annotations and gp3
+          # storage classes land in the rendered output. If the proxy
+          # service template or a workload's storage block stops plumbing
+          # these, the overlay becomes a no-op and we want the build to
+          # fail loudly.
+          echo "$out" | grep -q 'aws-load-balancer-scheme: internal' || \
+            { echo "ERROR: proxy NLB annotations missing from EKS overlay render"; exit 1; }
+          echo "$out" | grep -q 'storageClassName: "gp3"' || \
+            { echo "ERROR: gp3 storageClassName missing from EKS overlay render"; exit 1; }
+
       # Render with every hardening gate flipped on, mimicking a
       # production overlay. Catches regressions in the new
       # NetworkPolicy / PodMonitor / zoneSpread paths.
