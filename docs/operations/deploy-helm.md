@@ -126,6 +126,11 @@ Each of `coordinator`, `dataNode`, `queryNode`, `proxy` exposes the same shape:
 | `<workload>.serviceAccount.name` | `""` | Override generated name. |
 | `<workload>.serviceAccount.annotations` | `{}` | Cloud IAM annotations: `eks.amazonaws.com/role-arn` (IRSA), `iam.gke.io/gcp-service-account` (Workload Identity), `azure.workload.identity/client-id` (AKS). |
 | `<workload>.priorityClassName` | `""` | Auto-wired to `<release>-<namespace>-<workload>` when `priorityClasses.create=true`. |
+| `<workload>.nodeSelector` | `{}` | Pin pods to nodes matching these labels (e.g. dedicated vector-DB node pool). |
+| `<workload>.tolerations` | `[]` | Tolerate taints on dedicated nodes (`key: dedicated, operator: Exists, effect: NoSchedule`). |
+| `<workload>.podAnnotations` | `{}` | Propagated to pod template metadata for VPA, Datadog, Istio, Velero, Prometheus scrape hints, etc. |
+
+Pods carry the standard recommended labels (`app.kubernetes.io/name`, `instance`, `version`, `component`, `part-of`, `managed-by`) so tools like Prometheus and Loki can scope queries by component (`coordinator`, `data-node`, `query-node`, `proxy`) without relying on the chart-internal `app` selector label.
 
 Example: 3 coordinator replicas across 3 AZs, with a PDB protecting Raft quorum.
 

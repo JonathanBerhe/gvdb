@@ -61,6 +61,13 @@ coordinator:
     name: ""
     annotations: {}  # populate with IRSA / Workload Identity / Azure WI
   priorityClassName: ""  # set to <release>-coordinator when priorityClasses.create=true
+  # Pod-scheduling primitives. Empty defaults preserve the chart's
+  # current behavior; populate from a production overlay to pin pods to
+  # specific nodes / tolerate taints / forward podAnnotations to tools
+  # like VPA, Datadog, Istio, or Velero.
+  nodeSelector: {}
+  tolerations: []
+  podAnnotations: {}
 
 dataNode:
   replicas: 2
@@ -97,6 +104,9 @@ dataNode:
     name: ""
     annotations: {}  # e.g. eks.amazonaws.com/role-arn: ... for S3 access
   priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  podAnnotations: {}
 
 queryNode:
   replicas: 1
@@ -129,6 +139,9 @@ queryNode:
     name: ""
     annotations: {}
   priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  podAnnotations: {}
 
 proxy:
   replicas: 1
@@ -164,6 +177,9 @@ proxy:
     name: ""
     annotations: {}
   priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  podAnnotations: {}
 
 # Pod- and container-level security contexts applied to every workload.
 # Empty by default to preserve existing behavior; populate in a

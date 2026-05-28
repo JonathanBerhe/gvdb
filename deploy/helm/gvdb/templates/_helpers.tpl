@@ -25,6 +25,9 @@ Container image with tag (falls back to appVersion)
 Common labels
 */}}
 {{- define "gvdb.labels" -}}
+app.kubernetes.io/name: gvdb
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: gvdb
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
@@ -35,6 +38,7 @@ Coordinator labels
 */}}
 {{- define "gvdb.coordinator.labels" -}}
 {{ include "gvdb.labels" . }}
+app.kubernetes.io/component: coordinator
 app: {{ include "gvdb.fullname" . }}-coordinator
 {{- end }}
 
@@ -47,6 +51,7 @@ Data node labels
 */}}
 {{- define "gvdb.dataNode.labels" -}}
 {{ include "gvdb.labels" . }}
+app.kubernetes.io/component: data-node
 app: {{ include "gvdb.fullname" . }}-data-node
 {{- end }}
 
@@ -59,6 +64,7 @@ Query node labels
 */}}
 {{- define "gvdb.queryNode.labels" -}}
 {{ include "gvdb.labels" . }}
+app.kubernetes.io/component: query-node
 app: {{ include "gvdb.fullname" . }}-query-node
 {{- end }}
 
@@ -71,6 +77,7 @@ Proxy labels
 */}}
 {{- define "gvdb.proxy.labels" -}}
 {{ include "gvdb.labels" . }}
+app.kubernetes.io/component: proxy
 app: {{ include "gvdb.fullname" . }}-proxy
 {{- end }}
 
