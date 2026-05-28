@@ -143,6 +143,9 @@ proxy:
     type: ClusterIP
     port: 50050
     nodePort: ""
+    # Service-level annotations. Populate from a cloud overlay
+    # (values-eks.yaml etc.) for AWS NLB / GCP ILB / Azure ILB tuning.
+    annotations: {}
   # Hardening primitives. The proxy is stateless, so zoneSpread defaults
   # to whenUnsatisfiable: ScheduleAnyway (availability over balance).
   podDisruptionBudget:
