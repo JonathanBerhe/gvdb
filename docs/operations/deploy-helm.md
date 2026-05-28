@@ -263,6 +263,12 @@ helm install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
 
 GKE and AKS overlays are not yet shipped.
 
+## Pre-upgrade health check
+
+Set `preUpgradeHook.enabled: true` to install a Helm `pre-upgrade` hook that verifies every GVDB workload is healthy before the upgrade proceeds. The hook is a short-lived `Job` (with a scoped `ServiceAccount` + `Role` + `RoleBinding` scoped to `get` on `statefulsets` and `deployments` in the release namespace) that runs `kubectl rollout status` against the coordinator, data-node, and query-node StatefulSets and the proxy Deployment. If any one is mid-rollout or missing Ready replicas past `preUpgradeHook.timeoutSeconds` (default 60s per workload), the hook exits non-zero and Helm aborts the upgrade.
+
+The hook does not run on `helm install` (only `helm upgrade`), and the SA/Role/RoleBinding/Job are deleted automatically on success (`helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded`). Pin `preUpgradeHook.image` to a `bitnami/kubectl` tag compatible with your cluster's K8s minor version.
+
 ## What the chart does **not** surface (yet)
 
 The following are **not Helm-parameterized**. Configure them by mounting a custom `gvdb-config.yaml` ConfigMap / Secret that overrides the values the chart renders, or patch the StatefulSet directly:
@@ -273,7 +279,6 @@ The following are **not Helm-parameterized**. Configure them by mounting a custo
 - **cert-manager `Certificate`** for inter-node mTLS
 - **External Secrets Operator** integration (AWS Secrets Manager / GCP Secret Manager / Azure Key Vault sync)
 - **Ingress / Gateway API** — gRPC ingress with TLS termination
-- **Pre-upgrade health-check hook** (Helm `pre-upgrade` Job calling coordinator `GetClusterHealth`)
 - **Object storage** (S3 / MinIO) for [tiered storage](../features/tiered-storage.md) — the server supports it, but the chart doesn't expose the knobs
 
 Contributions to expose these in the Helm chart are welcome.

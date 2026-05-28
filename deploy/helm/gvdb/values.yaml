@@ -254,6 +254,22 @@ metrics:
     # `prometheus: <name>`).
     additionalLabels: {}
 
+# Helm pre-upgrade hook. When enabled, every `helm upgrade` runs a short
+# Job that verifies each GVDB workload's rollout is complete (all desired
+# replicas Ready, no in-flight rolling update) before the upgrade
+# proceeds. The hook uses kubectl against the K8s API; the chart provides
+# a scoped ServiceAccount + Role + RoleBinding alongside the Job. Default
+# off so fresh installs and dev clusters are unaffected.
+preUpgradeHook:
+  enabled: false
+  # kubectl image. Pin to a tag compatible with your cluster's K8s minor
+  # version to avoid version-skew surprises in jsonpath/status fields.
+  image: bitnami/kubectl:1.32
+  # Per-workload timeout passed to `kubectl rollout status --timeout`.
+  # If any workload's rollout is still progressing after this window, the
+  # hook fails and Helm aborts the upgrade.
+  timeoutSeconds: 60
+
 config:
   server:
     maxMessageSizeMb: 256

@@ -293,6 +293,22 @@ jobs:
           echo "$out" | grep -q 'storageClassName: "gp3"' || \
             { echo "ERROR: gp3 storageClassName missing from EKS overlay render"; exit 1; }
 
+      - name: helm template smoke (pre-upgrade hook)
+        if: steps.filter.outputs.gvdb-chart == 'true'
+        run: |
+          out=$(helm template gvdb deploy/helm/gvdb \
+            --set preUpgradeHook.enabled=true)
+          # Hook is gated on a single flag; when enabled it must emit the
+          # SA + Role + RoleBinding + Job all annotated with helm.sh/hook
+          # pre-upgrade. Catches regressions where the gate, RBAC, or
+          # hook annotations get dropped silently.
+          echo "$out" | grep -qE 'helm\.sh/hook: "?pre-upgrade"?' || \
+            { echo "ERROR: pre-upgrade hook annotation missing"; exit 1; }
+          echo "$out" | grep -q 'name: gvdb-pre-upgrade$' || \
+            { echo "ERROR: pre-upgrade ServiceAccount/Role/RoleBinding missing"; exit 1; }
+          echo "$out" | grep -q 'kubectl .* rollout status' || \
+            { echo "ERROR: pre-upgrade Job rollout check missing"; exit 1; }
+
       # Render with every hardening gate flipped on, mimicking a
       # production overlay. Catches regressions in the new
       # NetworkPolicy / PodMonitor / zoneSpread paths.
@@ -303,6 +319,7 @@ jobs:
             --set networkPolicy.enabled=true \
             --set 'networkPolicy.proxy.clientCIDRs={10.0.0.0/8}' \
             --set metrics.serviceMonitor.enabled=true \
+            --set preUpgradeHook.enabled=true \
             --set coordinator.replicas=3 \
             --set coordinator.zoneSpread.enabled=true \
             --set dataNode.zoneSpread.enabled=true \
