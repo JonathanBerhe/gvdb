@@ -283,7 +283,6 @@ jobs:
         run: |
           out=$(helm template gvdb deploy/helm/gvdb \
             -f deploy/helm/gvdb/values-eks.yaml)
-          echo "$out" > /dev/null
           # The overlay's whole point is that NLB annotations and gp3
           # storage classes land in the rendered output. If the proxy
           # service template or a workload's storage block stops plumbing

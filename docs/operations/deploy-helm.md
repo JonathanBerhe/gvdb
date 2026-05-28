@@ -252,7 +252,7 @@ security:
 
 ## Cloud overlays
 
-A starter overlay for AWS EKS ships with the chart at [`deploy/helm/gvdb/values-eks.yaml`](https://github.com/JonathanBerhe/gvdb/blob/main/deploy/helm/gvdb/values-eks.yaml). It sets only the AWS-specific knobs (gp3 storage classes, AWS Load Balancer Controller NLB annotations on the proxy service with an internal scheme, per-workload ServiceAccounts ready for an IRSA `eks.amazonaws.com/role-arn`, zone spread on all stateful workloads). Compose it with your prod values overlay:
+A starter overlay for AWS EKS ships with the chart at [`deploy/helm/gvdb/values-eks.yaml`](https://github.com/JonathanBerhe/gvdb/blob/main/deploy/helm/gvdb/values-eks.yaml). It sets only the AWS-specific knobs (gp3 storage classes, AWS Load Balancer Controller NLB annotations on the proxy service with an internal scheme, a data-node ServiceAccount ready for either EKS Pod Identity or an IRSA `eks.amazonaws.com/role-arn`, zone spread on all stateful workloads). Compose it with your prod values overlay:
 
 ```bash
 helm install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
