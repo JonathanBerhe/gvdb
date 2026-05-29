@@ -252,6 +252,40 @@ networkPolicy:
     extraFrom: []     # additional 'from' entries (podSelector / namespaceSelector)
     extraEgress: []
 
+# External access to the proxy via an Ingress (legacy nginx / ALB / GCE)
+# or a Gateway API GRPCRoute (Kubernetes 1.28+ with a Gateway API
+# implementation). Default off so the chart installs without depending
+# on either CRD set. gRPC needs the right backend-protocol annotation on
+# legacy Ingress controllers; populate ingress.annotations accordingly.
+ingress:
+  enabled: false
+  # "Ingress" (networking.k8s.io/v1) or "GRPCRoute" (gateway.networking.k8s.io/v1).
+  kind: Ingress
+  # Hostname clients use to reach the proxy. Required when enabled.
+  host: ""
+  # IngressClass to bind to. Empty leaves the cluster-default class. Used
+  # only when kind: Ingress.
+  className: ""
+  # Annotations on the Ingress object. Used only when kind: Ingress.
+  # nginx example:
+  #   nginx.ingress.kubernetes.io/backend-protocol: GRPC
+  #   nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  # AWS ALB example:
+  #   alb.ingress.kubernetes.io/backend-protocol-version: GRPC
+  #   alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+  annotations: {}
+  # TLS termination at the Ingress (kind: Ingress only). The Secret must
+  # exist in the release namespace and carry tls.crt / tls.key. Empty
+  # secretName disables TLS at the ingress hop.
+  tls:
+    secretName: ""
+  # Gateway API binding (kind: GRPCRoute only). The Gateway must already
+  # exist in the cluster.
+  gateway:
+    name: ""
+    namespace: ""     # empty means same namespace as the release
+    sectionName: ""   # optional: a specific listener on the Gateway
+
 # Prometheus Operator integration. Default off so the chart installs
 # cleanly on clusters without the Operator CRDs. Enable when
 # kube-prometheus-stack is present.
