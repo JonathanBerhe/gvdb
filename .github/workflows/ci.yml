@@ -331,6 +331,38 @@ jobs:
           echo "$out" | grep -q 'example.io/scrape:' || \
             { echo "ERROR: proxy.podAnnotations not threaded into pod template"; exit 1; }
 
+      - name: helm template smoke (ingress + GRPCRoute)
+        if: steps.filter.outputs.gvdb-chart == 'true'
+        run: |
+          # Ingress kind: legacy nginx-style with gRPC backend-protocol
+          # annotation, IngressClass and TLS secret reference.
+          ing=$(helm template gvdb deploy/helm/gvdb \
+            --set ingress.enabled=true \
+            --set ingress.host=gvdb.example.com \
+            --set ingress.className=nginx \
+            --set ingress.tls.secretName=gvdb-tls \
+            --set 'ingress.annotations.nginx\.ingress\.kubernetes\.io/backend-protocol=GRPC')
+          echo "$ing" | grep -q '^kind: Ingress$' || \
+            { echo "ERROR: Ingress kind not emitted"; exit 1; }
+          echo "$ing" | grep -q 'backend-protocol: GRPC' || \
+            { echo "ERROR: gRPC backend-protocol annotation missing"; exit 1; }
+          echo "$ing" | grep -q 'secretName: gvdb-tls' || \
+            { echo "ERROR: TLS secret reference missing"; exit 1; }
+          # GRPCRoute kind: Gateway API binding with parentRefs.
+          gr=$(helm template gvdb deploy/helm/gvdb \
+            --set ingress.enabled=true \
+            --set ingress.kind=GRPCRoute \
+            --set ingress.host=gvdb.example.com \
+            --set ingress.gateway.name=public-gw)
+          echo "$gr" | grep -q '^kind: GRPCRoute$' || \
+            { echo "ERROR: GRPCRoute kind not emitted"; exit 1; }
+          echo "$gr" | grep -q 'name: public-gw' || \
+            { echo "ERROR: GRPCRoute parentRefs missing"; exit 1; }
+          # Required host enforcement: enabling without ingress.host fails fast.
+          if helm template gvdb deploy/helm/gvdb --set ingress.enabled=true 2>/dev/null; then
+            echo "ERROR: ingress.enabled without ingress.host should fail"; exit 1
+          fi
+
       # Render with every hardening gate flipped on, mimicking a
       # production overlay. Catches regressions in the new
       # NetworkPolicy / PodMonitor / zoneSpread paths.
