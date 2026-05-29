@@ -13,7 +13,11 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "gvdb.proxy.selectorLabels" . | nindent 8 }}
+        {{- include "gvdb.proxy.labels" . | nindent 8 }}
+      {{- with .Values.proxy.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       {{- if or .Values.proxy.serviceAccount.create .Values.proxy.serviceAccount.name }}
       serviceAccountName: {{ include "gvdb.proxy.serviceAccountName" . }}
@@ -43,6 +47,14 @@ spec:
         {{- with .Values.proxy.topologySpreadConstraints }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+      {{- end }}
+      {{- with .Values.proxy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.proxy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
       {{- end }}
       initContainers:
         - name: wait-for-coordinator
