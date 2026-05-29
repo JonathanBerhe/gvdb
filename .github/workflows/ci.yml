@@ -309,6 +309,28 @@ jobs:
           echo "$out" | grep -q 'kubectl .* rollout status' || \
             { echo "ERROR: pre-upgrade Job rollout check missing"; exit 1; }
 
+      - name: helm template smoke (pod hardening)
+        if: steps.filter.outputs.gvdb-chart == 'true'
+        run: |
+          # Component label must land on every workload's pods, and the
+          # per-workload nodeSelector / tolerations / podAnnotations
+          # must thread into the rendered pod spec when set.
+          out=$(helm template gvdb deploy/helm/gvdb \
+            --set 'coordinator.nodeSelector.role=gvdb' \
+            --set 'dataNode.tolerations[0].key=dedicated' \
+            --set 'dataNode.tolerations[0].operator=Exists' \
+            --set 'proxy.podAnnotations.example\.io/scrape=true')
+          for c in coordinator data-node query-node proxy; do
+            echo "$out" | grep -q "app.kubernetes.io/component: $c" || \
+              { echo "ERROR: component label missing for $c"; exit 1; }
+          done
+          echo "$out" | grep -q 'role: gvdb' || \
+            { echo "ERROR: coordinator.nodeSelector not threaded into pod spec"; exit 1; }
+          echo "$out" | grep -q 'key: dedicated' || \
+            { echo "ERROR: dataNode.tolerations not threaded into pod spec"; exit 1; }
+          echo "$out" | grep -q 'example.io/scrape:' || \
+            { echo "ERROR: proxy.podAnnotations not threaded into pod template"; exit 1; }
+
       # Render with every hardening gate flipped on, mimicking a
       # production overlay. Catches regressions in the new
       # NetworkPolicy / PodMonitor / zoneSpread paths.
