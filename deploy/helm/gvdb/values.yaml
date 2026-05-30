@@ -270,9 +270,12 @@ ingress:
   # nginx example:
   #   nginx.ingress.kubernetes.io/backend-protocol: GRPC
   #   nginx.ingress.kubernetes.io/ssl-redirect: "true"
-  # AWS ALB example:
+  # AWS ALB example (with AWS Load Balancer Controller):
   #   alb.ingress.kubernetes.io/backend-protocol-version: GRPC
+  #   alb.ingress.kubernetes.io/scheme: internal           # or internet-facing
+  #   alb.ingress.kubernetes.io/target-type: ip            # pod IPs via VPC CNI
   #   alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+  #   alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:...
   annotations: {}
   # TLS termination at the Ingress (kind: Ingress only). The Secret must
   # exist in the release namespace and carry tls.crt / tls.key. Empty
