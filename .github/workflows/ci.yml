@@ -348,19 +348,35 @@ jobs:
             { echo "ERROR: gRPC backend-protocol annotation missing"; exit 1; }
           echo "$ing" | grep -q 'secretName: gvdb-tls' || \
             { echo "ERROR: TLS secret reference missing"; exit 1; }
-          # GRPCRoute kind: Gateway API binding with parentRefs.
+          # GRPCRoute kind: Gateway API binding with the full set of
+          # parentRefs fields exercised (namespace + sectionName) so the
+          # optional {{- with }} branches don't silently regress.
           gr=$(helm template gvdb deploy/helm/gvdb \
             --set ingress.enabled=true \
             --set ingress.kind=GRPCRoute \
             --set ingress.host=gvdb.example.com \
-            --set ingress.gateway.name=public-gw)
+            --set ingress.gateway.name=public-gw \
+            --set ingress.gateway.namespace=gateway-system \
+            --set ingress.gateway.sectionName=grpc)
           echo "$gr" | grep -q '^kind: GRPCRoute$' || \
             { echo "ERROR: GRPCRoute kind not emitted"; exit 1; }
-          echo "$gr" | grep -q 'name: public-gw' || \
-            { echo "ERROR: GRPCRoute parentRefs missing"; exit 1; }
+          echo "$gr" | grep -q 'name: "public-gw"' || \
+            { echo "ERROR: GRPCRoute parentRefs.name missing"; exit 1; }
+          echo "$gr" | grep -q 'namespace: "gateway-system"' || \
+            { echo "ERROR: GRPCRoute parentRefs.namespace missing"; exit 1; }
+          echo "$gr" | grep -q 'sectionName: "grpc"' || \
+            { echo "ERROR: GRPCRoute parentRefs.sectionName missing"; exit 1; }
           # Required host enforcement: enabling without ingress.host fails fast.
           if helm template gvdb deploy/helm/gvdb --set ingress.enabled=true 2>/dev/null; then
             echo "ERROR: ingress.enabled without ingress.host should fail"; exit 1
+          fi
+          # ingress.kind validation: a typo'd kind must fail-fast, not
+          # silently fall through to Ingress.
+          if helm template gvdb deploy/helm/gvdb \
+            --set ingress.enabled=true \
+            --set ingress.host=gvdb.example.com \
+            --set ingress.kind=Route 2>/dev/null; then
+            echo "ERROR: invalid ingress.kind should fail"; exit 1
           fi
 
       # Render with every hardening gate flipped on, mimicking a
