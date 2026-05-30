@@ -346,7 +346,7 @@ jobs:
             { echo "ERROR: Ingress kind not emitted"; exit 1; }
           echo "$ing" | grep -q 'backend-protocol: GRPC' || \
             { echo "ERROR: gRPC backend-protocol annotation missing"; exit 1; }
-          echo "$ing" | grep -q 'secretName: gvdb-tls' || \
+          echo "$ing" | grep -q 'secretName: "gvdb-tls"' || \
             { echo "ERROR: TLS secret reference missing"; exit 1; }
           # GRPCRoute kind: Gateway API binding with the full set of
           # parentRefs fields exercised (namespace + sectionName) so the
