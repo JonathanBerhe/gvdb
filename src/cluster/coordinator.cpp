@@ -440,6 +440,36 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
     auto* client = GetOrCreateDataNodeClient(*primary_result);
     if (!client) continue;
 
+    // Push the initial primary record before creating the segment. The
+    // data-node's write gate only accepts a write whose stamped term
+    // exactly matches its local record, and without this push the
+    // record arrives on the next heartbeat cycle, leaving a multi-
+    // second window where create -> insert bounces with "no primary
+    // record" (fresh node) or a stale-term ABORTED (warm node, since
+    // assignment bumped the term). Best-effort: a failed push is
+    // healed by the heartbeat path, so warn and continue rather than
+    // failing the create.
+    auto view = shard_manager_->GetPrimaryNodeAndTerm(shard_id);
+    if (view.ok()) {
+      proto::internal::PreparePromoteRequest promote_req;
+      promote_req.set_shard_id(core::ToUInt16(shard_id));
+      promote_req.set_new_term(view->term);
+      proto::internal::PreparePromoteResponse promote_resp;
+      grpc::ClientContext promote_ctx;
+      promote_ctx.set_deadline(std::chrono::system_clock::now() +
+                               std::chrono::seconds(2));
+      auto promote_status =
+          client->PreparePromote(&promote_ctx, promote_req, &promote_resp);
+      if (!promote_status.ok() || !promote_resp.success()) {
+        utils::Logger::Instance().Warn(
+            "CreateCollection: initial PreparePromote for shard {} on node {} "
+            "did not apply ({}); write gate will sync via heartbeat",
+            core::ToUInt16(shard_id), core::ToUInt32(*primary_result),
+            promote_status.ok() ? promote_resp.message()
+                                : promote_status.error_message());
+      }
+    }
+
     proto::internal::CreateSegmentRequest request;
     request.set_segment_id(static_cast<uint64_t>(core::ToUInt32(seg_id)));
     request.set_collection_id(core::ToUInt32(collection_id));
