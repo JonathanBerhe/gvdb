@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.38.0](https://github.com/JonathanBerhe/gvdb/compare/v0.37.0...v0.38.0) (2026-07-05)
+
+
+### Features
+
+* **chart:** add opt-in Ingress and Gateway API GRPCRoute templates ([bdb81a0](https://github.com/JonathanBerhe/gvdb/commit/bdb81a0852906541773a852dc282634bcf890857))
+
+
+### Bug Fixes
+
+* **cluster:** close the create-to-insert window on fresh collections ([27e4525](https://github.com/JonathanBerhe/gvdb/commit/27e45258894eb975e5c3ea45283228e562d1310a))
+
 ## [0.37.0](https://github.com/JonathanBerhe/gvdb/compare/v0.36.0...v0.37.0) (2026-05-29)
 
 
