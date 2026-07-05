@@ -2,6 +2,9 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "network/proxy_service.h"
+
+#include <thread>
+
 #include "network/audit_context.h"
 #include "network/dns_channel_args.h"
 #include "network/primary_term_header.h"
@@ -314,13 +317,23 @@ grpc::Status ProxyService::Insert(
     status = attempt_call(addr, shard_term);
 
     if (!status.ok() &&
-        status.error_code() == grpc::StatusCode::ABORTED) {
-      // Re-route once: a concurrent primary swap moved this shard's
-      // primary; the data-node bounced our stale-term write. Fresh
-      // RouteQuery returns the new primary at the bumped term.
+        (status.error_code() == grpc::StatusCode::ABORTED ||
+         status.error_code() == grpc::StatusCode::FAILED_PRECONDITION)) {
+      // Re-route once. ABORTED: a concurrent primary swap moved this
+      // shard's primary and the data-node bounced our stale-term write.
+      // FAILED_PRECONDITION: the node has no primary record for the
+      // shard yet (fresh creation racing the coordinator's record
+      // push); the routing is usually already right, so give the record
+      // a short beat to land before the retry.
+      if (status.error_code() == grpc::StatusCode::FAILED_PRECONDITION) {
+        std::this_thread::sleep_for(network::kWriteUnknownShardBackoff);
+      }
       utils::Logger::Instance().Info(
-          "Insert: shard {} got ABORTED (term={}, msg=\"{}\"); re-routing",
-          i, shard_term, status.error_message());
+          "Insert: shard {} got {} (term={}, msg=\"{}\"); re-routing",
+          i,
+          status.error_code() == grpc::StatusCode::ABORTED
+              ? "ABORTED" : "FAILED_PRECONDITION",
+          shard_term, status.error_message());
       proto::internal::RouteQueryRequest reroute_req;
       reroute_req.set_collection_name(request->collection_name());
       proto::internal::RouteQueryResponse reroute_resp;

@@ -100,6 +100,7 @@ class PrimarySwapDataNode : public proto::VectorDBService::Service {
  public:
   std::atomic<int> upsert_calls{0};
   std::atomic<int> aborted_calls{0};
+  std::atomic<int> precondition_calls{0};
   std::string label;
 
   PrimarySwapDataNode(std::string l, uint64_t accepted_term)
@@ -107,10 +108,30 @@ class PrimarySwapDataNode : public proto::VectorDBService::Service {
 
   void SetAcceptedTerm(uint64_t term) { accepted_term_.store(term); }
 
+  // Simulate the UnknownShard branch of the real write gate: the node
+  // has no primary record at all, so the next `n` writes bounce with
+  // FAILED_PRECONDITION regardless of the stamped term, mirroring a
+  // create -> insert race where the coordinator's record push (or the
+  // heartbeat) hasn't landed yet.
+  void FailWithPreconditionFor(int n) { fail_precondition_remaining_ = n; }
+
   grpc::Status Upsert(grpc::ServerContext* context,
                       const proto::UpsertRequest* request,
                       proto::UpsertResponse* response) override {
     upsert_calls++;
+    // Unknown-shard check precedes term evaluation, as on a real node.
+    int remaining = fail_precondition_remaining_.load();
+    while (remaining > 0 &&
+           !fail_precondition_remaining_.compare_exchange_weak(
+               remaining, remaining - 1)) {
+    }
+    if (remaining > 0) {
+      precondition_calls++;
+      return grpc::Status(
+          grpc::StatusCode::FAILED_PRECONDITION,
+          "primary-swap test: " + label +
+              " has no primary record for shard 0; re-route via RouteQuery");
+    }
     auto header = network::ReadPrimaryTermHeader(context);
     if (header.parse_error) {
       return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
@@ -133,6 +154,7 @@ class PrimarySwapDataNode : public proto::VectorDBService::Service {
 
  private:
   std::atomic<uint64_t> accepted_term_;
+  std::atomic<int> fail_precondition_remaining_{0};
 };
 
 class PrimarySwapTest {
@@ -267,6 +289,39 @@ TEST_CASE_FIXTURE(PrimarySwapTest, "UpsertSurfacesAbortedAfterExhaustingReroutes
   CHECK_EQ(status.error_code(), grpc::StatusCode::ABORTED);
   // Three attempts: 1 first-try + kRouteWriteMaxReroutes (=2) re-routes.
   CHECK_EQ(mock_a_->aborted_calls.load(), 3);
+}
+
+// Create -> insert race: routing is correct from the first attempt
+// (right node, right term) but the node itself has no primary record
+// yet, i.e. the real gate's UnknownShard branch. The proxy must back
+// off, re-route, and succeed once the record "lands" (simulated by the
+// mock accepting from the second call on). The client sees plain OK.
+TEST_CASE_FIXTURE(PrimarySwapTest, "UpsertRetriesWhenPrimaryRecordMissing") {
+  coord_->Push(mock_a_address_, /*term=*/1);
+  mock_a_->FailWithPreconditionFor(1);
+
+  auto status = IssueUpsert(11);
+
+  CHECK(status.ok());
+  CHECK_EQ(mock_a_->upsert_calls.load(), 2);
+  CHECK_EQ(mock_a_->precondition_calls.load(), 1);
+  CHECK_EQ(mock_a_->aborted_calls.load(), 0);
+}
+
+// The record never lands within the bounded re-route budget: the proxy
+// gives up and surfaces FAILED_PRECONDITION so the client can retry.
+// It must not spin forever.
+TEST_CASE_FIXTURE(PrimarySwapTest,
+                  "UpsertSurfacesPreconditionAfterExhaustingReroutes") {
+  coord_->Push(mock_a_address_, /*term=*/1);
+  mock_a_->FailWithPreconditionFor(1000);
+
+  auto status = IssueUpsert(13);
+
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::FAILED_PRECONDITION);
+  // Three attempts: 1 first-try + kRouteWriteMaxReroutes (=2) re-routes.
+  CHECK_EQ(mock_a_->precondition_calls.load(), 3);
 }
 
 }  // namespace test

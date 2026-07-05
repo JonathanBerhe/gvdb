@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <thread>
 #include <utility>
 
 #include <google/protobuf/repeated_ptr_field.h>
@@ -279,6 +280,15 @@ grpc::Status RouteReadAndCallWithFallback(
 // times in two RTTs has bigger problems than a write succeeding.
 inline constexpr int kRouteWriteMaxReroutes = 2;
 
+// Backoff before a re-routed attempt when the data-node reported
+// FAILED_PRECONDITION (no primary record for the shard yet). Unlike an
+// ABORTED swap (where the fix is purely re-routing to the new primary),
+// the missing-record case needs a beat of wall-clock for the
+// coordinator's record push (or the next heartbeat) to land on the node,
+// which the routing already correctly targets. Scaled by attempt number:
+// 200ms, then 400ms; bounded by kRouteWriteMaxReroutes.
+inline constexpr std::chrono::milliseconds kWriteUnknownShardBackoff{200};
+
 // Write-side analogue of RouteReadAndCallWithFallback. Differs in three
 // ways:
 //
@@ -295,8 +305,12 @@ inline constexpr int kRouteWriteMaxReroutes = 2;
 //      gate), the helper re-issues RouteQuery rather than walking the
 //      original options list. The swap means the primary genuinely
 //      moved; the original options[0] still points at the demoted node
-//      and would loop forever. We re-route up to kRouteWriteMaxReroutes
-//      times before surfacing the last status.
+//      and would loop forever. On FAILED_PRECONDITION (same gate: the
+//      node has no primary record for the shard yet, e.g. right after
+//      collection creation) the helper backs off briefly and re-routes;
+//      the routing is usually already correct and the record push
+//      just hasn't landed. Both are bounded by kRouteWriteMaxReroutes
+//      before surfacing the last status.
 //
 // Callable signatures match the read helper:
 //
@@ -310,8 +324,9 @@ inline constexpr int kRouteWriteMaxReroutes = 2;
 // attempt's ClientContext.
 //
 // Returns OK iff a call eventually succeeded; otherwise the last
-// observed status. Non-ABORTED non-OK returns short-circuit immediately
-// (a different primary won't satisfy a NOT_FOUND or INVALID_ARGUMENT).
+// observed status. Non-OK returns other than ABORTED /
+// FAILED_PRECONDITION short-circuit immediately (a different primary
+// won't satisfy a NOT_FOUND or INVALID_ARGUMENT).
 template <typename DialFn, typename CallFn>
 grpc::Status RouteWriteAndCallWithFallback(
     proto::internal::InternalService::Stub* internal_client,
@@ -416,28 +431,43 @@ grpc::Status RouteWriteAndCallWithFallback(
     }
 
     // ABORTED is the canonical "primary swap, re-route" signal.
-    // Anything else is non-retryable here — a different primary won't
-    // fix a NOT_FOUND or INVALID_ARGUMENT, and UNAVAILABLE on a write
-    // is a real availability issue the caller should surface.
-    if (status.error_code() != grpc::StatusCode::ABORTED) {
+    // FAILED_PRECONDITION is its sibling from the same write gate: the
+    // routed node has no primary record for the shard yet (fresh
+    // creation or a node restart racing the coordinator's record push /
+    // heartbeat sync); the data-node's own error text says "re-route
+    // via RouteQuery". Anything else is non-retryable here: a
+    // different primary won't fix a NOT_FOUND or INVALID_ARGUMENT, and
+    // UNAVAILABLE on a write is a real availability issue the caller
+    // should surface.
+    const grpc::StatusCode code = status.error_code();
+    if (code != grpc::StatusCode::ABORTED &&
+        code != grpc::StatusCode::FAILED_PRECONDITION) {
       utils::Logger::Instance().Debug(
           "write_fallback[{}]: non-retryable status code={} on attempt {}; "
           "short-circuiting",
-          operation_label, static_cast<int>(status.error_code()),
-          attempt + 1);
+          operation_label, static_cast<int>(code), attempt + 1);
       return status;
     }
 
+    // The missing-record case is cured by time (record push landing),
+    // not by routing alone: the route already points at the right
+    // node. Give it a short, bounded beat before the next attempt.
+    if (code == grpc::StatusCode::FAILED_PRECONDITION) {
+      std::this_thread::sleep_for(kWriteUnknownShardBackoff * (attempt + 1));
+    }
+
     utils::Logger::Instance().Info(
-        "write_fallback[{}]: ABORTED from primary (term={}, msg=\"{}\"); "
+        "write_fallback[{}]: {} from primary (term={}, msg=\"{}\"); "
         "re-routing via fresh RouteQuery (attempt {}/{})",
-        operation_label, primary_term, status.error_message(),
+        operation_label,
+        code == grpc::StatusCode::ABORTED ? "ABORTED" : "FAILED_PRECONDITION",
+        primary_term, status.error_message(),
         attempt + 1, kRouteWriteMaxReroutes + 1);
   }
 
-  // Exhausted re-routes. The cluster is presumably in the middle of a
-  // multi-swap storm; surface the last ABORTED and let the upstream
-  // client retry.
+  // Exhausted re-routes. Either a multi-swap storm or a primary record
+  // that hasn't landed within our bounded backoff; surface the last
+  // status and let the upstream client retry.
   utils::Logger::Instance().Warn(
       "write_fallback[{}]: exhausted {} re-route(s); last status code={} "
       "message=\"{}\"",
