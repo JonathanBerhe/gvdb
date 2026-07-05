@@ -1,0 +1,65 @@
+{{- if .Values.ingress.enabled }}
+{{- if and (ne .Values.ingress.kind "Ingress") (ne .Values.ingress.kind "GRPCRoute") }}
+{{- fail (printf "ingress.kind must be \"Ingress\" or \"GRPCRoute\" (got %q)" .Values.ingress.kind) }}
+{{- end }}
+{{- $name := printf "%s-proxy" (include "gvdb.fullname" .) -}}
+{{- $host := required "ingress.host is required when ingress.enabled=true" .Values.ingress.host -}}
+{{- $port := .Values.proxy.service.port -}}
+{{- if eq .Values.ingress.kind "GRPCRoute" }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.proxy.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ required "ingress.gateway.name is required when kind: GRPCRoute" .Values.ingress.gateway.name | quote }}
+      {{- with .Values.ingress.gateway.namespace }}
+      namespace: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.ingress.gateway.sectionName }}
+      sectionName: {{ . | quote }}
+      {{- end }}
+  hostnames:
+    - {{ $host | quote }}
+  rules:
+    - backendRefs:
+        - name: {{ $name }}
+          port: {{ $port }}
+{{- else }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gvdb.proxy.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.ingress.tls.secretName }}
+  tls:
+    - hosts:
+        - {{ $host | quote }}
+      secretName: {{ . | quote }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  number: {{ $port }}
+{{- end }}
+{{- end }}

@@ -274,6 +274,38 @@ Set `preUpgradeHook.enabled: true` to install a Helm `pre-upgrade` hook that ver
 
 The hook does not run on `helm install` (only `helm upgrade`), and the SA/Role/RoleBinding/Job are deleted automatically on success (`helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded`). Pin `preUpgradeHook.image` to a `bitnami/kubectl` tag compatible with your cluster's K8s minor version.
 
+## Ingress / Gateway API
+
+For client access without a cloud LoadBalancer, set `ingress.enabled: true` and pick one of two backends.
+
+**Legacy Ingress** (`ingress.kind: Ingress`, the default) for `networking.k8s.io/v1` controllers like nginx-ingress, AWS Load Balancer Controller, or GCE Ingress. gRPC needs the controller-specific backend-protocol annotation:
+
+```yaml
+ingress:
+  enabled: true
+  host: gvdb.example.com
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: GRPC
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  tls:
+    secretName: gvdb-tls
+```
+
+**Gateway API GRPCRoute** (`ingress.kind: GRPCRoute`) for `gateway.networking.k8s.io/v1` implementations (Istio, Envoy Gateway, Cilium, GKE Gateway, etc.). The `Gateway` itself must already exist in the cluster:
+
+```yaml
+ingress:
+  enabled: true
+  kind: GRPCRoute
+  host: gvdb.example.com
+  gateway:
+    name: public-gw
+    namespace: gateway-system    # optional
+```
+
+In both cases the chart routes traffic to the `<release>-proxy` Service on `proxy.service.port`. `ingress.host` is required when `ingress.enabled: true`; the render fails fast if it's empty.
+
 ## What the chart does **not** surface (yet)
 
 The following are **not Helm-parameterized**. Configure them by mounting a custom `gvdb-config.yaml` ConfigMap / Secret that overrides the values the chart renders, or patch the StatefulSet directly:
@@ -283,7 +315,6 @@ The following are **not Helm-parameterized**. Configure them by mounting a custo
 - **Audit logging**
 - **cert-manager `Certificate`** for inter-node mTLS
 - **External Secrets Operator** integration (AWS Secrets Manager / GCP Secret Manager / Azure Key Vault sync)
-- **Ingress / Gateway API** — gRPC ingress with TLS termination
 - **Object storage** (S3 / MinIO) for [tiered storage](../features/tiered-storage.md) — the server supports it, but the chart doesn't expose the knobs
 
 Contributions to expose these in the Helm chart are welcome.
