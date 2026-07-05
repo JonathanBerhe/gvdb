@@ -9,6 +9,7 @@
 
 #include <doctest/doctest.h>
 
+#include <atomic>
 #include <chrono>
 #include <map>
 #include <memory>
@@ -31,14 +32,15 @@ using namespace gvdb::cluster;
 
 namespace {
 
-// Per-call record. The test inspects this to assert the
-// Freeze → Backup → Unfreeze order.
+// Per-call record. The tests inspect this to assert the
+// Freeze → Backup → Unfreeze order and the create-time primary push.
 struct RecordedCall {
-  std::string method;          // "FreezeWrites" | "BackupShard" | "UnfreezeWrites"
+  std::string method;          // "FreezeWrites" | "BackupShard" | ...
   uint32_t shard_id = 0;
   std::string fence_token;
   std::string backup_id;
   uint32_t collection_id = 0;
+  uint64_t term = 0;           // PreparePromote only
 };
 
 // IInternalServiceClient mock that records every call and returns OK with
@@ -48,6 +50,9 @@ struct RecordedCall {
 struct MockState {
   mutable std::mutex mu;
   std::vector<RecordedCall> calls;     // in temporal order across all shards
+  // When true, PreparePromote returns UNAVAILABLE (after recording the
+  // attempt), exercising CreateCollection's best-effort push tolerance.
+  std::atomic<bool> fail_prepare_promote{false};
 
   void Record(RecordedCall c) {
     std::lock_guard<std::mutex> lk(mu);
@@ -95,8 +100,14 @@ class MockClient : public IInternalServiceClient {
     return grpc::Status::OK;
   }
   grpc::Status PreparePromote(grpc::ClientContext*,
-                              const proto::internal::PreparePromoteRequest&,
+                              const proto::internal::PreparePromoteRequest& req,
                               proto::internal::PreparePromoteResponse* r) override {
+    state_->Record(RecordedCall{"PreparePromote", req.shard_id(), "", "", 0,
+                                req.new_term()});
+    if (state_->fail_prepare_promote.load()) {
+      return grpc::Status(grpc::StatusCode::UNAVAILABLE,
+                           "mock: PreparePromote unavailable");
+    }
     r->set_success(true);
     return grpc::Status::OK;
   }
@@ -271,12 +282,17 @@ TEST_CASE_FIXTURE(CoordinatorBackupFixture,
   REQUIRE_EQ(final_state, storage::BackupState::COMPLETED);
 
   // Verify per-shard call sequence: each distinct shard must see
-  // exactly Freeze → Backup → Unfreeze in that order.
+  // exactly Freeze → Backup → Unfreeze in that order. Scope the check
+  // to the three backup methods; collection creation also pushes a
+  // PreparePromote per shard, which is asserted by its own tests below.
   std::map<uint32_t, std::vector<std::string>> per_shard_methods;
   {
     std::lock_guard<std::mutex> lk(mock_state->mu);
     for (const auto& c : mock_state->calls) {
-      per_shard_methods[c.shard_id].push_back(c.method);
+      if (c.method == "FreezeWrites" || c.method == "BackupShard" ||
+          c.method == "UnfreezeWrites") {
+        per_shard_methods[c.shard_id].push_back(c.method);
+      }
     }
   }
   REQUIRE_EQ(per_shard_methods.size(), 2u);
@@ -349,6 +365,60 @@ TEST_CASE_FIXTURE(CoordinatorBackupFixture,
   auto r = coordinator->StartRestoreDistributed(
       source, "missing-backup", "existing", /*overwrite=*/false);
   CHECK_FALSE(r.ok());
+}
+
+// CreateCollection must push the initial primary record (PreparePromote)
+// to each shard's primary data-node so its write gate accepts inserts
+// immediately, instead of bouncing "no primary record" until the next
+// heartbeat cycle.
+TEST_CASE_FIXTURE(CoordinatorBackupFixture,
+                  "CreateCollection pushes initial primary record per shard") {
+  auto coll_or = coordinator->CreateCollection(
+      "promote_push", 16, core::MetricType::L2, core::IndexType::FLAT,
+      /*replication_factor=*/1, /*num_shards=*/2);
+  REQUIRE(coll_or.ok());
+
+  std::map<uint32_t, uint64_t> promoted;  // shard_id -> pushed term
+  {
+    std::lock_guard<std::mutex> lk(mock_state->mu);
+    for (const auto& c : mock_state->calls) {
+      if (c.method == "PreparePromote") {
+        // Each shard must be promoted exactly once.
+        CHECK_EQ(promoted.count(c.shard_id), 0u);
+        promoted[c.shard_id] = c.term;
+      }
+    }
+  }
+  REQUIRE_EQ(promoted.size(), 2u);
+  for (const auto& [shard_id, pushed_term] : promoted) {
+    auto view = shard_manager->GetPrimaryNodeAndTerm(
+        core::MakeShardId(static_cast<uint16_t>(shard_id)));
+    REQUIRE(view.ok());
+    CHECK_EQ(pushed_term, view->term);
+    CHECK_GT(pushed_term, 0u);
+  }
+}
+
+// The push is best-effort: a node that can't apply it right now syncs
+// via heartbeat instead. CreateCollection must still succeed.
+TEST_CASE_FIXTURE(CoordinatorBackupFixture,
+                  "CreateCollection succeeds when the primary push fails") {
+  mock_state->fail_prepare_promote.store(true);
+
+  auto coll_or = coordinator->CreateCollection(
+      "promote_push_degraded", 16, core::MetricType::L2,
+      core::IndexType::FLAT, /*replication_factor=*/1, /*num_shards=*/2);
+  REQUIRE(coll_or.ok());
+
+  // The push was attempted for both shards even though it failed.
+  int attempts = 0;
+  {
+    std::lock_guard<std::mutex> lk(mock_state->mu);
+    for (const auto& c : mock_state->calls) {
+      if (c.method == "PreparePromote") ++attempts;
+    }
+  }
+  CHECK_EQ(attempts, 2);
 }
 
 }  // TEST_SUITE("CoordinatorBackup")

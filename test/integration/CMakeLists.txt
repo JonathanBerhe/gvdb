@@ -228,8 +228,11 @@ target_link_libraries(primary_swap_integration_tests
 
 add_test(NAME PrimarySwapIntegrationTests COMMAND primary_swap_integration_tests)
 
+# Each case pays ~10s of fixture setup/teardown (real gRPC servers for
+# proxy + coordinator + two data-nodes); five cases need headroom past
+# the 60s default.
 set_tests_properties(PrimarySwapIntegrationTests PROPERTIES
-  TIMEOUT 60
+  TIMEOUT 120
   LABELS "integration"
 )
 
