@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.37.0](https://github.com/JonathanBerhe/gvdb/compare/v0.36.0...v0.37.0) (2026-05-29)
+
+
+### Features
+
+* **chart:** complete Phase 1.10 pod-hardening primitives ([66ad2f8](https://github.com/JonathanBerhe/gvdb/commit/66ad2f8c4a513c10097e25cd056d390449069487))
+* **chart:** complete Phase 1.10 pod-hardening primitives ([8219f65](https://github.com/JonathanBerhe/gvdb/commit/8219f6538e3677965c55cae95fda0bb4b60c4e1f))
+
 ## [0.36.0](https://github.com/JonathanBerhe/gvdb/compare/v0.35.0...v0.36.0) (2026-05-28)
 
 
