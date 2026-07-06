@@ -5,6 +5,7 @@ add_library(gvdb_storage
   segment_manager.cpp
   scalar_index.cpp
   object_store.cpp
+  object_store_factory.cpp
   filesystem_object_store.cpp
   segment_cache.cpp
   segment_manifest.cpp
@@ -39,6 +40,14 @@ if(GVDB_WITH_S3)
   target_link_libraries(gvdb_storage PUBLIC aws-cpp-sdk-s3 aws-cpp-sdk-core)
   target_compile_definitions(gvdb_storage PUBLIC GVDB_HAS_S3=1)
   message(STATUS "S3/MinIO storage support enabled")
+endif()
+
+# Google Cloud Storage support (optional)
+if(GVDB_WITH_GCS)
+  target_sources(gvdb_storage PRIVATE gcs_object_store.cpp)
+  target_link_libraries(gvdb_storage PUBLIC google-cloud-cpp::storage)
+  target_compile_definitions(gvdb_storage PUBLIC GVDB_HAS_GCS=1)
+  message(STATUS "Google Cloud Storage support enabled")
 endif()
 
 # Apache Arrow Parquet support (future — blocked on Arrow FetchContent/Docker issues)

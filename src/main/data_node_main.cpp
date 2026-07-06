@@ -22,9 +22,7 @@
 #include "storage/backup_manager.h"
 #include "storage/bulk_importer.h"
 #include "cluster/shard_write_gate.h"
-#ifdef GVDB_HAS_S3
-#include "storage/s3_object_store.h"
-#endif
+#include "storage/object_store_factory.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "network/vectordb_service.h"
@@ -243,46 +241,35 @@ int main(int argc, char** argv) {
     auto local_manager = std::make_unique<storage::SegmentManager>(
         args.data_dir + "/segments", index_factory.get());
 
-    // Optionally wrap in tiered storage (S3/MinIO)
+    // Optionally wrap in tiered storage. Backend (S3 / MinIO / GCS) selected
+    // from config by the shared factory. An object-store creation failure is
+    // non-fatal here: the data-node degrades to local-only rather than
+    // refusing to start.
     std::shared_ptr<storage::ISegmentStore> segment_store;
     storage::IObjectStore* object_store_ptr = nullptr;  // for BulkImporter
-#ifdef GVDB_HAS_S3
-    if (!config.storage.object_store_endpoint.empty()) {
-      storage::S3Config s3_config;
-      s3_config.endpoint = config.storage.object_store_endpoint;
-      s3_config.access_key = config.storage.object_store_access_key;
-      s3_config.secret_key = config.storage.object_store_secret_key;
-      s3_config.bucket = config.storage.object_store_bucket;
-      s3_config.region = config.storage.object_store_region;
-      s3_config.use_ssl = config.storage.object_store_use_ssl;
-      s3_config.path_style = (config.storage.object_store_type == "minio");
-
-      auto s3_result = storage::S3ObjectStore::Create(s3_config);
-      if (s3_result.ok()) {
-        auto cache_dir = args.data_dir + "/cache";
-        auto cache_size = static_cast<size_t>(
-            config.storage.object_store_cache_size_mb) * 1024 * 1024;
-        auto cache = std::make_unique<storage::SegmentCache>(
-            cache_dir, cache_size);
-        auto prefix = config.storage.object_store_prefix.empty()
-            ? "gvdb" : config.storage.object_store_prefix;
-        object_store_ptr = s3_result->get();
-        segment_store = std::make_shared<storage::TieredSegmentManager>(
-            std::move(local_manager), std::move(*s3_result),
-            std::move(cache), prefix,
-            config.storage.object_store_upload_threads);
-      } else {
-        segment_store = std::shared_ptr<storage::SegmentManager>(
-            std::move(local_manager));
-      }
+    auto object_store_or = storage::CreateObjectStore(config.storage);
+    if (!object_store_or.ok()) {
+      utils::Logger::Instance().Warn(
+          "Object store creation failed ({}); falling back to local-only "
+          "storage", object_store_or.status().message());
+    }
+    if (object_store_or.ok() && *object_store_or) {
+      auto cache_dir = args.data_dir + "/cache";
+      auto cache_size = static_cast<size_t>(
+          config.storage.object_store_cache_size_mb) * 1024 * 1024;
+      auto cache = std::make_unique<storage::SegmentCache>(
+          cache_dir, cache_size);
+      auto prefix = config.storage.object_store_prefix.empty()
+          ? "gvdb" : config.storage.object_store_prefix;
+      object_store_ptr = object_store_or->get();
+      segment_store = std::make_shared<storage::TieredSegmentManager>(
+          std::move(local_manager), std::move(*object_store_or),
+          std::move(cache), prefix,
+          config.storage.object_store_upload_threads);
     } else {
       segment_store = std::shared_ptr<storage::SegmentManager>(
           std::move(local_manager));
     }
-#else
-    segment_store = std::shared_ptr<storage::SegmentManager>(
-        std::move(local_manager));
-#endif
 
     segment_store->LoadAllSegments();
     auto data_node = std::make_shared<cluster::DataNode>(std::move(index_factory), segment_store);

@@ -104,6 +104,10 @@ StorageConfig Config::parse_storage_config(const YAML::Node& node) {
     config.object_store_bucket = get_or_default(os, "bucket", std::string(""));
     config.object_store_region = get_or_default(os, "region", std::string("us-east-1"));
     config.object_store_prefix = get_or_default(os, "prefix", std::string("gvdb"));
+    // GCS-specific (ignored by the S3/MinIO backend).
+    config.object_store_project = get_or_default(os, "project", std::string(""));
+    config.object_store_credentials_path =
+        get_or_default(os, "credentials_path", std::string(""));
     config.object_store_use_ssl = get_or_default(os, "use_ssl", true);
     config.object_store_cache_size_mb = get_or_default(os, "local_cache_size_mb", 256);
     config.object_store_upload_threads = get_or_default(os, "upload_threads", 2);
