@@ -7,7 +7,6 @@
 #include <string>
 #include <thread>
 
-#include "absl/strings/str_cat.h"
 #include "consensus/raft_node.h"
 #include "consensus/raft_config.h"
 #include "consensus/timestamp_oracle.h"
@@ -16,7 +15,7 @@
 #include "cluster/node_registry.h"
 #include "cluster/internal_client.h"
 #include "storage/backup_manager.h"
-#include "storage/s3_object_store.h"
+#include "storage/object_store_factory.h"
 #include "storage/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
@@ -265,23 +264,18 @@ int main(int argc, char** argv) {
     // bucket the data-nodes upload per-shard objects to. When no S3
     // store is configured, only LocalBackupTarget is available (and
     // only if local_backup_dir is set).
+    // Object store (S3 / MinIO / GCS) selected from config by the shared
+    // factory. Non-fatal on failure: the coordinator can still run backups to
+    // a LocalBackupTarget when no object store is available.
     std::unique_ptr<storage::IObjectStore> coord_object_store;
-#ifdef GVDB_HAS_S3
-    if (!config.storage.object_store_endpoint.empty()) {
-      storage::S3Config s3_config;
-      s3_config.endpoint = config.storage.object_store_endpoint;
-      s3_config.access_key = config.storage.object_store_access_key;
-      s3_config.secret_key = config.storage.object_store_secret_key;
-      s3_config.bucket = config.storage.object_store_bucket;
-      s3_config.region = config.storage.object_store_region;
-      s3_config.use_ssl = config.storage.object_store_use_ssl;
-      s3_config.path_style = (config.storage.object_store_type == "minio");
-      auto s3_result = storage::S3ObjectStore::Create(s3_config);
-      if (s3_result.ok()) {
-        coord_object_store = std::move(*s3_result);
-      }
+    auto coord_os_or = storage::CreateObjectStore(config.storage);
+    if (!coord_os_or.ok()) {
+      utils::Logger::Instance().Warn(
+          "Coordinator object store creation failed ({}); backups limited to "
+          "local targets", coord_os_or.status().message());
+    } else if (*coord_os_or) {
+      coord_object_store = std::move(*coord_os_or);
     }
-#endif
     std::shared_ptr<storage::BackupManager> backup_manager;
     std::shared_ptr<storage::RestoreManager> restore_manager;
     {
