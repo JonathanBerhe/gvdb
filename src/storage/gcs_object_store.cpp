@@ -170,6 +170,16 @@ core::Status GcsObjectStore::PutObjectFromFile(
   if (input.peek() != std::char_traits<char>::eof()) {
     writer << input.rdbuf();
   }
+  // `operator<<(ostream&, streambuf*)` reads through the raw streambuf, not
+  // through `input`'s own extraction operators, so a short/failed read (disk
+  // error, concurrent truncation, etc.) sets failbit/badbit on the
+  // destination stream (`writer`) rather than on `input`. Check `writer`
+  // here, before Close() commits anything, so a partial read can't be
+  // silently finalized into a truncated object.
+  if (writer.fail()) {
+    return core::InternalError(
+        "Failed reading local file while uploading: " + local_file_path);
+  }
   writer.Close();
   auto metadata = std::move(writer).metadata();
   if (!metadata) {
