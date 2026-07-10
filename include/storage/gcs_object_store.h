@@ -28,9 +28,10 @@ struct GcsConfig {
   // ambient project differs from the one owning the bucket.
   std::string project_id;
   // Optional path to a service-account JSON key. When set (and no emulator
-  // endpoint is used), it is exported as GOOGLE_APPLICATION_CREDENTIALS so
-  // Application Default Credentials picks it up. Empty on GKE Workload
-  // Identity, where no key file exists.
+  // endpoint is used), the key is loaded and used directly for this store's
+  // client — no process-global env mutation. Empty on GKE Workload Identity
+  // (no key file); when empty, auth falls back to Application Default
+  // Credentials, which honor the GOOGLE_APPLICATION_CREDENTIALS env var.
   std::string credentials_path;
   // Optional REST endpoint override for a local emulator (fake-gcs-server).
   // When set, the client talks plain HTTP with anonymous credentials, so it
