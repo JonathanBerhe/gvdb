@@ -102,6 +102,138 @@ jobs:
         if: steps.filter.outputs.cpp == 'false'
         run: echo "No C++ changes detected — skipping build and test"
 
+  # ==========================================================================
+  # GCS backend build lane
+  # ==========================================================================
+  # Compiles and links the -DGVDB_WITH_GCS=ON path against a real
+  # google-cloud-cpp (storage), which the default build does not exercise.
+  # Only google-cloud-cpp comes from vcpkg (the sole find_package consumer);
+  # every other dependency still uses the project's FetchContent, so this
+  # lane's real job is to surface any abseil diamond (gvdb's FetchContent
+  # abseil vs the one vcpkg's google-cloud-cpp pulls) that would only appear
+  # at executable link time. Gated to GCS-relevant changes so the heavy
+  # vcpkg build does not run on every PR.
+  gcs-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check for GCS-relevant changes
+        uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            gcs:
+              - 'src/storage/gcs_object_store.cpp'
+              - 'include/storage/gcs_object_store.h'
+              - 'src/storage/object_store_factory.cpp'
+              - 'include/storage/object_store_factory.h'
+              - 'src/storage/CMakeLists.txt'
+              - 'CMakeLists.txt'
+              - 'test/e2e/gcs_storage.go'
+              - '.github/workflows/ci.yml'
+
+      - name: Install system dependencies
+        if: steps.filter.outputs.gcs == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ccache \
+            curl zip unzip tar \
+            pkg-config \
+            libasio-dev \
+            libomp-dev \
+            libopenblas-dev \
+            liblapack-dev \
+            zlib1g-dev \
+            libcurl4-openssl-dev \
+            libssl-dev
+
+      - name: Set up ccache
+        if: steps.filter.outputs.gcs == 'true'
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ccache-gcs-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            ccache-gcs-
+            ccache-gcc-
+
+      - name: Set up vcpkg
+        if: steps.filter.outputs.gcs == 'true'
+        run: |
+          # Pin vcpkg to a known commit for reproducible google-cloud-cpp
+          # versions. Bump deliberately, not implicitly.
+          git clone https://github.com/microsoft/vcpkg.git "$HOME/vcpkg"
+          git -C "$HOME/vcpkg" checkout 2024.12.16
+          "$HOME/vcpkg"/bootstrap-vcpkg.sh -disableMetrics
+          echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Cache vcpkg binary artifacts
+        if: steps.filter.outputs.gcs == 'true'
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/vcpkg/archives
+          key: vcpkg-gcs-${{ runner.os }}-2024.12.16
+          restore-keys: |
+            vcpkg-gcs-${{ runner.os }}-
+
+      - name: Install google-cloud-cpp (storage)
+        if: steps.filter.outputs.gcs == 'true'
+        run: |
+          "$VCPKG_ROOT"/vcpkg install "google-cloud-cpp[core,storage]" \
+            --triplet x64-linux
+
+      - name: Cache FetchContent sources
+        if: steps.filter.outputs.gcs == 'true'
+        uses: actions/cache@v5
+        id: fc-cache
+        with:
+          path: |
+            build/_deps/*-src
+            build/_deps/*-subbuild
+          key: fetchcontent-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            fetchcontent-
+
+      - name: Configure (GVDB_WITH_GCS=ON)
+        if: steps.filter.outputs.gcs == 'true'
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DGVDB_WITH_GCS=ON
+          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}
+
+      # Stage 1 — compile-check: builds gvdb_storage (a static lib), which
+      # compiles gcs_object_store.cpp against the real google-cloud-cpp
+      # headers. Validates the SDK API usage without touching the link-time
+      # abseil diamond. This is the primary signal.
+      - name: Build gvdb_storage (GCS compile-check)
+        if: steps.filter.outputs.gcs == 'true'
+        run: cmake --build build --target gvdb_storage -j"$(nproc)"
+
+      # Stage 2 — link-check: links gvdb-single-node, which pulls both
+      # google-cloud-cpp (+ its abseil) and gRPC (+ the FetchContent abseil)
+      # into one executable. A duplicate-symbol / ODR failure here is the
+      # abseil diamond and tells us the find_package integration needs
+      # dependency convergence.
+      - name: Build gvdb-single-node (GCS link-check)
+        if: steps.filter.outputs.gcs == 'true'
+        run: cmake --build build --target gvdb-single-node -j"$(nproc)"
+
+      - name: Skip notice
+        if: steps.filter.outputs.gcs == 'false'
+        run: echo "No GCS-relevant changes — skipping GCS build lane"
+
   test-python-sdk:
     runs-on: ubuntu-latest
     timeout-minutes: 10
