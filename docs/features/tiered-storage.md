@@ -8,6 +8,7 @@ Offload sealed segments to an object store automatically. Hot data stays on loca
 |---------|-----------|-------------|
 | **S3** | `-DGVDB_WITH_S3=ON` | AWS S3, production |
 | **MinIO** | `-DGVDB_WITH_S3=ON` | Self-hosted S3-compatible storage |
+| **GCS** | `-DGVDB_WITH_GCS=ON` | Google Cloud Storage, GKE with Workload Identity |
 | **Filesystem** | always on | Dev, CI, single-node, NFS-mounted cold tier |
 
 All backends implement the same `IObjectStore` interface and are exercised by a shared contract test suite, so the same tiered-storage behavior holds regardless of which one you pick.
@@ -43,13 +44,18 @@ graph LR
 
 ## Enable at build time
 
-S3 support is behind a CMake flag:
+Cloud backends are behind CMake flags:
 
 ```bash
+# S3 / MinIO — AWS SDK is fetched from source
 make build CMAKE_EXTRA="-DGVDB_WITH_S3=ON"
+
+# GCS — google-cloud-cpp (storage) must be provided via find_package
+# (vcpkg feature "storage", a system package, or a source install)
+make build CMAKE_EXTRA="-DGVDB_WITH_GCS=ON"
 ```
 
-Runtime deps: `libssl-dev`, `libcurl4-openssl-dev`. The prebuilt Docker image includes them.
+S3 runtime deps: `libssl-dev`, `libcurl4-openssl-dev`. Both flags can be enabled together. The Filesystem backend is always available and needs no flag.
 
 ## Server configuration
 
@@ -72,6 +78,29 @@ Object store settings live under `storage` in the server YAML. An empty `object_
       object_store_cache_size_mb: 50000       # 50 GB
       object_store_upload_threads: 4
     ```
+
+=== "GCS"
+
+    ```yaml
+    storage:
+      data_dir: "/var/lib/gvdb"
+
+      object_store_type: "gcs"
+      object_store_bucket: "gvdb-cold"
+      object_store_prefix: "segments/"
+      # Auth is Application Default Credentials. On GKE, bind a Google service
+      # account via Workload Identity and leave these empty. For local/dev,
+      # set credentials_path (or GOOGLE_APPLICATION_CREDENTIALS) to a
+      # service-account JSON.
+      object_store_project: ""                # optional; ADC usually supplies it
+      object_store_credentials_path: ""       # optional service-account JSON
+      object_store_cache_size_mb: 50000
+      object_store_upload_threads: 4
+    ```
+
+    No access/secret keys and no region: GCS auth is identity-based (Workload
+    Identity on GKE) and a bucket's location is a property of the bucket. Set
+    `object_store_endpoint` only to target a local fake-gcs-server emulator.
 
 === "Filesystem"
 
@@ -105,6 +134,22 @@ Run the S3 integration tests:
 
 ```bash
 make test-s3
+```
+
+## fake-gcs-server locally
+
+For GCS testing without a real bucket, run the fake-gcs-server emulator:
+
+```bash
+docker compose -f test/integration/docker-compose.fake-gcs.yml up -d
+```
+
+Then set `object_store_type: gcs`, `object_store_bucket: gvdb-test`, and
+`object_store_endpoint: http://localhost:4443`. The Go e2e (`gcs_storage.go`)
+runs when `GVDB_GCS_ENDPOINT` is set:
+
+```bash
+GVDB_GCS_ENDPOINT=http://localhost:4443 ./test/e2e/run_all_tests.sh
 ```
 
 ## Cache behaviour

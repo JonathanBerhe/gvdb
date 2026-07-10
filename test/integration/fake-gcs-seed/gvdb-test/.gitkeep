@@ -1,0 +1,3 @@
+# fake-gcs-server creates a GCS bucket for each top-level directory it finds
+# mounted under /data at startup. This keeps an (otherwise empty) "gvdb-test"
+# bucket directory tracked so the emulator bootstraps it without an init step.

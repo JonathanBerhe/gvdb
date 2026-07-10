@@ -60,15 +60,26 @@ struct StorageConfig {
   bool enable_compression = true;
   int compaction_threads = 4;
 
-  // Object store (S3/MinIO) configuration — empty endpoint means disabled
-  std::string object_store_type;          // "s3" or "minio"
-  std::string object_store_endpoint;      // e.g., "http://localhost:9000"
-  std::string object_store_access_key;
-  std::string object_store_secret_key;
+  // Object store configuration.
+  //   type == "gcs"            -> Google Cloud Storage (auth via ADC /
+  //                               Workload Identity; needs -DGVDB_WITH_GCS=ON)
+  //   type == "s3" | "minio"   -> S3 / MinIO (needs a non-empty endpoint and
+  //                               -DGVDB_WITH_S3=ON)
+  //   otherwise / empty        -> object storage disabled (local disk only)
+  std::string object_store_type;          // "s3", "minio", or "gcs"
+  std::string object_store_endpoint;      // S3/MinIO endpoint, or a GCS emulator
+  std::string object_store_access_key;    // S3/MinIO only
+  std::string object_store_secret_key;    // S3/MinIO only
   std::string object_store_bucket;
-  std::string object_store_region;
+  std::string object_store_region;        // S3 only (GCS location is bucket-scoped)
   std::string object_store_prefix;
-  bool object_store_use_ssl = true;
+  // GCS only. project id is usually supplied by ADC; credentials_path points
+  // at a service-account JSON for local/dev (equivalently set via the
+  // GOOGLE_APPLICATION_CREDENTIALS env var). Both empty on GKE Workload
+  // Identity.
+  std::string object_store_project;
+  std::string object_store_credentials_path;
+  bool object_store_use_ssl = true;       // S3/MinIO only
   int object_store_cache_size_mb = 256;
   int object_store_upload_threads = 2;
 

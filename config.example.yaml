@@ -18,6 +18,8 @@ storage:
   # Object storage (S3/MinIO) — uncomment to enable tiered storage.
   # Sealed segments are uploaded to object storage asynchronously after local flush.
   # Remote segments are lazily downloaded on first access.
+  #
+  # S3 / MinIO (build with -DGVDB_WITH_S3=ON):
   # object_store:
   #   type: "s3"                                        # "s3" or "minio"
   #   endpoint: "https://s3.us-east-1.amazonaws.com"    # for MinIO: "http://localhost:9000"
@@ -25,10 +27,25 @@ storage:
   #   secret_key: ""
   #   bucket: "gvdb-segments"
   #   region: "us-east-1"
-  #   prefix: "gvdb"                                    # S3 key prefix
+  #   prefix: "gvdb"                                    # object key prefix
   #   use_ssl: true                                     # false for local MinIO
   #   local_cache_size_mb: 256                           # LRU cache for downloaded segments
   #   upload_threads: 2                                  # async upload concurrency
+  #
+  # Google Cloud Storage (build with -DGVDB_WITH_GCS=ON):
+  # object_store:
+  #   type: "gcs"
+  #   bucket: "gvdb-segments"
+  #   prefix: "gvdb"
+  #   # Auth is Application Default Credentials. On GKE, bind a Google service
+  #   # account via Workload Identity and leave the fields below empty. For
+  #   # local/dev, set credentials_path (or the GOOGLE_APPLICATION_CREDENTIALS
+  #   # env var) to a service-account JSON key.
+  #   project: ""                                        # optional; ADC usually supplies it
+  #   credentials_path: ""                               # optional service-account JSON
+  #   # endpoint: "http://localhost:4443"                # only to target a fake-gcs-server emulator
+  #   local_cache_size_mb: 256
+  #   upload_threads: 2
 
 index:
   default_index_type: "HNSW"
