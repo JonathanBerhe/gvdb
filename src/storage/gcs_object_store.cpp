@@ -6,10 +6,10 @@
 #include "storage/gcs_object_store.h"
 
 #include <algorithm>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -70,15 +70,27 @@ core::StatusOr<std::unique_ptr<GcsObjectStore>> GcsObjectStore::Create(
     // Emulator (fake-gcs-server): plain-HTTP REST endpoint + anonymous creds.
     options.set<gcs::RestEndpointOption>(config.endpoint)
         .set<gc::UnifiedCredentialsOption>(gc::MakeInsecureCredentials());
-  } else {
-    // Production: Application Default Credentials. On GKE this is Workload
-    // Identity; locally GOOGLE_APPLICATION_CREDENTIALS points at a key file.
-    // An explicit credentials_path is exported into that env var (without
-    // clobbering one already set in the environment) so ADC honors it.
-    if (!config.credentials_path.empty()) {
-      ::setenv("GOOGLE_APPLICATION_CREDENTIALS", config.credentials_path.c_str(),
-               /*overwrite=*/0);
+  } else if (!config.credentials_path.empty()) {
+    // Explicit service-account JSON key. Load it and hand it to this store's
+    // client directly, so each store uses exactly its own credentials — no
+    // process-global GOOGLE_APPLICATION_CREDENTIALS mutation that would let
+    // one store's key leak into another (or clobber the ambient env).
+    std::ifstream key_file(config.credentials_path, std::ios::binary);
+    if (!key_file.good()) {
+      return core::NotFoundError(
+          "GCS credentials file not found: " + config.credentials_path);
     }
+    std::string key_json((std::istreambuf_iterator<char>(key_file)),
+                         std::istreambuf_iterator<char>());
+    if (key_file.bad()) {
+      return core::InternalError(
+          "Failed reading GCS credentials file: " + config.credentials_path);
+    }
+    options.set<gc::UnifiedCredentialsOption>(
+        gc::MakeServiceAccountCredentials(std::move(key_json)));
+  } else {
+    // Application Default Credentials: Workload Identity on GKE, or the
+    // GOOGLE_APPLICATION_CREDENTIALS env var locally.
     options.set<gc::UnifiedCredentialsOption>(
         gc::MakeGoogleDefaultCredentials());
   }
