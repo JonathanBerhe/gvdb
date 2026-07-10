@@ -27,6 +27,13 @@ option(USE_SYSTEM_DEPENDENCIES "Use system-installed dependencies instead of fet
 # Option to enable S3/MinIO object storage support (requires AWS SDK)
 option(GVDB_WITH_S3 "Enable S3/MinIO object storage support" OFF)
 
+# Option to enable Google Cloud Storage support (requires google-cloud-cpp).
+# Unlike the AWS SDK (fetched from source), google-cloud-cpp is expected to be
+# provided by the system / a package manager (vcpkg feature "storage", apt, or
+# a source install) via find_package — its maintainers discourage FetchContent
+# and it must share the abseil/protobuf/gRPC this project already builds.
+option(GVDB_WITH_GCS "Enable Google Cloud Storage object storage support" OFF)
+
 # Option to enable Apple Metal GPU acceleration (macOS only)
 if(APPLE)
   option(GVDB_WITH_METAL "Enable Apple Metal GPU acceleration" OFF)
@@ -399,6 +406,19 @@ if(GVDB_WITH_S3)
   # break the CRT's s2n-tls build. aws-lc is OpenSSL 1.1.1-compatible.
   set(USE_OPENSSL OFF CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(awssdk)
+endif()
+
+# ============================================================================
+# google-cloud-cpp (GCS Object Storage) - Optional
+# ============================================================================
+# Resolved via find_package rather than FetchContent: google-cloud-cpp's
+# maintainers discourage FetchContent (long builds, and it must reconcile with
+# the abseil/protobuf/gRPC this project already vendors). Provide it via vcpkg
+# (feature "storage"), a system package, or a source install. Only the storage
+# component is required.
+if(GVDB_WITH_GCS)
+  message(STATUS "Locating google-cloud-cpp (storage)...")
+  find_package(google_cloud_cpp_storage CONFIG REQUIRED)
 endif()
 
 # ============================================================================

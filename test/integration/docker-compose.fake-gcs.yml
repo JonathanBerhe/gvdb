@@ -1,0 +1,34 @@
+version: '3.8'
+
+# fake-gcs-server instance for GCS integration testing.
+# Usage: docker compose -f test/integration/docker-compose.fake-gcs.yml up -d
+#
+# Point the server at it with:
+#   object_store:
+#     type: "gcs"
+#     bucket: "gvdb-test"
+#     endpoint: "http://localhost:4443"
+# and run the e2e with GVDB_GCS_ENDPOINT=http://localhost:4443.
+
+services:
+  fake-gcs:
+    image: fsouza/fake-gcs-server:latest
+    ports:
+      - "4443:4443"
+    # -scheme http serves plain HTTP (matches MakeInsecureCredentials on the
+    # client). -public-host makes returned object URLs resolvable by clients
+    # talking to localhost:4443.
+    command: >
+      -scheme http
+      -port 4443
+      -public-host localhost:4443
+      -backend memory
+    # The test bucket is seeded from a mounted layout: fake-gcs-server creates
+    # a bucket for each top-level directory under /data at startup.
+    volumes:
+      - ./fake-gcs-seed:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:4443/storage/v1/b"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
