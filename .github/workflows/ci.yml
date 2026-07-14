@@ -425,6 +425,21 @@ jobs:
           echo "$out" | grep -q 'storageClassName: "gp3"' || \
             { echo "ERROR: gp3 storageClassName missing from EKS overlay render"; exit 1; }
 
+      - name: helm template smoke (GKE overlay)
+        if: steps.filter.outputs.gvdb-chart == 'true'
+        run: |
+          out=$(helm template gvdb deploy/helm/gvdb \
+            -f deploy/helm/gvdb/values-gke.yaml)
+          # The overlay must plumb the GKE internal-LB annotation and the PD
+          # storage classes into the render; if a template stops threading
+          # them the overlay silently no-ops, so fail loudly.
+          echo "$out" | grep -q 'networking.gke.io/load-balancer-type: Internal' || \
+            { echo "ERROR: internal LB annotation missing from GKE overlay render"; exit 1; }
+          echo "$out" | grep -q 'storageClassName: "premium-rwo"' || \
+            { echo "ERROR: premium-rwo storageClassName missing from GKE overlay render"; exit 1; }
+          echo "$out" | grep -q 'storageClassName: "standard-rwo"' || \
+            { echo "ERROR: standard-rwo storageClassName missing from GKE overlay render"; exit 1; }
+
       - name: helm template smoke (pre-upgrade hook)
         if: steps.filter.outputs.gvdb-chart == 'true'
         run: |
