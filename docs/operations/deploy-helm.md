@@ -266,7 +266,16 @@ helm install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
   -f values.prod.yaml
 ```
 
-GKE and AKS overlays are not yet shipped.
+A Google GKE overlay ships alongside it at [`deploy/helm/gvdb/values-gke.yaml`](https://github.com/JonathanBerhe/gvdb/blob/main/deploy/helm/gvdb/values-gke.yaml): `standard-rwo`/`premium-rwo` persistent-disk storage classes, an internal L4 load balancer for the proxy (`networking.gke.io/load-balancer-type: Internal`), a data-node ServiceAccount ready for a Workload Identity `iam.gke.io/gcp-service-account` binding (which the [GCS backend](../features/tiered-storage.md) authenticates through), and zone spread. Compose it the same way:
+
+```bash
+helm install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
+  --namespace gvdb --create-namespace \
+  -f deploy/helm/gvdb/values-gke.yaml \
+  -f values.prod.yaml
+```
+
+An AKS overlay is not yet shipped (pending the Azure Blob object-store backend).
 
 ## Pre-upgrade health check
 
