@@ -1,0 +1,72 @@
+# Google GKE overlay for the gvdb chart.
+#
+# Compose with your workload-sizing values to install on GKE:
+#   helm install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
+#     -f values-gke.yaml -f my-prod.yaml
+#
+# Scope: only GCP/GKE specifics (PD storage classes, internal L4 LB
+# annotation, Workload Identity ServiceAccount placeholders, zone spread).
+# Replica counts, resource sizing, and security contexts belong in your prod
+# values overlay since they are workload-driven, not cloud-driven.
+#
+# Prerequisites on the cluster:
+#   - The Compute Engine persistent-disk CSI driver (on by default on GKE
+#     1.19+), which provides the built-in `standard-rwo` (balanced PD) and
+#     `premium-rwo` (SSD PD) StorageClasses referenced below.
+#   - Workload Identity enabled on the cluster and node pools, for any pod
+#     that needs GCS access. The GCS object-store backend authenticates via
+#     Application Default Credentials, which on GKE resolve to the Google
+#     service account bound to the pod's Kubernetes SA. Binding is two steps,
+#     both out-of-band of this chart:
+#       1. Annotate the K8s SA with the Google SA (the placeholder below).
+#       2. Grant the binding:
+#          gcloud iam service-accounts add-iam-policy-binding GSA_EMAIL \
+#            --role roles/iam.workloadIdentityUser \
+#            --member "serviceAccount:PROJECT.svc.id.goog[NAMESPACE/KSA_NAME]"
+#   - Object-store settings themselves (bucket, type: gcs, ...) are NOT Helm
+#     values — mount a custom gvdb config as documented in the tiered-storage
+#     guide. This overlay only wires the identity + infra the backend needs.
+
+coordinator:
+  storage:
+    # Balanced PD is plenty for the small, latency-tolerant Raft log.
+    storageClass: standard-rwo
+  zoneSpread:
+    enabled: true
+  # The coordinator only needs a GCS-bound ServiceAccount if backup manifests
+  # live in GCS. If so, flip create to true and add the Workload Identity
+  # annotation as shown for the data-node below.
+
+dataNode:
+  storage:
+    # SSD PD for the vector data path. Drop to standard-rwo only for
+    # cost-sensitive, throughput-insensitive clusters.
+    storageClass: premium-rwo
+  zoneSpread:
+    enabled: true
+  serviceAccount:
+    # GCS tiered storage needs a Google identity on the data-node SA via
+    # Workload Identity. Uncomment and set the bound Google service account:
+    #   annotations:
+    #     iam.gke.io/gcp-service-account: gvdb-data-node@PROJECT.iam.gserviceaccount.com
+    create: true
+    annotations: {}
+
+queryNode:
+  storage:
+    # SSD PD: query nodes hold the LRU cache of downloaded cold segments.
+    storageClass: premium-rwo
+  zoneSpread:
+    enabled: true
+
+proxy:
+  service:
+    type: LoadBalancer
+    annotations:
+      # Internal passthrough L4 load balancer (regional), the right fit for
+      # the proxy's gRPC/TCP traffic and safe-by-default (no public IP).
+      # Remove this annotation to get an external L4 LB with a public IP
+      # (only with TLS + RBAC in front).
+      networking.gke.io/load-balancer-type: "Internal"
+  zoneSpread:
+    enabled: true
