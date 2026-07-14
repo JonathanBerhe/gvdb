@@ -371,6 +371,19 @@ set(gRPC_ABSL_PROVIDER "module" CACHE STRING "" FORCE)  # Use our FetchContent a
 set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
 set(utf8_range_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 
+# When GCS is enabled, google-cloud-cpp (from vcpkg) links OpenSSL and its
+# curl links OpenSSL + zlib. gRPC's default bundled BoringSSL exports the same
+# OpenSSL-ABI crypto symbols, so linking both into one binary fails with
+# "multiple definition" (i2d_DSAPrivateKey, EVP_PKEY_CTX_*, ...). Point gRPC at
+# the same OpenSSL/zlib via find_package so there is a single crypto/zlib
+# library; the vcpkg toolchain makes find_package resolve to the vcpkg copies
+# google-cloud-cpp already uses. Only affects the GCS build — the default and
+# S3 builds keep gRPC's bundled BoringSSL.
+if(GVDB_WITH_GCS)
+  set(gRPC_SSL_PROVIDER "package" CACHE STRING "" FORCE)
+  set(gRPC_ZLIB_PROVIDER "package" CACHE STRING "" FORCE)
+endif()
+
 # On macOS, use the system (brew) zlib instead of gRPC's vendored copy.
 # gRPC's bundled zlib unconditionally defines `fdopen(fd,mode) NULL` in
 # zutil.h on macOS, which collides with SDK 26.4+'s <stdio.h> and fails
