@@ -20,7 +20,7 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 - **Persistence**: Vectors flushed to disk, index rebuilt on startup recovery
 - **S3/MinIO Tiered Storage**: Sealed segments uploaded to S3/MinIO asynchronously. LRU local cache, lazy download on read, manifest-based discovery on startup. Build with `-DGVDB_WITH_S3=ON`
 - **RBAC**: Role-based access control (admin, readwrite, readonly, collection_admin) with per-collection scoping and YAML config
-- **GPU Acceleration**: Apple Metal FLAT kernels on Apple Silicon (16-24× over faiss CPU); NVIDIA CUDA FLAT/IVF via faiss-gpu (opt-in, build with `-DGVDB_WITH_CUDA=ON`)
+- **GPU Acceleration**: Apple Metal FLAT kernels on Apple Silicon; NVIDIA CUDA FLAT/IVF via faiss-gpu (opt-in, build with `-DGVDB_WITH_CUDA=ON`). See [GPU Performance](#gpu-performance) for head-to-head numbers.
 - **Backup and Restore**: Point-in-time backup of a collection to S3/MinIO or a local PVC with `BackupCollection` / `RestoreCollection` gRPC and the operator's `GVDBBackup` / `GVDBRestore` CRDs
 - **gRPC API**: Protobuf-based client/server with TLS and API key authentication
 - **Python SDK**: `pip install gvdb` — full API with hybrid search, streaming inserts, metadata, TTL
@@ -82,6 +82,49 @@ graph TB
 | `gvdb-data-node` | Sharded vector storage and indexing |
 | `gvdb-query-node` | Distributed search with fan-out and result merging |
 | `gvdb-proxy` | Client entry point with load balancing |
+
+## GPU Performance
+
+Exhaustive **FLAT L2** search, top-k=10, median of 10 runs. The Metal and CUDA
+benchmarks ([`test/bench/metal_bench.cpp`](test/bench/metal_bench.cpp),
+[`test/bench/cuda_bench.cpp`](test/bench/cuda_bench.cpp)) run the identical
+workload and sweeps, so the GPU latencies are directly comparable. "Speedup" is
+against each platform's own single-query faiss CPU baseline.
+
+**By vector count** (dim=768):
+
+| Vectors | Metal GPU<br>(M1 Pro) | vs CPU | CUDA GPU<br>(A10G) | vs CPU |
+|--------:|----------------------:|-------:|-------------------:|-------:|
+| 1K      | 0.55 ms   | 5.1×  | 0.05 ms  | 6.7×  |
+| 10K     | 2.40 ms   | 11.4× | 0.14 ms  | 25.7× |
+| 50K     | 6.65 ms   | 20.1× | 0.50 ms  | 35.1× |
+| 100K    | 12.71 ms  | 20.9× | 0.93 ms  | 35.6× |
+| 500K    | 58.79 ms  | 22.7× | 3.95 ms  | 45.7× |
+| 1M      | 115.23 ms | 23.1× | 8.66 ms  | 43.0× |
+| 2M      | 231.70 ms | 22.8× | 17.31 ms | 40.2× |
+
+**By dimension** (100K vectors):
+
+| Dimension | Metal GPU<br>(M1 Pro) | vs CPU | CUDA GPU<br>(A10G) | vs CPU |
+|----------:|----------------------:|-------:|-------------------:|-------:|
+| 128       | 4.67 ms  | 9.1×  | 0.32 ms | 19.1× |
+| 384       | 7.61 ms  | 17.1× | 0.66 ms | 27.5× |
+| 768       | 12.14 ms | 21.6× | 0.93 ms | 40.3× |
+| 1536      | 20.88 ms | 25.2× | 1.29 ms | 70.1× |
+
+Notes:
+
+- **Speedups are vs each platform's own faiss CPU** — the M1 Pro (NEON) and the
+  A10G host (AVX) are very different CPUs, so the multiples across the two
+  columns are not directly comparable. At 1M×768 the CPU baselines were 2665 ms
+  (M1 Pro) and 372 ms (A10G host).
+- **Raw GPU latency is comparable** (identical workload): the A10G runs FLAT
+  ~13× faster than the M1 Pro's integrated GPU (17.3 ms vs 231.7 ms at 2M×768) —
+  the expected gap between a datacenter GPU and a laptop iGPU.
+- Reproduce: `make bench-metal` on Apple Silicon;
+  `uv run --project tools/modal modal run tools/modal/gpu_bench.py` for CUDA on
+  a Modal A10G (both build with the respective `-DGVDB_WITH_METAL=ON` /
+  `-DGVDB_WITH_CUDA=ON`).
 
 ## Quick Start
 
