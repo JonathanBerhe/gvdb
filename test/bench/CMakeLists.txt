@@ -33,11 +33,17 @@ if(GVDB_WITH_CUDA)
     ${CMAKE_SOURCE_DIR}/src/index
   )
 
+  # The bench uses faiss-gpu headers directly (GpuCloner / StandardGpuResources),
+  # which pull in cublas_v2.h — so it needs the CUDA toolkit include dirs the
+  # imported targets carry, same as gvdb_index. CUDAToolkit is found at the
+  # root scope under GVDB_WITH_CUDA.
   target_link_libraries(gvdb-cuda-bench
     PRIVATE
       gvdb_index
       gvdb_core
       faiss
+      CUDA::cudart
+      CUDA::cublas
   )
 
   set_target_properties(gvdb-cuda-bench PROPERTIES
