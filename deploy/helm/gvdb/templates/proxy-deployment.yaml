@@ -103,6 +103,10 @@ spec:
             # picks up scale-up without a helm upgrade.
             - "--query-nodes"
             - {{ include "gvdb.queryNode.dnsUri" . | quote }}
+            {{- if .Values.tls.enabled }}
+            - "--config"
+            - "/etc/gvdb/config.yaml"
+            {{- end }}
           ports:
             - containerPort: 50050
               name: grpc
@@ -120,3 +124,16 @@ spec:
             periodSeconds: 20
           resources:
             {{- toYaml .Values.proxy.resources | nindent 12 }}
+          {{- if .Values.tls.enabled }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/gvdb
+            {{- include "gvdb.tls.volumeMount" . | nindent 12 }}
+          {{- end }}
+      {{- if .Values.tls.enabled }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "gvdb.fullname" . }}-config
+        {{- include "gvdb.tls.volume" . | nindent 8 }}
+      {{- end }}

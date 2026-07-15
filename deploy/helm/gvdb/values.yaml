@@ -181,6 +181,63 @@ proxy:
   tolerations: []
   podAnnotations: {}
 
+# Inter-node / client TLS. Default off — the dev/kind install stays plaintext.
+# When enabled, every workload mounts a TLS Secret at /etc/gvdb/tls and is
+# started with --config /etc/gvdb/config.yaml so the server reads the rendered
+# server.tls block. Consensus/routing still come from CLI flags, so enabling
+# this does not disturb distributed mode.
+#
+# The mounted Secret must carry tls.crt + tls.key (+ ca.crt for mutualTls).
+# Source it one of two ways:
+#   - certManager.enabled=true  -> the chart emits a cert-manager Certificate
+#     that writes <release>-tls.
+#   - existingSecret: <name>    -> you (or the ExternalSecret below, or any
+#     other tool) provide the Secret.
+tls:
+  enabled: false
+  # Require and verify client certificates (mTLS) rather than server-only TLS.
+  mutualTls: false
+  # Use a Secret you manage instead of cert-manager. Ignored when
+  # certManager.enabled=true (the generated Certificate's Secret is used).
+  existingSecret: ""
+  certManager:
+    enabled: false
+    # Issuer that signs the cert. Point at a ClusterIssuer/Issuer you run
+    # (e.g. a self-signed CA for inter-node mTLS, or a real CA).
+    issuerRef:
+      name: gvdb-ca
+      kind: ClusterIssuer   # ClusterIssuer | Issuer
+    duration: 2160h0m0s     # 90d
+    renewBefore: 360h0m0s   # 15d
+    privateKey:
+      algorithm: ECDSA      # ECDSA | RSA
+      size: 256
+    # Extra SANs beyond the chart-generated service DNS names.
+    extraDnsNames: []
+
+# External Secrets Operator (external-secrets.io) integration. Default off.
+# Syncs secrets from AWS Secrets Manager / GCP Secret Manager / Azure Key
+# Vault / Vault into a Kubernetes Secret. Common uses: provide the TLS keypair
+# (point tls.existingSecret at target.name) or an API-key file. Requires ESO
+# installed and a (Cluster)SecretStore already configured.
+externalSecrets:
+  enabled: false
+  refreshInterval: 1h
+  secretStoreRef:
+    name: ""
+    kind: ClusterSecretStore   # ClusterSecretStore | SecretStore
+  target:
+    # Name of the K8s Secret ESO creates. Empty -> <release>-secrets.
+    name: ""
+  # Per-key mappings: each entry maps a remote key to a Secret data key.
+  # Example:
+  #   data:
+  #     - secretKey: tls.crt
+  #       remoteRef: { key: prod/gvdb/tls, property: cert }
+  data: []
+  # Or pull an entire remote secret verbatim.
+  dataFrom: []
+
 # Pod- and container-level security contexts applied to every workload.
 # Empty by default to preserve existing behavior; populate in a
 # production values overlay, e.g.:

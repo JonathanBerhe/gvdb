@@ -306,3 +306,34 @@ without losing the zone-spread default.
       {{- .selectorLabels | nindent 6 }}
 {{- end }}
 
+{{/*
+Name of the Secret holding the TLS material (tls.crt / tls.key / ca.crt).
+cert-manager writes to <release>-tls when enabled; otherwise the operator-
+provided tls.existingSecret is used. Both the Certificate template and the
+per-workload volume mount resolve the name through here so they never drift.
+*/}}
+{{- define "gvdb.tls.secretName" -}}
+{{- if .Values.tls.certManager.enabled -}}
+{{ include "gvdb.fullname" . }}-tls
+{{- else -}}
+{{ .Values.tls.existingSecret }}
+{{- end -}}
+{{- end }}
+
+{{/*
+TLS volume + volumeMount snippets, shared by every workload so the mount
+path and Secret reference are defined once. Emitted only when tls.enabled;
+the caller guards with `{{- if .Values.tls.enabled }}`.
+*/}}
+{{- define "gvdb.tls.volume" -}}
+- name: gvdb-tls
+  secret:
+    secretName: {{ include "gvdb.tls.secretName" . }}
+{{- end }}
+
+{{- define "gvdb.tls.volumeMount" -}}
+- name: gvdb-tls
+  mountPath: /etc/gvdb/tls
+  readOnly: true
+{{- end }}
+
