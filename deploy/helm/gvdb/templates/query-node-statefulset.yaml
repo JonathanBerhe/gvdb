@@ -92,6 +92,9 @@ spec:
                 --advertise-address $ADVERTISE \
                 --data-dir /data/gvdb/query_node \
                 --coordinator {{ include "gvdb.coordinator.address" . }} \
+                {{- if .Values.tls.enabled }}
+                --config /etc/gvdb/config.yaml \
+                {{- end }}
                 --memory-limit-gb {{ .Values.queryNode.memoryLimitGb }}
           ports:
             - containerPort: 50070
@@ -109,6 +112,9 @@ spec:
               mountPath: /data/gvdb/query_node
             - name: config
               mountPath: /etc/gvdb
+            {{- if .Values.tls.enabled }}
+            {{- include "gvdb.tls.volumeMount" . | nindent 12 }}
+            {{- end }}
           readinessProbe:
             tcpSocket:
               port: 50070
@@ -125,6 +131,9 @@ spec:
         - name: config
           configMap:
             name: {{ include "gvdb.fullname" . }}-config
+        {{- if .Values.tls.enabled }}
+        {{- include "gvdb.tls.volume" . | nindent 8 }}
+        {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: data

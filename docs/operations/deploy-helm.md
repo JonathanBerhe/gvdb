@@ -315,16 +315,61 @@ ingress:
 
 In both cases the chart routes traffic to the `<release>-proxy` Service on `proxy.service.port`. `ingress.host` is required when `ingress.enabled: true`; the render fails fast if it's empty.
 
+## TLS (cert-manager or an existing Secret)
+
+Set `tls.enabled: true` to turn on TLS. Every workload then mounts a TLS Secret at `/etc/gvdb/tls` and starts with `--config /etc/gvdb/config.yaml`, and the rendered server config gains a `server.tls` block pointing at `tls.crt` / `tls.key` / `ca.crt`. Consensus and routing still come from CLI flags, so enabling TLS does not disturb distributed mode.
+
+Provide the keypair one of two ways. **cert-manager** (`tls.certManager.enabled: true`) emits a `Certificate` that a `ClusterIssuer`/`Issuer` you run signs into the `<release>-tls` Secret, with SANs covering every workload Service and the headless per-pod FQDNs (so one cert validates all inter-node connections):
+
+```yaml
+tls:
+  enabled: true
+  mutualTls: true                 # require + verify client certs
+  certManager:
+    enabled: true
+    issuerRef:
+      name: gvdb-ca
+      kind: ClusterIssuer
+```
+
+Or point at a **Secret you manage** (from any source) and skip cert-manager:
+
+```yaml
+tls:
+  enabled: true
+  existingSecret: my-gvdb-tls     # must hold tls.crt / tls.key (+ ca.crt for mTLS)
+```
+
+`tls.certManager.issuerRef.name` is required when cert-manager is enabled; the render fails fast if it's empty. cert-manager and its issuer must already be installed in the cluster.
+
+## External Secrets Operator
+
+Set `externalSecrets.enabled: true` to emit an `ExternalSecret` (`external-secrets.io/v1`) that syncs secrets from AWS Secrets Manager / GCP Secret Manager / Azure Key Vault / Vault into a Kubernetes Secret, via a `(Cluster)SecretStore` you configure. Common uses: supply the TLS keypair (point `tls.existingSecret` at `externalSecrets.target.name`) or an API-key file.
+
+```yaml
+externalSecrets:
+  enabled: true
+  secretStoreRef:
+    name: aws-secrets-manager
+    kind: ClusterSecretStore
+  target:
+    name: gvdb-tls               # consumed by tls.existingSecret, or mounted yourself
+  data:
+    - secretKey: tls.crt
+      remoteRef: { key: prod/gvdb/tls, property: cert }
+    - secretKey: tls.key
+      remoteRef: { key: prod/gvdb/tls, property: key }
+```
+
+Requires the External Secrets Operator CRDs installed. `externalSecrets.secretStoreRef.name` is required when enabled.
+
 ## What the chart does **not** surface (yet)
 
 The following are **not Helm-parameterized**. Configure them by mounting a custom `gvdb-config.yaml` ConfigMap / Secret that overrides the values the chart renders, or patch the StatefulSet directly:
 
 - **Authentication** / **RBAC** — API keys, RBAC users (see [Security](security.md))
-- **TLS** — mutual TLS material (certificates, keys)
 - **Audit logging**
-- **cert-manager `Certificate`** for inter-node mTLS
-- **External Secrets Operator** integration (AWS Secrets Manager / GCP Secret Manager / Azure Key Vault sync)
-- **Object storage** (S3 / MinIO) for [tiered storage](../features/tiered-storage.md) — the server supports it, but the chart doesn't expose the knobs
+- **Object storage** (S3 / MinIO / GCS) for [tiered storage](../features/tiered-storage.md) — the server supports it, but the chart doesn't expose the knobs
 
 Contributions to expose these in the Helm chart are welcome.
 

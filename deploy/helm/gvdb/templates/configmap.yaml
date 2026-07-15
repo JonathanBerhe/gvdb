@@ -13,6 +13,14 @@ data:
       metrics_port: 9090
       max_message_size_mb: {{ .Values.config.server.maxMessageSizeMb }}
       max_concurrent_streams: {{ .Values.config.server.maxConcurrentStreams }}
+      {{- if .Values.tls.enabled }}
+      tls:
+        enabled: true
+        cert_path: /etc/gvdb/tls/tls.crt
+        key_path: /etc/gvdb/tls/tls.key
+        ca_cert_path: /etc/gvdb/tls/ca.crt
+        mutual_tls: {{ .Values.tls.mutualTls }}
+      {{- end }}
     storage:
       data_dir: "/data/gvdb"
       segment_max_size_mb: {{ .Values.config.storage.segmentMaxSizeMb }}

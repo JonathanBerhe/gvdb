@@ -1,0 +1,45 @@
+{{- if .Values.tls.certManager.enabled }}
+{{- $fullname := include "gvdb.fullname" . -}}
+{{- $ns := .Release.Namespace -}}
+{{- $domain := include "gvdb.clusterDomain" . -}}
+# cert-manager Certificate for inter-node (and client-facing) TLS. The signed
+# keypair lands in the <release>-tls Secret, which every workload mounts at
+# /etc/gvdb/tls. Requires cert-manager and the referenced issuer to exist.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $fullname }}-tls
+  namespace: {{ $ns }}
+  labels:
+    {{- include "gvdb.labels" . | nindent 4 }}
+spec:
+  secretName: {{ $fullname }}-tls
+  duration: {{ .Values.tls.certManager.duration | quote }}
+  renewBefore: {{ .Values.tls.certManager.renewBefore | quote }}
+  privateKey:
+    algorithm: {{ .Values.tls.certManager.privateKey.algorithm }}
+    size: {{ .Values.tls.certManager.privateKey.size }}
+  commonName: {{ $fullname }}
+  # SANs cover each workload's Service and the headless per-pod FQDNs so a
+  # single cert validates every inter-node connection (coordinator, data-node,
+  # query-node, proxy) as well as client access via the proxy Service.
+  dnsNames:
+    - {{ $fullname }}-coordinator
+    - {{ $fullname }}-coordinator.{{ $ns }}.svc
+    - {{ $fullname }}-coordinator.{{ $ns }}.svc.{{ $domain }}
+    - "*.{{ $fullname }}-coordinator.{{ $ns }}.svc.{{ $domain }}"
+    - {{ $fullname }}-data-node
+    - "*.{{ $fullname }}-data-node.{{ $ns }}.svc.{{ $domain }}"
+    - {{ $fullname }}-query-node
+    - "*.{{ $fullname }}-query-node.{{ $ns }}.svc.{{ $domain }}"
+    - {{ $fullname }}-proxy
+    - {{ $fullname }}-proxy.{{ $ns }}.svc
+    - {{ $fullname }}-proxy.{{ $ns }}.svc.{{ $domain }}
+    {{- range .Values.tls.certManager.extraDnsNames }}
+    - {{ . | quote }}
+    {{- end }}
+  issuerRef:
+    name: {{ required "tls.certManager.issuerRef.name is required" .Values.tls.certManager.issuerRef.name }}
+    kind: {{ .Values.tls.certManager.issuerRef.kind }}
+    group: cert-manager.io
+{{- end }}
