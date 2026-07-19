@@ -59,7 +59,7 @@ S3 runtime deps: `libssl-dev`, `libcurl4-openssl-dev`. Both flags can be enabled
 
 ## Server configuration
 
-Object store settings live under `storage` in the server YAML. An empty `object_store_type` disables tiered storage.
+Object store settings live in a nested `object_store` block under `storage` in the server YAML. Omitting the block (or leaving `type` empty with no endpoint) disables tiered storage.
 
 === "S3 / MinIO"
 
@@ -67,16 +67,17 @@ Object store settings live under `storage` in the server YAML. An empty `object_
     storage:
       data_dir: "/var/lib/gvdb"
 
-      object_store_type: "s3"                 # "s3" or "minio"
-      object_store_endpoint: "https://s3.amazonaws.com"
-      object_store_region: "us-east-1"
-      object_store_bucket: "gvdb-cold"
-      object_store_prefix: "segments/"
-      object_store_access_key: "..."
-      object_store_secret_key: "..."
-      object_store_use_ssl: true
-      object_store_cache_size_mb: 50000       # 50 GB
-      object_store_upload_threads: 4
+      object_store:
+        type: "s3"                        # "s3" or "minio"
+        endpoint: "https://s3.amazonaws.com"
+        region: "us-east-1"
+        bucket: "gvdb-cold"
+        prefix: "segments"
+        access_key: "..."
+        secret_key: "..."
+        use_ssl: true
+        local_cache_size_mb: 50000        # 50 GB
+        upload_threads: 4
     ```
 
 === "GCS"
@@ -85,22 +86,23 @@ Object store settings live under `storage` in the server YAML. An empty `object_
     storage:
       data_dir: "/var/lib/gvdb"
 
-      object_store_type: "gcs"
-      object_store_bucket: "gvdb-cold"
-      object_store_prefix: "segments/"
-      # Auth is Application Default Credentials. On GKE, bind a Google service
-      # account via Workload Identity and leave these empty. For local/dev,
-      # set credentials_path (or GOOGLE_APPLICATION_CREDENTIALS) to a
-      # service-account JSON.
-      object_store_project: ""                # optional; ADC usually supplies it
-      object_store_credentials_path: ""       # optional service-account JSON
-      object_store_cache_size_mb: 50000
-      object_store_upload_threads: 4
+      object_store:
+        type: "gcs"
+        bucket: "gvdb-cold"
+        prefix: "segments"
+        # Auth is Application Default Credentials. On GKE, bind a Google
+        # service account via Workload Identity and leave these empty. For
+        # local/dev, set credentials_path (or GOOGLE_APPLICATION_CREDENTIALS)
+        # to a service-account JSON.
+        project: ""                       # optional; ADC usually supplies it
+        credentials_path: ""              # optional service-account JSON
+        local_cache_size_mb: 50000
+        upload_threads: 4
     ```
 
     No access/secret keys and no region: GCS auth is identity-based (Workload
     Identity on GKE) and a bucket's location is a property of the bucket. Set
-    `object_store_endpoint` only to target a local fake-gcs-server emulator.
+    `endpoint` only to target a local fake-gcs-server emulator.
 
 === "Filesystem"
 
@@ -108,17 +110,35 @@ Object store settings live under `storage` in the server YAML. An empty `object_
     storage:
       data_dir: "/var/lib/gvdb"
 
-      object_store_type: "filesystem"
-      object_store_bucket: "/mnt/gvdb-cold"   # absolute root directory
-      object_store_prefix: "segments/"
-      object_store_cache_size_mb: 50000
-      object_store_upload_threads: 4
+      object_store:
+        type: "filesystem"
+        bucket: "/mnt/gvdb-cold"          # absolute root directory
+        prefix: "segments"
+        local_cache_size_mb: 50000
+        upload_threads: 4
     ```
 
-    The `bucket` field is interpreted as the root directory. The backend reserves a `.gvdb-tmp/` subdirectory for atomic writes — do **not** put application data there. Use this for dev, CI, single-node deployments, and NFS-mounted cold tiers where standing up MinIO would be overkill.
+    The `bucket` field is interpreted as the root directory. The backend reserves a `.gvdb-tmp/` subdirectory for atomic writes; do **not** put application data there. Use this for dev, CI, single-node deployments, and NFS-mounted cold tiers where standing up MinIO would be overkill.
 
-!!! warning "Not a Helm value"
-    The Helm chart does not expose `storage.object_store_*` as values. Mount a custom ConfigMap / Secret with these fields set, overriding the chart-rendered config. Credentials should come from a Kubernetes Secret.
+## Enable via Helm
+
+The chart renders the `storage.object_store` block from the `objectStore` values section and starts the config-consuming workloads with `--config`:
+
+```yaml
+objectStore:
+  enabled: true
+  type: s3                 # "s3" | "minio" | "gcs"
+  endpoint: http://minio.storage.svc.cluster.local:9000
+  bucket: gvdb-segments
+  region: us-east-1
+  prefix: gvdb
+  useSsl: false            # plain-HTTP MinIO
+  cacheSizeMb: 256
+  uploadThreads: 2
+```
+
+!!! warning "Static credentials are for dev only"
+    `objectStore.accessKey` / `objectStore.secretKey` render into the ConfigMap the pods read. Use them only for dev/MinIO. In production leave both empty and grant bucket access via IRSA (EKS) or Workload Identity (GKE), or mount your own config Secret.
 
 ## MinIO locally
 
