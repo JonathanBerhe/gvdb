@@ -67,6 +67,18 @@ absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType in
     return status;
   }
 
+  // Persist the sealed segment. On the tiered manager this schedules the async
+  // upload to object storage; on the plain manager it writes to local disk.
+  // A local flush failure is a durability problem worth surfacing, but the
+  // index is built and the segment is already serving queries, so we log it
+  // rather than fail the build task (upload retries are tracked separately).
+  auto flush_status = segment_store_->FlushSegment(segment_id);
+  if (!flush_status.ok()) {
+    utils::Logger::Instance().Error(
+        "Failed to flush segment {} after seal: {}",
+        core::ToUInt32(segment_id), flush_status.message());
+  }
+
   utils::Logger::Instance().Info(
       "Index built for segment {} (type={}, vectors={})",
       core::ToUInt32(segment_id), static_cast<int>(config.index_type),
@@ -222,8 +234,23 @@ absl::Status DataNode::CompactSegments(const std::vector<core::SegmentId>& segme
 
   auto seal_status = segment_store_->SealSegment(new_seg_id, config);
   if (!seal_status.ok()) {
-    segment_store_->DropSegment(new_seg_id, true);
+    auto drop = segment_store_->DropSegment(new_seg_id, true);
+    (void)drop;
     return seal_status;
+  }
+
+  // Persist the merged segment before dropping the sources below. In tiered
+  // mode this uploads it to object storage. If the flush fails we revert the
+  // compaction (drop the merged segment, keep the sources) rather than delete
+  // the sources while the merged result is unpersisted, which would lose data.
+  auto flush_status = segment_store_->FlushSegment(new_seg_id);
+  if (!flush_status.ok()) {
+    utils::Logger::Instance().Error(
+        "Failed to flush compacted segment {}; reverting compaction: {}",
+        core::ToUInt32(new_seg_id), flush_status.message());
+    auto drop = segment_store_->DropSegment(new_seg_id, true);
+    (void)drop;
+    return flush_status;
   }
 
   // Drop source segments

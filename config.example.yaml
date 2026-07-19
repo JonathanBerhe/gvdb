@@ -15,9 +15,18 @@ storage:
   enable_compression: true
   compaction_threads: 4
 
-  # Object storage (S3/MinIO) — uncomment to enable tiered storage.
+  # Object storage — uncomment to enable tiered storage.
   # Sealed segments are uploaded to object storage asynchronously after local flush.
   # Remote segments are lazily downloaded on first access.
+  #
+  # Filesystem (always available, no build flag). "bucket" is a directory; use a
+  # shared/NFS mount for a real cold tier, or a local path for dev and testing:
+  # object_store:
+  #   type: "filesystem"
+  #   bucket: "/var/lib/gvdb/object-store"               # root directory for uploads
+  #   prefix: "gvdb"                                      # object key prefix
+  #   local_cache_size_mb: 256                            # LRU cache for downloaded segments
+  #   upload_threads: 2                                   # async upload concurrency
   #
   # S3 / MinIO (build with -DGVDB_WITH_S3=ON):
   # object_store:

@@ -181,6 +181,32 @@ proxy:
   tolerations: []
   podAnnotations: {}
 
+# Tiered object storage for sealed segments + backups. Default off (local
+# disk only). When enabled, the object_store block is rendered into the server
+# config and every workload is started with --config /etc/gvdb/config.yaml.
+# Requires the matching backend compiled into the image:
+#   type s3 / minio -> -DGVDB_WITH_S3=ON ; type gcs -> -DGVDB_WITH_GCS=ON.
+objectStore:
+  enabled: false
+  type: s3                       # "s3" | "minio" | "gcs"
+  endpoint: ""                   # S3/MinIO endpoint; a GCS emulator; empty for real S3/GCS
+  bucket: ""
+  region: us-east-1              # S3 only (ignored by GCS)
+  prefix: gvdb
+  useSsl: true                   # S3/MinIO; set false for plain-HTTP MinIO
+  cacheSizeMb: 256               # local LRU cache for downloaded segments
+  uploadThreads: 2
+  # GCS only. project is usually supplied by ADC; credentialsPath points at a
+  # service-account JSON (or leave empty and use Workload Identity).
+  project: ""
+  credentialsPath: ""
+  # S3/MinIO static credentials. INTENDED FOR DEV / MinIO ONLY — they render
+  # into the config the pods read. In production leave BOTH empty and grant
+  # access via IRSA (EKS) / Workload Identity (GKE); for a self-managed key,
+  # supply your own config Secret rather than putting it here.
+  accessKey: ""
+  secretKey: ""
+
 # Inter-node / client TLS. Default off — the dev/kind install stays plaintext.
 # When enabled, every workload mounts a TLS Secret at /etc/gvdb/tls and is
 # started with --config /etc/gvdb/config.yaml so the server reads the rendered
