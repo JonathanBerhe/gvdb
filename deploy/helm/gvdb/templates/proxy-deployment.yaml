@@ -103,7 +103,7 @@ spec:
             # picks up scale-up without a helm upgrade.
             - "--query-nodes"
             - {{ include "gvdb.queryNode.dnsUri" . | quote }}
-            {{- if .Values.tls.enabled }}
+            {{- if or .Values.tls.enabled .Values.objectStore.enabled }}
             - "--config"
             - "/etc/gvdb/config.yaml"
             {{- end }}
@@ -124,16 +124,20 @@ spec:
             periodSeconds: 20
           resources:
             {{- toYaml .Values.proxy.resources | nindent 12 }}
-          {{- if .Values.tls.enabled }}
+          {{- if or .Values.tls.enabled .Values.objectStore.enabled }}
           volumeMounts:
             - name: config
               mountPath: /etc/gvdb
+            {{- if .Values.tls.enabled }}
             {{- include "gvdb.tls.volumeMount" . | nindent 12 }}
+            {{- end }}
           {{- end }}
-      {{- if .Values.tls.enabled }}
+      {{- if or .Values.tls.enabled .Values.objectStore.enabled }}
       volumes:
         - name: config
           configMap:
             name: {{ include "gvdb.fullname" . }}-config
+        {{- if .Values.tls.enabled }}
         {{- include "gvdb.tls.volume" . | nindent 8 }}
+        {{- end }}
       {{- end }}

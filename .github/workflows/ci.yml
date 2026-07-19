@@ -529,9 +529,12 @@ jobs:
       - name: helm template smoke (TLS / cert-manager + External Secrets)
         if: steps.filter.outputs.gvdb-chart == 'true'
         run: |
-          # TLS on with cert-manager: a Certificate is emitted, every workload
-          # mounts the TLS secret at /etc/gvdb/tls and is started with --config,
-          # and the rendered server config carries the tls block.
+          # TLS on with cert-manager: a Certificate is emitted, the three
+          # config-consuming workloads (coordinator, data-node, proxy) mount
+          # the TLS secret at /etc/gvdb/tls and are started with --config,
+          # and the rendered server config carries the tls block. The
+          # query-node binary does not accept --config, so it gets neither
+          # the flag nor the mounts; passing it either crashes the pod.
           tls=$(helm template gvdb deploy/helm/gvdb \
             --set tls.enabled=true \
             --set tls.certManager.enabled=true)
@@ -540,8 +543,15 @@ jobs:
           echo "$tls" | grep -q 'cert_path: /etc/gvdb/tls/tls.crt' || \
             { echo "ERROR: server.tls block missing from config"; exit 1; }
           mounts=$(echo "$tls" | grep -c 'mountPath: /etc/gvdb/tls')
-          if [ "$mounts" -ne 4 ]; then
-            echo "ERROR: expected TLS mount on all 4 workloads, got $mounts"; exit 1
+          if [ "$mounts" -ne 3 ]; then
+            echo "ERROR: expected TLS mount on 3 workloads (coordinator, data-node, proxy), got $mounts"; exit 1
+          fi
+          if helm template gvdb deploy/helm/gvdb \
+            --set tls.enabled=true \
+            --set tls.certManager.enabled=true \
+            --show-only templates/query-node-statefulset.yaml \
+            | grep -qE -- '--config|/etc/gvdb'; then
+            echo "ERROR: query-node must not receive --config or config/TLS mounts (binary rejects --config)"; exit 1
           fi
           # A typo'd/empty issuer must fail fast rather than emit a dangling ref.
           if helm template gvdb deploy/helm/gvdb \
@@ -557,6 +567,30 @@ jobs:
             { echo "ERROR: ExternalSecret not emitted"; exit 1; }
           echo "$es" | grep -q 'external-secrets.io/v1' || \
             { echo "ERROR: ExternalSecret not on the v1 API"; exit 1; }
+
+      - name: helm template smoke (object store)
+        if: steps.filter.outputs.gvdb-chart == 'true'
+        run: |
+          # Object store on: the rendered server config carries the
+          # storage.object_store block and the config-consuming workloads
+          # (coordinator, data-node, proxy) are started with --config.
+          os=$(helm template gvdb deploy/helm/gvdb \
+            --set objectStore.enabled=true \
+            --set objectStore.type=s3 \
+            --set objectStore.endpoint=http://minio.storage.svc:9000 \
+            --set objectStore.bucket=gvdb-segments)
+          echo "$os" | grep -q 'object_store:' || \
+            { echo "ERROR: storage.object_store block missing from config"; exit 1; }
+          echo "$os" | grep -q 'bucket: "gvdb-segments"' || \
+            { echo "ERROR: object_store.bucket missing from config"; exit 1; }
+          cfgs=$(echo "$os" | grep -c -- '--config')
+          if [ "$cfgs" -ne 3 ]; then
+            echo "ERROR: expected --config on 3 workloads (coordinator, data-node, proxy), got $cfgs"; exit 1
+          fi
+          # Off by default: no object_store block leaks into the config.
+          if helm template gvdb deploy/helm/gvdb | grep -q 'object_store:'; then
+            echo "ERROR: object_store block rendered with objectStore.enabled=false"; exit 1
+          fi
 
       # Render with every hardening gate flipped on, mimicking a
       # production overlay. Catches regressions in the new
@@ -574,6 +608,10 @@ jobs:
             --set tls.mutualTls=true \
             --set externalSecrets.enabled=true \
             --set externalSecrets.secretStoreRef.name=aws-sm \
+            --set objectStore.enabled=true \
+            --set objectStore.type=s3 \
+            --set objectStore.endpoint=http://minio.storage.svc:9000 \
+            --set objectStore.bucket=gvdb-segments \
             --set coordinator.replicas=3 \
             --set coordinator.zoneSpread.enabled=true \
             --set dataNode.zoneSpread.enabled=true \
