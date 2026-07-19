@@ -55,17 +55,21 @@ storage:
   enable_compression: true
   compaction_threads: 4
 
-  # Object store (S3/MinIO). Empty `object_store_type` disables tiered storage.
-  object_store_type: ""            # "s3" or "minio"
-  object_store_endpoint: ""        # e.g. "http://minio:9000"
-  object_store_access_key: ""
-  object_store_secret_key: ""
-  object_store_bucket: ""
-  object_store_region: ""
-  object_store_prefix: ""
-  object_store_use_ssl: true
-  object_store_cache_size_mb: 256
-  object_store_upload_threads: 2
+  # Object store for tiered storage. Omit the block to disable.
+  # See Features > Tiered storage for per-backend examples.
+  object_store:
+    type: ""                       # "s3" | "minio" | "gcs" | "filesystem"
+    endpoint: ""                   # e.g. "http://minio:9000"; empty for real S3/GCS
+    access_key: ""                 # S3/MinIO only
+    secret_key: ""                 # S3/MinIO only
+    bucket: ""                     # for "filesystem": the root directory
+    region: "us-east-1"            # S3 only
+    prefix: "gvdb"                 # object key prefix
+    use_ssl: true                  # S3/MinIO
+    project: ""                    # GCS only; ADC usually supplies it
+    credentials_path: ""           # GCS only; service-account JSON
+    local_cache_size_mb: 256       # LRU cache for downloaded segments
+    upload_threads: 2              # async upload concurrency
 
 index:
   default_index_type: "HNSW"       # FLAT | HNSW | IVF_FLAT | IVF_PQ | IVF_SQ
