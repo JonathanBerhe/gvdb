@@ -363,13 +363,34 @@ externalSecrets:
 
 Requires the External Secrets Operator CRDs installed. `externalSecrets.secretStoreRef.name` is required when enabled.
 
+## Object storage (tiered storage)
+
+Set `objectStore.enabled: true` to render a `storage.object_store` block into the server config and start the config-consuming workloads (coordinator, data-node, proxy) with `--config`. Sealed segments then upload to the object store automatically; see [Tiered storage](../features/tiered-storage.md) for how the tiering works.
+
+```yaml
+objectStore:
+  enabled: true
+  type: s3                       # "s3" | "minio" | "gcs"
+  endpoint: http://minio.storage.svc.cluster.local:9000
+  bucket: gvdb-segments
+  region: us-east-1              # S3 only
+  prefix: gvdb
+  useSsl: false                  # plain-HTTP MinIO
+  cacheSizeMb: 256               # local LRU cache for downloaded segments
+  uploadThreads: 2
+  # GCS only:
+  project: ""                    # usually supplied by ADC
+  credentialsPath: ""            # service-account JSON; prefer Workload Identity
+```
+
+For S3/MinIO auth in production, leave `accessKey` / `secretKey` empty and grant bucket access via IRSA (EKS) or Workload Identity (GKE). The static credential values are for dev/MinIO only: they render into the ConfigMap the pods read. The S3 and GCS backends require an image built with `-DGVDB_WITH_S3=ON` / `-DGVDB_WITH_GCS=ON` (the published images include S3).
+
 ## What the chart does **not** surface (yet)
 
 The following are **not Helm-parameterized**. Configure them by mounting a custom `gvdb-config.yaml` ConfigMap / Secret that overrides the values the chart renders, or patch the StatefulSet directly:
 
-- **Authentication** / **RBAC** — API keys, RBAC users (see [Security](security.md))
+- **Authentication** / **RBAC**: API keys, RBAC users (see [Security](security.md))
 - **Audit logging**
-- **Object storage** (S3 / MinIO / GCS) for [tiered storage](../features/tiered-storage.md) — the server supports it, but the chart doesn't expose the knobs
 
 Contributions to expose these in the Helm chart are welcome.
 
