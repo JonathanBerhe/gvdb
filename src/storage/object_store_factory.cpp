@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 
+#include "storage/filesystem_object_store.h"
 #include "utils/config.h"
 #include "utils/logger.h"
 
@@ -22,6 +23,22 @@ namespace storage {
 core::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(
     const utils::StorageConfig& config) {
   const std::string& type = config.object_store_type;
+
+  // Filesystem tier: always available (no SDK). bucket = root directory.
+  // Useful for dev / CI / single-node / NFS-mounted cold tiers.
+  if (type == "filesystem") {
+    if (config.object_store_bucket.empty()) {
+      return core::InvalidArgumentError(
+          "object_store.type=filesystem requires object_store.bucket "
+          "(interpreted as the root directory)");
+    }
+    auto store = FilesystemObjectStore::Create(config.object_store_bucket);
+    if (!store.ok()) {
+      return store.status();
+    }
+    return std::unique_ptr<IObjectStore>(std::move(*store));
+  }
+
   const bool wants_gcs = (type == "gcs");
 
   if (wants_gcs) {

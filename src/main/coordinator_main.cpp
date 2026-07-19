@@ -331,6 +331,12 @@ int main(int argc, char** argv) {
     // path. Without this, BackupCollection on the coordinator binary
     // would try to back up the coordinator's empty local segment store.
     vectordb_service->SetCoordinator(coordinator);
+    // The VectorDBService logs "Backup disabled" at construction because it
+    // holds no *local* backup manager; on the coordinator, BackupCollection is
+    // instead served by the distributed per-shard path via the coordinator set
+    // above. Clarify so the earlier line isn't read as "backup unavailable".
+    utils::Logger::Instance().Info(
+        "Coordinator backup/restore served via distributed shard orchestration");
 
     // 6. Start gRPC server
     auto credentials = utils::ServerBootstrap::MakeServerCredentials(config.server.tls);

@@ -133,8 +133,15 @@ int main(int argc, char** argv) {
 
     // 2. Storage + compute
     auto index_factory = std::make_unique<index::IndexFactory>();
+    // Honor storage.segment_max_size_mb from config (was previously ignored,
+    // leaving every segment on the 512 MB default and never rotating small
+    // collections). Clamp to >=1 MB so a 0 value can't produce 0-byte
+    // segments that seal on the first insert.
+    const size_t segment_max_bytes =
+        (config.storage.segment_max_size_mb ? config.storage.segment_max_size_mb : 1)
+        * 1024 * 1024;
     auto local_manager = std::make_unique<storage::SegmentManager>(
-        data_dir + "/segments", index_factory.get());
+        data_dir + "/segments", index_factory.get(), segment_max_bytes);
 
     // Optionally wrap in tiered storage. The backend (S3 / MinIO / GCS) is
     // selected from config by the shared factory; an empty result means
@@ -163,7 +170,11 @@ int main(int argc, char** argv) {
           std::move(local_manager));
     }
 
-    segment_store->LoadAllSegments();
+    if (auto load_status = segment_store->LoadAllSegments(); !load_status.ok()) {
+      utils::Logger::Instance().Warn(
+          "Failed to load existing segments on startup: {}",
+          load_status.message());
+    }
     auto query_executor = std::make_shared<compute::QueryExecutor>(
         segment_store.get());
     query_executor->SetCache(std::make_shared<utils::QueryCache>(10000));
@@ -182,6 +193,17 @@ int main(int argc, char** argv) {
           auto status = segment_store->SealSegment(sid, config);
           if (!status.ok()) {
             utils::Logger::Instance().Error("Auto-seal failed: {}", status.message());
+            return;
+          }
+          // Persist the freshly sealed segment. On the plain manager this writes
+          // it to local disk; on the tiered manager it also schedules the async
+          // upload to object storage. Without this a sealed segment stays
+          // memory-only and never reaches disk or the cold tier.
+          auto flush_status = segment_store->FlushSegment(sid);
+          if (!flush_status.ok()) {
+            utils::Logger::Instance().Error(
+                "Auto-flush failed for segment {}: {}", core::ToUInt32(sid),
+                flush_status.message());
           }
         });
 

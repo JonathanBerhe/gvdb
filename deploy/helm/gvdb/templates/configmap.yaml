@@ -27,6 +27,31 @@ data:
       wal_buffer_size_mb: {{ .Values.config.storage.walBufferSizeMb }}
       enable_compression: {{ .Values.config.storage.enableCompression }}
       compaction_threads: {{ .Values.config.storage.compactionThreads }}
+      {{- if .Values.objectStore.enabled }}
+      object_store:
+        type: {{ .Values.objectStore.type | quote }}
+        {{- with .Values.objectStore.endpoint }}
+        endpoint: {{ . | quote }}
+        {{- end }}
+        bucket: {{ .Values.objectStore.bucket | quote }}
+        region: {{ .Values.objectStore.region | quote }}
+        prefix: {{ .Values.objectStore.prefix | quote }}
+        use_ssl: {{ .Values.objectStore.useSsl }}
+        local_cache_size_mb: {{ .Values.objectStore.cacheSizeMb }}
+        upload_threads: {{ .Values.objectStore.uploadThreads }}
+        {{- with .Values.objectStore.project }}
+        project: {{ . | quote }}
+        {{- end }}
+        {{- with .Values.objectStore.credentialsPath }}
+        credentials_path: {{ . | quote }}
+        {{- end }}
+        {{- with .Values.objectStore.accessKey }}
+        access_key: {{ . | quote }}
+        {{- end }}
+        {{- with .Values.objectStore.secretKey }}
+        secret_key: {{ . | quote }}
+        {{- end }}
+      {{- end }}
     index:
       default_index_type: {{ .Values.config.index.defaultIndexType | quote }}
       hnsw_m: {{ .Values.config.index.hnswM }}

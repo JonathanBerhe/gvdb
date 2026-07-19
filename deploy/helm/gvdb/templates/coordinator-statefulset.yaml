@@ -102,7 +102,7 @@ spec:
                 --raft-address 0.0.0.0:8300 \
                 --raft-advertise-address $RAFT_ADVERTISE \
                 --data-dir /data/gvdb/coordinator \
-                {{- if .Values.tls.enabled }}
+                {{- if or .Values.tls.enabled .Values.objectStore.enabled }}
                 --config /etc/gvdb/config.yaml \
                 {{- end }}
                 {{- if le (int .Values.coordinator.replicas) 1 }}

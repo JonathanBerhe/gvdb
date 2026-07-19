@@ -92,10 +92,11 @@ spec:
                 --advertise-address $ADVERTISE \
                 --data-dir /data/gvdb/query_node \
                 --coordinator {{ include "gvdb.coordinator.address" . }} \
-                {{- if .Values.tls.enabled }}
-                --config /etc/gvdb/config.yaml \
-                {{- end }}
                 --memory-limit-gb {{ .Values.queryNode.memoryLimitGb }}
+                {{- /* gvdb-query-node does not accept --config: it fans out
+                       shard queries to data-nodes and owns neither tiered
+                       storage nor (yet) config-file TLS. Wiring those needs a
+                       query_node_main --config change; tracked separately. */}}
           ports:
             - containerPort: 50070
               name: grpc
@@ -110,11 +111,6 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data/gvdb/query_node
-            - name: config
-              mountPath: /etc/gvdb
-            {{- if .Values.tls.enabled }}
-            {{- include "gvdb.tls.volumeMount" . | nindent 12 }}
-            {{- end }}
           readinessProbe:
             tcpSocket:
               port: 50070
@@ -127,13 +123,6 @@ spec:
             periodSeconds: 20
           resources:
             {{- toYaml .Values.queryNode.resources | nindent 12 }}
-      volumes:
-        - name: config
-          configMap:
-            name: {{ include "gvdb.fullname" . }}-config
-        {{- if .Values.tls.enabled }}
-        {{- include "gvdb.tls.volume" . | nindent 8 }}
-        {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: data

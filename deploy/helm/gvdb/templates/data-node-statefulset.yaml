@@ -92,7 +92,7 @@ spec:
                 --advertise-address $ADVERTISE \
                 --data-dir /data/gvdb/data_node \
                 --coordinator {{ include "gvdb.coordinator.address" . }} \
-                {{- if .Values.tls.enabled }}
+                {{- if or .Values.tls.enabled .Values.objectStore.enabled }}
                 --config /etc/gvdb/config.yaml \
                 {{- end }}
                 --memory-limit-gb {{ .Values.dataNode.memoryLimitGb }}

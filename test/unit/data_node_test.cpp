@@ -2,11 +2,17 @@
 // Licensed under the Apache License, Version 2.0
 
 #include <doctest/doctest.h>
+
+#include <chrono>
 #include <filesystem>
+#include <thread>
 
 #include "cluster/data_node.h"
 #include "index/index_factory.h"
+#include "storage/object_store.h"
+#include "storage/segment_cache.h"
 #include "storage/segment_manager.h"
+#include "storage/tiered_segment_manager.h"
 #include "core/types.h"
 #include "core/vector.h"
 
@@ -194,6 +200,58 @@ TEST_CASE_FIXTURE(DataNodeTest, "BuildIndex rejects nonexistent segment") {
   auto status = data_node_->BuildIndex(core::MakeSegmentId(999), core::IndexType::FLAT);
   CHECK_FALSE(status.ok());
   CHECK(absl::IsNotFound(status));
+}
+
+// Regression: BuildIndex must flush the sealed segment so tiered storage
+// uploads it to the object store. Sealing alone leaves the segment memory-only;
+// the cold tier stays empty (segments never reach S3/GCS/filesystem).
+TEST_CASE("BuildIndex flushes sealed segment to the tiered object store") {
+  const std::string dir = "/tmp/gvdb_data_node_tiered_test";
+  const std::string cache_dir = "/tmp/gvdb_data_node_tiered_test_cache";
+  std::filesystem::remove_all(dir);
+  std::filesystem::remove_all(cache_dir);
+  std::filesystem::create_directories(dir);
+
+  auto factory = std::make_unique<index::IndexFactory>();
+  auto* factory_ptr = factory.get();
+
+  auto local = std::make_unique<storage::SegmentManager>(dir, factory_ptr);
+  auto object_store = std::make_unique<storage::InMemoryObjectStore>();
+  auto* store = object_store.get();  // non-owning, for inspection
+  auto cache = std::make_unique<storage::SegmentCache>(
+      cache_dir, 256 * 1024 * 1024);
+  std::shared_ptr<storage::ISegmentStore> tiered =
+      std::make_shared<storage::TieredSegmentManager>(
+          std::move(local), std::move(object_store), std::move(cache),
+          "test-prefix", /*upload_threads=*/1);
+
+  cluster::DataNode data_node(std::move(factory), tiered);
+
+  auto collection_id = core::MakeCollectionId(1);
+  auto dimension = core::Dimension(32);
+  auto seg_id = *tiered->CreateSegment(collection_id, dimension,
+                                       core::MetricType::L2);
+  std::vector<core::Vector> vectors;
+  std::vector<core::VectorId> ids;
+  for (size_t i = 0; i < 50; ++i) {
+    vectors.push_back(core::RandomVector(dimension));
+    ids.push_back(core::MakeVectorId(i + 1));
+  }
+  REQUIRE(tiered->WriteVectors(seg_id, vectors, ids).ok());
+
+  // Before BuildIndex, nothing has been uploaded.
+  CHECK_EQ(store->ObjectCount(), 0);
+
+  REQUIRE(data_node.BuildIndex(seg_id, core::IndexType::FLAT).ok());
+
+  // BuildIndex seals + flushes; the flush schedules an async upload.
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  CHECK(store->ObjectCount() > 0);
+  CHECK(store->GetObject("test-prefix/manifest.json").ok());
+
+  std::filesystem::remove_all(dir);
+  std::filesystem::remove_all(cache_dir);
 }
 
 // ============================================================================

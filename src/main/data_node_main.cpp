@@ -238,8 +238,14 @@ int main(int argc, char** argv) {
     }
 
     auto index_factory = std::make_unique<index::IndexFactory>();
+    // Honor storage.segment_max_size_mb from config (previously ignored, so
+    // every segment used the 512 MB default and never rotated). Clamp to
+    // >=1 MB so a 0 value can't seal a segment on its first insert.
+    const size_t segment_max_bytes =
+        (config.storage.segment_max_size_mb ? config.storage.segment_max_size_mb : 1)
+        * 1024 * 1024;
     auto local_manager = std::make_unique<storage::SegmentManager>(
-        args.data_dir + "/segments", index_factory.get());
+        args.data_dir + "/segments", index_factory.get(), segment_max_bytes);
 
     // Optionally wrap in tiered storage. Backend (S3 / MinIO / GCS) selected
     // from config by the shared factory. An object-store creation failure is
@@ -271,7 +277,11 @@ int main(int argc, char** argv) {
           std::move(local_manager));
     }
 
-    segment_store->LoadAllSegments();
+    if (auto load_status = segment_store->LoadAllSegments(); !load_status.ok()) {
+      utils::Logger::Instance().Warn(
+          "Failed to load existing segments on startup: {}",
+          load_status.message());
+    }
     auto data_node = std::make_shared<cluster::DataNode>(std::move(index_factory), segment_store);
 
     // Wire auto-seal: when a segment fills up, queue it for background index building
