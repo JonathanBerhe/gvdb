@@ -137,6 +137,10 @@ class SegmentManager : public ISegmentStore {
 
   [[nodiscard]] size_t GetTotalMemoryUsage() const override;
 
+  [[nodiscard]] size_t GetMaxSegmentSize() const override {
+    return max_segment_size_;
+  }
+
   void Clear() override;
 
   // Get the base path for segment storage on local disk

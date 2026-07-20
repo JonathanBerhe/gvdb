@@ -141,6 +141,10 @@ class ISegmentStore {
   // Get total memory usage
   [[nodiscard]] virtual size_t GetTotalMemoryUsage() const = 0;
 
+  // Size cap applied to every segment this store creates. Writers use this
+  // to split batches that could never fit a single segment.
+  [[nodiscard]] virtual size_t GetMaxSegmentSize() const = 0;
+
   // Clear all segments
   virtual void Clear() = 0;
 

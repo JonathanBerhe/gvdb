@@ -1037,3 +1037,137 @@ TEST_CASE_FIXTURE(VectorDBServiceTest, "UpdateMetadataNonexistentCollection") {
   CHECK_FALSE(status.ok());
   CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
 }
+
+// ============================================================================
+// Oversized-batch Insert Tests (batch larger than the segment size cap)
+// ============================================================================
+
+// Builds the same stack as VectorDBServiceTest but with a tiny segment size
+// cap so a normal-looking insert batch exceeds one segment's capacity.
+class SmallSegmentServiceTest {
+ public:
+  static constexpr size_t kMaxSegmentBytes = 1200;  // fits 4 vectors of dim 64
+
+  SmallSegmentServiceTest() {
+    test_dir_ = "/tmp/gvdb_network_small_segment_test";
+    std::filesystem::remove_all(test_dir_);
+    std::filesystem::create_directories(test_dir_);
+
+    index_factory_ = std::make_unique<index::IndexFactory>();
+    segment_store_ = std::make_shared<storage::SegmentManager>(
+        test_dir_, index_factory_.get(), kMaxSegmentBytes);
+    query_executor_ = std::make_shared<compute::QueryExecutor>(
+        segment_store_.get());
+    auto resolver = network::MakeLocalResolver(segment_store_);
+    service_ = std::make_unique<network::VectorDBService>(
+        segment_store_, query_executor_, std::move(resolver));
+  }
+
+  ~SmallSegmentServiceTest() {
+    service_.reset();
+    query_executor_.reset();
+    segment_store_.reset();
+    index_factory_.reset();
+    std::filesystem::remove_all(test_dir_);
+  }
+
+ protected:
+  std::string test_dir_;
+  std::unique_ptr<index::IndexFactory> index_factory_;
+  std::shared_ptr<storage::SegmentManager> segment_store_;
+  std::shared_ptr<compute::QueryExecutor> query_executor_;
+  std::unique_ptr<network::VectorDBService> service_;
+};
+
+TEST_CASE_FIXTURE(SmallSegmentServiceTest,
+                  "InsertBatchLargerThanSegmentSucceedsViaSplit") {
+  constexpr int kDim = 64;   // 256 bytes per vector
+  constexpr int kCount = 20; // 5120 bytes, > kMaxSegmentBytes
+
+  {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name("small_seg");
+    request.set_dimension(kDim);
+    request.set_metric(proto::CreateCollectionRequest::L2);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+    proto::CreateCollectionResponse response;
+    REQUIRE(service_->CreateCollection(&context, &request, &response).ok());
+  }
+
+  {
+    grpc::ServerContext context;
+    proto::InsertRequest request;
+    request.set_collection_name("small_seg");
+    for (int i = 0; i < kCount; ++i) {
+      auto* vec = request.add_vectors();
+      vec->set_id(i + 1);
+      vec->mutable_vector()->set_dimension(kDim);
+      for (int j = 0; j < kDim; ++j) {
+        vec->mutable_vector()->add_values(static_cast<float>(i));
+      }
+    }
+    proto::InsertResponse response;
+    auto status = service_->Insert(&context, &request, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    CHECK_EQ(response.inserted_count(), kCount);
+  }
+
+  // The batch cannot fit one segment, so the split must have used several.
+  CHECK_GT(segment_store_->GetSegmentCount(), 1);
+
+  // Vectors from a rotated (non-initial) segment must be searchable. Vector
+  // i has every component equal to i, so the exact match for an all-15 query
+  // is id 16, which the split placed well past the first segment.
+  {
+    grpc::ServerContext context;
+    proto::SearchRequest request;
+    request.set_collection_name("small_seg");
+    request.set_top_k(1);
+    auto* query = request.mutable_query_vector();
+    query->set_dimension(kDim);
+    for (int j = 0; j < kDim; ++j) query->add_values(15.0f);
+    proto::SearchResponse response;
+    auto status = service_->Search(&context, &request, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    REQUIRE_GE(response.results().size(), 1);
+    CHECK_EQ(response.results(0).id(), 16);
+    CHECK(response.results(0).distance() ==
+          doctest::Approx(0.0f).epsilon(0.01f));
+  }
+}
+
+TEST_CASE_FIXTURE(SmallSegmentServiceTest,
+                  "InsertSingleVectorLargerThanSegmentFailsFast") {
+  // One vector of dim 512 is 2048 bytes, more than any segment can hold.
+  constexpr int kDim = 512;
+
+  {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name("too_big");
+    request.set_dimension(kDim);
+    request.set_metric(proto::CreateCollectionRequest::L2);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+    proto::CreateCollectionResponse response;
+    REQUIRE(service_->CreateCollection(&context, &request, &response).ok());
+  }
+
+  grpc::ServerContext context;
+  proto::InsertRequest request;
+  request.set_collection_name("too_big");
+  auto* vec = request.add_vectors();
+  vec->set_id(1);
+  vec->mutable_vector()->set_dimension(kDim);
+  for (int j = 0; j < kDim; ++j) {
+    vec->mutable_vector()->add_values(1.0f);
+  }
+  proto::InsertResponse response;
+  auto status = service_->Insert(&context, &request, &response);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  CHECK(std::string(status.error_message()).find("exceeds") !=
+        std::string::npos);
+}
