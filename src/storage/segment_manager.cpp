@@ -177,6 +177,41 @@ core::Status SegmentManager::DropSegment(core::SegmentId id,
   return core::OkStatus();
 }
 
+void SegmentManager::RebuildIndexIfMissing(Segment* segment) {
+  if (!segment || !index_factory_) return;
+  if (segment->GetVectorCount() == 0 || segment->HasIndex()) return;
+  // Only sealed/flushed segments are supposed to carry an index; a GROWING
+  // segment (e.g. a replicated in-flight one) legitimately has none.
+  auto state = segment->GetState();
+  if (state != core::SegmentState::SEALED &&
+      state != core::SegmentState::FLUSHED) {
+    return;
+  }
+
+  core::IndexConfig config;
+  config.index_type = segment->GetIndexType();
+  config.dimension = segment->GetDimension();
+  config.metric_type = segment->GetMetric();
+
+  auto index_result = index_factory_->CreateIndex(config);
+  if (!index_result.ok()) {
+    utils::Logger::Instance().Warn(
+        "Failed to create index for segment {}: {}",
+        core::ToUInt32(segment->GetId()), index_result.status().message());
+    return;
+  }
+
+  // Seal rebuilds the index from the in-memory vectors. Temporarily set
+  // state to GROWING so Seal accepts it, then Seal restores SEALED.
+  segment->state_ = core::SegmentState::GROWING;
+  auto seal_status = segment->Seal(index_result.value().release());
+  if (!seal_status.ok()) {
+    utils::Logger::Instance().Warn(
+        "Failed to rebuild index for segment {}: {}",
+        core::ToUInt32(segment->GetId()), seal_status.message());
+  }
+}
+
 core::Status SegmentManager::LoadSegment(core::SegmentId id) {
   // Load segment from disk
   auto segment_result = Segment::Load(base_path_, id);
@@ -187,24 +222,7 @@ core::Status SegmentManager::LoadSegment(core::SegmentId id) {
   auto segment = std::move(segment_result.value());
 
   // Rebuild index if segment has vectors (makes it searchable)
-  if (segment->GetVectorCount() > 0 && index_factory_) {
-    core::IndexConfig config;
-    config.index_type = segment->GetIndexType();
-    config.dimension = segment->GetDimension();
-    config.metric_type = segment->GetMetric();
-
-    auto index_result = index_factory_->CreateIndex(config);
-    if (index_result.ok()) {
-      // Seal rebuilds the index from loaded vectors
-      // Temporarily set state to GROWING so Seal accepts it
-      segment->state_ = core::SegmentState::GROWING;
-      auto seal_status = segment->Seal(index_result.value().release());
-      if (!seal_status.ok()) {
-        utils::Logger::Instance().Warn("Failed to rebuild index for segment {}: {}",
-                                        core::ToUInt32(id), seal_status.message());
-      }
-    }
-  }
+  RebuildIndexIfMissing(segment.get());
 
   std::unique_lock lock(mutex_);
 
@@ -282,6 +300,11 @@ core::Status SegmentManager::AddReplicatedSegment(std::unique_ptr<Segment> segme
 
   auto id = segment->GetId();
   auto collection_id = segment->GetCollectionId();
+
+  // Segments arriving from restore staging (SegmentExporter::Import) or a
+  // sealed-layout deserialization carry vectors but no live index; without a
+  // rebuild every search against them fails with "has no index".
+  RebuildIndexIfMissing(segment.get());
 
   std::unique_lock lock(mutex_);
 

@@ -212,6 +212,10 @@ class Segment {
   // Check if segment can accept more vectors
   [[nodiscard]] bool CanAcceptWrites() const;
 
+  // Whether a live in-memory index is attached. Segments deserialized from
+  // disk or import staging carry vectors but no index until it is rebuilt.
+  [[nodiscard]] bool HasIndex() const;
+
   // Check if a specific batch of additional_bytes would fit
   [[nodiscard]] bool CanFit(size_t additional_bytes) const;
 
