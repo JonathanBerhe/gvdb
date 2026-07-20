@@ -7,6 +7,7 @@
 #include "core/types.h"
 #include "internal.grpc.pb.h"
 #include <chrono>
+#include <filesystem>
 
 using namespace gvdb;
 using namespace gvdb::cluster;
@@ -1052,6 +1053,72 @@ TEST_CASE_FIXTURE(CoordinatorTest, "CreateCollectionReplicationFactorExceedsNode
 
   CHECK_FALSE(result.ok());
   CHECK(absl::IsFailedPrecondition(result.status()));
+}
+
+TEST_CASE_FIXTURE(CoordinatorTest, "RegistryPersistsAcrossRestart") {
+  const std::string reg_dir = "/tmp/gvdb_coordinator_registry_test";
+  std::filesystem::remove_all(reg_dir);
+  std::filesystem::create_directories(reg_dir);
+
+  NodeInfo node_info;
+  node_info.node_id = core::MakeNodeId(1);
+  node_info.type = NodeType::DATA_NODE;
+  node_info.status = NodeStatus::HEALTHY;
+  node_info.address = "localhost:50051";
+  REQUIRE(coordinator_->RegisterNode(node_info).ok());
+
+  coordinator_->SetRegistryDir(reg_dir);
+  // First boot: no file yet is not an error.
+  REQUIRE(coordinator_->LoadRegistry().ok());
+
+  auto id1 = coordinator_->CreateCollection(
+      "persist_a", 128, core::MetricType::L2, core::IndexType::FLAT, 1, 2);
+  REQUIRE(id1.ok());
+  auto id2 = coordinator_->CreateCollection(
+      "persist_b", 64, core::MetricType::COSINE, core::IndexType::HNSW, 1);
+  REQUIRE(id2.ok());
+  REQUIRE(coordinator_->DropCollection("persist_b").ok());
+
+  // "Restart": a fresh coordinator over fresh in-memory state, pointed at
+  // the same registry dir.
+  auto shard_manager2 =
+      std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
+  auto node_registry2 =
+      std::make_shared<NodeRegistry>(std::chrono::seconds(30));
+  Coordinator restarted(shard_manager2, node_registry2);
+  restarted.SetRegistryDir(reg_dir);
+  REQUIRE(restarted.LoadRegistry().ok());
+
+  // The surviving collection is fully restored.
+  auto meta = restarted.GetCollectionMetadata("persist_a");
+  REQUIRE(meta.ok());
+  CHECK_EQ(meta->collection_id, *id1);
+  CHECK_EQ(meta->dimension, 128);
+  CHECK_EQ(meta->metric_type, core::MetricType::L2);
+  CHECK_EQ(meta->index_type, core::IndexType::FLAT);
+  CHECK_EQ(meta->num_shards, 2);
+  CHECK_EQ(meta->shard_ids.size(), 2);
+
+  // The dropped one stays dropped.
+  CHECK_FALSE(restarted.GetCollectionMetadata("persist_b").ok());
+
+  // Shard assignments came back: shard 0 has the original primary with a
+  // non-zero monotonic term.
+  auto restored_view =
+      shard_manager2->GetPrimaryNodeAndTerm(core::MakeShardId(0));
+  REQUIRE(restored_view.ok());
+  CHECK_EQ(restored_view->node_id, core::MakeNodeId(1));
+  CHECK_GT(restored_view->term, 0);
+
+  // New collections must not collide with restored ids.
+  REQUIRE(restarted.RegisterNode(node_info).ok());
+  auto id3 = restarted.CreateCollection(
+      "persist_c", 32, core::MetricType::L2, core::IndexType::FLAT, 1);
+  REQUIRE(id3.ok());
+  CHECK_NE(*id3, *id1);
+  CHECK_NE(*id3, *id2);
+
+  std::filesystem::remove_all(reg_dir);
 }
 
 // ============================================================================

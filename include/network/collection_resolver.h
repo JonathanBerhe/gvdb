@@ -114,9 +114,15 @@ class ICollectionResolver {
   }
 };
 
-// Factory functions for creating resolvers
+// Factory functions for creating resolvers.
+// registry_dir, when non-empty, enables collection-registry persistence:
+// the local resolver writes <registry_dir>/collections.json after every
+// create/drop and reloads it on construction, so collections survive
+// process restarts. Empty (the default) keeps the registry in memory only,
+// which is what tests use.
 std::unique_ptr<ICollectionResolver> MakeLocalResolver(
-    std::shared_ptr<storage::ISegmentStore> segment_store);
+    std::shared_ptr<storage::ISegmentStore> segment_store,
+    const std::string& registry_dir = "");
 
 std::unique_ptr<ICollectionResolver> MakeCoordinatorResolver(
     std::shared_ptr<cluster::Coordinator> coordinator);

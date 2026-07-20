@@ -370,7 +370,7 @@ int main(int argc, char** argv) {
     if (!args.coordinator_addresses.empty()) {
       resolver = network::MakeCachedCoordinatorResolver(args.coordinator_addresses[0]);
     } else {
-      resolver = network::MakeLocalResolver(segment_store);
+      resolver = network::MakeLocalResolver(segment_store, args.data_dir);
     }
     auto service = std::make_unique<network::VectorDBService>(
         segment_store, query_executor, std::move(resolver), nullptr,

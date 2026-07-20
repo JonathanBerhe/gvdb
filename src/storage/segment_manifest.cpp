@@ -3,6 +3,8 @@
 
 #include "storage/segment_manifest.h"
 
+#include "utils/json_util.h"
+
 #include <sstream>
 #include <regex>
 
@@ -19,19 +21,11 @@ namespace {
 // Minimal JSON serialization (avoids adding nlohmann/json dependency).
 // Manifest is a simple flat array of objects with fixed fields.
 
-std::string EscapeJson(const std::string& s) {
-  std::string result;
-  result.reserve(s.size());
-  for (char c : s) {
-    switch (c) {
-      case '"': result += "\\\""; break;
-      case '\\': result += "\\\\"; break;
-      case '\n': result += "\\n"; break;
-      default: result += c;
-    }
-  }
-  return result;
-}
+using utils::json::EscapeJson;
+using utils::json::ParseInt32;
+using utils::json::ParseString;
+using utils::json::ParseUint32;
+using utils::json::ParseUint64;
 
 std::string EntryToJson(const ManifestEntry& e) {
   std::ostringstream ss;
@@ -46,52 +40,6 @@ std::string EntryToJson(const ManifestEntry& e) {
      << ",\"uploaded_at\":\"" << EscapeJson(e.uploaded_at) << "\""
      << "}";
   return ss.str();
-}
-
-// Parse a single integer field from a JSON-like string
-bool ParseUint32(const std::string& json, const std::string& field,
-                 uint32_t& out) {
-  auto pos = json.find("\"" + field + "\":");
-  if (pos == std::string::npos) return false;
-  pos += field.size() + 3;  // skip "field":
-  auto end = json.find_first_of(",}", pos);
-  if (end == std::string::npos) return false;
-  return absl::SimpleAtoi(absl::string_view(json.data() + pos, end - pos),
-                          &out);
-}
-
-bool ParseInt32(const std::string& json, const std::string& field,
-                int32_t& out) {
-  auto pos = json.find("\"" + field + "\":");
-  if (pos == std::string::npos) return false;
-  pos += field.size() + 3;
-  auto end = json.find_first_of(",}", pos);
-  if (end == std::string::npos) return false;
-  return absl::SimpleAtoi(absl::string_view(json.data() + pos, end - pos),
-                          &out);
-}
-
-bool ParseUint64(const std::string& json, const std::string& field,
-                 uint64_t& out) {
-  auto pos = json.find("\"" + field + "\":");
-  if (pos == std::string::npos) return false;
-  pos += field.size() + 3;
-  auto end = json.find_first_of(",}", pos);
-  if (end == std::string::npos) return false;
-  return absl::SimpleAtoi(absl::string_view(json.data() + pos, end - pos),
-                          &out);
-}
-
-bool ParseString(const std::string& json, const std::string& field,
-                 std::string& out) {
-  auto needle = "\"" + field + "\":\"";
-  auto pos = json.find(needle);
-  if (pos == std::string::npos) return false;
-  pos += needle.size();
-  auto end = json.find('"', pos);
-  if (end == std::string::npos) return false;
-  out = json.substr(pos, end - pos);
-  return true;
 }
 
 core::StatusOr<ManifestEntry> ParseEntry(const std::string& json) {
