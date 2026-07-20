@@ -87,3 +87,35 @@ All importers accept `mode="upsert"` (default, idempotent) or `mode="stream_inse
 | `gvdb[progress]` | tqdm | Progress bars |
 | `gvdb[import]` | All above except anndata | Common ML workflows |
 | `gvdb[import-all]` | Everything + polars | All formats |
+
+## Backup & Restore
+
+Server-side collection backups to S3 or a local path on the data-node. Pass exactly one of `s3_bucket` or `local_path` to select the target.
+
+```python
+# Start a backup and block until it finishes
+backup_id = client.backup_collection("my_vectors", s3_bucket="my-bucket", s3_prefix="prod")
+status = client.wait_for_backup(backup_id)
+print(status.manifest_uri)  # s3://my-bucket/prod/backups/<id>/backup.manifest.json
+
+# List backups stored in a target
+for info in client.list_backups(s3_bucket="my-bucket", s3_prefix="prod"):
+    print(info.backup_id, info.collection_name, info.vector_count)
+
+# Restore into a new collection (omit target_collection to reuse the original name)
+restore_id = client.restore_collection(
+    backup_id,
+    s3_bucket="my-bucket",
+    s3_prefix="prod",
+    target_collection="my_vectors_copy",
+)
+client.wait_for_restore(restore_id)
+
+# Local filesystem target (path must be under the server-side allow-list)
+backup_id = client.backup_collection("my_vectors", local_path="/backups")
+
+# Cancel a running backup
+client.cancel_backup(backup_id)
+```
+
+`get_backup_status` / `get_restore_status` return `BackupStatus` / `RestoreStatus` dataclasses with shard progress and error details. `wait_for_backup` and `wait_for_restore` raise `RuntimeError` if the job fails or is cancelled, and `TimeoutError` if it does not finish within `timeout` (default 3600s).

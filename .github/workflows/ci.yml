@@ -39,6 +39,10 @@ jobs:
               - 'test/**'
               - 'CMakeLists.txt'
               - 'Makefile'
+              # The python SDK integration tests download this job's
+              # gvdb-server artifact, so SDK-only changes also need the
+              # server built here.
+              - 'clients/python/**'
 
       - name: Install system dependencies
         if: steps.filter.outputs.cpp == 'true'
