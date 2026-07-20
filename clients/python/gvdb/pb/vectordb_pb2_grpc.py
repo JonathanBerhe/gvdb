@@ -118,6 +118,36 @@ class VectorDBServiceStub(object):
                 request_serializer=vectordb__pb2.CancelImportRequest.SerializeToString,
                 response_deserializer=vectordb__pb2.CancelImportResponse.FromString,
                 _registered_method=True)
+        self.BackupCollection = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/BackupCollection',
+                request_serializer=vectordb__pb2.BackupCollectionRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.BackupCollectionResponse.FromString,
+                _registered_method=True)
+        self.RestoreCollection = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/RestoreCollection',
+                request_serializer=vectordb__pb2.RestoreCollectionRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.RestoreCollectionResponse.FromString,
+                _registered_method=True)
+        self.GetBackupStatus = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/GetBackupStatus',
+                request_serializer=vectordb__pb2.GetBackupStatusRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.GetBackupStatusResponse.FromString,
+                _registered_method=True)
+        self.GetRestoreStatus = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/GetRestoreStatus',
+                request_serializer=vectordb__pb2.GetRestoreStatusRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.GetRestoreStatusResponse.FromString,
+                _registered_method=True)
+        self.ListBackups = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/ListBackups',
+                request_serializer=vectordb__pb2.ListBackupsRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.ListBackupsResponse.FromString,
+                _registered_method=True)
+        self.CancelBackup = channel.unary_unary(
+                '/gvdb.proto.VectorDBService/CancelBackup',
+                request_serializer=vectordb__pb2.CancelBackupRequest.SerializeToString,
+                response_deserializer=vectordb__pb2.CancelBackupResponse.FromString,
+                _registered_method=True)
         self.HealthCheck = channel.unary_unary(
                 '/gvdb.proto.VectorDBService/HealthCheck',
                 request_serializer=vectordb__pb2.HealthCheckRequest.SerializeToString,
@@ -237,6 +267,43 @@ class VectorDBServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def BackupCollection(self, request, context):
+        """Backup and restore
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RestoreCollection(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetBackupStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetRestoreStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListBackups(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CancelBackup(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def HealthCheck(self, request, context):
         """Health and stats
         """
@@ -332,6 +399,36 @@ def add_VectorDBServiceServicer_to_server(servicer, server):
                     servicer.CancelImport,
                     request_deserializer=vectordb__pb2.CancelImportRequest.FromString,
                     response_serializer=vectordb__pb2.CancelImportResponse.SerializeToString,
+            ),
+            'BackupCollection': grpc.unary_unary_rpc_method_handler(
+                    servicer.BackupCollection,
+                    request_deserializer=vectordb__pb2.BackupCollectionRequest.FromString,
+                    response_serializer=vectordb__pb2.BackupCollectionResponse.SerializeToString,
+            ),
+            'RestoreCollection': grpc.unary_unary_rpc_method_handler(
+                    servicer.RestoreCollection,
+                    request_deserializer=vectordb__pb2.RestoreCollectionRequest.FromString,
+                    response_serializer=vectordb__pb2.RestoreCollectionResponse.SerializeToString,
+            ),
+            'GetBackupStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetBackupStatus,
+                    request_deserializer=vectordb__pb2.GetBackupStatusRequest.FromString,
+                    response_serializer=vectordb__pb2.GetBackupStatusResponse.SerializeToString,
+            ),
+            'GetRestoreStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetRestoreStatus,
+                    request_deserializer=vectordb__pb2.GetRestoreStatusRequest.FromString,
+                    response_serializer=vectordb__pb2.GetRestoreStatusResponse.SerializeToString,
+            ),
+            'ListBackups': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListBackups,
+                    request_deserializer=vectordb__pb2.ListBackupsRequest.FromString,
+                    response_serializer=vectordb__pb2.ListBackupsResponse.SerializeToString,
+            ),
+            'CancelBackup': grpc.unary_unary_rpc_method_handler(
+                    servicer.CancelBackup,
+                    request_deserializer=vectordb__pb2.CancelBackupRequest.FromString,
+                    response_serializer=vectordb__pb2.CancelBackupResponse.SerializeToString,
             ),
             'HealthCheck': grpc.unary_unary_rpc_method_handler(
                     servicer.HealthCheck,
@@ -780,6 +877,168 @@ class VectorDBService(object):
             '/gvdb.proto.VectorDBService/CancelImport',
             vectordb__pb2.CancelImportRequest.SerializeToString,
             vectordb__pb2.CancelImportResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def BackupCollection(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/BackupCollection',
+            vectordb__pb2.BackupCollectionRequest.SerializeToString,
+            vectordb__pb2.BackupCollectionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RestoreCollection(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/RestoreCollection',
+            vectordb__pb2.RestoreCollectionRequest.SerializeToString,
+            vectordb__pb2.RestoreCollectionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetBackupStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/GetBackupStatus',
+            vectordb__pb2.GetBackupStatusRequest.SerializeToString,
+            vectordb__pb2.GetBackupStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetRestoreStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/GetRestoreStatus',
+            vectordb__pb2.GetRestoreStatusRequest.SerializeToString,
+            vectordb__pb2.GetRestoreStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListBackups(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/ListBackups',
+            vectordb__pb2.ListBackupsRequest.SerializeToString,
+            vectordb__pb2.ListBackupsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CancelBackup(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gvdb.proto.VectorDBService/CancelBackup',
+            vectordb__pb2.CancelBackupRequest.SerializeToString,
+            vectordb__pb2.CancelBackupResponse.FromString,
             options,
             channel_credentials,
             insecure,

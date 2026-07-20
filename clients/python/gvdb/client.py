@@ -40,6 +40,45 @@ class ImportState:
     CANCELLED = 4
 
 
+@dataclass
+class BackupStatus:
+    """Status of a server-side backup job."""
+
+    backup_id: str
+    state: str
+    shards_total: int
+    shards_completed: int
+    bytes_uploaded: int
+    error_message: str
+    elapsed_seconds: float
+    manifest_uri: str
+
+
+@dataclass
+class RestoreStatus:
+    """Status of a server-side restore job."""
+
+    restore_id: str
+    state: str
+    shards_total: int
+    shards_completed: int
+    error_message: str
+    elapsed_seconds: float
+
+
+@dataclass
+class BackupInfo:
+    """A backup discovered in a backup target."""
+
+    backup_id: str
+    collection_name: str
+    collection_id: int
+    created_at_unix_ms: int
+    vector_count: int
+    size_bytes: int
+    manifest_version: int
+
+
 class GVDBClient:
     """Client for GVDB distributed vector database.
 
@@ -570,6 +609,273 @@ class GVDBClient:
             time.sleep(poll_interval)
         raise TimeoutError(f"Import {import_id} did not complete within {timeout}s")
 
+    # -- Backup and Restore -----------------------------------------------------
+
+    def backup_collection(
+        self,
+        collection: str,
+        *,
+        s3_bucket: Optional[str] = None,
+        s3_prefix: Optional[str] = None,
+        local_path: Optional[str] = None,
+        backup_id: Optional[str] = None,
+    ) -> str:
+        """Start a server-side backup of a collection.
+
+        Exactly one of ``s3_bucket`` or ``local_path`` must be provided.
+
+        Args:
+            collection: Collection name to back up.
+            s3_bucket: S3 bucket the data-node uploads to. Credentials come
+                from the data-node's configured object-store credentials.
+            s3_prefix: Optional key prefix under the bucket (S3 targets only).
+            local_path: Absolute path on the data-node. Must be under the
+                server-side allow-list.
+            backup_id: Optional client-supplied ID for idempotency. Empty
+                lets the server allocate one.
+
+        Returns:
+            Backup job ID (string). Poll with :meth:`get_backup_status`.
+
+        Raises:
+            ValueError: If not exactly one of ``s3_bucket``/``local_path``
+                is provided.
+        """
+        resp = self._stub.BackupCollection(
+            pb.BackupCollectionRequest(
+                collection_name=collection,
+                target=_to_backup_target(s3_bucket, s3_prefix, local_path),
+                backup_id=backup_id or "",
+            ),
+            timeout=self._timeout,
+            metadata=self._metadata,
+        )
+        return resp.backup_id
+
+    def restore_collection(
+        self,
+        backup_id: str,
+        *,
+        s3_bucket: Optional[str] = None,
+        s3_prefix: Optional[str] = None,
+        local_path: Optional[str] = None,
+        target_collection: Optional[str] = None,
+        overwrite: bool = False,
+    ) -> str:
+        """Start a server-side restore of a backed-up collection.
+
+        Exactly one of ``s3_bucket`` or ``local_path`` must be provided.
+
+        Args:
+            backup_id: ID of the backup to restore.
+            s3_bucket: S3 bucket the backup was written to.
+            s3_prefix: Optional key prefix under the bucket (S3 sources only).
+            local_path: Absolute path on the data-node holding the backup.
+            target_collection: Collection to restore into. ``None`` uses the
+                collection name from the backup manifest.
+            overwrite: If ``True`` and the target collection exists, drop it
+                and recreate from the backup. If ``False``, the call fails
+                when the target exists.
+
+        Returns:
+            Restore job ID (string). Poll with :meth:`get_restore_status`.
+
+        Raises:
+            ValueError: If not exactly one of ``s3_bucket``/``local_path``
+                is provided.
+        """
+        resp = self._stub.RestoreCollection(
+            pb.RestoreCollectionRequest(
+                source=_to_backup_target(s3_bucket, s3_prefix, local_path),
+                backup_id=backup_id,
+                target_collection_name=target_collection or "",
+                overwrite=overwrite,
+            ),
+            timeout=self._timeout,
+            metadata=self._metadata,
+        )
+        return resp.restore_id
+
+    def get_backup_status(self, backup_id: str) -> BackupStatus:
+        """Poll the status of a server-side backup job.
+
+        Returns:
+            :class:`BackupStatus` with ``state`` as the enum name
+            (``"BACKUP_PENDING"``, ``"BACKUP_RUNNING"``, ``"BACKUP_COMPLETED"``,
+            ``"BACKUP_FAILED"``, or ``"BACKUP_CANCELLED"``).
+            ``manifest_uri`` is empty until the backup completes.
+        """
+        resp = self._stub.GetBackupStatus(
+            pb.GetBackupStatusRequest(backup_id=backup_id),
+            timeout=self._timeout,
+            metadata=self._metadata,
+        )
+        return BackupStatus(
+            backup_id=resp.backup_id,
+            state=pb.BackupState.Name(resp.state),
+            shards_total=resp.shards_total,
+            shards_completed=resp.shards_completed,
+            bytes_uploaded=resp.bytes_uploaded,
+            error_message=resp.error_message,
+            elapsed_seconds=resp.elapsed_seconds,
+            manifest_uri=resp.manifest_uri,
+        )
+
+    def get_restore_status(self, restore_id: str) -> RestoreStatus:
+        """Poll the status of a server-side restore job.
+
+        Returns:
+            :class:`RestoreStatus` with ``state`` as the enum name (restore
+            reuses the backup states; ``"BACKUP_CANCELLED"`` is unused).
+        """
+        resp = self._stub.GetRestoreStatus(
+            pb.GetRestoreStatusRequest(restore_id=restore_id),
+            timeout=self._timeout,
+            metadata=self._metadata,
+        )
+        return RestoreStatus(
+            restore_id=resp.restore_id,
+            state=pb.BackupState.Name(resp.state),
+            shards_total=resp.shards_total,
+            shards_completed=resp.shards_completed,
+            error_message=resp.error_message,
+            elapsed_seconds=resp.elapsed_seconds,
+        )
+
+    def wait_for_backup(
+        self,
+        backup_id: str,
+        *,
+        poll_interval: float = 2.0,
+        timeout: float = 3600.0,
+    ) -> BackupStatus:
+        """Block until a backup job reaches a terminal state.
+
+        Args:
+            backup_id: Job ID from :meth:`backup_collection`.
+            poll_interval: Seconds between status polls.
+            timeout: Maximum seconds to wait before raising.
+
+        Returns:
+            Final :class:`BackupStatus` (state ``"BACKUP_COMPLETED"``).
+
+        Raises:
+            RuntimeError: If the backup fails or is cancelled.
+            TimeoutError: If the job does not complete within *timeout*.
+        """
+        return self._wait_for_terminal_state(
+            "Backup",
+            backup_id,
+            self.get_backup_status,
+            poll_interval=poll_interval,
+            timeout=timeout,
+        )
+
+    def wait_for_restore(
+        self,
+        restore_id: str,
+        *,
+        poll_interval: float = 2.0,
+        timeout: float = 3600.0,
+    ) -> RestoreStatus:
+        """Block until a restore job reaches a terminal state.
+
+        Args:
+            restore_id: Job ID from :meth:`restore_collection`.
+            poll_interval: Seconds between status polls.
+            timeout: Maximum seconds to wait before raising.
+
+        Returns:
+            Final :class:`RestoreStatus` (state ``"BACKUP_COMPLETED"``).
+
+        Raises:
+            RuntimeError: If the restore fails.
+            TimeoutError: If the job does not complete within *timeout*.
+        """
+        return self._wait_for_terminal_state(
+            "Restore",
+            restore_id,
+            self.get_restore_status,
+            poll_interval=poll_interval,
+            timeout=timeout,
+        )
+
+    def _wait_for_terminal_state(
+        self,
+        job_kind: str,
+        job_id: str,
+        get_status,
+        *,
+        poll_interval: float,
+        timeout: float,
+    ):
+        """Poll a backup or restore job until it reaches a terminal state."""
+        import time
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = get_status(job_id)
+            if status.state == "BACKUP_COMPLETED":
+                return status
+            if status.state in ("BACKUP_FAILED", "BACKUP_CANCELLED"):
+                raise RuntimeError(
+                    f"{job_kind} {job_id} ended in {status.state}: "
+                    f"{status.error_message}"
+                )
+            time.sleep(poll_interval)
+        raise TimeoutError(f"{job_kind} {job_id} did not complete within {timeout}s")
+
+    def list_backups(
+        self,
+        *,
+        s3_bucket: Optional[str] = None,
+        s3_prefix: Optional[str] = None,
+        local_path: Optional[str] = None,
+    ) -> list[BackupInfo]:
+        """List backups stored in a backup target.
+
+        Exactly one of ``s3_bucket`` or ``local_path`` must be provided.
+
+        Returns:
+            List of :class:`BackupInfo`.
+
+        Raises:
+            ValueError: If not exactly one of ``s3_bucket``/``local_path``
+                is provided.
+        """
+        resp = self._stub.ListBackups(
+            pb.ListBackupsRequest(
+                source=_to_backup_target(s3_bucket, s3_prefix, local_path)
+            ),
+            timeout=self._timeout,
+            metadata=self._metadata,
+        )
+        return [
+            BackupInfo(
+                backup_id=b.backup_id,
+                collection_name=b.collection_name,
+                collection_id=b.collection_id,
+                created_at_unix_ms=b.created_at_unix_ms,
+                vector_count=b.vector_count,
+                size_bytes=b.size_bytes,
+                manifest_version=b.manifest_version,
+            )
+            for b in resp.backups
+        ]
+
+    def cancel_backup(self, backup_id: str) -> bool:
+        """Cancel a running or pending backup job.
+
+        Returns:
+            ``True`` if cancellation was accepted.
+        """
+        resp = self._stub.CancelBackup(
+            pb.CancelBackupRequest(backup_id=backup_id),
+            timeout=self._timeout,
+            metadata=self._metadata,
+        )
+        return resp.success
+
     # -- Metadata -------------------------------------------------------------
 
     def update_metadata(
@@ -591,6 +897,21 @@ class GVDBClient:
             timeout=self._timeout,
             metadata=self._metadata,
         )
+
+
+def _to_backup_target(
+    s3_bucket: Optional[str],
+    s3_prefix: Optional[str],
+    local_path: Optional[str],
+) -> pb.BackupTarget:
+    """Build a proto BackupTarget from exactly one of s3_bucket or local_path."""
+    if (s3_bucket is None) == (local_path is None):
+        raise ValueError("Provide exactly one of s3_bucket or local_path")
+    if s3_prefix is not None and s3_bucket is None:
+        raise ValueError("s3_prefix requires s3_bucket")
+    if s3_bucket is not None:
+        return pb.BackupTarget(s3=pb.S3Target(bucket=s3_bucket, prefix=s3_prefix or ""))
+    return pb.BackupTarget(local=pb.LocalTarget(path=local_path))
 
 
 def _to_proto_metadata(meta: dict) -> pb.Metadata:
