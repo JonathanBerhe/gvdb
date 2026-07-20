@@ -8,6 +8,7 @@
 #include "core/vector.h"
 #include "index/index_factory.h"
 #include "storage/segment.h"
+#include "storage/batch_splitter.h"
 #include "storage/segment_manager.h"
 
 using namespace gvdb;
@@ -2166,4 +2167,66 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_DeleteCleansExpiry") {
   REQUIRE(del.ok());
   CHECK_EQ(del->deleted_count, 1);
   CHECK_EQ(segment.GetVectorCount(), 1);
+}
+
+// ============================================================================
+// Batch Splitter Tests
+// ============================================================================
+
+TEST_CASE("SplitBatchBySizeEmptyBatch") {
+  auto ranges = storage::SplitBatchBySize({}, 1024);
+  REQUIRE(ranges.ok());
+  CHECK(ranges->empty());
+}
+
+TEST_CASE("SplitBatchBySizeSingleRangeWhenFits") {
+  auto ranges = storage::SplitBatchBySize({100, 200, 300}, 1024);
+  REQUIRE(ranges.ok());
+  REQUIRE_EQ(ranges->size(), 1);
+  CHECK_EQ((*ranges)[0], std::make_pair<size_t, size_t>(0, 3));
+}
+
+TEST_CASE("SplitBatchBySizeSplitsAtCapacity") {
+  // 400 + 400 fits 1000; adding the third 400 does not.
+  auto ranges = storage::SplitBatchBySize({400, 400, 400, 400, 400}, 1000);
+  REQUIRE(ranges.ok());
+  REQUIRE_EQ(ranges->size(), 3);
+  CHECK_EQ((*ranges)[0], std::make_pair<size_t, size_t>(0, 2));
+  CHECK_EQ((*ranges)[1], std::make_pair<size_t, size_t>(2, 4));
+  CHECK_EQ((*ranges)[2], std::make_pair<size_t, size_t>(4, 5));
+}
+
+TEST_CASE("SplitBatchBySizeExactBoundary") {
+  // Items summing exactly to max stay in one range.
+  auto ranges = storage::SplitBatchBySize({500, 500}, 1000);
+  REQUIRE(ranges.ok());
+  REQUIRE_EQ(ranges->size(), 1);
+  CHECK_EQ((*ranges)[0], std::make_pair<size_t, size_t>(0, 2));
+}
+
+TEST_CASE("SplitBatchBySizeOversizedItemFails") {
+  auto ranges = storage::SplitBatchBySize({100, 2000, 100}, 1000);
+  REQUIRE_FALSE(ranges.ok());
+  CHECK(absl::IsInvalidArgument(ranges.status()));
+  // The error should say which item and both figures.
+  auto msg = std::string(ranges.status().message());
+  CHECK(msg.find("index 1") != std::string::npos);
+  CHECK(msg.find("2000") != std::string::npos);
+  CHECK(msg.find("1000") != std::string::npos);
+}
+
+TEST_CASE("SplitBatchBySizeRangesCoverAllItemsInOrder") {
+  std::vector<size_t> costs = {300, 300, 300, 100, 900, 50, 50, 1000};
+  auto ranges = storage::SplitBatchBySize(costs, 1000);
+  REQUIRE(ranges.ok());
+  size_t expected_begin = 0;
+  for (const auto& [begin, end] : *ranges) {
+    CHECK_EQ(begin, expected_begin);
+    CHECK_LT(begin, end);
+    size_t sum = 0;
+    for (size_t i = begin; i < end; ++i) sum += costs[i];
+    CHECK_LE(sum, 1000);
+    expected_begin = end;
+  }
+  CHECK_EQ(expected_begin, costs.size());
 }

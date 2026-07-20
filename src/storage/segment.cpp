@@ -407,7 +407,7 @@ core::Status Segment::AddVectorsWithMetadata(
     additional_size += vec.byte_size();
   }
   // Rough estimate for metadata size (conservative)
-  additional_size += metadata.size() * 1024;  // ~1KB per metadata
+  additional_size += metadata.size() * kMetadataBytesEstimate;
 
   if (memory_usage_ + additional_size > max_segment_size_) {
     return core::ResourceExhaustedError(

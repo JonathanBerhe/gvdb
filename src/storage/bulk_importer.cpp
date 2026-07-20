@@ -9,6 +9,7 @@
 #include <random>
 
 #include "absl/strings/str_cat.h"
+#include "storage/batch_splitter.h"
 #include "storage/npy_reader.h"
 #include "utils/logger.h"
 
@@ -303,31 +304,62 @@ core::Status BulkImporter::ImportNpy(
       vectors.push_back(std::move(vec));
     }
 
-    // Get writable segment (auto-rotates when full)
-    auto* segment = segment_store_->GetWritableSegment(collection_id);
-    if (!segment) {
-      return core::InternalError(
-          "Failed to get writable segment for collection");
+    // Split the chunk so every range fits an empty segment; a chunk larger
+    // than the segment size cap can never fit no matter how often the store
+    // rotates.
+    std::vector<size_t> item_costs;
+    item_costs.reserve(vectors.size());
+    for (const auto& v : vectors) {
+      item_costs.push_back(v.byte_size());
+    }
+    auto ranges_or =
+        SplitBatchBySize(item_costs, segment_store_->GetMaxSegmentSize());
+    if (!ranges_or.ok()) {
+      return ranges_or.status();
     }
 
-    // Track new segments
-    auto seg_id = segment->GetId();
-    job->AddSegment(seg_id);
-
-    // Add vectors to segment
-    auto add_status = segment->AddVectors(vectors, ids);
-    if (!add_status.ok()) {
-      // Segment might be full — get a new one and retry
-      segment = segment_store_->GetWritableSegment(
-          collection_id, vectors.size() * expected_dim * sizeof(float));
-      if (!segment) {
-        return core::InternalError("Failed to get writable segment after rotation");
+    const bool single_range = ranges_or->size() == 1;
+    for (const auto& [begin, end] : *ranges_or) {
+      size_t range_bytes = 0;
+      for (size_t j = begin; j < end; ++j) range_bytes += item_costs[j];
+      // Only materialize slices when the chunk actually split; the common
+      // case writes the whole chunk without copying.
+      std::vector<core::Vector> sliced_vectors;
+      std::vector<core::VectorId> sliced_ids;
+      if (!single_range) {
+        sliced_vectors.assign(vectors.begin() + begin, vectors.begin() + end);
+        sliced_ids.assign(ids.begin() + begin, ids.begin() + end);
       }
-      seg_id = segment->GetId();
+      const auto& range_vectors = single_range ? vectors : sliced_vectors;
+      const auto& range_ids = single_range ? ids : sliced_ids;
+
+      // Get writable segment (auto-rotates when full)
+      auto* segment =
+          segment_store_->GetWritableSegment(collection_id, range_bytes);
+      if (!segment) {
+        return core::InternalError(
+            "Failed to get writable segment for collection");
+      }
+
+      // Track new segments
+      auto seg_id = segment->GetId();
       job->AddSegment(seg_id);
-      add_status = segment->AddVectors(vectors, ids);
+
+      // Add vectors to segment
+      auto add_status = segment->AddVectors(range_vectors, range_ids);
       if (!add_status.ok()) {
-        return add_status;
+        // Segment might have filled up concurrently: rotate and retry once
+        segment = segment_store_->GetWritableSegment(collection_id, range_bytes);
+        if (!segment) {
+          return core::InternalError(
+              "Failed to get writable segment after rotation");
+        }
+        seg_id = segment->GetId();
+        job->AddSegment(seg_id);
+        add_status = segment->AddVectors(range_vectors, range_ids);
+        if (!add_status.ok()) {
+          return add_status;
+        }
       }
     }
 
