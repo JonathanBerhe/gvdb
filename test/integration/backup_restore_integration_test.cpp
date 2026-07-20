@@ -476,6 +476,13 @@ TEST_CASE_FIXTURE(BackupRestoreIntegrationTest,
   }
   REQUIRE_EQ(WaitForBackup(client_.get(), backup_id), proto::BACKUP_COMPLETED);
 
+  // Snapshot the data node's segments so the restored ones can be singled
+  // out afterwards.
+  std::set<uint32_t> before_restore;
+  for (auto sid : dn_segment_store_->GetAllSegmentIds()) {
+    before_restore.insert(core::ToUInt32(sid));
+  }
+
   const std::string kRestoredName = "products_sealed_restored";
   std::string restore_id;
   {
@@ -501,6 +508,36 @@ TEST_CASE_FIXTURE(BackupRestoreIntegrationTest,
   CHECK_EQ(SearchTopMatch(kRestoredName, kDim, 3), 3u);
   CHECK_EQ(SearchTopMatch(kRestoredName, kDim, 7), 7u);
   CHECK_EQ(SearchTopMatch(kRestoredName, kDim, kCount), kCount);
+
+  // Durability: restored sealed segments must be flushed to the data node's
+  // local disk, not just installed in memory, or a restart loses the
+  // restored collection.
+  const std::string dn_segments_dir =
+      std::string(kTestDir) + "/data_node/segments";
+  std::vector<uint32_t> restored_ids;
+  for (auto sid : dn_segment_store_->GetAllSegmentIds()) {
+    auto key = core::ToUInt32(sid);
+    if (before_restore.count(key) > 0) continue;
+    auto* seg = dn_segment_store_->GetSegment(sid);
+    if (!seg || seg->GetState() == core::SegmentState::GROWING) continue;
+    restored_ids.push_back(key);
+    auto seg_dir = dn_segments_dir + "/segment_" + std::to_string(key);
+    INFO("restored segment dir: " << seg_dir);
+    CHECK(std::filesystem::exists(seg_dir + "/vectors.bin"));
+  }
+  REQUIRE_GE(restored_ids.size(), 1);
+
+  // Simulate a data-node restart: a fresh SegmentManager over the same
+  // directory must reload the restored segments with their vectors.
+  {
+    storage::SegmentManager reloaded(dn_segments_dir, index_factory_.get());
+    REQUIRE(reloaded.LoadAllSegments().ok());
+    for (auto key : restored_ids) {
+      auto* seg = reloaded.GetSegment(static_cast<core::SegmentId>(key));
+      REQUIRE(seg != nullptr);
+      CHECK_GT(seg->GetVectorCount(), 0);
+    }
+  }
 }
 
 }  // namespace test

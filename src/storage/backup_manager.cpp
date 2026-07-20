@@ -13,6 +13,7 @@
 #include "absl/strings/str_cat.h"
 #include "storage/filesystem_object_store.h"
 #include "storage/segment_export.h"
+#include "utils/logger.h"
 
 namespace gvdb {
 namespace storage {
@@ -801,11 +802,34 @@ core::Status RestoreManager::RunShardRestore(
                                        /*delete_files=*/false);
     }
 
+    const auto installed_id = (*seg_or)->GetId();
+    const bool installed_growing =
+        (*seg_or)->GetState() == core::SegmentState::GROWING;
+
     auto add_status =
         segment_store->AddReplicatedSegment(std::move(*seg_or));
     if (!add_status.ok()) {
       cleanup();
       return add_status;
+    }
+
+    // Persist non-growing restored segments on THIS node. Their pre-install
+    // FLUSHED state referred to the source node's disk; without a local
+    // flush they are memory-only and a restart silently loses the restored
+    // collection. On a tiered store the flush also schedules the cold-tier
+    // upload. Growing segments follow the normal seal-then-flush lifecycle.
+    // Restore exists to bring data back durably, so a flush failure fails
+    // the shard restore (the job reports FAILED and can be retried) rather
+    // than leaving a restore that quietly evaporates on the next restart.
+    if (!installed_growing) {
+      auto flush_status = segment_store->FlushSegment(installed_id);
+      if (!flush_status.ok()) {
+        utils::Logger::Instance().Error(
+            "Failed to flush restored segment {}: {}",
+            core::ToUInt32(installed_id), flush_status.message());
+        cleanup();
+        return flush_status;
+      }
     }
   }
 
