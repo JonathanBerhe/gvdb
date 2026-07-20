@@ -407,7 +407,7 @@ core::Status Segment::AddVectorsWithMetadata(
     additional_size += vec.byte_size();
   }
   // Rough estimate for metadata size (conservative)
-  additional_size += metadata.size() * 1024;  // ~1KB per metadata
+  additional_size += metadata.size() * kMetadataBytesEstimate;
 
   if (memory_usage_ + additional_size > max_segment_size_) {
     return core::ResourceExhaustedError(
@@ -1505,6 +1505,11 @@ bool Segment::CanFit(size_t additional_bytes) const {
   std::shared_lock lock(mutex_);
   return state_ == core::SegmentState::GROWING &&
          memory_usage_ + additional_bytes <= max_segment_size_;
+}
+
+bool Segment::HasIndex() const {
+  std::shared_lock lock(mutex_);
+  return index_ != nullptr;
 }
 
 // ========== Private Methods ==========

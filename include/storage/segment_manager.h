@@ -137,12 +137,22 @@ class SegmentManager : public ISegmentStore {
 
   [[nodiscard]] size_t GetTotalMemoryUsage() const override;
 
+  [[nodiscard]] size_t GetMaxSegmentSize() const override {
+    return max_segment_size_;
+  }
+
   void Clear() override;
 
   // Get the base path for segment storage on local disk
   [[nodiscard]] const std::string& GetBasePath() const { return base_path_; }
 
  private:
+  // Rebuild the in-memory index of a sealed/flushed segment that carries
+  // vectors but no live index (disk loads and restore/replication imports).
+  // Failures are logged, not fatal: the segment stays visible, just not
+  // index-searchable.
+  void RebuildIndexIfMissing(Segment* segment);
+
   // Storage path
   std::string base_path_;
 

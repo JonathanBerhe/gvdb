@@ -110,6 +110,10 @@ class TieredSegmentManager : public ISegmentStore {
   [[nodiscard]] size_t GetSegmentCount() const override;
   [[nodiscard]] size_t GetTotalMemoryUsage() const override;
 
+  [[nodiscard]] size_t GetMaxSegmentSize() const override {
+    return local_->GetMaxSegmentSize();
+  }
+
   void Clear() override;
 
   // ── S3-specific accessors (for testing / diagnostics) ──

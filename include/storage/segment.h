@@ -212,11 +212,23 @@ class Segment {
   // Check if segment can accept more vectors
   [[nodiscard]] bool CanAcceptWrites() const;
 
+  // Whether a live in-memory index is attached. Segments deserialized from
+  // disk or import staging carry vectors but no index until it is rebuilt.
+  [[nodiscard]] bool HasIndex() const;
+
   // Check if a specific batch of additional_bytes would fit
   [[nodiscard]] bool CanFit(size_t additional_bytes) const;
 
+  // This segment's configured size cap (immutable after construction)
+  [[nodiscard]] size_t GetMaxSegmentSize() const { return max_segment_size_; }
+
   // Get maximum segment size (512 MB default)
   static constexpr size_t kMaxSegmentSize = 512 * 1024 * 1024;  // 512 MB
+
+  // Per-vector metadata cost charged against the segment size cap. The
+  // capacity checks in AddVectorsWithMetadata/AddVectorsWithSparse and any
+  // caller pre-computing batch costs must use this same figure.
+  static constexpr size_t kMetadataBytesEstimate = 1024;
 
   // TTL sweep interval for background sweep loops
   static constexpr int kTTLSweepIntervalSeconds = 30;

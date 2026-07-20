@@ -425,5 +425,83 @@ TEST_CASE_FIXTURE(BackupRestoreIntegrationTest,
   CHECK_EQ(SearchTopMatch(kRestoredName, kDim, kCount), kCount);
 }
 
+TEST_CASE_FIXTURE(BackupRestoreIntegrationTest,
+                  "backup → restore round-trip preserves SEALED segments") {
+  // The growing-segment round-trip above serializes in-memory segments;
+  // sealed segments take a different path (Segment::Load from the staged
+  // sealed layout, which restores vectors but no live index and relies on
+  // the segment store rebuilding it). This is the path a production
+  // backup of a sealed, flushed collection exercises.
+  constexpr uint32_t kDim = 4;
+  constexpr size_t kCount = 10;
+  const std::string kCollection = "products_sealed";
+
+  CreateCollection(kCollection, kDim);
+  InsertVectors(kCollection, kDim, kCount);
+
+  // Seal and flush every growing segment on the data node, as the
+  // auto-seal callback and flush-after-seal do in the server mains.
+  size_t sealed = 0;
+  for (auto sid : dn_segment_store_->GetAllSegmentIds()) {
+    auto* seg = dn_segment_store_->GetSegment(sid);
+    if (!seg || seg->GetState() != core::SegmentState::GROWING ||
+        seg->GetVectorCount() == 0) {
+      continue;
+    }
+    core::IndexConfig config;
+    config.index_type = core::IndexType::FLAT;
+    config.dimension = seg->GetDimension();
+    config.metric_type = seg->GetMetric();
+    REQUIRE(dn_segment_store_->SealSegment(sid, config).ok());
+    REQUIRE(dn_segment_store_->FlushSegment(sid).ok());
+    ++sealed;
+  }
+  REQUIRE_GE(sealed, 1);
+
+  CHECK_EQ(SearchTopMatch(kCollection, kDim, 3), 3u);
+
+  std::string backup_id;
+  {
+    proto::BackupCollectionRequest req;
+    req.set_collection_name(kCollection);
+    auto* s3 = req.mutable_target()->mutable_s3();
+    s3->set_bucket("test-bucket");
+    s3->set_prefix("backups-sealed-test");
+    proto::BackupCollectionResponse resp;
+    grpc::ClientContext ctx;
+    auto s = client_->BackupCollection(&ctx, req, &resp);
+    INFO("BackupCollection: " << s.error_message());
+    REQUIRE(s.ok());
+    backup_id = resp.backup_id();
+  }
+  REQUIRE_EQ(WaitForBackup(client_.get(), backup_id), proto::BACKUP_COMPLETED);
+
+  const std::string kRestoredName = "products_sealed_restored";
+  std::string restore_id;
+  {
+    proto::RestoreCollectionRequest req;
+    auto* s3 = req.mutable_source()->mutable_s3();
+    s3->set_bucket("test-bucket");
+    s3->set_prefix("backups-sealed-test");
+    req.set_backup_id(backup_id);
+    req.set_target_collection_name(kRestoredName);
+    req.set_overwrite(false);
+    proto::RestoreCollectionResponse resp;
+    grpc::ClientContext ctx;
+    auto s = client_->RestoreCollection(&ctx, req, &resp);
+    INFO("RestoreCollection: " << s.error_message());
+    REQUIRE(s.ok());
+    restore_id = resp.restore_id();
+  }
+  REQUIRE_EQ(WaitForRestore(client_.get(), restore_id),
+             proto::BACKUP_COMPLETED);
+
+  // Search must work against the restored sealed segments: the segment
+  // store rebuilds their indexes when they are installed.
+  CHECK_EQ(SearchTopMatch(kRestoredName, kDim, 3), 3u);
+  CHECK_EQ(SearchTopMatch(kRestoredName, kDim, 7), 7u);
+  CHECK_EQ(SearchTopMatch(kRestoredName, kDim, kCount), kCount);
+}
+
 }  // namespace test
 }  // namespace gvdb
