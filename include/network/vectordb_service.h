@@ -204,6 +204,15 @@ class VectorDBService final : public proto::VectorDBService::Service {
   // Get segment locally, or pull from coordinator if in distributed mode
   storage::Segment* GetOrReplicateSegment(core::SegmentId segment_id);
 
+  // Gather every segment that may hold vectors for a collection: the
+  // resolver's shard-primary segments (pulled via replica fallback when not
+  // resident locally) followed by every rotated segment the store tracks for
+  // the collection. The list is de-duplicated with the shard primaries first.
+  // Returns NotFound when the collection resolves to no segments. Used by the
+  // by-id handlers so vectors that moved to a rotated segment stay reachable.
+  core::StatusOr<std::vector<storage::Segment*>> CollectCollectionSegments(
+      const std::string& collection_name);
+
   // Fan out search to remote data nodes holding shards for the collection
   grpc::Status SearchDistributed(
       const proto::SearchRequest* request,
