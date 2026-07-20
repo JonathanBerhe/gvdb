@@ -6,10 +6,16 @@
 #include "utils/logger.h"
 #include "utils/metrics.h"
 #include "network/proto_conversions.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_split.h"
+#include "utils/json_util.h"
 #include "internal.grpc.pb.h"
 #include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <mutex>
+#include <sstream>
 #include <set>
 #include <thread>
 
@@ -414,6 +420,8 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
     return assign_status;
   }
 
+  PersistRegistryLocked();
+
   std::string metric_str = network::toString(metric_type);
   std::string index_str = network::toString(index_type);
 
@@ -570,6 +578,8 @@ absl::Status Coordinator::DropCollection(const std::string& name) {
   // Remove from coordinator metadata
   collections_.erase(collection_id);
   collection_name_to_id_.erase(name);
+
+  PersistRegistryLocked();
 
   utils::Logger::Instance().Info("Dropped collection '{}' (ID: {})",
                                   name, core::ToUInt32(collection_id));
@@ -1019,6 +1029,7 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
 
 void Coordinator::CheckReplication() {
   if (!client_factory_) return;
+  bool assignments_changed = false;
 
   std::shared_lock lock(collection_mutex_);
   for (const auto& [coll_id, metadata] : collections_) {
@@ -1057,6 +1068,7 @@ void Coordinator::CheckReplication() {
 
           if (status.ok()) {
             (void)shard_manager_->AddReplica(shard_id, node.node_id);
+            assignments_changed = true;
             utils::Logger::Instance().Info(
                 "Auto-replicated shard {} (segment {}) to node {}",
                 core::ToUInt16(shard_id), core::ToUInt32(seg_id),
@@ -1067,6 +1079,7 @@ void Coordinator::CheckReplication() {
       }
     }
   }
+  if (assignments_changed) PersistRegistry();
 }
 
 // ============================================================================
@@ -1275,6 +1288,7 @@ void Coordinator::HandleFailedNode(core::NodeId failed_node_id) {
   }
   utils::Logger::Instance().Info("Removed failed node {} from shard manager",
                                   core::ToUInt32(failed_node_id));
+  PersistRegistry();
 }
 
 absl::Status Coordinator::ReplicateSegmentData(
@@ -1588,6 +1602,7 @@ absl::Status Coordinator::TransferPrimary(core::ShardId shard_id,
       old_node == core::kInvalidNodeId ? 0u : core::ToUInt32(old_node),
       core::ToUInt32(new_node),
       new_term);
+  PersistRegistry();
   return absl::OkStatus();
 }
 
@@ -1685,6 +1700,7 @@ absl::Status Coordinator::ExecuteSingleMove(
 
   utils::Logger::Instance().Info(
       "Rebalance: shard {} migration complete", shard_key);
+  PersistRegistry();
   return absl::OkStatus();
 }
 
@@ -1980,6 +1996,224 @@ Coordinator::GetDistributedRestoreStatus(const std::string& restore_id) const {
         "Restore is not configured on this coordinator");
   }
   return restore_manager_->GetStatus(restore_id);
+}
+
+
+// =============================================================================
+// Registry persistence
+// =============================================================================
+
+void Coordinator::SetRegistryDir(const std::string& dir) {
+  std::unique_lock lock(collection_mutex_);
+  registry_path_ = dir + "/registry.json";
+}
+
+void Coordinator::PersistRegistry() const {
+  std::shared_lock lock(collection_mutex_);
+  PersistRegistryLocked();
+}
+
+void Coordinator::PersistRegistryLocked() const {
+  if (registry_path_.empty()) return;
+
+  std::ostringstream ss;
+  ss << "{\"version\":1"
+     << ",\"next_collection_id\":"
+     << next_collection_id_.load(std::memory_order_relaxed)
+     << ",\"collections\":[";
+  bool first = true;
+  for (const auto& [id, meta] : collections_) {
+    if (!first) ss << ",";
+    first = false;
+    ss << "{\"collection_id\":" << core::ToUInt32(id)
+       << ",\"name\":\"" << utils::json::EscapeJson(meta.collection_name)
+       << "\""
+       << ",\"dimension\":" << meta.dimension
+       << ",\"metric\":" << static_cast<int>(meta.metric_type)
+       << ",\"index_type\":" << static_cast<int>(meta.index_type)
+       << ",\"num_shards\":" << meta.num_shards
+       << ",\"replication_factor\":" << meta.replication_factor
+       << ",\"created_at\":" << meta.created_at
+       << ",\"updated_at\":" << meta.updated_at
+       << ",\"shard_ids\":[";
+    for (size_t i = 0; i < meta.shard_ids.size(); ++i) {
+      if (i) ss << ",";
+      ss << core::ToUInt16(meta.shard_ids[i]);
+    }
+    ss << "]}";
+  }
+  ss << "],\"shards\":[";
+  first = true;
+  for (const auto& shard : shard_manager_->GetAllShards()) {
+    // Only assignments matter for recovery; untouched pool entries
+    // (term 0, no primary) are recreated by the ShardManager constructor.
+    if (shard.primary_term == 0 &&
+        shard.primary_node == core::kInvalidNodeId) {
+      continue;
+    }
+    if (!first) ss << ",";
+    first = false;
+    ss << "{\"shard_id\":" << core::ToUInt16(shard.shard_id)
+       << ",\"primary_node\":" << core::ToUInt32(shard.primary_node)
+       << ",\"primary_term\":" << shard.primary_term
+       << ",\"replicas\":[";
+    for (size_t i = 0; i < shard.replica_nodes.size(); ++i) {
+      if (i) ss << ",";
+      ss << core::ToUInt32(shard.replica_nodes[i]);
+    }
+    ss << "]}";
+  }
+  ss << "]}";
+
+  // Atomic replace: write a sibling temp file, then rename over the target,
+  // so a crash mid-write can never leave a truncated registry.
+  const std::string tmp_path = registry_path_ + ".tmp";
+  {
+    std::ofstream out(tmp_path, std::ios::trunc);
+    if (!out.is_open()) {
+      utils::Logger::Instance().Error(
+          "Failed to open registry temp file for write: {}", tmp_path);
+      return;
+    }
+    out << ss.str();
+    if (!out.good()) {
+      utils::Logger::Instance().Error(
+          "Failed to write registry temp file: {}", tmp_path);
+      return;
+    }
+  }
+  std::error_code ec;
+  std::filesystem::rename(tmp_path, registry_path_, ec);
+  if (ec) {
+    utils::Logger::Instance().Error(
+        "Failed to replace registry file {}: {}", registry_path_,
+        ec.message());
+  }
+}
+
+absl::Status Coordinator::LoadRegistry() {
+  std::unique_lock lock(collection_mutex_);
+  if (registry_path_.empty()) {
+    return absl::FailedPreconditionError(
+        "SetRegistryDir must be called before LoadRegistry");
+  }
+
+  std::ifstream in(registry_path_);
+  if (!in.is_open()) {
+    utils::Logger::Instance().Info(
+        "No coordinator registry at {} (first boot)", registry_path_);
+    return absl::OkStatus();
+  }
+  std::stringstream buffer;
+  buffer << in.rdbuf();
+  const std::string doc = buffer.str();
+
+  uint32_t next_id = 0;
+  if (utils::json::ParseUint32(doc, "next_collection_id", next_id) &&
+      next_id > 0) {
+    next_collection_id_.store(next_id, std::memory_order_relaxed);
+  }
+
+  auto collections_body =
+      utils::json::ExtractArrayBody(doc, "collections");
+  size_t loaded = 0;
+  for (const auto& obj :
+       utils::json::SplitObjects(collections_body)) {
+    uint32_t cid = 0;
+    std::string name;
+    if (!utils::json::ParseUint32(obj, "collection_id", cid) ||
+        !utils::json::ParseString(obj, "name", name)) {
+      return absl::DataLossError(absl::StrCat(
+          "Malformed collection entry in ", registry_path_, ": ", obj));
+    }
+
+    CollectionMetadata meta;
+    meta.collection_id = core::MakeCollectionId(cid);
+    meta.collection_name = name;
+    uint32_t dim = 0;
+    if (utils::json::ParseUint32(obj, "dimension", dim)) {
+      meta.dimension = static_cast<core::Dimension>(dim);
+    }
+    int32_t metric = 0;
+    if (utils::json::ParseInt32(obj, "metric", metric)) {
+      meta.metric_type = static_cast<core::MetricType>(metric);
+    }
+    int32_t index_type = 0;
+    if (utils::json::ParseInt32(obj, "index_type", index_type)) {
+      meta.index_type = static_cast<core::IndexType>(index_type);
+    }
+    uint64_t num_shards = 1;
+    if (utils::json::ParseUint64(obj, "num_shards", num_shards)) {
+      meta.num_shards = static_cast<size_t>(num_shards);
+    }
+    uint64_t replication = 1;
+    if (utils::json::ParseUint64(obj, "replication_factor", replication)) {
+      meta.replication_factor = static_cast<size_t>(replication);
+    }
+    (void)utils::json::ParseUint64(obj, "created_at", meta.created_at);
+    (void)utils::json::ParseUint64(obj, "updated_at", meta.updated_at);
+
+    auto shard_ids_body = utils::json::ExtractArrayBody(obj, "shard_ids");
+    if (shard_ids_body.size() >= 2) {
+      std::string inner(shard_ids_body.substr(1, shard_ids_body.size() - 2));
+      for (absl::string_view piece :
+           absl::StrSplit(inner, ',', absl::SkipEmpty())) {
+        uint32_t sid = 0;
+        if (absl::SimpleAtoi(piece, &sid)) {
+          meta.shard_ids.push_back(
+              core::MakeShardId(static_cast<uint16_t>(sid)));
+        }
+      }
+    }
+
+    collections_[meta.collection_id] = meta;
+    collection_name_to_id_[name] = meta.collection_id;
+    ++loaded;
+  }
+
+  auto shards_body = utils::json::ExtractArrayBody(doc, "shards");
+  size_t restored_shards = 0;
+  for (const auto& obj : utils::json::SplitObjects(shards_body)) {
+    uint32_t shard_raw = 0;
+    uint32_t primary_raw = 0;
+    uint64_t term = 0;
+    if (!utils::json::ParseUint32(obj, "shard_id", shard_raw) ||
+        !utils::json::ParseUint32(obj, "primary_node", primary_raw) ||
+        !utils::json::ParseUint64(obj, "primary_term", term)) {
+      continue;
+    }
+    if (term == 0) continue;
+    auto shard_id = core::MakeShardId(static_cast<uint16_t>(shard_raw));
+    // Term-explicit setter rejects regressions; on a fresh ShardManager
+    // (all terms 0) restoring the persisted term always applies.
+    auto status = shard_manager_->SetPrimaryNode(
+        shard_id, core::MakeNodeId(primary_raw), term);
+    if (!status.ok()) {
+      utils::Logger::Instance().Warn(
+          "Registry: could not restore primary for shard {}: {}",
+          shard_raw, status.message());
+      continue;
+    }
+    auto replicas_body = utils::json::ExtractArrayBody(obj, "replicas");
+    if (replicas_body.size() >= 2) {
+      std::string inner(replicas_body.substr(1, replicas_body.size() - 2));
+      for (absl::string_view piece :
+           absl::StrSplit(inner, ',', absl::SkipEmpty())) {
+        uint32_t rid = 0;
+        if (absl::SimpleAtoi(piece, &rid)) {
+          (void)shard_manager_->AddReplica(shard_id, core::MakeNodeId(rid));
+        }
+      }
+    }
+    ++restored_shards;
+  }
+
+  utils::Logger::Instance().Info(
+      "Loaded coordinator registry from {}: {} collection(s), {} shard "
+      "assignment(s), next_collection_id={}",
+      registry_path_, loaded, restored_shards,
+      next_collection_id_.load(std::memory_order_relaxed));
+  return absl::OkStatus();
 }
 
 }  // namespace cluster
