@@ -1072,6 +1072,43 @@ class SmallSegmentServiceTest {
   }
 
  protected:
+  // Create a FLAT collection and insert `count` vectors of dim 64 in one
+  // batch. With kMaxSegmentBytes = 1200 the batch spans several segments, so
+  // vector i (id i+1, all components equal to i) lands in a rotated segment
+  // for larger i. Asserts the insert succeeds.
+  void CreateAndInsert(const std::string& collection, int count) {
+    {
+      grpc::ServerContext context;
+      proto::CreateCollectionRequest request;
+      request.set_collection_name(collection);
+      request.set_dimension(64);
+      request.set_metric(proto::CreateCollectionRequest::L2);
+      request.set_index_type(proto::CreateCollectionRequest::FLAT);
+      proto::CreateCollectionResponse response;
+      REQUIRE(service_->CreateCollection(&context, &request, &response).ok());
+    }
+    {
+      grpc::ServerContext context;
+      proto::InsertRequest request;
+      request.set_collection_name(collection);
+      for (int i = 0; i < count; ++i) {
+        auto* vec = request.add_vectors();
+        vec->set_id(i + 1);
+        vec->mutable_vector()->set_dimension(64);
+        for (int j = 0; j < 64; ++j) {
+          vec->mutable_vector()->add_values(static_cast<float>(i));
+        }
+      }
+      proto::InsertResponse response;
+      auto status = service_->Insert(&context, &request, &response);
+      INFO(status.error_message());
+      REQUIRE(status.ok());
+      CHECK_EQ(response.inserted_count(), count);
+    }
+    // The batch cannot fit one segment, so the split must have used several.
+    CHECK_GT(segment_store_->GetSegmentCount(), 1);
+  }
+
   std::string test_dir_;
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::SegmentManager> segment_store_;
@@ -1170,4 +1207,117 @@ TEST_CASE_FIXTURE(SmallSegmentServiceTest,
   CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   CHECK(std::string(status.error_message()).find("exceeds") !=
         std::string::npos);
+}
+
+TEST_CASE_FIXTURE(SmallSegmentServiceTest,
+                  "GetAcrossRotatedSegmentsFindsAll") {
+  constexpr int kCount = 20;
+  CreateAndInsert("rotated", kCount);
+
+  // Ask for every id in a single request. Vectors past the first segment must
+  // come back too, not land in not_found_ids.
+  grpc::ServerContext context;
+  proto::GetRequest request;
+  request.set_collection_name("rotated");
+  for (int id = 1; id <= kCount; ++id) request.add_ids(id);
+
+  proto::GetResponse response;
+  auto status = service_->Get(&context, &request, &response);
+  INFO(status.error_message());
+  REQUIRE(status.ok());
+  CHECK_EQ(response.vectors().size(), kCount);
+  CHECK_EQ(response.not_found_ids().size(), 0);
+
+  // Results follow the requested id order; vector for id k has every
+  // component equal to k - 1.
+  for (int i = 0; i < kCount; ++i) {
+    CHECK_EQ(response.vectors(i).id(), i + 1);
+    REQUIRE(response.vectors(i).vector().values_size() > 0);
+    CHECK(response.vectors(i).vector().values(0) ==
+          doctest::Approx(static_cast<float>(i)).epsilon(0.01f));
+  }
+}
+
+TEST_CASE_FIXTURE(SmallSegmentServiceTest,
+                  "GetAcrossRotatedSegmentsPartitionsMissing") {
+  CreateAndInsert("rotated", 20);
+
+  // Mix ids that live in rotated segments with ids that were never inserted.
+  grpc::ServerContext context;
+  proto::GetRequest request;
+  request.set_collection_name("rotated");
+  request.add_ids(3);    // exists, first segment
+  request.add_ids(99);   // missing
+  request.add_ids(17);   // exists, a rotated segment
+  request.add_ids(20);   // exists, the newest segment
+  request.add_ids(21);   // missing
+
+  proto::GetResponse response;
+  auto status = service_->Get(&context, &request, &response);
+  REQUIRE(status.ok());
+
+  REQUIRE_EQ(response.vectors().size(), 3);
+  CHECK_EQ(response.vectors(0).id(), 3);
+  CHECK_EQ(response.vectors(1).id(), 17);
+  CHECK_EQ(response.vectors(2).id(), 20);
+
+  REQUIRE_EQ(response.not_found_ids().size(), 2);
+  CHECK_EQ(response.not_found_ids(0), 99);
+  CHECK_EQ(response.not_found_ids(1), 21);
+}
+
+TEST_CASE_FIXTURE(SmallSegmentServiceTest,
+                  "ListVectorsAcrossRotatedSegments") {
+  constexpr int kCount = 20;
+  CreateAndInsert("rotated", kCount);
+
+  grpc::ServerContext context;
+  proto::ListVectorsRequest request;
+  request.set_collection_name("rotated");
+  request.set_limit(kCount);
+  request.set_offset(0);
+
+  proto::ListVectorsResponse response;
+  auto status = service_->ListVectors(&context, &request, &response);
+  REQUIRE(status.ok());
+  CHECK_EQ(response.total_count(), kCount);
+  CHECK_FALSE(response.has_more());
+  CHECK_EQ(response.vectors().size(), kCount);
+}
+
+TEST_CASE_FIXTURE(SmallSegmentServiceTest,
+                  "DeleteAcrossRotatedSegments") {
+  CreateAndInsert("rotated", 20);
+
+  // Id 18 lives in a rotated segment; the split places it well past the
+  // first. Deleting it must find that segment and remove exactly one vector.
+  {
+    grpc::ServerContext context;
+    proto::DeleteRequest request;
+    request.set_collection_name("rotated");
+    request.add_ids(18);
+    proto::DeleteResponse response;
+    auto status = service_->Delete(&context, &request, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    CHECK_EQ(response.deleted_count(), 1);
+    CHECK_EQ(response.not_found_ids().size(), 0);
+  }
+
+  // The delete must be visible: id 18 gone, a neighbour in another segment
+  // still present.
+  {
+    grpc::ServerContext context;
+    proto::GetRequest request;
+    request.set_collection_name("rotated");
+    request.add_ids(18);
+    request.add_ids(17);
+    proto::GetResponse response;
+    auto status = service_->Get(&context, &request, &response);
+    REQUIRE(status.ok());
+    REQUIRE_EQ(response.vectors().size(), 1);
+    CHECK_EQ(response.vectors(0).id(), 17);
+    REQUIRE_EQ(response.not_found_ids().size(), 1);
+    CHECK_EQ(response.not_found_ids(0), 18);
+  }
 }
