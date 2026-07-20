@@ -1507,6 +1507,11 @@ bool Segment::CanFit(size_t additional_bytes) const {
          memory_usage_ + additional_bytes <= max_segment_size_;
 }
 
+bool Segment::HasIndex() const {
+  std::shared_lock lock(mutex_);
+  return index_ != nullptr;
+}
+
 // ========== Private Methods ==========
 
 bool Segment::IsFull() const {
