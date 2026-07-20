@@ -12,6 +12,7 @@
 #include "auth/auth_context.h"
 #include "network/audit_context.h"
 #include "storage/backup_manager.h"
+#include "storage/batch_splitter.h"
 #include "utils/logger.h"
 #include "utils/metrics.h"
 #include "utils/timer.h"
@@ -648,54 +649,119 @@ grpc::Status VectorDBService::Insert(
     }
   }
 
-  // Write each shard batch to its segment (with auto-rotation on full)
+  // Write each shard batch to its segment (with auto-rotation on full).
+  // Batches larger than the segment size cap are split into ranges that each
+  // fit an empty segment; without the split, rotation can never produce a
+  // segment big enough and the write would fail unconditionally.
   core::CollectionId collection_id = first_segment->GetCollectionId();
+  const size_t max_segment_bytes = segment_store_->GetMaxSegmentSize();
   size_t total_inserted = 0;
   for (uint32_t i = 0; i < num_shards; ++i) {
     auto& batch = shard_batches[i];
     if (batch.ids.empty()) continue;
 
-    // Compute batch size for capacity-aware rotation
-    size_t batch_bytes = 0;
-    for (const auto& v : batch.vectors) batch_bytes += v.byte_size();
-
-    // Get a writable segment that can fit this batch
-    auto* segment = segment_store_->GetWritableSegment(collection_id, batch_bytes);
-    if (!segment) {
-      segment = segment_store_->GetSegment(segment_ids[i]);
+    // Per-item cost must mirror the segment's own capacity check: the
+    // metadata/sparse paths charge a flat per-item metadata estimate on top
+    // of the vector bytes.
+    const bool charges_metadata = batch.has_sparse || batch.has_metadata;
+    std::vector<size_t> item_costs;
+    item_costs.reserve(batch.vectors.size());
+    for (const auto& v : batch.vectors) {
+      item_costs.push_back(
+          v.byte_size() +
+          (charges_metadata ? storage::Segment::kMetadataBytesEstimate : 0));
     }
-    if (!segment) continue;
-
-    absl::Status status;
-    if (batch.has_sparse) {
-      status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map, batch.expiry_entries);
-    } else if (batch.has_metadata) {
-      status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata, batch.expiry_entries);
-    } else {
-      status = segment->AddVectors(batch.vectors, batch.ids, batch.expiry_entries);
-    }
-
-    // Safety net: if segment is full despite hint, rotate and retry once
-    if (absl::IsResourceExhausted(status)) {
-      segment = segment_store_->GetWritableSegment(collection_id, batch_bytes);
-      if (segment) {
-        if (batch.has_sparse) {
-          status = segment->AddVectorsWithSparse(batch.vectors, batch.ids, batch.metadata, batch.sparse_map, batch.expiry_entries);
-        } else if (batch.has_metadata) {
-          status = segment->AddVectorsWithMetadata(batch.vectors, batch.ids, batch.metadata, batch.expiry_entries);
-        } else {
-          status = segment->AddVectors(batch.vectors, batch.ids, batch.expiry_entries);
-        }
-      }
-    }
-
-    if (!status.ok()) {
+    auto ranges_or = storage::SplitBatchBySize(item_costs, max_segment_bytes);
+    if (!ranges_or.ok()) {
       utils::MetricsRegistry::Instance().RecordInsert(
           request->collection_name(), false, 0);
-      return toGrpcStatus(status);
+      return toGrpcStatus(ranges_or.status());
     }
 
-    total_inserted += batch.ids.size();
+    const bool single_range = ranges_or->size() == 1;
+    for (const auto& [begin, end] : *ranges_or) {
+      size_t range_bytes = 0;
+      for (size_t j = begin; j < end; ++j) range_bytes += item_costs[j];
+
+      // The common case is one range covering the whole batch; write it
+      // without copying. Slices are only materialized when a split happened.
+      std::vector<core::Vector> sliced_vectors;
+      std::vector<core::VectorId> sliced_ids;
+      std::vector<core::Metadata> sliced_metadata;
+      std::unordered_map<uint64_t, core::SparseVector> sliced_sparse;
+      std::unordered_map<uint64_t, int64_t> sliced_expiry;
+      if (!single_range) {
+        sliced_vectors.assign(batch.vectors.begin() + begin,
+                              batch.vectors.begin() + end);
+        sliced_ids.assign(batch.ids.begin() + begin, batch.ids.begin() + end);
+        if (batch.metadata.size() == batch.ids.size()) {
+          sliced_metadata.assign(batch.metadata.begin() + begin,
+                                 batch.metadata.begin() + end);
+        } else {
+          // Malformed parallel arrays (metadata missing on leading vectors).
+          // Pass as-is so the segment's size-mismatch validation rejects it,
+          // matching the unsplit path.
+          sliced_metadata = batch.metadata;
+        }
+        for (const auto& vid : sliced_ids) {
+          uint64_t key = core::ToUInt64(vid);
+          if (auto it = batch.sparse_map.find(key);
+              it != batch.sparse_map.end()) {
+            sliced_sparse.emplace(key, it->second);
+          }
+          if (auto it = batch.expiry_entries.find(key);
+              it != batch.expiry_entries.end()) {
+            sliced_expiry.emplace(key, it->second);
+          }
+        }
+      }
+      const auto& range_vectors = single_range ? batch.vectors : sliced_vectors;
+      const auto& range_ids = single_range ? batch.ids : sliced_ids;
+      const auto& range_metadata =
+          single_range ? batch.metadata : sliced_metadata;
+      const auto& range_sparse = single_range ? batch.sparse_map : sliced_sparse;
+      const auto& range_expiry =
+          single_range ? batch.expiry_entries : sliced_expiry;
+
+      // Get a writable segment that can fit this range
+      auto* segment =
+          segment_store_->GetWritableSegment(collection_id, range_bytes);
+      if (!segment) {
+        segment = segment_store_->GetSegment(segment_ids[i]);
+      }
+      if (!segment) break;
+
+      auto write_range = [&](storage::Segment* seg) {
+        if (batch.has_sparse) {
+          return seg->AddVectorsWithSparse(range_vectors, range_ids,
+                                           range_metadata, range_sparse,
+                                           range_expiry);
+        }
+        if (batch.has_metadata) {
+          return seg->AddVectorsWithMetadata(range_vectors, range_ids,
+                                             range_metadata, range_expiry);
+        }
+        return seg->AddVectors(range_vectors, range_ids, range_expiry);
+      };
+
+      absl::Status status = write_range(segment);
+
+      // Safety net: if segment is full despite hint, rotate and retry once
+      if (absl::IsResourceExhausted(status)) {
+        segment = segment_store_->GetWritableSegment(collection_id, range_bytes);
+        if (segment) {
+          status = write_range(segment);
+        }
+      }
+
+      if (!status.ok()) {
+        utils::MetricsRegistry::Instance().RecordInsert(
+            request->collection_name(), false, 0);
+        return toGrpcStatus(status);
+      }
+
+      total_inserted += range_ids.size();
+    }
   }
 
   utils::MetricsRegistry::Instance().RecordInsert(

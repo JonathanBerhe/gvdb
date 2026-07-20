@@ -1,6 +1,7 @@
 # Storage module - Segment management and persistence
 
 add_library(gvdb_storage
+  batch_splitter.cpp
   segment.cpp
   segment_manager.cpp
   scalar_index.cpp
