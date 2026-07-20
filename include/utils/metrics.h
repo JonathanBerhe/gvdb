@@ -134,6 +134,14 @@ class MetricsRegistry {
    */
   void SetMemoryUsage(uint64_t bytes);
 
+  /**
+   * @brief Update the gauge of tiered-storage uploads that have failed and are
+   *        awaiting a background retry. A non-zero value that does not fall back
+   *        to zero indicates segments stranded on local disk.
+   * @param count Number of segments currently in the failed-upload set
+   */
+  void SetPendingFailedUploads(uint64_t count);
+
   // ============================================================================
   // Auto-Rebalance Metrics (roadmap 0b.2)
   // ============================================================================
@@ -233,6 +241,7 @@ class MetricsRegistry {
   prometheus::Family<prometheus::Gauge>* vector_count_;
   prometheus::Family<prometheus::Gauge>* collection_count_;
   prometheus::Family<prometheus::Gauge>* memory_usage_bytes_;
+  prometheus::Family<prometheus::Gauge>* tiered_upload_failed_pending_;
 
   // Auto-rebalance counters (roadmap 0b.2)
   prometheus::Family<prometheus::Counter>* auto_rebalance_triggered_;

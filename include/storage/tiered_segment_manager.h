@@ -4,9 +4,12 @@
 #ifndef GVDB_STORAGE_TIERED_SEGMENT_MANAGER_H_
 #define GVDB_STORAGE_TIERED_SEGMENT_MANAGER_H_
 
+#include <chrono>
+#include <condition_variable>
 #include <memory>
 #include <shared_mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -37,7 +40,10 @@ class TieredSegmentManager : public ISegmentStore {
       std::unique_ptr<IObjectStore> object_store,
       std::unique_ptr<SegmentCache> cache,
       const std::string& prefix,
-      int upload_threads = 2);
+      int upload_threads = 2,
+      // Base delay before the first upload retry. Doubles per attempt up to a
+      // hard cap. Kept configurable so tests can drive retries in milliseconds.
+      std::chrono::milliseconds retry_base_delay = std::chrono::seconds(3));
 
   ~TieredSegmentManager() override;
 
@@ -138,10 +144,26 @@ class TieredSegmentManager : public ISegmentStore {
   // Async upload pool
   std::unique_ptr<utils::ThreadPool> upload_pool_;
 
-  // Track in-flight and failed uploads
+  // Per-segment retry bookkeeping for uploads that have failed and are waiting
+  // to be re-driven by the retry thread.
+  struct FailedUploadState {
+    uint32_t attempts = 0;  // consecutive failed attempts so far
+    std::chrono::steady_clock::time_point next_retry;
+  };
+
+  // Track in-flight and failed uploads. uploading_ and failed_uploads_ are
+  // mutually exclusive: a segment is either being uploaded or waiting to retry.
   mutable std::mutex upload_mutex_;
   std::unordered_set<uint32_t> uploading_;
-  std::unordered_set<uint32_t> failed_uploads_;
+  std::unordered_map<uint32_t, FailedUploadState> failed_uploads_;
+
+  // Background retry of failed uploads. The thread sleeps on retry_cv_ until a
+  // failed upload becomes eligible for retry (or a new failure is recorded) and
+  // shuts down cleanly when retry_stop_ is set in the destructor.
+  std::chrono::milliseconds retry_base_delay_;
+  std::condition_variable retry_cv_;
+  bool retry_stop_ = false;  // guarded by upload_mutex_
+  std::thread retry_thread_;
 
   // Remote segment metadata (discovered from manifest, not yet loaded)
   struct RemoteSegmentInfo {
@@ -163,6 +185,26 @@ class TieredSegmentManager : public ISegmentStore {
 
   // Upload a flushed segment's files to object storage
   core::Status UploadSegmentToS3(core::SegmentId id);
+
+  // Run one upload attempt on the pool and update in-flight/failed tracking.
+  // prior_failures is the number of times this segment's upload has already
+  // failed (0 for the first attempt from FlushSegment).
+  void RunUpload(core::SegmentId id, uint32_t prior_failures);
+
+  // Background loop that re-enqueues failed uploads once their backoff elapses.
+  void RetryLoop();
+
+  // Backoff before the next attempt given the number of failures so far.
+  [[nodiscard]] std::chrono::steady_clock::duration BackoffDelay(
+      uint32_t attempts) const;
+
+  // Re-enqueue uploads for segments that are FLUSHED locally but absent from
+  // the remote manifest (their original upload never reached the cold tier).
+  void RedriveUnuploadedSegments();
+
+  // Publish the current pending-failed-upload count to the metrics registry.
+  // Caller must hold upload_mutex_.
+  void UpdateFailedUploadsMetricLocked() const;
 
   // Download a segment's files from object storage to local cache
   core::Status DownloadSegmentFromS3(core::SegmentId id) const;

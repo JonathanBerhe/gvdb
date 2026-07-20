@@ -3,37 +3,60 @@
 
 #include "storage/tiered_segment_manager.h"
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <mutex>
+#include <vector>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/str_cat.h"
 #include "utils/logger.h"
+#include "utils/metrics.h"
 
 namespace gvdb {
 namespace storage {
 
-// Files produced by Segment::Flush() — used for S3 upload/download/delete.
+// Files produced by Segment::Flush(), used for S3 upload/download/delete.
 static constexpr std::array<const char*, 3> kSegmentFiles = {
     "metadata.txt", "vectors.bin", "index.faiss"
 };
+
+// Upload retry backoff cap. Failures retry forever with exponential backoff up
+// to this ceiling so a long object-store outage does not spin the retry thread.
+static constexpr auto kMaxRetryDelay = std::chrono::minutes(5);
+
+// After this many consecutive failures a stuck upload is logged at Error rather
+// than Warn so operators notice segments that are not reaching the cold tier.
+static constexpr uint32_t kUploadErrorThreshold = 5;
 
 TieredSegmentManager::TieredSegmentManager(
     std::unique_ptr<SegmentManager> local,
     std::unique_ptr<IObjectStore> object_store,
     std::unique_ptr<SegmentCache> cache,
     const std::string& prefix,
-    int upload_threads)
+    int upload_threads,
+    std::chrono::milliseconds retry_base_delay)
     : local_(std::move(local)),
       object_store_(std::move(object_store)),
       cache_(std::move(cache)),
       prefix_(prefix),
       upload_pool_(std::make_unique<utils::ThreadPool>(
-          std::max(1, upload_threads))) {}
+          std::max(1, upload_threads))),
+      retry_base_delay_(retry_base_delay) {
+  retry_thread_ = std::thread([this]() { RetryLoop(); });
+}
 
 TieredSegmentManager::~TieredSegmentManager() {
-  // ThreadPool destructor waits for pending tasks
+  // Stop the retry thread before draining the pool: signal, wake, join. Once it
+  // has exited no new upload tasks can be enqueued, so the pool can drain any
+  // in-flight upload cleanly (ThreadPool destructor waits for pending tasks).
+  {
+    std::lock_guard lock(upload_mutex_);
+    retry_stop_ = true;
+  }
+  retry_cv_.notify_all();
+  if (retry_thread_.joinable()) retry_thread_.join();
   upload_pool_.reset();
 }
 
@@ -90,26 +113,15 @@ core::Status TieredSegmentManager::FlushSegment(core::SegmentId id) {
   auto status = local_->FlushSegment(id);
   if (!status.ok()) return status;
 
-  // 2. Async upload to object storage
+  // 2. Async upload to object storage. A failed upload is not dropped: RunUpload
+  //    records it in failed_uploads_ and the retry thread re-drives it.
   auto seg_id = id;
   {
     std::lock_guard lock(upload_mutex_);
     uploading_.insert(core::ToUInt32(seg_id));
   }
 
-  upload_pool_->enqueue([this, seg_id]() {
-    auto upload_status = UploadSegmentToS3(seg_id);
-    {
-      std::lock_guard lock(upload_mutex_);
-      uploading_.erase(core::ToUInt32(seg_id));
-      if (!upload_status.ok()) {
-        failed_uploads_.insert(core::ToUInt32(seg_id));
-        utils::Logger::Instance().Error(
-            "S3 upload failed for segment {}: {}",
-            core::ToUInt32(seg_id), upload_status.message());
-      }
-    }
-  });
+  upload_pool_->enqueue([this, seg_id]() { RunUpload(seg_id, 0); });
 
   return core::OkStatus();
 }
@@ -292,8 +304,12 @@ absl::Status TieredSegmentManager::LoadAllSegments() {
   auto s3_status = DiscoverSegmentsFromS3();
   if (!s3_status.ok()) {
     (void)s3_status;
-    // Non-fatal — local segments still work
+    // Non-fatal, local segments still work
   }
+
+  // 3. Re-drive segments that are FLUSHED locally but missing from the remote
+  //    manifest: their original upload never reached the cold tier.
+  RedriveUnuploadedSegments();
 
   return absl::OkStatus();
 }
@@ -357,7 +373,7 @@ std::vector<core::SegmentId> TieredSegmentManager::GetFailedUploads() const {
   std::lock_guard lock(upload_mutex_);
   std::vector<core::SegmentId> result;
   result.reserve(failed_uploads_.size());
-  for (auto key : failed_uploads_) {
+  for (const auto& [key, _] : failed_uploads_) {
     result.push_back(static_cast<core::SegmentId>(key));
   }
   return result;
@@ -424,6 +440,149 @@ core::Status TieredSegmentManager::UploadSegmentToS3(core::SegmentId id) {
 
   // Segment uploaded successfully
   return core::OkStatus();
+}
+
+void TieredSegmentManager::RunUpload(
+    core::SegmentId id, uint32_t prior_failures) {
+  auto upload_status = UploadSegmentToS3(id);
+  auto seg_key = core::ToUInt32(id);
+
+  std::lock_guard lock(upload_mutex_);
+  uploading_.erase(seg_key);
+
+  if (upload_status.ok()) {
+    if (prior_failures > 0) {
+      utils::Logger::Instance().Info(
+          "Object storage upload recovered for segment {} after {} failed "
+          "attempt(s)", seg_key, prior_failures);
+    }
+    UpdateFailedUploadsMetricLocked();
+    return;
+  }
+
+  // Record the failure with a fresh backoff so the retry thread re-drives it.
+  uint32_t attempts = prior_failures + 1;
+  failed_uploads_[seg_key] = FailedUploadState{
+      attempts, std::chrono::steady_clock::now() + BackoffDelay(attempts)};
+
+  if (attempts >= kUploadErrorThreshold) {
+    utils::Logger::Instance().Error(
+        "Object storage upload still failing for segment {} after {} "
+        "attempts: {}", seg_key, attempts, upload_status.message());
+  } else {
+    utils::Logger::Instance().Warn(
+        "Object storage upload failed for segment {} (attempt {}): {}",
+        seg_key, attempts, upload_status.message());
+  }
+
+  UpdateFailedUploadsMetricLocked();
+  retry_cv_.notify_one();
+}
+
+std::chrono::steady_clock::duration TieredSegmentManager::BackoffDelay(
+    uint32_t attempts) const {
+  // Exponential: base * 2^(attempts-1), capped at kMaxRetryDelay.
+  auto delay = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+      retry_base_delay_);
+  const auto cap = std::chrono::duration_cast<
+      std::chrono::steady_clock::duration>(kMaxRetryDelay);
+  for (uint32_t i = 1; i < attempts; ++i) {
+    delay *= 2;
+    if (delay >= cap) return cap;
+  }
+  return std::min(delay, cap);
+}
+
+void TieredSegmentManager::RetryLoop() {
+  std::unique_lock<std::mutex> lock(upload_mutex_);
+  while (!retry_stop_) {
+    auto now = std::chrono::steady_clock::now();
+
+    // Collect segments whose backoff has elapsed and find the next wake time.
+    std::vector<std::pair<core::SegmentId, uint32_t>> ready;
+    bool have_pending = false;
+    auto next_wake = now + kMaxRetryDelay;
+    for (const auto& [key, state] : failed_uploads_) {
+      if (state.next_retry <= now) {
+        ready.emplace_back(static_cast<core::SegmentId>(key), state.attempts);
+      } else {
+        have_pending = true;
+        next_wake = std::min(next_wake, state.next_retry);
+      }
+    }
+
+    if (!ready.empty()) {
+      // Move each eligible segment back to in-flight and re-enqueue. The pool is
+      // guaranteed alive here: the destructor joins this thread before resetting
+      // it. RunUpload will re-add to failed_uploads_ if the attempt fails again.
+      for (const auto& entry : ready) {
+        core::SegmentId seg_id = entry.first;
+        uint32_t attempts = entry.second;
+        failed_uploads_.erase(core::ToUInt32(seg_id));
+        uploading_.insert(core::ToUInt32(seg_id));
+        upload_pool_->enqueue(
+            [this, seg_id, attempts]() { RunUpload(seg_id, attempts); });
+      }
+      UpdateFailedUploadsMetricLocked();
+      continue;  // re-evaluate immediately
+    }
+
+    if (have_pending) {
+      retry_cv_.wait_until(lock, next_wake);
+    } else {
+      retry_cv_.wait(lock);
+    }
+  }
+}
+
+void TieredSegmentManager::RedriveUnuploadedSegments() {
+  // Segments recovered from local disk report SEALED once their index is
+  // rebuilt on load (or FLUSHED if the rebuild was skipped); either way their
+  // flush files exist on disk. Any such segment that is not present in the
+  // remote manifest never reached the cold tier (the process died or the
+  // object store was unreachable during the original upload), so re-enqueue
+  // it to restore durability. Only called from LoadAllSegments, where every
+  // in-memory segment came from disk; a SEALED-but-never-flushed segment
+  // cannot appear here.
+  auto local_ids = local_->GetAllSegmentIds();
+
+  std::vector<core::SegmentId> to_upload;
+  {
+    std::shared_lock rlock(remote_mutex_);
+    for (auto id : local_ids) {
+      if (remote_segments_.count(core::ToUInt32(id)) > 0) continue;
+      auto* seg = local_->GetSegment(id);
+      if (seg == nullptr) continue;
+      auto state = seg->GetState();
+      if (state != core::SegmentState::FLUSHED &&
+          state != core::SegmentState::SEALED) {
+        continue;
+      }
+      to_upload.push_back(id);
+    }
+  }
+
+  for (auto id : to_upload) {
+    auto seg_key = core::ToUInt32(id);
+    {
+      std::lock_guard lock(upload_mutex_);
+      // Skip if already tracked to avoid enqueuing a segment twice.
+      if (uploading_.count(seg_key) > 0 ||
+          failed_uploads_.count(seg_key) > 0) {
+        continue;
+      }
+      uploading_.insert(seg_key);
+    }
+    utils::Logger::Instance().Info(
+        "Re-driving segment {} to object storage (flushed locally but missing "
+        "from remote manifest)", seg_key);
+    upload_pool_->enqueue([this, id]() { RunUpload(id, 0); });
+  }
+}
+
+void TieredSegmentManager::UpdateFailedUploadsMetricLocked() const {
+  utils::MetricsRegistry::Instance().SetPendingFailedUploads(
+      failed_uploads_.size());
 }
 
 core::Status TieredSegmentManager::DownloadSegmentFromS3(
