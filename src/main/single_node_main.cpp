@@ -220,6 +220,15 @@ int main(int argc, char** argv) {
     auto coordinator = std::make_unique<cluster::Coordinator>(
         shard_manager, node_registry);
 
+    // Restore the collection registry from the data dir; without this a
+    // restart orphans every collection even though segments reload fine.
+    coordinator->SetRegistryDir(data_dir);
+    if (auto reg_status = coordinator->LoadRegistry(); !reg_status.ok()) {
+      std::cerr << "Failed to load coordinator registry: "
+                << reg_status.message() << std::endl;
+      return 1;
+    }
+
     // 4. RBAC (if auth enabled in config)
     std::shared_ptr<auth::RbacStore> rbac_store;
     std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors;
@@ -281,7 +290,7 @@ int main(int argc, char** argv) {
     auto shard_write_gate = std::make_unique<cluster::ShardWriteGate>();
 
     // 8. gRPC service
-    auto resolver = network::MakeLocalResolver(segment_store);
+    auto resolver = network::MakeLocalResolver(segment_store, data_dir);
     auto service = std::make_unique<network::VectorDBService>(
         segment_store, query_executor, std::move(resolver), rbac_store,
         bulk_importer, backup_manager, restore_manager);

@@ -6,10 +6,15 @@
 #include "network/proto_conversions.h"
 #include "storage/segment_store.h"
 #include "cluster/coordinator.h"
+#include "absl/strings/numbers.h"
+#include "absl/strings/str_split.h"
+#include "utils/json_util.h"
 #include "utils/logger.h"
 #include "utils/metrics.h"
 #include "internal.grpc.pb.h"
 #include <grpcpp/grpcpp.h>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <mutex>
 #include <shared_mutex>
@@ -36,9 +41,15 @@ struct LocalEntry {
 class LocalCollectionResolver : public ICollectionResolver {
  public:
   LocalCollectionResolver(
-      std::shared_ptr<storage::ISegmentStore> segment_store)
+      std::shared_ptr<storage::ISegmentStore> segment_store,
+      const std::string& registry_dir)
       : segment_store_(std::move(segment_store)),
-        next_id_(1) {}
+        next_id_(1) {
+    if (!registry_dir.empty()) {
+      registry_path_ = registry_dir + "/collections.json";
+      LoadRegistry();
+    }
+  }
 
   absl::StatusOr<core::CollectionId> GetCollectionId(
       const std::string& name) override {
@@ -89,6 +100,7 @@ class LocalCollectionResolver : public ICollectionResolver {
 
     entries_[name] = entry;
     utils::MetricsRegistry::Instance().SetCollectionCount(entries_.size());
+    PersistRegistryLocked();
     return id;
   }
 
@@ -105,6 +117,7 @@ class LocalCollectionResolver : public ICollectionResolver {
 
     entries_.erase(it);
     utils::MetricsRegistry::Instance().SetCollectionCount(entries_.size());
+    PersistRegistryLocked();
     return absl::OkStatus();
   }
 
@@ -164,6 +177,120 @@ class LocalCollectionResolver : public ICollectionResolver {
   bool SupportsDataOps() const override { return true; }
 
  private:
+  // Registry persistence for single-node mode: entries_ and next_id_ live
+  // only in memory, so without this a restart orphans every collection even
+  // though the segments reload from disk.
+  void PersistRegistryLocked() const {
+    if (registry_path_.empty()) return;
+    std::ostringstream ss;
+    ss << "{\"version\":1,\"next_id\":" << next_id_
+       << ",\"collections\":[";
+    bool first = true;
+    for (const auto& [name, entry] : entries_) {
+      if (!first) ss << ",";
+      first = false;
+      ss << "{\"collection_id\":" << core::ToUInt32(entry.id)
+         << ",\"name\":\"" << utils::json::EscapeJson(name) << "\""
+         << ",\"dimension\":" << entry.dimension
+         << ",\"metric\":" << static_cast<int>(entry.metric)
+         << ",\"index_type\":" << static_cast<int>(entry.index_type)
+         << ",\"num_shards\":" << entry.num_shards
+         << ",\"segment_ids\":[";
+      for (size_t i = 0; i < entry.segment_ids.size(); ++i) {
+        if (i) ss << ",";
+        ss << core::ToUInt32(entry.segment_ids[i]);
+      }
+      ss << "]}";
+    }
+    ss << "]}";
+
+    const std::string tmp_path = registry_path_ + ".tmp";
+    {
+      std::ofstream out(tmp_path, std::ios::trunc);
+      if (!out.is_open()) {
+        utils::Logger::Instance().Error(
+            "Failed to open collection registry temp file: {}", tmp_path);
+        return;
+      }
+      out << ss.str();
+      if (!out.good()) {
+        utils::Logger::Instance().Error(
+            "Failed to write collection registry temp file: {}", tmp_path);
+        return;
+      }
+    }
+    std::error_code ec;
+    std::filesystem::rename(tmp_path, registry_path_, ec);
+    if (ec) {
+      utils::Logger::Instance().Error(
+          "Failed to replace collection registry {}: {}", registry_path_,
+          ec.message());
+    }
+  }
+
+  void LoadRegistry() {
+    std::ifstream in(registry_path_);
+    if (!in.is_open()) {
+      utils::Logger::Instance().Info(
+          "No collection registry at {} (first boot)", registry_path_);
+      return;
+    }
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    const std::string doc = buffer.str();
+
+    uint32_t next_id = 0;
+    if (utils::json::ParseUint32(doc, "next_id", next_id) && next_id > 0) {
+      next_id_ = next_id;
+    }
+    auto body = utils::json::ExtractArrayBody(doc, "collections");
+    size_t loaded = 0;
+    for (const auto& obj : utils::json::SplitObjects(body)) {
+      uint32_t cid = 0;
+      std::string name;
+      if (!utils::json::ParseUint32(obj, "collection_id", cid) ||
+          !utils::json::ParseString(obj, "name", name)) {
+        utils::Logger::Instance().Error(
+            "Skipping malformed collection registry entry: {}", obj);
+        continue;
+      }
+      LocalEntry entry;
+      entry.id = core::MakeCollectionId(cid);
+      entry.name = name;
+      (void)utils::json::ParseUint32(obj, "dimension", entry.dimension);
+      int32_t metric = 0;
+      if (utils::json::ParseInt32(obj, "metric", metric)) {
+        entry.metric = static_cast<core::MetricType>(metric);
+      }
+      int32_t index_type = 0;
+      if (utils::json::ParseInt32(obj, "index_type", index_type)) {
+        entry.index_type = static_cast<core::IndexType>(index_type);
+      }
+      uint64_t num_shards = 1;
+      if (utils::json::ParseUint64(obj, "num_shards", num_shards)) {
+        entry.num_shards = static_cast<size_t>(num_shards);
+      }
+      auto segs = utils::json::ExtractArrayBody(obj, "segment_ids");
+      if (segs.size() >= 2) {
+        std::string inner(segs.substr(1, segs.size() - 2));
+        for (absl::string_view piece :
+             absl::StrSplit(inner, ',', absl::SkipEmpty())) {
+          uint32_t sid = 0;
+          if (absl::SimpleAtoi(piece, &sid)) {
+            entry.segment_ids.push_back(core::MakeSegmentId(sid));
+          }
+        }
+      }
+      entries_[name] = std::move(entry);
+      ++loaded;
+    }
+    utils::MetricsRegistry::Instance().SetCollectionCount(entries_.size());
+    utils::Logger::Instance().Info(
+        "Loaded collection registry from {}: {} collection(s), next_id={}",
+        registry_path_, loaded, next_id_);
+  }
+
+  std::string registry_path_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   mutable std::shared_mutex mutex_;
   std::unordered_map<std::string, LocalEntry> entries_;
@@ -416,8 +543,10 @@ class CachedCoordinatorResolver : public ICollectionResolver {
 // ============================================================================
 
 std::unique_ptr<ICollectionResolver> MakeLocalResolver(
-    std::shared_ptr<storage::ISegmentStore> segment_store) {
-  return std::make_unique<LocalCollectionResolver>(std::move(segment_store));
+    std::shared_ptr<storage::ISegmentStore> segment_store,
+    const std::string& registry_dir) {
+  return std::make_unique<LocalCollectionResolver>(std::move(segment_store),
+                                                   registry_dir);
 }
 
 std::unique_ptr<ICollectionResolver> MakeCoordinatorResolver(

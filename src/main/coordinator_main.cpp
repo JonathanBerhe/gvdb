@@ -228,6 +228,16 @@ int main(int argc, char** argv) {
     auto coordinator = std::make_shared<cluster::Coordinator>(
         shard_manager, node_registry, client_factory);
 
+    // Restore the collection registry and shard assignments from the data
+    // dir before serving; without this a coordinator restart orphans every
+    // collection even though the segment data is intact.
+    coordinator->SetRegistryDir(args.data_dir);
+    if (auto reg_status = coordinator->LoadRegistry(); !reg_status.ok()) {
+      std::cerr << "Failed to load coordinator registry: "
+                << reg_status.message() << std::endl;
+      return 1;
+    }
+
     // 3. TimestampOracle
     auto* tso_ptr = raft_node->GetTimestampOracle();
     std::shared_ptr<consensus::TimestampOracle> timestamp_oracle;

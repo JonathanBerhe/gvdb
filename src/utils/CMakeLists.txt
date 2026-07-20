@@ -11,6 +11,7 @@ add_library(gvdb_utils
   query_cache.cpp
   audit_logger.cpp
   checksum.cpp
+  json_util.cpp
 )
 
 # Link dependencies

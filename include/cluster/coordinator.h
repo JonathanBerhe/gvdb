@@ -267,6 +267,19 @@ class Coordinator {
   void SetBackupManager(std::shared_ptr<storage::BackupManager> mgr);
   void SetRestoreManager(std::shared_ptr<storage::RestoreManager> mgr);
 
+  // Registry persistence. The collection registry (metadata, name map, id
+  // counter) and the cluster shard assignments (primary, replicas,
+  // primary_term) live only in memory; without persistence a coordinator
+  // restart orphans every collection even though the segment data is intact
+  // on the data nodes and in object storage.
+  //
+  // SetRegistryDir enables persistence: after every registry mutation the
+  // full state is atomically rewritten to <dir>/registry.json. LoadRegistry
+  // restores it on startup (a missing file is not an error: first boot).
+  // Call SetRegistryDir then LoadRegistry before serving traffic.
+  void SetRegistryDir(const std::string& dir);
+  absl::Status LoadRegistry();
+
   // Start a distributed backup of the collection. Returns the backup_id
   // immediately; the multi-shard fan-out runs asynchronously and is
   // observable via GetBackupStatus. Each shard is backed up by:
@@ -309,6 +322,14 @@ class Coordinator {
   mutable std::shared_mutex collection_mutex_;
   std::map<core::CollectionId, CollectionMetadata> collections_;
   std::map<std::string, core::CollectionId> collection_name_to_id_;
+
+  // Registry persistence. Empty path disables it. PersistRegistryLocked
+  // requires collection_mutex_ held (shared or unique); PersistRegistry
+  // takes the shared lock itself, for callers that mutate only shard
+  // assignments.
+  std::string registry_path_;
+  void PersistRegistryLocked() const;
+  void PersistRegistry() const;
 
   // ID generation
   std::atomic<uint32_t> next_node_id_{1};
