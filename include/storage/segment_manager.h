@@ -147,6 +147,12 @@ class SegmentManager : public ISegmentStore {
   [[nodiscard]] const std::string& GetBasePath() const { return base_path_; }
 
  private:
+  // Rebuild the in-memory index of a sealed/flushed segment that carries
+  // vectors but no live index (disk loads and restore/replication imports).
+  // Failures are logged, not fatal: the segment stays visible, just not
+  // index-searchable.
+  void RebuildIndexIfMissing(Segment* segment);
+
   // Storage path
   std::string base_path_;
 
