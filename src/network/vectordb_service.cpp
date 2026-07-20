@@ -25,6 +25,8 @@
 #include <chrono>
 #include <future>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 #include <grpcpp/grpcpp.h>
 
 namespace gvdb {
@@ -236,6 +238,102 @@ storage::Segment* VectorDBService::GetOrReplicateSegment(core::SegmentId segment
 
   return segment_store_->GetSegment(segment_id);
 }
+
+core::StatusOr<std::vector<storage::Segment*>>
+VectorDBService::CollectCollectionSegments(const std::string& collection_name) {
+  // The resolver knows the shard-primary segments but not the rotated ones
+  // auto-seal created; those live in the store keyed by collection id. Start
+  // from the primaries (so the replica-fallback pull still applies to them),
+  // then add every segment the store tracks for the collection.
+  auto segment_ids_result = resolver_->GetSegmentIds(collection_name);
+  if (!segment_ids_result.ok()) {
+    return segment_ids_result.status();
+  }
+  const auto& shard_segment_ids = *segment_ids_result;
+  if (shard_segment_ids.empty()) {
+    return absl::NotFoundError("Segment not found");
+  }
+
+  std::vector<storage::Segment*> segments;
+  std::unordered_set<uint32_t> seen;
+  bool have_collection = false;
+  core::CollectionId collection_id{};
+
+  for (const auto& seg_id : shard_segment_ids) {
+    auto* segment = GetOrReplicateSegment(seg_id);
+    if (!segment) continue;
+    if (!have_collection) {
+      collection_id = segment->GetCollectionId();
+      have_collection = true;
+    }
+    if (seen.insert(core::ToUInt32(seg_id)).second) {
+      segments.push_back(segment);
+    }
+  }
+
+  if (!have_collection) {
+    return absl::NotFoundError("Segment not found");
+  }
+
+  for (const auto& seg_id : segment_store_->GetCollectionSegments(collection_id)) {
+    if (!seen.insert(core::ToUInt32(seg_id)).second) continue;
+    auto* segment = segment_store_->GetSegment(seg_id);
+    if (segment) segments.push_back(segment);
+  }
+
+  return segments;
+}
+
+namespace {
+
+// A vector resolved by the fan-out lookup below.
+struct FoundVector {
+  core::Vector vector;
+  core::Metadata metadata;
+  bool has_metadata = false;
+};
+
+// Look up each requested id across the given segments, stopping at the first
+// segment that holds it. Returns a map keyed by the raw uint64 id so callers
+// can emit results in their own requested order. include_metadata mirrors the
+// per-segment GetVectors contract: when set, a found vector always carries a
+// metadata entry (possibly empty), so has_metadata tracks presence of that
+// slot rather than of any fields.
+std::unordered_map<uint64_t, FoundVector> FetchAcrossSegments(
+    const std::vector<storage::Segment*>& segments,
+    const std::vector<core::VectorId>& ids,
+    bool include_metadata) {
+  std::unordered_map<uint64_t, FoundVector> found;
+  std::vector<core::VectorId> remaining = ids;
+
+  for (auto* segment : segments) {
+    if (remaining.empty()) break;
+    auto result = segment->GetVectors(remaining, include_metadata);
+    for (size_t i = 0; i < result.found_ids.size(); ++i) {
+      // Aggregate-init: core::Vector has no default constructor.
+      FoundVector fv{std::move(result.found_vectors[i]), core::Metadata{},
+                     false};
+      if (include_metadata && i < result.found_metadata.size()) {
+        fv.metadata = std::move(result.found_metadata[i]);
+        fv.has_metadata = true;
+      }
+      found.emplace(core::ToUInt64(result.found_ids[i]), std::move(fv));
+    }
+
+    std::vector<core::VectorId> next;
+    next.reserve(remaining.size());
+    for (const auto& id : remaining) {
+      if (found.find(core::ToUInt64(id)) == found.end()) {
+        next.push_back(id);
+      }
+    }
+    remaining = std::move(next);
+  }
+
+  return found;
+}
+
+}  // namespace
 
 grpc::Status VectorDBService::SearchDistributed(
     const proto::SearchRequest* request,
@@ -1520,18 +1618,14 @@ grpc::Status VectorDBService::Get(
         "Send get requests to data nodes instead.");
   }
 
-  auto segment_id_result = resolver_->GetSegmentId(request->collection_name());
-  if (!segment_id_result.ok()) {
+  // Consult every segment of the collection, not just the resolver's active
+  // one: once a segment rotates, ids move to rotated segments and a
+  // single-segment lookup would report them as not found.
+  auto segments_result = CollectCollectionSegments(request->collection_name());
+  if (!segments_result.ok()) {
     utils::MetricsRegistry::Instance().RecordGet(
         request->collection_name(), false);
-    return toGrpcStatus(segment_id_result.status());
-  }
-
-  auto* segment = GetOrReplicateSegment(*segment_id_result);
-  if (!segment) {
-    utils::MetricsRegistry::Instance().RecordGet(
-        request->collection_name(), false);
-    return toGrpcStatus(absl::NotFoundError("Segment not found"));
+    return toGrpcStatus(segments_result.status());
   }
 
   std::vector<core::VectorId> ids;
@@ -1540,19 +1634,23 @@ grpc::Status VectorDBService::Get(
     ids.push_back(core::MakeVectorId(id));
   }
 
-  auto result = segment->GetVectors(ids, request->return_metadata());
+  auto found = FetchAcrossSegments(*segments_result, ids,
+                                   request->return_metadata());
 
-  for (size_t i = 0; i < result.found_ids.size(); ++i) {
-    auto* proto_vec = response->add_vectors();
-    proto_vec->set_id(core::ToUInt64(result.found_ids[i]));
-    toProto(result.found_vectors[i], proto_vec->mutable_vector());
-    if (request->return_metadata() && i < result.found_metadata.size()) {
-      toProto(result.found_metadata[i], proto_vec->mutable_metadata());
+  // Emit in the requested id order; ids resolved by no segment are reported
+  // as not found.
+  for (const auto& id : ids) {
+    auto it = found.find(core::ToUInt64(id));
+    if (it == found.end()) {
+      response->add_not_found_ids(core::ToUInt64(id));
+      continue;
     }
-  }
-
-  for (const auto& id : result.not_found_ids) {
-    response->add_not_found_ids(core::ToUInt64(id));
+    auto* proto_vec = response->add_vectors();
+    proto_vec->set_id(core::ToUInt64(id));
+    toProto(it->second.vector, proto_vec->mutable_vector());
+    if (request->return_metadata() && it->second.has_metadata) {
+      toProto(it->second.metadata, proto_vec->mutable_metadata());
+    }
   }
 
   utils::MetricsRegistry::Instance().RecordGet(
@@ -1573,17 +1671,20 @@ grpc::Status VectorDBService::ListVectors(
         "ListVectors not supported on coordinator nodes");
   }
 
-  auto segment_id_result = resolver_->GetSegmentId(request->collection_name());
-  if (!segment_id_result.ok()) {
-    return toGrpcStatus(segment_id_result.status());
+  // List across every segment of the collection so rotated segments are
+  // included; a single-segment listing would miss everything past the first.
+  auto segments_result = CollectCollectionSegments(request->collection_name());
+  if (!segments_result.ok()) {
+    return toGrpcStatus(segments_result.status());
+  }
+  const auto& segments = *segments_result;
+
+  std::vector<core::VectorId> all_ids;
+  for (auto* segment : segments) {
+    auto seg_ids = segment->GetAllVectorIds();
+    all_ids.insert(all_ids.end(), seg_ids.begin(), seg_ids.end());
   }
 
-  auto* segment = segment_store_->GetSegment(*segment_id_result);
-  if (!segment) {
-    return toGrpcStatus(absl::NotFoundError("Segment not found"));
-  }
-
-  auto all_ids = segment->GetAllVectorIds();
   uint64_t total = all_ids.size();
   uint32_t limit = request->limit() > 0 ? request->limit() : 20;
   uint64_t offset = request->offset();
@@ -1592,20 +1693,22 @@ grpc::Status VectorDBService::ListVectors(
   response->set_has_more(offset + limit < total);
 
   uint64_t end = std::min(offset + limit, total);
-  for (uint64_t i = offset; i < end; ++i) {
-    std::vector<core::VectorId> ids_to_get = {all_ids[i]};
-    auto result = segment->GetVectors(ids_to_get, request->include_metadata());
+  std::vector<core::VectorId> page_ids;
+  if (offset < end) {
+    page_ids.assign(all_ids.begin() + offset, all_ids.begin() + end);
+  }
 
-    for (size_t j = 0; j < result.found_ids.size(); ++j) {
-      auto* proto_vec = response->add_vectors();
-      proto_vec->set_id(core::ToUInt64(result.found_ids[j]));
+  auto found = FetchAcrossSegments(segments, page_ids,
+                                   request->include_metadata());
 
-      auto* vec = proto_vec->mutable_vector();
-      toProto(result.found_vectors[j], vec);
-
-      if (request->include_metadata() && j < result.found_metadata.size()) {
-        toProto(result.found_metadata[j], proto_vec->mutable_metadata());
-      }
+  for (const auto& id : page_ids) {
+    auto it = found.find(core::ToUInt64(id));
+    if (it == found.end()) continue;
+    auto* proto_vec = response->add_vectors();
+    proto_vec->set_id(core::ToUInt64(id));
+    toProto(it->second.vector, proto_vec->mutable_vector());
+    if (request->include_metadata() && it->second.has_metadata) {
+      toProto(it->second.metadata, proto_vec->mutable_metadata());
     }
   }
 
@@ -1664,39 +1767,62 @@ grpc::Status VectorDBService::Delete(
     return gate;
   }
 
-  auto segment_id_result = resolver_->GetSegmentId(request->collection_name());
-  if (!segment_id_result.ok()) {
+  // A vector may live in any segment of the collection, so route each id to
+  // the segment that actually holds it rather than the resolver's active one.
+  auto segments_result = CollectCollectionSegments(request->collection_name());
+  if (!segments_result.ok()) {
     utils::MetricsRegistry::Instance().RecordDelete(
         request->collection_name(), false);
-    return toGrpcStatus(segment_id_result.status());
+    return toGrpcStatus(segments_result.status());
   }
+  const auto& segments = *segments_result;
 
-  auto* segment = GetOrReplicateSegment(*segment_id_result);
-  if (!segment) {
-    utils::MetricsRegistry::Instance().RecordDelete(
-        request->collection_name(), false);
-    return toGrpcStatus(absl::NotFoundError("Segment not found"));
-  }
-
-  std::vector<core::VectorId> ids;
-  ids.reserve(request->ids().size());
+  std::vector<core::VectorId> remaining;
+  remaining.reserve(request->ids().size());
   for (uint64_t id : request->ids()) {
-    ids.push_back(core::MakeVectorId(id));
+    remaining.push_back(core::MakeVectorId(id));
   }
 
-  auto result = segment->DeleteVectors(ids);
-  if (!result.ok()) {
-    utils::MetricsRegistry::Instance().RecordDelete(
-        request->collection_name(), false);
-    return toGrpcStatus(result.status());
+  uint64_t deleted_count = 0;
+  for (auto* segment : segments) {
+    if (remaining.empty()) break;
+
+    // Only touch this segment for the ids it holds. Locating first keeps the
+    // segment's own state rule intact: an id that lives in a sealed segment
+    // routes here and DeleteVectors returns its FailedPrecondition error
+    // rather than being silently reported as not found.
+    auto present = segment->GetVectors(remaining, /*include_metadata=*/false);
+    if (present.found_ids.empty()) continue;
+
+    auto result = segment->DeleteVectors(present.found_ids);
+    if (!result.ok()) {
+      utils::MetricsRegistry::Instance().RecordDelete(
+          request->collection_name(), false);
+      return toGrpcStatus(result.status());
+    }
+    deleted_count += result->deleted_count;
+
+    std::unordered_set<uint64_t> just_deleted;
+    just_deleted.reserve(present.found_ids.size());
+    for (const auto& id : present.found_ids) {
+      just_deleted.insert(core::ToUInt64(id));
+    }
+    std::vector<core::VectorId> next;
+    next.reserve(remaining.size());
+    for (const auto& id : remaining) {
+      if (just_deleted.find(core::ToUInt64(id)) == just_deleted.end()) {
+        next.push_back(id);
+      }
+    }
+    remaining = std::move(next);
   }
 
-  response->set_deleted_count(result->deleted_count);
-  for (const auto& id : result->not_found_ids) {
+  response->set_deleted_count(deleted_count);
+  for (const auto& id : remaining) {
     response->add_not_found_ids(core::ToUInt64(id));
   }
   response->set_message(absl::StrCat(
-      "Deleted ", result->deleted_count, " vector(s) from collection '",
+      "Deleted ", deleted_count, " vector(s) from collection '",
       request->collection_name(), "'"));
 
   utils::MetricsRegistry::Instance().RecordDelete(
@@ -1759,19 +1885,13 @@ grpc::Status VectorDBService::UpdateMetadata(
     return gate;
   }
 
-  auto segment_id_result = resolver_->GetSegmentId(request->collection_name());
-  if (!segment_id_result.ok()) {
+  auto segments_result = CollectCollectionSegments(request->collection_name());
+  if (!segments_result.ok()) {
     utils::MetricsRegistry::Instance().RecordUpdateMetadata(
         request->collection_name(), false);
-    return toGrpcStatus(segment_id_result.status());
+    return toGrpcStatus(segments_result.status());
   }
-
-  auto* segment = segment_store_->GetSegment(*segment_id_result);
-  if (!segment) {
-    utils::MetricsRegistry::Instance().RecordUpdateMetadata(
-        request->collection_name(), false);
-    return toGrpcStatus(absl::NotFoundError("Segment not found"));
-  }
+  const auto& segments = *segments_result;
 
   auto metadata_result = fromProto(request->metadata());
   if (!metadata_result.ok()) {
@@ -1781,7 +1901,33 @@ grpc::Status VectorDBService::UpdateMetadata(
   }
 
   auto vector_id = core::MakeVectorId(request->id());
-  auto status = segment->UpdateMetadata(vector_id, *metadata_result, request->merge());
+
+  // Find the segment that actually holds the id, then apply the update there.
+  // Locating first (state-independent) rather than trying each segment blindly
+  // keeps a sealed segment's own FailedPrecondition error attached to the
+  // segment that owns the id, and avoids a sealed segment that lacks the id
+  // masking a later growing segment that has it.
+  storage::Segment* owner = nullptr;
+  for (auto* segment : segments) {
+    auto present = segment->GetVectors({vector_id}, /*include_metadata=*/false);
+    if (!present.found_ids.empty()) {
+      owner = segment;
+      break;
+    }
+  }
+
+  if (!owner) {
+    utils::MetricsRegistry::Instance().RecordUpdateMetadata(
+        request->collection_name(), false);
+    auto not_found = absl::NotFoundError(absl::StrCat(
+        "Vector ID ", request->id(), " not found in collection '",
+        request->collection_name(), "'"));
+    response->set_updated(false);
+    response->set_message(std::string(not_found.message()));
+    return toGrpcStatus(not_found);
+  }
+
+  auto status = owner->UpdateMetadata(vector_id, *metadata_result, request->merge());
 
   if (!status.ok()) {
     utils::MetricsRegistry::Instance().RecordUpdateMetadata(
