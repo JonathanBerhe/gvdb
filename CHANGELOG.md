@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.39.0](https://github.com/JonathanBerhe/gvdb/compare/v0.38.0...v0.39.0) (2026-07-20)
+
+
+### Features
+
+* **chart:** add GKE values overlay ([#130](https://github.com/JonathanBerhe/gvdb/issues/130)) ([4dcf074](https://github.com/JonathanBerhe/gvdb/commit/4dcf0747bb49e06e3a550fa04c6dc800b7ecfaf9))
+* **chart:** opt-in cert-manager TLS and External Secrets integration ([#132](https://github.com/JonathanBerhe/gvdb/issues/132)) ([e29ced6](https://github.com/JonathanBerhe/gvdb/commit/e29ced69f485b5f72cbc778a1196d58d03ecd648))
+* **python-sdk:** backup/restore support with regenerated stubs ([#137](https://github.com/JonathanBerhe/gvdb/issues/137)) ([f24273d](https://github.com/JonathanBerhe/gvdb/commit/f24273d886f8c5f2259034412acad6a597b95879))
+* **storage:** add Google Cloud Storage object-store backend ([b60aedb](https://github.com/JonathanBerhe/gvdb/commit/b60aedb255f7067fb874f8adc1e7d61f1e6194d6))
+* **storage:** add Google Cloud Storage object-store backend ([6b11956](https://github.com/JonathanBerhe/gvdb/commit/6b11956291c583f1b08a1b7da6aff6550aa482bc))
+* **storage:** make tiered storage upload end to end + chart object-store config ([#133](https://github.com/JonathanBerhe/gvdb/issues/133)) ([c84354f](https://github.com/JonathanBerhe/gvdb/commit/c84354f54169cba917bdd93095dba7116275f016))
+
+
+### Bug Fixes
+
+* **cluster:** persist the collection registry across restarts ([#141](https://github.com/JonathanBerhe/gvdb/issues/141)) ([9db3a1d](https://github.com/JonathanBerhe/gvdb/commit/9db3a1d9e0485c7f8b187958b44f6fb2138e8ff7))
+* **network:** route by-id operations across all collection segments ([#139](https://github.com/JonathanBerhe/gvdb/issues/139)) ([7eb47b9](https://github.com/JonathanBerhe/gvdb/commit/7eb47b919bbbb279abd71b3236c70b6d4a875f7f))
+* **storage:** catch mid-read I/O errors in GcsObjectStore::PutObjectFromFile ([56b1327](https://github.com/JonathanBerhe/gvdb/commit/56b13272140874e6e4d8465864c3b55f6d962585))
+* **storage:** flush restored segments so restores survive restarts ([#140](https://github.com/JonathanBerhe/gvdb/issues/140)) ([17c5178](https://github.com/JonathanBerhe/gvdb/commit/17c517890d60b37ca06a4428ac74c4cae70b7bd7))
+* **storage:** per-store GCS credentials + warn on S3 type without endpoint ([e9f40e3](https://github.com/JonathanBerhe/gvdb/commit/e9f40e321e0ede94dcd2b8c4a7e1fb825d4be214))
+* **storage:** rebuild missing indexes when installing restored segments ([#136](https://github.com/JonathanBerhe/gvdb/issues/136)) ([4578bd6](https://github.com/JonathanBerhe/gvdb/commit/4578bd663ee13cf4cd0b9de24bc97238d56b962d))
+* **storage:** retry failed tiered-storage uploads with backoff ([#138](https://github.com/JonathanBerhe/gvdb/issues/138)) ([4f4a8f3](https://github.com/JonathanBerhe/gvdb/commit/4f4a8f310225867618763c7f97106a1b068a82fa))
+* **storage:** split insert batches larger than the segment size cap ([#135](https://github.com/JonathanBerhe/gvdb/issues/135)) ([24ebe44](https://github.com/JonathanBerhe/gvdb/commit/24ebe4421485fae3cfa84147633e3ccd73dc5755))
+
 ## [0.38.0](https://github.com/JonathanBerhe/gvdb/compare/v0.37.0...v0.38.0) (2026-07-05)
 
 
