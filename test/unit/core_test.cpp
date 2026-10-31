@@ -1,4 +1,9 @@
 #include <doctest/doctest.h>
+#include <pthread.h>
+
+#include <climits>
+#include <functional>
+#include <string>
 
 #include "core/config.h"
 #include "core/filter.h"
@@ -476,6 +481,51 @@ TEST_CASE("MetadataTest - LikePatternEscape") {
   CHECK_FALSE(match_like_pattern("50off", "50\\%"));
 }
 
+TEST_CASE("MetadataTest - LikePatternEscapesAnyByte") {
+  CHECK(match_like_pattern("a_b", "a\\_b"));
+  CHECK_FALSE(match_like_pattern("axb", "a\\_b"));
+  // A backslash before an ordinary byte makes it literal; it is not a regex
+  // class, so "\d" matches the letter d and not a digit.
+  CHECK(match_like_pattern("ad", "a\\d"));
+  CHECK_FALSE(match_like_pattern("a5", "a\\d"));
+  // A trailing lone backslash matches itself.
+  CHECK(match_like_pattern("50\\", "50\\"));
+}
+
+TEST_CASE("MetadataTest - LikePatternRegexMetacharactersAreLiteral") {
+  CHECK(match_like_pattern("a.b", "a.b"));
+  CHECK_FALSE(match_like_pattern("axb", "a.b"));
+  CHECK(match_like_pattern("(x)+[y]*{z}|^$?", "(x)+[y]*{z}|^$?"));
+  CHECK_FALSE(match_like_pattern("xx", "x+"));
+}
+
+TEST_CASE("MetadataTest - LikePatternBacktracking") {
+  CHECK(match_like_pattern("abcabcabd", "%abd"));
+  CHECK(match_like_pattern("mississippi", "m%ss%pi"));
+  CHECK(match_like_pattern("mississippi", "%s_s%"));
+  CHECK_FALSE(match_like_pattern("mississippi", "m%ss%px"));
+  CHECK(match_like_pattern("", "%"));
+  CHECK(match_like_pattern("", "%%"));
+  CHECK_FALSE(match_like_pattern("", "_"));
+  CHECK_FALSE(match_like_pattern("abc", ""));
+  CHECK(match_like_pattern("a\nb", "a%b"));
+  CHECK(match_like_pattern("a\nb", "a_b"));
+}
+
+TEST_CASE("MetadataTest - LikePatternLongInputs") {
+  const std::string long_a(100000, 'a');
+  CHECK(match_like_pattern(long_a, long_a));
+  CHECK(match_like_pattern(long_a, std::string(100000, '%')));
+  CHECK(match_like_pattern(long_a, std::string(100000, '_')));
+  CHECK_FALSE(match_like_pattern(long_a, std::string(100001, '_')));
+
+  const std::string value = std::string(65536, 'x') + "a";
+  CHECK(match_like_pattern(value, "%a"));
+  CHECK(match_like_pattern(value, "%a%"));
+  CHECK_FALSE(match_like_pattern(value, "a%"));
+  CHECK_FALSE(match_like_pattern(value, "%b%"));
+}
+
 TEST_CASE("MetadataTest - CompareLike") {
   CHECK(compare_metadata_values(
       MetadataValue(std::string("Nike Air Max")),
@@ -916,6 +966,235 @@ TEST_CASE("FilterTest - FilterToString") {
 
   std::string str = (*filter)->to_string();
   CHECK_FALSE(str.empty());
+}
+
+TEST_CASE("FilterTest - RejectsTrailingInput") {
+  for (const char* expr : {
+           "price < 100)",
+           "a = 1 b = 2",
+           "k = 'a' ; DROP",
+           "i < 10 OR",
+           "i < 10 AND",
+           "i < 5e3",
+           "i = 5abc",
+           "flag = true1",
+           "i <= 3 OR i = 40) AND k = 'zzz'",
+       }) {
+    INFO(expr);
+    auto result = FilterParser::parse(expr);
+    CHECK(absl::IsInvalidArgument(result.status()));
+  }
+
+  CHECK(FilterParser::parse("  price < 100  ").ok());
+}
+
+TEST_CASE("FilterTest - IntegerLiteralBounds") {
+  auto max = FilterParser::parse("i = 9223372036854775807");
+  REQUIRE(max.ok());
+  CHECK((*max)->evaluate({{"i", MetadataValue(int64_t{INT64_MAX})}}));
+
+  auto min = FilterParser::parse("i = -9223372036854775808");
+  REQUIRE(min.ok());
+  CHECK((*min)->evaluate({{"i", MetadataValue(int64_t{INT64_MIN})}}));
+
+  for (const char* expr : {
+           "i < 9223372036854775808",
+           "i > -9223372036854775809",
+           "i < 99999999999999999999",
+           "i IN (1, 99999999999999999999)",
+       }) {
+    INFO(expr);
+    CHECK(absl::IsInvalidArgument(FilterParser::parse(expr).status()));
+  }
+}
+
+TEST_CASE("FilterTest - DoubleLiteralBounds") {
+  const std::string overflow = "x < 1" + std::string(400, '0') + ".0";
+  CHECK(absl::IsInvalidArgument(FilterParser::parse(overflow).status()));
+
+  // Underflow rounds toward zero rather than failing.
+  const std::string tiny = "x > 0." + std::string(400, '0') + "1";
+  auto filter = FilterParser::parse(tiny);
+  REQUIRE(filter.ok());
+  CHECK((*filter)->evaluate({{"x", MetadataValue(0.5)}}));
+}
+
+TEST_CASE("FilterTest - NumericLiteralForms") {
+  auto plus = FilterParser::parse("i = +5");
+  REQUIRE(plus.ok());
+  CHECK((*plus)->evaluate({{"i", MetadataValue(int64_t{5})}}));
+
+  auto trailing_dot = FilterParser::parse("x = 1.");
+  REQUIRE(trailing_dot.ok());
+  CHECK((*trailing_dot)->evaluate({{"x", MetadataValue(1.0)}}));
+
+  auto negative_fraction = FilterParser::parse("x = -.5");
+  REQUIRE(negative_fraction.ok());
+  CHECK((*negative_fraction)->evaluate({{"x", MetadataValue(-0.5)}}));
+
+  auto negative_zero = FilterParser::parse("i = -0");
+  REQUIRE(negative_zero.ok());
+  CHECK((*negative_zero)->evaluate({{"i", MetadataValue(int64_t{0})}}));
+
+  for (const char* expr : {"x = .5", "x = -", "x = 1.2.3", "x = +"}) {
+    INFO(expr);
+    CHECK(absl::IsInvalidArgument(FilterParser::parse(expr).status()));
+  }
+}
+
+TEST_CASE("FilterTest - KeywordEdgeCases") {
+  auto lower = FilterParser::parse("a = 1 and not b = 2 or c = 3");
+  REQUIRE(lower.ok());
+  CHECK((*lower)->evaluate({{"a", MetadataValue(int64_t{1})},
+                            {"b", MetadataValue(int64_t{5})}}));
+
+  // Boolean literals are lowercase only.
+  CHECK(absl::IsInvalidArgument(FilterParser::parse("f = TRUE").status()));
+
+  // A keyword followed by an operator is still usable as a field name.
+  auto field_named_and = FilterParser::parse("and = 1");
+  REQUIRE(field_named_and.ok());
+  CHECK((*field_named_and)->evaluate({{"and", MetadataValue(int64_t{1})}}));
+
+  CHECK(absl::IsInvalidArgument(FilterParser::parse("not = 1").status()));
+}
+
+TEST_CASE("FilterTest - NonAsciiInput") {
+  auto quoted = FilterParser::parse("name = 'caf\xC3\xA9'");
+  REQUIRE(quoted.ok());
+  CHECK((*quoted)->evaluate({{"name", MetadataValue(std::string("caf\xC3\xA9"))}}));
+
+  CHECK(absl::IsInvalidArgument(
+      FilterParser::parse("pr\xC3\xAF""ce = 1").status()));
+  CHECK(absl::IsInvalidArgument(FilterParser::parse("\xFF").status()));
+}
+
+TEST_CASE("FilterTest - LikeEscapesThroughParser") {
+  // The string-literal lexer consumes one backslash, so the filter text
+  // '50\\%' reaches LIKE as the pattern 50\% (a literal percent sign) ...
+  auto literal = FilterParser::parse("k LIKE '50\\\\%'");
+  REQUIRE(literal.ok());
+  CHECK((*literal)->evaluate({{"k", MetadataValue(std::string("50%"))}}));
+  CHECK_FALSE((*literal)->evaluate({{"k", MetadataValue(std::string("50x"))}}));
+
+  // ... while '50\%' reaches it as 50% (a wildcard).
+  auto wildcard = FilterParser::parse("k LIKE '50\\%'");
+  REQUIRE(wildcard.ok());
+  CHECK((*wildcard)->evaluate({{"k", MetadataValue(std::string("50x"))}}));
+}
+
+namespace {
+
+// Runs fn on a thread with a 512 KiB stack (the default for secondary threads
+// on macOS, where gRPC handlers run), so unbounded recursion fails here rather
+// than only in the server.
+void RunOnSmallStack(std::function<void()> fn) {
+  pthread_attr_t attr;
+  REQUIRE(pthread_attr_init(&attr) == 0);
+  REQUIRE(pthread_attr_setstacksize(&attr, 512 * 1024) == 0);
+  pthread_t thread;
+  REQUIRE(pthread_create(
+              &thread, &attr,
+              [](void* arg) -> void* {
+                (*static_cast<std::function<void()>*>(arg))();
+                return nullptr;
+              },
+              &fn) == 0);
+  pthread_join(thread, nullptr);
+  pthread_attr_destroy(&attr);
+}
+
+std::string Repeat(const std::string& piece, int times) {
+  std::string out;
+  out.reserve(piece.size() * times);
+  for (int i = 0; i < times; ++i) out += piece;
+  return out;
+}
+
+}  // namespace
+
+TEST_CASE("FilterTest - NestingDepthLimit") {
+  const int max = FilterParser::kMaxNestingDepth;
+  auto parens = [](int depth) {
+    return Repeat("(", depth) + "a = 1" + Repeat(")", depth);
+  };
+
+  bool at_limit_ok = false;
+  bool at_limit_matches = false;
+  bool not_at_limit_ok = false;
+  RunOnSmallStack([&] {
+    auto nested = FilterParser::parse(parens(max));
+    at_limit_ok = nested.ok();
+    at_limit_matches =
+        nested.ok() && (*nested)->evaluate({{"a", MetadataValue(int64_t{1})}});
+    // max NOTs is an even count, so it evaluates like the bare comparison.
+    not_at_limit_ok = FilterParser::parse(Repeat("NOT ", max) + "a = 1").ok();
+  });
+  CHECK(at_limit_ok);
+  CHECK(at_limit_matches);
+  CHECK(not_at_limit_ok);
+
+  CHECK(absl::IsInvalidArgument(FilterParser::parse(parens(max + 1)).status()));
+  CHECK(absl::IsInvalidArgument(
+      FilterParser::parse(Repeat("NOT ", max + 1) + "a = 1").status()));
+  // Deep enough to overflow any thread stack if the parser recursed on it.
+  CHECK(absl::IsInvalidArgument(FilterParser::parse(parens(1000000)).status()));
+  CHECK(absl::IsInvalidArgument(
+      FilterParser::parse(Repeat("NOT ", 1000000) + "a = 1").status()));
+}
+
+TEST_CASE("FilterTest - LongChainsStayShallow") {
+  const int terms = 100000;
+  std::string or_chain = "id = 0";
+  std::string and_chain = "a0 = 1";
+  for (int i = 1; i < terms; ++i) {
+    or_chain += " OR id = " + std::to_string(i);
+    and_chain += " AND a" + std::to_string(i % 100) + " = 1";
+  }
+
+  Metadata all_ones;
+  for (int i = 0; i < 100; ++i) {
+    all_ones["a" + std::to_string(i)] = MetadataValue(int64_t{1});
+  }
+
+  bool or_ok = false, or_first = false, or_last = false, or_miss = true;
+  bool and_ok = false, and_all = false, and_one_off = true;
+  RunOnSmallStack([&] {
+    auto ors = FilterParser::parse(or_chain);
+    or_ok = ors.ok();
+    if (or_ok) {
+      or_first = (*ors)->evaluate({{"id", MetadataValue(int64_t{0})}});
+      or_last = (*ors)->evaluate({{"id", MetadataValue(int64_t{terms - 1})}});
+      or_miss = (*ors)->evaluate({{"id", MetadataValue(int64_t{terms})}});
+    }
+    auto ands = FilterParser::parse(and_chain);
+    and_ok = ands.ok();
+    if (and_ok) {
+      and_all = (*ands)->evaluate(all_ones);
+      Metadata one_off = all_ones;
+      one_off["a57"] = MetadataValue(int64_t{0});
+      and_one_off = (*ands)->evaluate(one_off);
+    }
+    // Both ASTs are destroyed on this thread as well.
+  });
+  CHECK(or_ok);
+  CHECK(or_first);
+  CHECK(or_last);
+  CHECK_FALSE(or_miss);
+  CHECK(and_ok);
+  CHECK(and_all);
+  CHECK_FALSE(and_one_off);
+}
+
+TEST_CASE("FilterTest - LargeInListAccepted") {
+  std::string expr = "id IN (0";
+  for (int i = 1; i < 100000; ++i) expr += ", " + std::to_string(i);
+  expr += ")";
+
+  auto filter = FilterParser::parse(expr);
+  REQUIRE(filter.ok());
+  CHECK((*filter)->evaluate({{"id", MetadataValue(int64_t{99999})}}));
+  CHECK_FALSE((*filter)->evaluate({{"id", MetadataValue(int64_t{100000})}}));
 }
 
 // ============================================================================

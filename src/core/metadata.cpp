@@ -4,10 +4,9 @@
 #include "core/metadata.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cmath>
-#include <regex>
 
+#include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
 
 namespace gvdb {
@@ -110,53 +109,77 @@ bool compare_metadata_value_in_list(
 // LIKE Pattern Matching
 // ============================================================================
 
-bool match_like_pattern(const std::string& value, const std::string& pattern) {
-  // Convert SQL LIKE pattern to regex
-  // % -> .*
-  // _ -> .
-  // Escape special regex characters
+namespace {
 
-  std::string regex_pattern;
-  regex_pattern.reserve(pattern.size() * 2);
-  regex_pattern += '^';
+// One element of a LIKE pattern after escape processing.
+struct LikeToken {
+  enum class Kind { kLiteral, kAnyByte, kAnyRun };
+  Kind kind;
+  char literal;
+};
 
+std::vector<LikeToken> TokenizeLikePattern(const std::string& pattern) {
+  std::vector<LikeToken> tokens;
+  tokens.reserve(pattern.size());
   for (size_t i = 0; i < pattern.size(); ++i) {
     char c = pattern[i];
-
     if (c == '%') {
-      regex_pattern += ".*";
+      // Consecutive '%' are equivalent to one.
+      if (tokens.empty() || tokens.back().kind != LikeToken::Kind::kAnyRun) {
+        tokens.push_back({LikeToken::Kind::kAnyRun, '\0'});
+      }
     } else if (c == '_') {
-      regex_pattern += '.';
+      tokens.push_back({LikeToken::Kind::kAnyByte, '\0'});
     } else if (c == '\\' && i + 1 < pattern.size()) {
-      // Escape sequence
-      ++i;
-      char next = pattern[i];
-      if (next == '%' || next == '_') {
-        regex_pattern += next;
-      } else {
-        regex_pattern += '\\';
-        regex_pattern += next;
-      }
+      tokens.push_back({LikeToken::Kind::kLiteral, pattern[++i]});
     } else {
-      // Escape regex special characters
-      if (c == '.' || c == '*' || c == '+' || c == '?' ||
-          c == '^' || c == '$' || c == '(' || c == ')' ||
-          c == '[' || c == ']' || c == '{' || c == '}' ||
-          c == '|' || c == '\\') {
-        regex_pattern += '\\';
-      }
-      regex_pattern += c;
+      // Includes a trailing lone backslash, which matches itself.
+      tokens.push_back({LikeToken::Kind::kLiteral, c});
+    }
+  }
+  return tokens;
+}
+
+}  // namespace
+
+bool match_like_pattern(const std::string& value, const std::string& pattern) {
+  // '%' matches any run of bytes (including none), '_' matches exactly one
+  // byte, and a backslash makes the next pattern byte literal. Matching is
+  // iterative: on a mismatch it backtracks only to the most recent '%', which
+  // is sufficient for LIKE and bounds the work at O(|value| * |pattern|)
+  // without recursion, so neither long values nor long patterns can exhaust
+  // the stack.
+  const auto tokens = TokenizeLikePattern(pattern);
+
+  size_t v = 0;
+  size_t t = 0;
+  size_t star = std::string::npos;  // token index of the last '%' seen
+  size_t star_v = 0;                // value position that '%' resumes from
+
+  while (v < value.size()) {
+    if (t < tokens.size() &&
+        (tokens[t].kind == LikeToken::Kind::kAnyByte ||
+         (tokens[t].kind == LikeToken::Kind::kLiteral &&
+          tokens[t].literal == value[v]))) {
+      ++v;
+      ++t;
+    } else if (t < tokens.size() &&
+               tokens[t].kind == LikeToken::Kind::kAnyRun) {
+      star = t++;
+      star_v = v;
+    } else if (star != std::string::npos) {
+      // Let the last '%' absorb one more byte and retry after it.
+      t = star + 1;
+      v = ++star_v;
+    } else {
+      return false;
     }
   }
 
-  regex_pattern += '$';
-
-  try {
-    std::regex re(regex_pattern);
-    return std::regex_match(value, re);
-  } catch (const std::regex_error&) {
-    return false;
+  while (t < tokens.size() && tokens[t].kind == LikeToken::Kind::kAnyRun) {
+    ++t;
   }
+  return t == tokens.size();
 }
 
 // ============================================================================
@@ -176,14 +199,14 @@ absl::Status validate_metadata_key(const std::string& key) {
   }
 
   // First character must be letter or underscore
-  if (!std::isalpha(key[0]) && key[0] != '_') {
+  if (!absl::ascii_isalpha(key[0]) && key[0] != '_') {
     return absl::InvalidArgumentError(
         absl::StrCat("Metadata key must start with letter or underscore: ", key));
   }
 
   // Remaining characters must be alphanumeric or underscore
   for (char c : key) {
-    if (!std::isalnum(c) && c != '_') {
+    if (!absl::ascii_isalnum(c) && c != '_') {
       return absl::InvalidArgumentError(
           absl::StrCat("Metadata key contains invalid character: ", key));
     }
