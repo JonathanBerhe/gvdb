@@ -124,6 +124,17 @@ class LogicalNode : public FilterNode {
  * - Logical: expr AND expr, expr OR expr, NOT expr
  * - Grouping: (expr AND expr) OR expr
  *
+ * Literals:
+ * - Strings in single or double quotes; a backslash escapes the next char
+ * - Integers are int64 with an optional sign; out-of-range values are errors
+ * - Doubles contain a '.', must be finite, and have no exponent notation
+ * - Booleans are lowercase true / false
+ *
+ * The whole input must be consumed: trailing text is an error rather than
+ * being silently ignored. Nesting through parentheses and NOT is limited to
+ * kMaxNestingDepth; AND / OR chains of any length are built as balanced trees
+ * so evaluating them never recurses deeper than O(log n).
+ *
  * Examples:
  * - "price < 100"
  * - "price < 100 AND brand = 'Nike'"
@@ -133,10 +144,13 @@ class LogicalNode : public FilterNode {
  */
 class FilterParser {
  public:
+  // Maximum nesting of parenthesized groups and NOT operators.
+  static constexpr int kMaxNestingDepth = 64;
+
   /**
    * @brief Parse a filter expression string into an AST
    * @param expression SQL-like filter expression
-   * @return AST root node or error
+   * @return AST root node, or InvalidArgument for any malformed input
    */
   static absl::StatusOr<std::unique_ptr<FilterNode>> parse(
       const std::string& expression);
@@ -168,8 +182,12 @@ class FilterParser {
   bool is_at_end() const;
   std::string current_context() const;
 
+  // Enter one level of parenthesis / NOT nesting; fails past kMaxNestingDepth.
+  absl::Status enter_nesting();
+
   std::string expression_;
   size_t pos_;
+  int depth_;
 };
 
 // ============================================================================
