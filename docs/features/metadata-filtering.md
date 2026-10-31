@@ -26,7 +26,7 @@ results = client.search(
     "products",
     query_vector=[...],
     top_k=10,
-    filter_expression="category = 'electronics' AND price < 500 AND in_stock = true",
+    filter_expression="category = 'electronics' AND price < 500.0 AND in_stock = true",
     return_metadata=True,
 )
 ```
@@ -36,13 +36,38 @@ results = client.search(
 | Operator | Example |
 |----------|---------|
 | `=`, `!=` | `category = 'electronics'` |
-| `<`, `>`, `<=`, `>=` | `price >= 100` |
+| `<`, `>`, `<=`, `>=` | `price >= 100.0` |
 | `IN`, `NOT IN` | `category IN ('books', 'electronics')` |
 | `LIKE` | `title LIKE 'python%'` |
 | `AND`, `OR`, `NOT` | `a = 1 AND (b > 2 OR NOT c = 'x')` |
 | Parentheses | Arbitrary grouping |
 
-Values can be strings (single-quoted), integers, floats, or booleans.
+Keywords are case-insensitive. Field names follow the metadata key rules (`[A-Za-z_][A-Za-z0-9_]*`).
+
+## Literals and types
+
+| Type | Syntax | Notes |
+|------|--------|-------|
+| String | `'text'` or `"text"` | A backslash escapes the next character: `'O\'Brien'` |
+| Integer | `42`, `-7`, `+3` | 64-bit signed. Literals outside `[-2^63, 2^63-1]` are rejected |
+| Float | `4.5`, `-0.25`, `1.` | Must contain a `.`; exponent notation (`1e3`) is not supported |
+| Boolean | `true`, `false` | Lowercase only |
+
+Comparisons are strictly typed: an integer literal never matches a float field and vice versa. If `price` was stored as `199.0`, write `price < 500.0`, not `price < 500`.
+
+The whole expression must parse. Trailing text such as an unbalanced `)` is an error rather than being ignored, so a malformed fragment can never silently drop the rest of a filter.
+
+## LIKE patterns
+
+`%` matches any run of characters (including none), `_` matches exactly one byte, and matching is case-sensitive and anchored at both ends. To match a literal `%` or `_`, escape it with a backslash in the pattern. Because the string literal itself also consumes one backslash, the filter text needs two:
+
+```python
+filter_expression=r"discount LIKE '50\\%'"   # matches "50%", not "50 off"
+```
+
+## Limits
+
+Parentheses and `NOT` can be nested up to 64 levels deep. `AND` / `OR` chains and `IN` lists have no length limit beyond the request size.
 
 ## Scalar metadata indexes
 

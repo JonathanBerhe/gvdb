@@ -130,7 +130,7 @@ results = client.search(
     "my_collection",
     query_vector=[0.1]*768,
     top_k=10,
-    filter_expression="cat = 'a' AND price < 100",   # optional; empty string disables
+    filter_expression="cat = 'a' AND price < 100.0",   # optional; empty string disables
     return_metadata=True,
 )
 for r in results:

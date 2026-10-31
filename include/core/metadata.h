@@ -132,8 +132,13 @@ bool compare_metadata_value_in_list(
  * @brief Check if a string matches a LIKE pattern
  *
  * Supports:
- * - % : matches any sequence of characters
- * - _ : matches any single character
+ * - % : matches any sequence of bytes, including none
+ * - _ : matches exactly one byte
+ * - \ : makes the next pattern byte literal ("50\%" matches "50%")
+ *
+ * Matching is case-sensitive, anchored at both ends, byte-wise (a multi-byte
+ * UTF-8 character is several '_'), and runs in O(|value| * |pattern|) without
+ * recursion.
  *
  * Examples:
  * - "Nike%" matches "Nike Air Max", "Nike Pegasus"

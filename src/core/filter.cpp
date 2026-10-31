@@ -4,13 +4,35 @@
 #include "core/filter.h"
 
 #include <algorithm>
-#include <cctype>
+#include <cmath>
 #include <sstream>
+#include <string_view>
 
+#include "absl/strings/ascii.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 
 namespace gvdb {
 namespace core {
+
+namespace {
+
+// Combine the operands of an AND / OR chain into a balanced tree, keeping
+// their left-to-right order, so evaluation, index resolution and destruction
+// recurse O(log n) deep instead of O(n).
+std::unique_ptr<FilterNode> BuildBalancedChain(
+    LogicalOp op, std::vector<std::unique_ptr<FilterNode>>& operands,
+    size_t begin, size_t end) {
+  if (end - begin == 1) {
+    return std::move(operands[begin]);
+  }
+  size_t mid = begin + (end - begin) / 2;
+  auto left = BuildBalancedChain(op, operands, begin, mid);
+  auto right = BuildBalancedChain(op, operands, mid, end);
+  return std::make_unique<LogicalNode>(op, std::move(left), std::move(right));
+}
+
+}  // namespace
 
 // ============================================================================
 // ComparisonNode Implementation
@@ -143,12 +165,23 @@ std::string LogicalNode::to_string() const {
 // ============================================================================
 
 FilterParser::FilterParser(const std::string& expression)
-    : expression_(expression), pos_(0) {}
+    : expression_(expression), pos_(0), depth_(0) {}
 
 absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse(
     const std::string& expression) {
   FilterParser parser(expression);
-  return parser.parse_expression();
+  auto root = parser.parse_expression();
+  if (!root.ok()) {
+    return root.status();
+  }
+
+  parser.skip_whitespace();
+  if (!parser.is_at_end()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Unexpected input at position ", parser.pos_, ": ",
+                     parser.current_context()));
+  }
+  return root;
 }
 
 absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_expression() {
@@ -156,49 +189,43 @@ absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_expression() {
 }
 
 absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_or_expression() {
-  auto left = parse_and_expression();
-  if (!left.ok()) {
-    return left.status();
-  }
-
-  while (match("OR")) {
-    auto right = parse_and_expression();
-    if (!right.ok()) {
-      return right.status();
+  std::vector<std::unique_ptr<FilterNode>> operands;
+  do {
+    auto operand = parse_and_expression();
+    if (!operand.ok()) {
+      return operand.status();
     }
+    operands.push_back(std::move(*operand));
+  } while (match("OR"));
 
-    left = std::make_unique<LogicalNode>(LogicalOp::OR, std::move(*left),
-                                          std::move(*right));
-  }
-
-  return left;
+  return BuildBalancedChain(LogicalOp::OR, operands, 0, operands.size());
 }
 
 absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_and_expression() {
-  auto left = parse_not_expression();
-  if (!left.ok()) {
-    return left.status();
-  }
-
-  while (match("AND")) {
-    auto right = parse_not_expression();
-    if (!right.ok()) {
-      return right.status();
+  std::vector<std::unique_ptr<FilterNode>> operands;
+  do {
+    auto operand = parse_not_expression();
+    if (!operand.ok()) {
+      return operand.status();
     }
+    operands.push_back(std::move(*operand));
+  } while (match("AND"));
 
-    left = std::make_unique<LogicalNode>(LogicalOp::AND, std::move(*left),
-                                          std::move(*right));
-  }
-
-  return left;
+  return BuildBalancedChain(LogicalOp::AND, operands, 0, operands.size());
 }
 
 absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_not_expression() {
   if (match("NOT")) {
+    auto nesting = enter_nesting();
+    if (!nesting.ok()) {
+      return nesting;
+    }
+
     auto expr = parse_not_expression();
     if (!expr.ok()) {
       return expr.status();
     }
+    --depth_;
 
     return std::make_unique<LogicalNode>(LogicalOp::NOT, std::move(*expr));
   }
@@ -212,6 +239,11 @@ absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_primary_expressi
   // Handle parenthesized expressions
   if (peek() == '(') {
     advance();  // consume '('
+    auto nesting = enter_nesting();
+    if (!nesting.ok()) {
+      return nesting;
+    }
+
     auto expr = parse_expression();
     if (!expr.ok()) {
       return expr.status();
@@ -223,6 +255,7 @@ absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_primary_expressi
           absl::StrCat("Expected ')' at position ", pos_, ": ", current_context()));
     }
     advance();  // consume ')'
+    --depth_;
 
     return expr;
   }
@@ -322,7 +355,7 @@ absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_in_expression(
 }
 
 void FilterParser::skip_whitespace() {
-  while (!is_at_end() && std::isspace(peek())) {
+  while (!is_at_end() && absl::ascii_isspace(peek())) {
     advance();
   }
 }
@@ -334,14 +367,14 @@ bool FilterParser::match(const std::string& keyword) {
   size_t i = 0;
 
   while (i < keyword.size() && !is_at_end() &&
-         std::toupper(peek()) == keyword[i]) {
+         absl::ascii_toupper(peek()) == keyword[i]) {
     advance();
     ++i;
   }
 
   if (i == keyword.size()) {
     // Check that keyword is followed by non-identifier character
-    if (!is_at_end() && (std::isalnum(peek()) || peek() == '_')) {
+    if (!is_at_end() && (absl::ascii_isalnum(peek()) || peek() == '_')) {
       pos_ = start;  // Rollback
       return false;
     }
@@ -374,13 +407,13 @@ bool FilterParser::match_operator(const std::string& op) {
 absl::StatusOr<std::string> FilterParser::parse_identifier() {
   skip_whitespace();
 
-  if (is_at_end() || (!std::isalpha(peek()) && peek() != '_')) {
+  if (is_at_end() || (!absl::ascii_isalpha(peek()) && peek() != '_')) {
     return absl::InvalidArgumentError(
         absl::StrCat("Expected identifier at position ", pos_));
   }
 
   std::string identifier;
-  while (!is_at_end() && (std::isalnum(peek()) || peek() == '_')) {
+  while (!is_at_end() && (absl::ascii_isalnum(peek()) || peek() == '_')) {
     identifier += advance();
   }
 
@@ -419,10 +452,10 @@ absl::StatusOr<MetadataValue> FilterParser::parse_value() {
   }
 
   // Boolean - check for literal "true" or "false"
-  if (std::isalpha(peek())) {
+  if (absl::ascii_isalpha(peek())) {
     size_t start_pos = pos_;
     std::string word;
-    while (!is_at_end() && std::isalpha(peek())) {
+    while (!is_at_end() && absl::ascii_isalpha(peek())) {
       word += advance();
     }
 
@@ -436,42 +469,52 @@ absl::StatusOr<MetadataValue> FilterParser::parse_value() {
     }
   }
 
-  // Number
-  if (std::isdigit(peek()) || peek() == '-' || peek() == '+') {
-    std::string num_str;
-    bool is_negative = false;
-
-    if (peek() == '-') {
-      is_negative = true;
-      advance();
-    } else if (peek() == '+') {
+  // Number: optional sign, digits, at most one '.'. The sign is converted
+  // together with the digits so INT64_MIN is representable.
+  if (absl::ascii_isdigit(peek()) || peek() == '-' || peek() == '+') {
+    size_t start = pos_;
+    if (peek() == '-' || peek() == '+') {
       advance();
     }
 
+    bool has_digit = false;
     bool has_decimal = false;
-    while (!is_at_end() && (std::isdigit(peek()) || peek() == '.')) {
+    while (!is_at_end() && (absl::ascii_isdigit(peek()) || peek() == '.')) {
       if (peek() == '.') {
         if (has_decimal) {
-          return absl::InvalidArgumentError("Invalid number format");
+          return absl::InvalidArgumentError(
+              absl::StrCat("Invalid number format at position ", pos_));
         }
         has_decimal = true;
+      } else {
+        has_digit = true;
       }
-      num_str += advance();
+      advance();
     }
 
-    if (num_str.empty() || num_str == ".") {
-      return absl::InvalidArgumentError("Invalid number format");
+    if (!has_digit) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Invalid number format at position ", start));
     }
 
+    std::string_view literal(expression_.data() + start, pos_ - start);
     if (has_decimal) {
-      double value = std::stod(num_str);
-      if (is_negative) value = -value;
-      return MetadataValue(value);
-    } else {
-      int64_t value = std::stoll(num_str);
-      if (is_negative) value = -value;
+      double value;
+      if (!absl::SimpleAtod(literal, &value) || !std::isfinite(value)) {
+        return absl::InvalidArgumentError(
+            absl::StrCat("Numeric literal at position ", start,
+                         " is out of range for a double"));
+      }
       return MetadataValue(value);
     }
+
+    int64_t value;
+    if (!absl::SimpleAtoi(literal, &value)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Integer literal at position ", start,
+                       " is out of range for int64"));
+    }
+    return MetadataValue(value);
   }
 
   return absl::InvalidArgumentError(
@@ -527,6 +570,15 @@ std::string FilterParser::current_context() const {
   size_t start = (pos_ > 10) ? pos_ - 10 : 0;
   size_t end = std::min(pos_ + 10, expression_.size());
   return expression_.substr(start, end - start);
+}
+
+absl::Status FilterParser::enter_nesting() {
+  if (++depth_ > kMaxNestingDepth) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Filter nesting exceeds the maximum depth of ",
+                     kMaxNestingDepth, " at position ", pos_));
+  }
+  return absl::OkStatus();
 }
 
 // ============================================================================

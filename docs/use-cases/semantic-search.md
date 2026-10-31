@@ -12,7 +12,7 @@ results = client.hybrid_search(
     query_vector=embed("cozy winter jacket for hiking"),
     text_query="winter jacket hiking",
     text_field="description",
-    filter_expression="in_stock = true AND price < 300",
+    filter_expression="in_stock = true AND price < 300.0",
     top_k=20,
     return_metadata=True,
 )
