@@ -55,22 +55,23 @@ For development or to target a platform without a prebuilt image.
 
 **Prerequisites:**
 
-- C++20 compiler (GCC 11+, Clang 14+)
-- CMake 3.15+
+- C++20 compiler (CI and the container image use GCC 13; macOS uses Apple clang)
+- CMake 3.28+ and Ninja
+- On macOS: Homebrew `libomp` and `zlib` (`brew install libomp zlib`)
 - Python 3.8+ (for proto generation)
 
 ```bash
 git clone https://github.com/JonathanBerhe/gvdb.git
 cd gvdb
-make build          # Debug build
-make build-release  # Optimized build
+make build          # Debug build with tests (preset dev)
+make build-release  # Optimized build as shipped (preset release)
 make test           # Run the C++ test suite
 ```
 
-Binaries land in `build/bin/`:
+`make` drives the configure, build and test presets in `CMakePresets.json`. Each preset builds into `build/<preset>/`, so the dev binaries land in `build/dev/bin/`:
 
 ```bash
-./build/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb
+./build/dev/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb
 ```
 
 Optional build flags:
@@ -102,6 +103,6 @@ Published to GitHub Packages. See the [Spark connector](../connectors/spark.md) 
 
 ## Next steps
 
-- [Quickstart](quickstart.md) — insert and search your first vectors
-- [Distributed cluster](distributed-cluster.md) — multi-node Helm walkthrough
-- [Configuration](../operations/configuration.md) — YAML schema and env vars
+- [Quickstart](quickstart.md): insert and search your first vectors
+- [Distributed cluster](distributed-cluster.md): multi-node Helm walkthrough
+- [Configuration](../operations/configuration.md): YAML schema and env vars

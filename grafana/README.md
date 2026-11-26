@@ -113,7 +113,7 @@ docker-compose up -d
 ### 5. Start GVDB Server
 
 ```bash
-./build/bin/gvdb-single-node --port 50051
+./build/dev/bin/gvdb-single-node --port 50051
 ```
 
 The server exposes metrics on `:9090/metrics` which Prometheus scrapes automatically.

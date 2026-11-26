@@ -1,20 +1,12 @@
-# Auth Module - RBAC and authentication context
-
-add_library(gvdb_auth
-  rbac.cpp
-  auth_context.cpp
-)
-
-target_link_libraries(gvdb_auth
-  PUBLIC
-    gvdb_utils
+# Auth module: RBAC and the per-request authentication context.
+gvdb_add_library(auth
+  SOURCES
+    rbac.cpp
+    auth_context.cpp
+  PUBLIC_DEPS
+    gvdb::utils
     absl::flat_hash_map
     absl::status
     absl::statusor
     absl::strings
-)
-
-target_include_directories(gvdb_auth
-  PUBLIC
-    ${CMAKE_SOURCE_DIR}/include
 )

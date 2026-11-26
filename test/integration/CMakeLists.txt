@@ -1,258 +1,60 @@
-# Integration tests - multi-component testing
+# Integration tests: several components together, most of them over real
+# gRPC servers on local ports.
 
-# Consensus integration tests
-add_executable(consensus_integration_tests
-  consensus_integration_test.cpp
-)
+gvdb_add_test(consensus_integration_tests
+  SOURCES consensus_integration_test.cpp
+  DEPS gvdb::consensus gvdb::cluster gvdb::core
+  TIMEOUT 300 LABELS integration)
 
-target_link_libraries(consensus_integration_tests
-  PRIVATE
-    gvdb_consensus
-    gvdb_cluster
-    gvdb_core
-    doctest::doctest_with_main
-)
+gvdb_add_test(raft_auto_join_tests
+  SOURCES raft_auto_join_test.cpp
+  DEPS gvdb::consensus gvdb::network gvdb::cluster gvdb::core gvdb::proto
+  TIMEOUT 180 LABELS integration)
 
-# Add test to CTest
-add_test(NAME ConsensusIntegrationTests COMMAND consensus_integration_tests)
+gvdb_add_test(metadata_sync_integration_tests
+  SOURCES metadata_sync_integration_test.cpp
+  DEPS gvdb::network gvdb::cluster gvdb::consensus gvdb::core gvdb::proto
+  TIMEOUT 300 LABELS integration)
 
-# Set test properties
-set_tests_properties(ConsensusIntegrationTests PROPERTIES
-  TIMEOUT 300  # Integration tests can take longer
-  LABELS "integration"
-)
+gvdb_add_test(segment_replication_integration_tests
+  SOURCES segment_replication_integration_test.cpp
+  DEPS gvdb::network gvdb::cluster gvdb::consensus gvdb::compute gvdb::storage gvdb::index
+       gvdb::core gvdb::utils gvdb::proto
+  TIMEOUT 300 LABELS integration)
 
-# Raft auto-join integration tests (roadmap 1.7b)
-add_executable(raft_auto_join_tests
-  raft_auto_join_test.cpp
-)
+gvdb_add_test(distributed_data_node_tests
+  SOURCES distributed_data_node_test.cpp
+  DEPS gvdb::network gvdb::cluster gvdb::consensus gvdb::compute gvdb::storage gvdb::index
+       gvdb::core gvdb::utils gvdb::proto
+  TIMEOUT 300 LABELS integration)
 
-target_link_libraries(raft_auto_join_tests
-  PRIVATE
-    gvdb_consensus
-    gvdb_network
-    gvdb_cluster
-    gvdb_core
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
+gvdb_add_test(proxy_integration_tests
+  SOURCES proxy_integration_test.cpp
+  DEPS gvdb::network gvdb::cluster gvdb::consensus gvdb::compute gvdb::storage gvdb::index
+       gvdb::core gvdb::utils gvdb::proto
+  TIMEOUT 300 LABELS integration)
 
-add_test(NAME RaftAutoJoinTests COMMAND raft_auto_join_tests)
+# Coordinator, data node and proxy together.
+gvdb_add_test(backup_restore_integration_tests
+  SOURCES backup_restore_integration_test.cpp
+  DEPS gvdb::network gvdb::cluster gvdb::consensus gvdb::compute gvdb::storage gvdb::index
+       gvdb::core gvdb::utils gvdb::proto
+  TIMEOUT 120 LABELS integration)
 
-set_tests_properties(RaftAutoJoinTests PROPERTIES
-  TIMEOUT 180
-  LABELS "integration"
-)
+gvdb_add_test(drain_read_fallback_tests
+  SOURCES drain_read_fallback_test.cpp
+  DEPS gvdb::network gvdb::core gvdb::utils gvdb::proto
+  TIMEOUT 60 LABELS integration)
 
-# Metadata synchronization integration tests
-add_executable(metadata_sync_integration_tests
-  metadata_sync_integration_test.cpp
-)
+# Each case pays about 10 s of fixture setup (real gRPC servers for the proxy,
+# the coordinator and two data nodes).
+gvdb_add_test(primary_swap_integration_tests
+  SOURCES primary_swap_integration_test.cpp
+  DEPS gvdb::network gvdb::core gvdb::utils gvdb::proto
+  TIMEOUT 120 LABELS integration)
 
-target_link_libraries(metadata_sync_integration_tests
-  PRIVATE
-    gvdb_network
-    gvdb_cluster
-    gvdb_consensus
-    gvdb_core
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME MetadataSyncIntegrationTests COMMAND metadata_sync_integration_tests)
-
-# Set test properties
-set_tests_properties(MetadataSyncIntegrationTests PROPERTIES
-  TIMEOUT 300  # Integration tests can take longer
-  LABELS "integration"
-)
-
-# Segment replication integration tests
-add_executable(segment_replication_integration_tests
-  segment_replication_integration_test.cpp
-)
-
-target_link_libraries(segment_replication_integration_tests
-  PRIVATE
-    gvdb_network
-    gvdb_cluster
-    gvdb_consensus
-    gvdb_compute
-    gvdb_storage
-    gvdb_index
-    gvdb_core
-    gvdb_utils
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME SegmentReplicationIntegrationTests COMMAND segment_replication_integration_tests)
-
-# Set test properties
-set_tests_properties(SegmentReplicationIntegrationTests PROPERTIES
-  TIMEOUT 300  # Integration tests can take longer
-  LABELS "integration"
-)
-
-# Distributed data node integration tests
-add_executable(distributed_data_node_tests
-  distributed_data_node_test.cpp
-)
-
-target_link_libraries(distributed_data_node_tests
-  PRIVATE
-    gvdb_network
-    gvdb_cluster
-    gvdb_consensus
-    gvdb_compute
-    gvdb_storage
-    gvdb_index
-    gvdb_core
-    gvdb_utils
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-add_test(NAME DistributedDataNodeTests COMMAND distributed_data_node_tests)
-
-set_tests_properties(DistributedDataNodeTests PROPERTIES
-  TIMEOUT 300
-  LABELS "integration"
-)
-
-# Proxy integration tests
-add_executable(proxy_integration_tests
-  proxy_integration_test.cpp
-)
-
-target_link_libraries(proxy_integration_tests
-  PRIVATE
-    gvdb_network
-    gvdb_cluster
-    gvdb_consensus
-    gvdb_compute
-    gvdb_storage
-    gvdb_index
-    gvdb_core
-    gvdb_utils
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-add_test(NAME ProxyIntegrationTests COMMAND proxy_integration_tests)
-
-set_tests_properties(ProxyIntegrationTests PROPERTIES
-  TIMEOUT 300
-  LABELS "integration"
-)
-
-# Backup / restore end-to-end (coord + data-node + proxy)
-add_executable(backup_restore_integration_tests
-  backup_restore_integration_test.cpp
-)
-
-target_link_libraries(backup_restore_integration_tests
-  PRIVATE
-    gvdb_network
-    gvdb_cluster
-    gvdb_consensus
-    gvdb_compute
-    gvdb_storage
-    gvdb_index
-    gvdb_core
-    gvdb_utils
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-add_test(NAME BackupRestoreIntegrationTests
-         COMMAND backup_restore_integration_tests)
-
-set_tests_properties(BackupRestoreIntegrationTests PROPERTIES
-  TIMEOUT 120
-  LABELS "integration"
-)
-
-# Drain-era replica fallback wire-level integration tests
-add_executable(drain_read_fallback_tests
-  drain_read_fallback_test.cpp
-)
-
-target_link_libraries(drain_read_fallback_tests
-  PRIVATE
-    gvdb_network
-    gvdb_core
-    gvdb_utils
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-add_test(NAME DrainReadFallbackTests COMMAND drain_read_fallback_tests)
-
-set_tests_properties(DrainReadFallbackTests PROPERTIES
-  TIMEOUT 60
-  LABELS "integration"
-)
-
-# Primary-swap (write-side ABORTED retry) wire-level integration tests
-add_executable(primary_swap_integration_tests
-  primary_swap_integration_test.cpp
-)
-
-target_link_libraries(primary_swap_integration_tests
-  PRIVATE
-    gvdb_network
-    gvdb_core
-    gvdb_utils
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-add_test(NAME PrimarySwapIntegrationTests COMMAND primary_swap_integration_tests)
-
-# Each case pays ~10s of fixture setup/teardown (real gRPC servers for
-# proxy + coordinator + two data-nodes); five cases need headroom past
-# the 60s default.
-set_tests_properties(PrimarySwapIntegrationTests PROPERTIES
-  TIMEOUT 120
-  LABELS "integration"
-)
-
-# S3/MinIO integration tests (uses InMemoryObjectStore mock)
-add_executable(s3_integration_tests
-  s3_integration_test.cpp
-)
-
-target_link_libraries(s3_integration_tests
-  PRIVATE
-    gvdb_storage
-    gvdb_index
-    gvdb_core
-    gvdb_utils
-    doctest::doctest_with_main
-)
-
-add_test(NAME S3IntegrationTests COMMAND s3_integration_tests)
-
-set_tests_properties(S3IntegrationTests PROPERTIES
-  TIMEOUT 60
-  LABELS "integration"
-)
+# Uses InMemoryObjectStore, not a real S3 endpoint.
+gvdb_add_test(s3_integration_tests
+  SOURCES s3_integration_test.cpp
+  DEPS gvdb::storage gvdb::index gvdb::core gvdb::utils
+  TIMEOUT 60 LABELS integration)

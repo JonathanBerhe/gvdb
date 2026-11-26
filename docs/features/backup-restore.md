@@ -29,7 +29,7 @@ target collection from the recorded metadata, then dispatch
 `RestoreShard` to each primary.
 
 The top-level manifest is written **last**. A backup that crashes
-mid-flight leaves orphan segment objects but no manifest — so a restore
+mid-flight leaves orphan segment objects but no manifest, so a restore
 that can't find the top manifest treats the backup as nonexistent.
 
 ## Backup targets
@@ -152,8 +152,8 @@ in-process against the local segment store.
 | `readwrite` | yes | no |
 | `readonly` | no | no |
 
-`RESTORE` is gated like `CREATE_COLLECTION` / `DROP_COLLECTION` —
-admin-only — because every restore either creates or replaces a
+`RESTORE` is gated like `CREATE_COLLECTION` / `DROP_COLLECTION`
+(admin-only), because every restore either creates or replaces a
 collection.
 
 ## What is and isn't captured
@@ -165,8 +165,8 @@ collection.
 | Sparse vectors | yes |
 | TTL expiry timestamps | yes |
 | Collection metadata (dimension, metric, index type, shard count, replication factor) | yes |
-| Indexes (`index.faiss`) | yes — copied as-is for sealed segments |
-| GROWING segment state | yes — snapshotted via `Segment::SerializeToBytes` under a shared lock |
+| Indexes (`index.faiss`) | yes, copied as-is for sealed segments |
+| GROWING segment state | yes, snapshotted via `Segment::SerializeToBytes` under a shared lock |
 | Coordinator metadata for collections **other** than the one being backed up | no |
 | Raft state / cluster topology | no |
 | API keys / RBAC config | no |
@@ -179,7 +179,7 @@ collection.
   backup interleaves the fences; the collection as a whole is never
   fully blocked.
 - **Lease auto-expiry caps the blast radius.** A `FreezeWrites` lease
-  is 60 s by default — if the coordinator crashes mid-backup, the
+  is 60 s by default. If the coordinator crashes mid-backup, the
   data-node releases the fence on its own and writes resume.
 - **Crash-safety across coordinator restart is best-effort.** The
   multi-shard job state lives in the coordinator's memory; if the
@@ -204,10 +204,10 @@ collection.
 ```bash
 # C++ unit + integration tests for backup/restore primitives
 make test                                              # all suites
-ctest --test-dir build -R "Backup|Restore|ShardWriteGate"
+ctest --preset dev -R "backup|restore|shard_write_gate"
 
 # Coordinator-orchestrated fan-out test
-ctest --test-dir build -R "CoordinatorBackup"
+ctest --preset dev -R coordinator_backup
 
 # Operator envtest controllers
 cd operator && make test
@@ -215,6 +215,6 @@ cd operator && make test
 
 ## Further reading
 
-- [Persistence](persistence.md) — segment lifecycle backups rely on
-- [Tiered storage](tiered-storage.md) — same `IObjectStore` abstraction
-- [RBAC](rbac.md) — permission model for `BACKUP` / `RESTORE`
+- [Persistence](persistence.md): segment lifecycle backups rely on
+- [Tiered storage](tiered-storage.md): same `IObjectStore` abstraction
+- [RBAC](rbac.md): permission model for `BACKUP` / `RESTORE`

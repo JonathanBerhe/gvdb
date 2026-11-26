@@ -28,39 +28,39 @@ Tests Raft consensus persistence and recovery scenarios.
 ## Running Integration Tests
 
 ```bash
-# Build integration tests
-cmake --build build
+# Build the dev preset (tests included)
+cmake --build --preset dev
 
 # Run all integration tests
-ctest --test-dir build -R Integration
+ctest --preset dev -L integration
 
 # Run specific test suite
-./build/test/integration/consensus_integration_tests
+./build/dev/test/integration/consensus_integration_tests
 
 # Run specific test case
-./build/test/integration/consensus_integration_tests --gtest_filter="*BasicRestart*"
+./build/dev/test/integration/consensus_integration_tests --test-case="*BasicRestart*"
 ```
 
 ## Adding New Integration Tests
 
 1. Create `<module>_integration_test.cpp`
-2. Add to `CMakeLists.txt`
-3. Link required GVDB modules
-4. Use Google Test framework
+2. Register it in `CMakeLists.txt` with `gvdb_add_test(... LABELS integration)`
+3. List the GVDB modules it needs in `DEPS`
+4. Write the cases with doctest
 
 Example:
 ```cpp
 #include "module_a/component_a.h"
 #include "module_b/component_b.h"
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 
-TEST(ModuleIntegration, ComponentInteraction) {
+TEST_CASE("ModuleIntegration - ComponentInteraction") {
   ComponentA comp_a;
   ComponentB comp_b;
 
   // Test interaction between components
   comp_b.SetDataSource(&comp_a);
-  EXPECT_TRUE(comp_b.ProcessData());
+  CHECK(comp_b.ProcessData());
 }
 ```
 

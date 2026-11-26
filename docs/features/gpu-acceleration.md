@@ -18,7 +18,7 @@ No code changes. Queries simply run on the GPU.
 ## Build
 
 ```bash
-make build CMAKE_EXTRA="-DGVDB_WITH_METAL=ON"
+make build PRESET=metal   # Release build with Metal, output in build/metal
 ```
 
 ## Benchmark
@@ -33,7 +33,7 @@ This builds and runs `gvdb-metal-bench`, which compares CPU and GPU throughput a
 
 - **MSL kernels** compute pairwise distances in parallel across threadgroups.
 - **metal-cpp** is used to dispatch from C++ without Objective-C++ leaking outside `src/index/metal/`.
-- Only FLAT is accelerated today — HNSW/IVF variants stay on the CPU because their memory access patterns are less GPU-friendly.
+- Only FLAT is accelerated today. HNSW/IVF variants stay on the CPU because their memory access patterns are less GPU-friendly.
 
 ## Limitations
 
@@ -43,4 +43,4 @@ This builds and runs `gvdb-metal-bench`, which compares CPU and GPU throughput a
 
 ## Further reading
 
-- [Vector search](vector-search.md) — full index catalogue
+- [Vector search](vector-search.md): full index catalogue

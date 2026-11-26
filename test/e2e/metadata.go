@@ -471,7 +471,7 @@ func RunMetadataTest() bool {
 	test, err := NewMetadataTest()
 	if err != nil {
 		log.Printf("❌ Metadata Test FAILED: Cannot connect to server")
-		log.Printf("   Make sure the server is running: ./build/bin/gvdb-single-node")
+		log.Printf("   Make sure the server is running: ./build/dev/bin/gvdb-single-node")
 		log.Printf("   Error: %v", err)
 		return false
 	}

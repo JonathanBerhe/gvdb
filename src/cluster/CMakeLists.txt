@@ -1,41 +1,29 @@
-# Cluster Module - Distributed Coordination Layer
-
-add_library(gvdb_cluster
-  shard_manager.cpp
-  coordinator.cpp
-  query_node.cpp
-  data_node.cpp
-  load_balancer.cpp
-  replication.cpp
-  node_registry.cpp
-  internal_client.cpp
-  heartbeat_sender.cpp
-  primary_term_tracker.cpp
-  shard_write_gate.cpp
-)
-
-target_include_directories(gvdb_cluster
-  PUBLIC
-    ${CMAKE_SOURCE_DIR}/include
-)
-
-target_link_libraries(gvdb_cluster
-  PUBLIC
-    gvdb_core
-    gvdb_index
-    proto_lib
+# Cluster module: coordinator, shard placement, node registry and the data
+# and query node roles.
+gvdb_add_library(cluster
+  SOURCES
+    shard_manager.cpp
+    coordinator.cpp
+    query_node.cpp
+    data_node.cpp
+    load_balancer.cpp
+    replication.cpp
+    node_registry.cpp
+    internal_client.cpp
+    heartbeat_sender.cpp
+    primary_term_tracker.cpp
+    shard_write_gate.cpp
+  PUBLIC_DEPS
+    gvdb::core
+    gvdb::index
+    gvdb::proto
     absl::status
     absl::statusor
     absl::strings
     absl::synchronization
-  PRIVATE
-    gvdb_storage
-    gvdb_compute
-    gvdb_network
-    gvdb_utils
+  PRIVATE_DEPS
+    gvdb::storage
+    gvdb::compute
+    gvdb::network
+    gvdb::utils
 )
-
-# Enable warnings
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  target_compile_options(gvdb_cluster PRIVATE -Wall -Wextra -Wpedantic)
-endif()
