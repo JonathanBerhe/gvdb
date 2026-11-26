@@ -28,7 +28,7 @@ type QueryNodeRolloutStep struct {
 // the coordinator or the data-node StatefulSet is mid-rollout. Query-nodes
 // have no hard dependency on either (they hold no durable state and reads
 // already fail over to Ready replicas via prefer_routable_replica in
-// RouteQuery — see src/network/internal_service.cpp:618-652). The gate
+// InternalService::RouteQuery in src/network/internal_service.cpp). The gate
 // exists purely for single-phase rollout UX: users see conditions flip in
 // order (coordinator → data-node → query-node) rather than all at once
 // during a full-cluster image bump.

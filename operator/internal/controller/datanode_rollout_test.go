@@ -39,9 +39,9 @@ func healthyCluster(totalShards uint32, dataNodeOrdinals ...int32) gvdbclient.Cl
 }
 
 // shardPrimaryReplicas builds a ShardAssignment matching the real proto
-// semantics (internal_service.cpp:108-111): primary_node_id is populated
-// from shard_info.primary_node and node_ids[] from shard_info.replica_nodes
-// — they are DISJOINT sets. The primary is the node at ordinal
+// semantics (InternalService::GetShardAssignments in internal_service.cpp):
+// primary_node_id is populated from shard_info.primary_node and node_ids[]
+// from shard_info.replica_nodes. They are DISJOINT sets. The primary is the node at ordinal
 // primaryOrdinal; replicas are at the given replicaOrdinals (exclusive of
 // the primary).
 func shardPrimaryReplicas(shardID uint32, primaryOrdinal int32, replicaOrdinals ...int32) gvdbclient.ShardAssignment {
