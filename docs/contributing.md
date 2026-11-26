@@ -77,7 +77,7 @@ See the [changelog](changelog.md) for the version-bump rules.
 
 See the top-level [`CLAUDE.md`](https://github.com/JonathanBerhe/gvdb/blob/main/CLAUDE.md) in the repo:
 
-- C++20, set in one place (`GVDB_CXX_STANDARD` in `cmake/GvdbCompilerSettings.cmake`)
+- C++23, set in one place (`GVDB_CXX_STANDARD` in `cmake/GvdbCompilerSettings.cmake`). The fetched dependencies build at the same standard.
 - RAII + smart pointers (no raw `new`/`delete`)
 - `absl::Status` / `absl::StatusOr<T>` for fallible operations
 - `-Wall -Wextra -Wpedantic` on every GVDB target, and warnings are errors in every preset

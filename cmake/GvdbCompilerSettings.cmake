@@ -4,7 +4,7 @@
 # CMAKE_CXX_STANDARD makes the fetched dependencies build at the same
 # standard as GVDB, which abseil requires for a consistent ABI.
 
-set(GVDB_CXX_STANDARD 20)
+set(GVDB_CXX_STANDARD 23)
 
 set(CMAKE_CXX_STANDARD ${GVDB_CXX_STANDARD})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,17 +31,6 @@ target_compile_options(gvdb_project_options INTERFACE
   # GCC 13 reports false positives inside inlined spdlog and fmt code.
   $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-array-bounds -Wno-stringop-overflow>
 )
-
-# Clang 22 reports __COUNTER__ under -Wpedantic as a C2y extension, and the
-# doctest macros use it in every test file. The flag must come after
-# -Wpedantic, which turns the warning on again. GCC accepts any -Wno-... flag,
-# so the check uses the positive form.
-include(CheckCXXCompilerFlag)
-check_cxx_compiler_flag(-Wc2y-extensions GVDB_KNOWS_WC2Y_EXTENSIONS)
-if(GVDB_KNOWS_WC2Y_EXTENSIONS)
-  target_compile_options(gvdb_project_options INTERFACE
-    $<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-Wno-c2y-extensions>)
-endif()
 
 if(GVDB_COVERAGE)
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
