@@ -71,7 +71,9 @@ void CheckValues(const proto::Vector& actual, const std::vector<float>& expected
   }
 }
 
-std::set<uint64_t> IdsOf(const proto::SearchResponse& response) {
+// Result ids of a Search or RangeSearch response.
+template <typename SearchResponse>
+std::set<uint64_t> IdsOf(const SearchResponse& response) {
   std::set<uint64_t> ids;
   for (const auto& r : response.results()) ids.insert(r.id());
   return ids;
@@ -199,14 +201,35 @@ class ServiceWriteTest {
 
   proto::SearchResponse Search(const std::string& name,
                                const std::vector<float>& query,
-                               uint32_t top_k) {
+                               uint32_t top_k,
+                               const std::string& filter = "") {
     grpc::ServerContext ctx;
     proto::SearchRequest req;
     req.set_collection_name(name);
     *req.mutable_query_vector() = MakeQuery(query);
     req.set_top_k(top_k);
+    req.set_filter(filter);
     proto::SearchResponse resp;
     auto status = service_->Search(&ctx, &req, &resp);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    return resp;
+  }
+
+  // RangeSearch with metadata in the results.
+  proto::RangeSearchResponse RangeSearch(const std::string& name,
+                                         const std::vector<float>& query,
+                                         float radius,
+                                         const std::string& filter = "") {
+    grpc::ServerContext ctx;
+    proto::RangeSearchRequest req;
+    req.set_collection_name(name);
+    *req.mutable_query_vector() = MakeQuery(query);
+    req.set_radius(radius);
+    req.set_filter(filter);
+    req.set_return_metadata(true);
+    proto::RangeSearchResponse resp;
+    auto status = service_->RangeSearch(&ctx, &req, &resp);
     INFO(status.error_message());
     REQUIRE(status.ok());
     return resp;
@@ -388,6 +411,37 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertMixedBatchInsertsAndUpdates") {
   CheckValues(four.vector(), {2.0f, 0, 0, 0});
   CHECK_EQ(NameOf(four), std::optional<std::string>("new_4"));
 
+  // RangeSearch sees one copy of the replaced id, at its new vector, and
+  // filters on the metadata that the upsert wrote.
+  const std::vector<float> origin = {0, 0, 0, 0};
+  {
+    auto range = RangeSearch("upsert_mixed", origin, 100.0f);
+    CHECK_EQ(range.results_size(), 4);
+    CHECK_EQ(IdsOf(range), std::set<uint64_t>{1, 2, 3, 4});
+
+    auto updated = RangeSearch("upsert_mixed", origin, 100.0f, "name = 'updated_2'");
+    REQUIRE_EQ(updated.results_size(), 1);
+    CHECK_EQ(updated.results(0).id(), 2);
+    CHECK(updated.results(0).distance() == doctest::Approx(0.9f));
+    REQUIRE(updated.results(0).has_metadata());
+    CHECK_EQ(updated.results(0).metadata().fields().at("name").string_value(), "updated_2");
+
+    CHECK_EQ(RangeSearch("upsert_mixed", origin, 100.0f, "name = 'original_2'").results_size(),
+             0);
+  }
+
+  // A filtered Search, which reads the scalar indexes that the upsert
+  // updated, agrees.
+  {
+    auto updated = Search("upsert_mixed", {0.9f, 0, 0, 0}, 10, "name = 'updated_2'");
+    REQUIRE_EQ(updated.results_size(), 1);
+    CHECK_EQ(updated.results(0).id(), 2);
+    CHECK(updated.results(0).distance() == doctest::Approx(0.0f));
+
+    CHECK_EQ(Search("upsert_mixed", {0.9f, 0, 0, 0}, 10, "name = 'original_2'").results_size(),
+             0);
+  }
+
   // A second mixed batch: one existing id and one far-away new id.
   proto::UpsertResponse resp2;
   status = Upsert("upsert_mixed",
@@ -404,6 +458,11 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertMixedBatchInsertsAndUpdates") {
   auto all = Get("upsert_mixed", {1, 2, 3, 4, 99999});
   CHECK_EQ(IdsOf(all), std::set<uint64_t>{1, 2, 3, 4, 99999});
   CHECK_EQ(all.not_found_ids_size(), 0);
+
+  // Id 1 was replaced without metadata, so no filter matches its old name.
+  CHECK_EQ(Search("upsert_mixed", {0, 1, 0, 0}, 10, "name = 'original_1'").results_size(), 0);
+  CHECK_EQ(RangeSearch("upsert_mixed", origin, 100.0f, "name = 'original_1'").results_size(),
+           0);
 }
 
 TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertRejectsInvalidRequests") {
@@ -475,6 +534,9 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertRejectsInvalidRequests") {
 TEST_CASE_FIXTURE(ServiceWriteTest, "TtlVectorsExpireFromGetAndSearch") {
   const std::string coll = "ttl_coll";
   CreateCollection(coll);
+  // Every vector of this collection has a TTL, so it ends up empty.
+  const std::string ttl_only = "ttl_only_coll";
+  CreateCollection(ttl_only);
 
   // Permanent vectors (no TTL).
   InsertOk(coll, {MakeVector(100, {100, 0, 0, 1}),
@@ -502,6 +564,12 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "TtlVectorsExpireFromGetAndSearch") {
                   MakeVector(5, {5, 0, 0, 1}, "", 1)});
   InsertOk(coll, {MakeVector(6, {6, 0, 0, 1}, "ttl_6", 1),
                   MakeVector(8, {8, 0, 0, 1}, "ttl_8", 1)});
+  InsertOk(ttl_only, {MakeVector(1, {1, 0, 0, 1}, "", 1),
+                      MakeVector(2, {2, 0, 0, 1}, "", 1),
+                      MakeVector(3, {3, 0, 0, 1}, "", 1)});
+  InsertOk(ttl_only, {MakeVector(4, {4, 0, 0, 1}, "ttl_only_4", 1)});
+  const std::vector<uint64_t> ttl_only_ids = {1, 2, 3, 4};
+  const std::set<uint64_t> ttl_only_set(ttl_only_ids.begin(), ttl_only_ids.end());
 
   // Upsert with TTL: id 7 is new, id 100 was permanent and now gets a TTL.
   // Id 6 is replaced without a TTL, so it no longer expires.
@@ -531,6 +599,9 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "TtlVectorsExpireFromGetAndSearch") {
 
     auto search = Search(coll, {0, 0, 0, 1}, 20);
     CHECK_EQ(IdsOf(search), std::set<uint64_t>(all_ids.begin(), all_ids.end()));
+
+    CHECK_EQ(IdsOf(Get(ttl_only, ttl_only_ids)), ttl_only_set);
+    CHECK_EQ(IdsOf(Search(ttl_only, {0, 0, 0, 1}, 20)), ttl_only_set);
   }
   // INFO evaluates lazily, so take the time now.
   const auto visible_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -538,12 +609,13 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "TtlVectorsExpireFromGetAndSearch") {
                               .count();
   INFO("visibility checks finished " << visible_ms << " ms after the TTL writes started");
 
-  // Bounded poll until every TTL vector is gone from Get.
+  // Bounded poll until every TTL vector of both collections is gone from Get.
   const std::vector<uint64_t> expiring_ids(expiring.begin(), expiring.end());
   const auto deadline = ttl_start + std::chrono::milliseconds(2000);
   bool all_expired = false;
   while (std::chrono::steady_clock::now() < deadline) {
-    if (Get(coll, expiring_ids).vectors_size() == 0) {
+    if (Get(coll, expiring_ids).vectors_size() == 0 &&
+        Get(ttl_only, ttl_only_ids).vectors_size() == 0) {
       all_expired = true;
       break;
     }
@@ -562,6 +634,13 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "TtlVectorsExpireFromGetAndSearch") {
   // Search (different query than before) returns only the permanent ids.
   auto search = Search(coll, {50, 0, 0, 1}, 20);
   CHECK_EQ(IdsOf(search), permanent);
+
+  // In the collection where every vector expired, Search is OK and empty,
+  // and Get reports every id as not found.
+  CHECK_EQ(Search(ttl_only, {50, 0, 0, 1}, 20).results_size(), 0);
+  auto ttl_only_got = Get(ttl_only, ttl_only_ids);
+  CHECK_EQ(ttl_only_got.vectors_size(), 0);
+  CHECK_EQ(NotFoundOf(ttl_only_got), ttl_only_set);
 }
 
 // ============================================================================
