@@ -128,15 +128,6 @@ void TurboQuantCodec::ApplyForwardRWHT(
   ApplyWHT(data, n);
 }
 
-void TurboQuantCodec::ApplyInverseRWHT(
-    float* data, int n, const std::vector<int8_t>& signs) const {
-  // Inverse: WHT, then sign flip (WHT is self-inverse when normalized)
-  ApplyWHT(data, n);
-  for (int i = 0; i < n; i++) {
-    data[i] *= signs[i];
-  }
-}
-
 // ============================================================================
 // Bit packing
 // ============================================================================
@@ -330,23 +321,6 @@ float TurboQuantCodec::EstimateIP(const PreprocessedQuery& query,
   }
 
   return ip;
-}
-
-void TurboQuantCodec::Decode(const uint8_t* codes, float norm,
-                               float* out, core::Dimension dim) const {
-  // Dequantize to rotated space (centroid / scale)
-  std::vector<float> rotated(padded_dim_);
-  for (int i = 0; i < padded_dim_; i++) {
-    rotated[i] = table_.centroids[UnpackCode(i, codes)] / scale_;
-  }
-
-  // Inverse randomized WHT: WHT then sign flip
-  ApplyInverseRWHT(rotated.data(), padded_dim_, wht_signs_);
-
-  // Truncate to original dimension and re-apply norm
-  for (int i = 0; i < dim; i++) {
-    out[i] = rotated[i] * norm;
-  }
 }
 
 }  // namespace turboquant

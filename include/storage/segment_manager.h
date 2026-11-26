@@ -18,24 +18,6 @@
 #include "storage/segment.h"
 #include "storage/segment_store.h"
 
-// Hash specialization for SegmentId and CollectionId (needed for unordered_map)
-// Must come BEFORE use in SegmentManager class
-namespace std {
-template <>
-struct hash<gvdb::core::SegmentId> {
-  size_t operator()(const gvdb::core::SegmentId& id) const {
-    return std::hash<uint32_t>()(gvdb::core::ToUInt32(id));
-  }
-};
-
-template <>
-struct hash<gvdb::core::CollectionId> {
-  size_t operator()(const gvdb::core::CollectionId& id) const {
-    return std::hash<uint32_t>()(gvdb::core::ToUInt32(id));
-  }
-};
-}  // namespace std
-
 namespace gvdb {
 namespace storage {
 
@@ -85,7 +67,7 @@ class SegmentManager : public ISegmentStore {
   [[nodiscard]] core::Status DropSegment(
       core::SegmentId id, bool delete_files = false) override;
 
-  [[nodiscard]] core::Status LoadSegment(core::SegmentId id) override;
+  [[nodiscard]] core::Status LoadSegment(core::SegmentId id);
 
   [[nodiscard]] core::Status AddReplicatedSegment(
       std::unique_ptr<Segment> segment) override;
@@ -96,15 +78,6 @@ class SegmentManager : public ISegmentStore {
       core::SegmentId segment_id,
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) override;
-
-  [[nodiscard]] core::StatusOr<std::vector<core::Vector>> ReadVectors(
-      core::SegmentId segment_id,
-      const std::vector<core::VectorId>& ids) const override;
-
-  [[nodiscard]] core::StatusOr<core::SearchResult> SearchSegment(
-      core::SegmentId segment_id,
-      const core::Vector& query,
-      int k) const override;
 
   [[nodiscard]] core::StatusOr<core::SearchResult> SearchCollection(
       core::CollectionId collection_id,
@@ -119,10 +92,7 @@ class SegmentManager : public ISegmentStore {
       core::CollectionId collection_id,
       size_t required_bytes = 0) override;
 
-  [[nodiscard]] std::vector<Segment*> GetQueryableSegments(
-      core::CollectionId collection_id) const override;
-
-  [[nodiscard]] std::vector<core::SegmentId> GetAllSegmentIds() const override;
+  [[nodiscard]] std::vector<core::SegmentId> GetAllSegmentIds() const;
 
   void RunTTLSweepLoop(const std::atomic<bool>& shutdown) override;
 
@@ -134,8 +104,6 @@ class SegmentManager : public ISegmentStore {
       core::CollectionId collection_id) const override;
 
   [[nodiscard]] size_t GetSegmentCount() const override;
-
-  [[nodiscard]] size_t GetTotalMemoryUsage() const override;
 
   [[nodiscard]] size_t GetMaxSegmentSize() const override {
     return max_segment_size_;

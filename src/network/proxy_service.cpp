@@ -99,10 +99,9 @@ proto::VectorDBService::Stub* ProxyService::GetDataNodeClientForCollection(
     return nullptr;
   }
 
-  // RouteQuery returns shard→node mappings; top_k is unused for routing
+  // RouteQuery returns shard→node mappings
   proto::internal::RouteQueryRequest route_req;
   route_req.set_collection_name(collection_name);
-  route_req.set_top_k(0);
   // Reads can safely land on a routable replica if the primary is draining.
   // Writes must always go to the primary.
   route_req.set_prefer_routable_replica(read_only);

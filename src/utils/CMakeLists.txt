@@ -10,7 +10,6 @@ gvdb_add_library(utils
     env_flags.cpp
     query_cache.cpp
     audit_logger.cpp
-    checksum.cpp
     json_util.cpp
   PUBLIC_DEPS
     gvdb::core
@@ -19,6 +18,5 @@ gvdb_add_library(utils
     prometheus-cpp::pull
   PRIVATE_DEPS
     yaml-cpp
-    xxHash::xxhash
     grpc++
 )

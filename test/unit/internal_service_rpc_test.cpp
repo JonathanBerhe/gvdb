@@ -6,7 +6,6 @@
 #include "cluster/primary_term_tracker.h"
 #include "cluster/shard_manager.h"
 #include "cluster/node_registry.h"
-#include "consensus/timestamp_oracle.h"
 #include "index/index_factory.h"
 #include "storage/segment_manager.h"
 #include "internal.grpc.pb.h"
@@ -36,7 +35,6 @@ class InternalServiceRpcTest {
     shard_manager_ = std::make_shared<ShardManager>(8, ShardingStrategy::HASH);
     node_registry_ = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
     coordinator_ = std::make_shared<Coordinator>(shard_manager_, node_registry_);
-    timestamp_oracle_ = std::make_shared<consensus::TimestampOracle>();
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
         tmp_dir_.string(), index_factory_.get());
@@ -52,7 +50,7 @@ class InternalServiceRpcTest {
     // Create the service under test with all dependencies
     service_ = std::make_unique<InternalService>(
         shard_manager_, segment_store_, nullptr /* query_executor */,
-        node_registry_, timestamp_oracle_, coordinator_);
+        node_registry_, coordinator_);
   }
 
   ~InternalServiceRpcTest() {
@@ -67,7 +65,6 @@ class InternalServiceRpcTest {
   std::shared_ptr<ShardManager> shard_manager_;
   std::shared_ptr<NodeRegistry> node_registry_;
   std::shared_ptr<Coordinator> coordinator_;
-  std::shared_ptr<consensus::TimestampOracle> timestamp_oracle_;
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::unique_ptr<InternalService> service_;
@@ -76,62 +73,6 @@ class InternalServiceRpcTest {
 // ============================================================================
 // 1. Shard Management Tests
 // ============================================================================
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "AssignShard_Primary") {
-  // Register the node with ShardManager so it can accept assignments
-  (void)shard_manager_->RegisterNode(core::MakeNodeId(1));
-
-  grpc::ServerContext ctx;
-  proto::internal::AssignShardRequest request;
-  request.set_shard_id(1);
-  request.set_node_id(1);
-  request.set_is_primary(true);
-  proto::internal::AssignShardResponse response;
-
-  auto status = service_->AssignShard(&ctx, &request, &response);
-
-  CHECK(status.ok());
-  CHECK(response.success());
-  CHECK(response.message().find("primary=1") != std::string::npos);
-}
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "AssignShard_Replica") {
-  (void)shard_manager_->RegisterNode(core::MakeNodeId(1));
-  // First assign a primary so the shard exists properly
-  (void)shard_manager_->SetPrimaryNode(core::MakeShardId(2), core::MakeNodeId(1));
-
-  (void)shard_manager_->RegisterNode(core::MakeNodeId(2));
-
-  grpc::ServerContext ctx;
-  proto::internal::AssignShardRequest request;
-  request.set_shard_id(2);
-  request.set_node_id(2);
-  request.set_is_primary(false);
-  proto::internal::AssignShardResponse response;
-
-  auto status = service_->AssignShard(&ctx, &request, &response);
-
-  CHECK(status.ok());
-  CHECK(response.success());
-  CHECK(response.message().find("primary=0") != std::string::npos);
-}
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "AssignShard_NonexistentShard") {
-  // Attempt to assign a shard that does not exist (ShardManager has shards 0-7).
-  // Shard 100 is out of range, so SetPrimaryNode will return NotFound.
-  grpc::ServerContext ctx;
-  proto::internal::AssignShardRequest request;
-  request.set_shard_id(100);
-  request.set_node_id(1);
-  request.set_is_primary(true);
-  proto::internal::AssignShardResponse response;
-
-  auto status = service_->AssignShard(&ctx, &request, &response);
-
-  // The gRPC call returns OK; the failure is in the response fields
-  CHECK(status.ok());
-  CHECK_FALSE(response.success());
-}
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetShardAssignments_WithData") {
   (void)shard_manager_->RegisterNode(core::MakeNodeId(1));
@@ -206,7 +147,6 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "CreateSegment_Success") {
 
   CHECK(status.ok());
   CHECK(response.success());
-  CHECK_EQ(response.segment_id(), 100);
   CHECK(response.message().find("successfully") != std::string::npos);
 }
 
@@ -435,25 +375,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetSegment_Nonexistent") {
 }
 
 // ============================================================================
-// 3. Metadata Sync Tests
-// ============================================================================
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "SyncMetadata_ReturnsTimestamp") {
-  grpc::ServerContext ctx;
-  proto::internal::SyncMetadataRequest request;
-  request.set_node_id(1);
-  request.set_last_sync_timestamp(0);
-  proto::internal::SyncMetadataResponse response;
-
-  auto status = service_->SyncMetadata(&ctx, &request, &response);
-
-  CHECK(status.ok());
-  // The current_timestamp should be a positive value representing system time
-  CHECK(response.current_timestamp() > 0);
-}
-
-// ============================================================================
-// 4. Query Routing Tests
+// 3. Query Routing Tests
 // ============================================================================
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_Success") {
@@ -473,7 +395,6 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_Success") {
   grpc::ServerContext ctx;
   proto::internal::RouteQueryRequest request;
   request.set_collection_name("route_test");
-  request.set_top_k(10);
   proto::internal::RouteQueryResponse response;
 
   auto status = service_->RouteQuery(&ctx, &request, &response);
@@ -488,12 +409,11 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_NoCoordinator") {
   // Create service without coordinator
   auto service_no_coord = std::make_unique<InternalService>(
       shard_manager_, segment_store_, nullptr,
-      node_registry_, timestamp_oracle_, nullptr /* no coordinator */);
+      node_registry_, nullptr /* no coordinator */);
 
   grpc::ServerContext ctx;
   proto::internal::RouteQueryRequest request;
   request.set_collection_name("anything");
-  request.set_top_k(5);
   proto::internal::RouteQueryResponse response;
 
   auto status = service_no_coord->RouteQuery(&ctx, &request, &response);
@@ -506,7 +426,6 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_NonexistentCollection") {
   grpc::ServerContext ctx;
   proto::internal::RouteQueryRequest request;
   request.set_collection_name("does_not_exist");
-  request.set_top_k(10);
   proto::internal::RouteQueryResponse response;
 
   auto status = service_->RouteQuery(&ctx, &request, &response);
@@ -515,7 +434,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_NonexistentCollection") {
   CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
 }
 
-// Roadmap 0b.1: when a shard's primary is draining and the caller set
+// When a shard's primary is draining and the caller set
 // prefer_routable_replica, RouteQuery must return a non-draining replica
 // instead of the draining primary. This is the integration-level proof that
 // the drain signal actually sheds query traffic off the draining node.
@@ -569,7 +488,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
 
   // Write path: prefer_routable_replica=false (default) → must stay on
   // primary 1 even though it is draining. The drain signal must not silently
-  // redirect writes; 0b.3 handles primary migration.
+  // redirect writes; HandleDrainingNode handles primary migration.
   {
     grpc::ServerContext ctx;
     proto::internal::RouteQueryRequest req;
@@ -852,7 +771,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "ExecuteShardQuery_NonexistentSegment"
 }
 
 // ============================================================================
-// 5. Health Monitoring Tests
+// 4. Health Monitoring Tests
 // ============================================================================
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "Heartbeat_Acknowledged") {
@@ -869,7 +788,6 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "Heartbeat_Acknowledged") {
 
   CHECK(status.ok());
   CHECK(response.acknowledged());
-  CHECK(response.timestamp() > 0);
 }
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "Heartbeat_UpdatesRegistry") {
@@ -915,7 +833,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "Heartbeat_ReturnsAssignedShards") {
   CHECK(status.ok());
   CHECK(response.acknowledged());
   // The node has 2 shard assignments (primary for shard 1 and 3)
-  CHECK(response.assigned_shards_size() >= 2);
+  CHECK(response.shard_primaries_size() >= 2);
 }
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_Healthy") {
@@ -978,7 +896,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_Degraded") {
   // Create a service with the short-timeout registry
   auto degraded_service = std::make_unique<InternalService>(
       shard_manager_, segment_store_, nullptr,
-      short_registry, timestamp_oracle_, coordinator_);
+      short_registry, coordinator_);
 
   grpc::ServerContext ctx;
   proto::internal::GetClusterHealthRequest request;
@@ -995,7 +913,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_NoRegistry") {
   // Create service without node registry (single-node mode)
   auto service_no_registry = std::make_unique<InternalService>(
       shard_manager_, segment_store_, nullptr,
-      nullptr /* no registry */, timestamp_oracle_, coordinator_);
+      nullptr /* no registry */, coordinator_);
 
   grpc::ServerContext ctx;
   proto::internal::GetClusterHealthRequest request;
@@ -1009,103 +927,8 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_NoRegistry") {
 }
 
 // ============================================================================
-// 6. Timestamp Oracle Tests
-// ============================================================================
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetTimestamp_Monotonic") {
-  grpc::ServerContext ctx1;
-  proto::internal::GetTimestampRequest request1;
-  request1.set_count(1);
-  proto::internal::GetTimestampResponse response1;
-
-  auto s1 = service_->GetTimestamp(&ctx1, &request1, &response1);
-  CHECK(s1.ok());
-  CHECK(response1.start_timestamp() > 0);
-
-  grpc::ServerContext ctx2;
-  proto::internal::GetTimestampRequest request2;
-  request2.set_count(1);
-  proto::internal::GetTimestampResponse response2;
-
-  auto s2 = service_->GetTimestamp(&ctx2, &request2, &response2);
-  CHECK(s2.ok());
-
-  // Second timestamp must be strictly greater than the first
-  CHECK(response2.start_timestamp() > response1.start_timestamp());
-}
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetTimestamp_WithCount") {
-  grpc::ServerContext ctx;
-  proto::internal::GetTimestampRequest request;
-  request.set_count(5);
-  proto::internal::GetTimestampResponse response;
-
-  auto status = service_->GetTimestamp(&ctx, &request, &response);
-
-  CHECK(status.ok());
-  CHECK(response.start_timestamp() > 0);
-  CHECK(response.end_timestamp() >= response.start_timestamp());
-  // With count=5, the oracle allocates 5 separate timestamps,
-  // so end should be greater than start
-  CHECK(response.end_timestamp() > response.start_timestamp());
-}
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetTimestamp_WithoutOracle") {
-  // Create service without timestamp oracle (fallback to system time)
-  auto service_no_tso = std::make_unique<InternalService>(
-      shard_manager_, segment_store_, nullptr,
-      node_registry_, nullptr /* no oracle */, coordinator_);
-
-  grpc::ServerContext ctx;
-  proto::internal::GetTimestampRequest request;
-  request.set_count(3);
-  proto::internal::GetTimestampResponse response;
-
-  auto status = service_no_tso->GetTimestamp(&ctx, &request, &response);
-
-  CHECK(status.ok());
-  CHECK(response.start_timestamp() > 0);
-  CHECK(response.end_timestamp() >= response.start_timestamp());
-  // Fallback logic: end = start + count - 1 = start + 2
-  CHECK_EQ(response.end_timestamp(), response.start_timestamp() + 2);
-}
-
-// ============================================================================
-// 7. Data Transfer Tests
-// ============================================================================
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "TransferData_NoDistributedMode") {
-  grpc::ServerContext ctx;
-  proto::internal::TransferDataRequest request;
-  request.set_collection_id(1);
-  request.set_shard_id(1);
-  request.set_source_node_id(1);
-  request.set_target_node_id(2);
-  proto::internal::TransferDataResponse response;
-
-  // Coordinator has no client_factory, so transfer fails gracefully
-  auto status = service_->TransferData(&ctx, &request, &response);
-  CHECK(status.ok());
-  CHECK_FALSE(response.success());
-}
-
-// ============================================================================
 // Additional edge case tests
 // ============================================================================
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetTimestamp_ZeroCountDefaultsToOne") {
-  grpc::ServerContext ctx;
-  proto::internal::GetTimestampRequest request;
-  request.set_count(0);  // Should be treated as 1
-  proto::internal::GetTimestampResponse response;
-
-  auto status = service_->GetTimestamp(&ctx, &request, &response);
-
-  CHECK(status.ok());
-  CHECK(response.start_timestamp() > 0);
-  // With count defaulting to 1, start and end should be equal
-  CHECK_EQ(response.start_timestamp(), response.end_timestamp());
-}
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "CreateSegment_ThenGetSegment_RoundTrip") {
   // Create a segment
@@ -1134,8 +957,6 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "CreateSegment_ThenGetSegment_RoundTri
     CHECK_EQ(resp.segment_info().segment_id(), 600);
     CHECK_EQ(resp.segment_info().collection_id(), 3);
     CHECK_EQ(resp.segment_info().vector_count(), 0);
-    // Newly created segment should not be sealed
-    CHECK_FALSE(resp.segment_info().is_sealed());
   }
 }
 
@@ -1180,7 +1001,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "CreateSegment_ThenDelete_ThenGetFails
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "Heartbeat_ZeroNodeId_NoShards") {
   // A heartbeat with node_id=0 should still be acknowledged
-  // but should not return assigned shards (the code checks node_id > 0)
+  // but should not return shard primaries (the code checks node_id > 0)
   grpc::ServerContext ctx;
   proto::internal::HeartbeatRequest request;
   auto* info = request.mutable_node_info();
@@ -1193,25 +1014,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "Heartbeat_ZeroNodeId_NoShards") {
 
   CHECK(status.ok());
   CHECK(response.acknowledged());
-  CHECK_EQ(response.assigned_shards_size(), 0);
-}
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "SyncMetadata_TimestampIsRecent") {
-  auto before = std::chrono::system_clock::now().time_since_epoch().count();
-
-  grpc::ServerContext ctx;
-  proto::internal::SyncMetadataRequest request;
-  request.set_node_id(1);
-  request.set_last_sync_timestamp(0);
-  proto::internal::SyncMetadataResponse response;
-
-  auto status = service_->SyncMetadata(&ctx, &request, &response);
-
-  auto after = std::chrono::system_clock::now().time_since_epoch().count();
-
-  CHECK(status.ok());
-  CHECK(response.current_timestamp() >= before);
-  CHECK(response.current_timestamp() <= after);
+  CHECK_EQ(response.shard_primaries_size(), 0);
 }
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "CreateSegment_InvalidIndexType") {
@@ -1246,10 +1049,6 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_WithShardAssignment") {
   grpc::ServerContext ctx;
   proto::internal::RouteQueryRequest request;
   request.set_collection_name("full_route_test");
-  request.set_top_k(5);
-  // Add a query vector (not used by RouteQuery but part of the message)
-  request.add_query_vector(1.0f);
-  request.add_query_vector(2.0f);
   proto::internal::RouteQueryResponse response;
 
   auto status = service_->RouteQuery(&ctx, &request, &response);

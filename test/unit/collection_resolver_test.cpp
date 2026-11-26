@@ -164,29 +164,6 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_CollectionCount") {
 }
 
 // ---------------------------------------------------------------------------
-// Local: GetSegmentId
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetSegmentId") {
-  auto created = resolver_->CreateCollection(
-      "seg_test", 128, core::MetricType::L2, core::IndexType::FLAT);
-  REQUIRE(created.ok());
-
-  auto seg = resolver_->GetSegmentId("seg_test");
-  REQUIRE(seg.ok());
-
-  // The segment should be the ShardSegmentId for shard 0
-  core::SegmentId expected = cluster::ShardSegmentId(*created, 0);
-  CHECK_EQ(*seg, expected);
-}
-
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetSegmentIdUnknown") {
-  auto seg = resolver_->GetSegmentId("no_such");
-  CHECK_FALSE(seg.ok());
-  CHECK_EQ(seg.status().code(), absl::StatusCode::kNotFound);
-}
-
-// ---------------------------------------------------------------------------
 // Local: GetSegmentIds (multi-shard)
 // ---------------------------------------------------------------------------
 
@@ -204,27 +181,6 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetSegmentIdsMultiShard") {
     core::SegmentId expected = cluster::ShardSegmentId(*created, i);
     CHECK_EQ((*segs)[i], expected);
   }
-}
-
-// ---------------------------------------------------------------------------
-// Local: GetNumShards
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetNumShardsDefault") {
-  (void)resolver_->CreateCollection(
-      "one_shard", 64, core::MetricType::L2, core::IndexType::FLAT);
-  CHECK_EQ(resolver_->GetNumShards("one_shard"), 1);
-}
-
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetNumShardsMulti") {
-  (void)resolver_->CreateCollection(
-      "four_shards", 64, core::MetricType::L2, core::IndexType::FLAT, 4);
-  CHECK_EQ(resolver_->GetNumShards("four_shards"), 4);
-}
-
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetNumShardsUnknown") {
-  // Unknown collection returns default 1
-  CHECK_EQ(resolver_->GetNumShards("ghost"), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -376,16 +332,16 @@ TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_CollectionCount") {
 }
 
 // ---------------------------------------------------------------------------
-// Coordinator: GetSegmentId returns Unimplemented
+// Coordinator: GetSegmentIds returns Unimplemented
 // ---------------------------------------------------------------------------
 
-TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_GetSegmentIdUnimplemented") {
+TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_GetSegmentIdsUnimplemented") {
   (void)resolver_->CreateCollection(
       "no_data", 64, core::MetricType::L2, core::IndexType::FLAT);
 
-  auto seg = resolver_->GetSegmentId("no_data");
-  CHECK_FALSE(seg.ok());
-  CHECK_EQ(seg.status().code(), absl::StatusCode::kUnimplemented);
+  auto segs = resolver_->GetSegmentIds("no_data");
+  CHECK_FALSE(segs.ok());
+  CHECK_EQ(segs.status().code(), absl::StatusCode::kUnimplemented);
 }
 
 // ---------------------------------------------------------------------------

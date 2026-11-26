@@ -41,18 +41,6 @@ class ServerBootstrap {
       const std::string& bind_address,
       const std::vector<grpc::Service*>& services);
 
-  // Build and start a gRPC server with TLS
-  static std::unique_ptr<grpc::Server> StartGrpcServer(
-      const std::string& bind_address,
-      const std::vector<grpc::Service*>& services,
-      const TlsConfig& tls_config);
-
-  // Build and start a gRPC server with pre-built credentials
-  static std::unique_ptr<grpc::Server> StartGrpcServer(
-      const std::string& bind_address,
-      const std::vector<grpc::Service*>& services,
-      std::shared_ptr<grpc::ServerCredentials> credentials);
-
   // Build and start a gRPC server with credentials + interceptors
   static std::unique_ptr<grpc::Server> StartGrpcServer(
       const std::string& bind_address,
@@ -62,10 +50,6 @@ class ServerBootstrap {
 
   // Create server credentials from TLS config (insecure if TLS disabled)
   static std::shared_ptr<grpc::ServerCredentials> MakeServerCredentials(
-      const TlsConfig& tls_config);
-
-  // Create gRPC channel credentials (TLS or insecure)
-  static std::shared_ptr<grpc::ChannelCredentials> MakeChannelCredentials(
       const TlsConfig& tls_config);
 
   // Block until ShutdownFlag is set

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <list>
@@ -60,11 +59,6 @@ class QueryCache {
   // Invalidate all entries for a collection (call on insert/delete/drop).
   void InvalidateCollection(uint32_t collection_id);
 
-  // Stats
-  size_t size() const;
-  uint64_t hits() const { return hits_.load(std::memory_order_relaxed); }
-  uint64_t misses() const { return misses_.load(std::memory_order_relaxed); }
-
  private:
   struct Entry {
     CacheKey key;
@@ -79,10 +73,6 @@ class QueryCache {
   std::unordered_map<CacheKey, ListIter, CacheKeyHash> map_;
   std::unordered_map<uint32_t, uint64_t> collection_versions_;
   size_t max_entries_;
-
-  std::atomic<uint64_t> hits_{0};
-  std::atomic<uint64_t> misses_{0};
-  std::atomic<uint64_t> evictions_{0};
 };
 
 }  // namespace utils

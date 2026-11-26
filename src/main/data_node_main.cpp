@@ -41,11 +41,10 @@ struct DataNodeArgs {
   std::string data_dir = "/tmp/gvdb/data_node";
   std::string config_file;
   std::vector<std::string> coordinator_addresses;
-  std::vector<int> assigned_shards;
   size_t memory_limit_gb = 8;
   // Max seconds to wait after sending DRAINING for the coordinator to
-  // migrate shards off this node before we shut down the gRPC server
-  // (roadmap 0b.3). Bounded by terminationGracePeriodSeconds in K8s.
+  // migrate shards off this node before we shut down the gRPC server.
+  // Bounded by terminationGracePeriodSeconds in K8s.
   int drain_wait_seconds = 15;
 };
 
@@ -142,24 +141,10 @@ void PrintUsage(const char* program_name) {
             << "  --advertise-address ADDR    Address advertised to coordinator (default: bind-address)\n"
             << "  --data-dir PATH             Data directory (default: /tmp/gvdb/data_node)\n"
             << "  --coordinator ADDR          Coordinator addresses (comma-separated)\n"
-            << "  --shards SHARD_IDS          Comma-separated shard IDs\n"
             << "  --config FILE               YAML config file (for S3/MinIO settings)\n"
             << "  --memory-limit-gb SIZE      Memory limit in GB (default: 8)\n"
             << "  --drain-wait-seconds SEC    Max seconds to wait for shard drain on shutdown (default: 15)\n"
             << "  --help                      Show this help message\n";
-}
-
-std::vector<int> ParseShardIds(const std::string& shard_str) {
-  std::vector<int> shards;
-  size_t start = 0;
-  size_t end = shard_str.find(',');
-  while (end != std::string::npos) {
-    shards.push_back(std::stoi(shard_str.substr(start, end - start)));
-    start = end + 1;
-    end = shard_str.find(',', start);
-  }
-  shards.push_back(std::stoi(shard_str.substr(start)));
-  return shards;
 }
 
 bool ParseArgs(int argc, char** argv, DataNodeArgs& args) {
@@ -186,8 +171,6 @@ bool ParseArgs(int argc, char** argv, DataNodeArgs& args) {
         end = coords_str.find(',', start);
       }
       args.coordinator_addresses.push_back(coords_str.substr(start));
-    } else if (arg == "--shards" && i + 1 < argc) {
-      args.assigned_shards = ParseShardIds(argv[++i]);
     } else if (arg == "--config" && i + 1 < argc) {
       args.config_file = argv[++i];
     } else if (arg == "--memory-limit-gb" && i + 1 < argc) {
@@ -434,7 +417,7 @@ int main(int argc, char** argv) {
     // Notify coordinator that we're draining so it stops routing new work
     // immediately instead of waiting for heartbeat timeout. DrainAndStop()
     // joins the heartbeat loop first so no racing READY heartbeat can
-    // overwrite the DRAINING signal at the coordinator (roadmap 0b.1).
+    // overwrite the DRAINING signal at the coordinator.
     if (heartbeat) heartbeat->DrainAndStop();
 
     if (build_thread.joinable()) build_thread.join();
@@ -444,7 +427,7 @@ int main(int argc, char** argv) {
     // Keep the gRPC server up until the coordinator has migrated our shards
     // off. If we close the server immediately, in-flight ReplicateSegment
     // pulls from other data nodes would fail and HandleDrainingNode would
-    // be unable to promote replicas (roadmap 0b.3). Bounded by
+    // be unable to promote replicas. Bounded by
     // drain_wait_seconds so a wedged coordinator can't block shutdown
     // forever — on timeout we fall back to heartbeat-timeout eviction.
     if (!args.coordinator_addresses.empty() && args.drain_wait_seconds > 0) {

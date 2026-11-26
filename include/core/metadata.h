@@ -39,48 +39,6 @@ using MetadataValue = std::variant<int64_t, double, std::string, bool>;
 using Metadata = std::map<std::string, MetadataValue>;
 
 /**
- * @brief Metadata value type enumeration for type checking
- */
-enum class MetadataType {
-  INT64,
-  DOUBLE,
-  STRING,
-  BOOL
-};
-
-/**
- * @brief Get the type of a metadata value
- */
-inline MetadataType get_metadata_type(const MetadataValue& value) {
-  if (std::holds_alternative<int64_t>(value)) {
-    return MetadataType::INT64;
-  } else if (std::holds_alternative<double>(value)) {
-    return MetadataType::DOUBLE;
-  } else if (std::holds_alternative<std::string>(value)) {
-    return MetadataType::STRING;
-  } else {
-    return MetadataType::BOOL;
-  }
-}
-
-/**
- * @brief Convert metadata type to string for debugging
- */
-inline std::string metadata_type_to_string(MetadataType type) {
-  switch (type) {
-    case MetadataType::INT64:
-      return "int64";
-    case MetadataType::DOUBLE:
-      return "double";
-    case MetadataType::STRING:
-      return "string";
-    case MetadataType::BOOL:
-      return "bool";
-  }
-  return "unknown";
-}
-
-/**
  * @brief Comparison operators for metadata filtering
  */
 enum class ComparisonOp {

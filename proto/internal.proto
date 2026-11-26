@@ -28,8 +28,8 @@ enum NodeStatus {
   NODE_STATUS_STARTING = 1;
   // Node is healthy and accepting requests.
   NODE_STATUS_READY = 2;
-  // Node is operational but under high load.
-  NODE_STATUS_BUSY = 3;
+  reserved 3;
+  reserved "NODE_STATUS_BUSY";
   // Node is operational with reduced capacity (partial failure).
   NODE_STATUS_DEGRADED = 4;
   // Node is unreachable or has failed.
@@ -44,7 +44,6 @@ message NodeInfo {
   uint32 node_id = 1;
   NodeType node_type = 2;
   string grpc_address = 3;
-  string raft_address = 4;  // Only for coordinators
   NodeStatus status = 5;
 
   // Resource information
@@ -53,10 +52,8 @@ message NodeInfo {
   uint64 disk_used_bytes = 8;
   uint64 disk_total_bytes = 9;
 
-  // Performance metrics
-  uint64 total_requests = 10;
-  float avg_latency_ms = 11;
-  uint32 error_count = 12;
+  reserved 4, 10, 11, 12;
+  reserved "raft_address", "total_requests", "avg_latency_ms", "error_count";
 }
 
 // ============================================================================
@@ -67,17 +64,6 @@ message ShardAssignment {
   uint32 shard_id = 1;
   repeated uint32 node_ids = 2;  // Replica nodes for this shard
   uint32 primary_node_id = 3;     // Primary node for writes
-}
-
-message AssignShardRequest {
-  uint32 shard_id = 1;
-  uint32 node_id = 2;
-  bool is_primary = 3;
-}
-
-message AssignShardResponse {
-  bool success = 1;
-  string message = 2;
 }
 
 message GetShardAssignmentsRequest {
@@ -106,10 +92,9 @@ message SegmentInfo {
   uint32 collection_id = 2;
   uint32 shard_id = 3;
   uint64 vector_count = 4;
-  uint64 size_bytes = 5;
-  bool is_sealed = 6;
-  int64 created_at = 7;  // Unix timestamp
-  int64 sealed_at = 8;   // Unix timestamp
+
+  reserved 5 to 8;
+  reserved "size_bytes", "is_sealed", "created_at", "sealed_at";
 }
 
 message ReplicateSegmentRequest {
@@ -162,11 +147,13 @@ message CreateSegmentRequest {
 message CreateSegmentResponse {
   bool success = 1;
   string message = 2;
-  uint64 segment_id = 3;  // Echo back for confirmation
+
+  reserved 3;
+  reserved "segment_id";
 }
 
 // ============================================================================
-// Metadata Synchronization
+// Collection Metadata
 // ============================================================================
 
 message CollectionMetadata {
@@ -175,21 +162,10 @@ message CollectionMetadata {
   uint32 dimension = 3;
   string metric_type = 4;
   string index_type = 5;
-  uint64 vector_count = 6;
-  int64 created_at = 7;  // Unix timestamp
   uint32 shard_count = 8;
-  repeated ShardAssignment shard_assignments = 9;
-}
 
-message SyncMetadataRequest {
-  uint32 node_id = 1;
-  int64 last_sync_timestamp = 2;  // Request changes after this timestamp
-}
-
-message SyncMetadataResponse {
-  repeated CollectionMetadata collections = 1;
-  repeated ShardAssignment shard_assignments = 2;
-  int64 current_timestamp = 3;
+  reserved 6, 7, 9;
+  reserved "vector_count", "created_at", "shard_assignments";
 }
 
 message GetCollectionMetadataRequest {
@@ -210,16 +186,15 @@ message GetCollectionMetadataResponse {
 
 message RouteQueryRequest {
   string collection_name = 1;
-  repeated float query_vector = 2;
-  uint32 top_k = 3;
-  string filter = 4;
-  bool return_metadata = 5;
   // When true, the coordinator may return a non-primary replica as the
   // target for a shard if the primary is draining. Proxies set this for
   // read operations where stale-but-live replicas are acceptable. Writes
   // must always go to the primary and should leave this false (roadmap
   // 0b.1 — proper primary migration is 0b.3).
   bool prefer_routable_replica = 6;
+
+  reserved 2 to 5;
+  reserved "query_vector", "top_k", "filter", "return_metadata";
 }
 
 // One candidate target for a shard. Carries enough info for the caller to
@@ -259,8 +234,9 @@ message RouteQueryResponse {
   // Per-shard fallback list, parallel to target_shard_ids by shard_id.
   // options[0] mirrors the entry in target_node_ids/target_node_addresses;
   // options[1..N] are routable replicas to try after a transient failure.
-  // Optional for back-compat: pre-1.x clients ignore this field and keep
-  // working with the single-target parallel arrays.
+  // The coordinator always populates it; the replica-fallback helpers and
+  // the shard-target resolver read their fallback candidates only from
+  // this field.
   repeated RouteQueryShardOptions per_shard_options = 5;
 }
 
@@ -281,25 +257,9 @@ message SearchResult {
 
 message ExecuteShardQueryResponse {
   repeated SearchResult results = 1;
-  float query_time_ms = 2;
-  uint32 vectors_scanned = 3;
-}
 
-// ============================================================================
-// Data Transfer (for rebalancing and recovery)
-// ============================================================================
-
-message TransferDataRequest {
-  uint32 collection_id = 1;
-  uint32 shard_id = 2;
-  uint32 source_node_id = 3;
-  uint32 target_node_id = 4;
-}
-
-message TransferDataResponse {
-  bool success = 1;
-  uint64 vectors_transferred = 2;
-  string message = 3;
+  reserved 2, 3;
+  reserved "query_time_ms", "vectors_scanned";
 }
 
 // ============================================================================
@@ -320,17 +280,15 @@ message ShardPrimaryAssignment {
 
 message HeartbeatResponse {
   bool acknowledged = 1;
-  int64 timestamp = 2;
-
-  // Coordinator can send instructions in heartbeat response
-  repeated uint32 assigned_shards = 3;
-  bool should_rebalance = 4;
 
   // Authoritative per-shard primary view for shards this responding
   // node touches (either as primary or as replica). Steady-state
   // sync channel for the data-node's PrimaryTermTracker. Backward-
   // compatible: pre-1.x data-nodes ignore this field.
   repeated ShardPrimaryAssignment shard_primaries = 5;
+
+  reserved 2 to 4;
+  reserved "timestamp", "assigned_shards", "should_rebalance";
 }
 
 message GetClusterHealthRequest {}
@@ -339,13 +297,15 @@ message GetClusterHealthResponse {
   repeated NodeInfo nodes = 1;
   uint32 total_shards = 2;
   uint32 healthy_shards = 3;
-  uint32 degraded_shards = 4;
   string cluster_status = 5;  // "healthy", "degraded", "critical"
 
   // Unix-ms timestamp of the most recently completed auto-rebalance. Zero
   // when no rebalance has happened on this coordinator's watch (roadmap
   // 0b.6.E). Sourced from Coordinator::GetLastAutoRebalance().
   int64 last_rebalance_unix_ms = 6;
+
+  reserved 4;
+  reserved "degraded_shards";
 }
 
 // ============================================================================
@@ -374,19 +334,6 @@ message GetLeaderInfoResponse {
 
   // True when the responding coordinator is itself the leader.
   bool is_leader_self = 4;
-}
-
-// ============================================================================
-// Timestamp Oracle (for distributed transactions)
-// ============================================================================
-
-message GetTimestampRequest {
-  uint32 count = 1;  // How many timestamps to allocate
-}
-
-message GetTimestampResponse {
-  uint64 start_timestamp = 1;
-  uint64 end_timestamp = 2;  // Inclusive range [start, end]
 }
 
 // ============================================================================
@@ -641,7 +588,6 @@ message UnfreezeWritesResponse {
 
 service InternalService {
   // Shard management (Coordinator → Data/Query Nodes)
-  rpc AssignShard(AssignShardRequest) returns (AssignShardResponse);
   rpc GetShardAssignments(GetShardAssignmentsRequest) returns (GetShardAssignmentsResponse);
   rpc RebalanceShards(RebalanceShardsRequest) returns (RebalanceShardsResponse);
 
@@ -654,16 +600,12 @@ service InternalService {
   // Segment creation (Coordinator → Data Node)
   rpc CreateSegment(CreateSegmentRequest) returns (CreateSegmentResponse);
 
-  // Metadata synchronization (Data/Query Nodes → Coordinator)
-  rpc SyncMetadata(SyncMetadataRequest) returns (SyncMetadataResponse);
+  // Collection metadata lookup (Data/Query Nodes → Coordinator)
   rpc GetCollectionMetadata(GetCollectionMetadataRequest) returns (GetCollectionMetadataResponse);
 
   // Query routing and execution (Proxy → Query Nodes)
   rpc RouteQuery(RouteQueryRequest) returns (RouteQueryResponse);
   rpc ExecuteShardQuery(ExecuteShardQueryRequest) returns (ExecuteShardQueryResponse);
-
-  // Data transfer (for rebalancing)
-  rpc TransferData(TransferDataRequest) returns (TransferDataResponse);
 
   // Health monitoring (All Nodes → Coordinator)
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
@@ -696,7 +638,4 @@ service InternalService {
   rpc RestoreShard(RestoreShardRequest) returns (RestoreShardResponse);
   rpc FreezeWrites(FreezeWritesRequest) returns (FreezeWritesResponse);
   rpc UnfreezeWrites(UnfreezeWritesRequest) returns (UnfreezeWritesResponse);
-
-  // Timestamp oracle (All Nodes → Coordinator)
-  rpc GetTimestamp(GetTimestampRequest) returns (GetTimestampResponse);
 }

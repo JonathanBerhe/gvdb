@@ -82,6 +82,11 @@ class MockCoordinatorInternalService : public proto::internal::InternalService::
       proto::internal::RouteQueryResponse* response) override {
     route_query_calls++;
     response->add_target_node_addresses(data_node_address);
+    auto* shard_opts = response->add_per_shard_options();
+    shard_opts->set_shard_id(0);
+    auto* opt = shard_opts->add_options();
+    opt->set_node_address(data_node_address);
+    opt->set_is_primary(true);
     return grpc::Status::OK;
   }
 };

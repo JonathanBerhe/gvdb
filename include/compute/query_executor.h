@@ -44,15 +44,6 @@ class QueryExecutor {
       int top_k,
       const std::string& filter = "");
 
-  // Execute searches in parallel (batch query)
-  [[nodiscard]] core::StatusOr<std::vector<core::SearchResult>> SearchBatch(
-      core::CollectionId collection_id,
-      const std::vector<core::Vector>& queries,
-      int top_k);
-
-  // Get number of worker threads
-  [[nodiscard]] size_t thread_count() const;
-
  private:
   // Merge multiple partial results into final top-k
   static core::SearchResult MergeResults(

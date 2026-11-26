@@ -57,16 +57,11 @@ class TurboQuantCodec {
                    const uint8_t* codes, float norm,
                    float residual_norm, const uint8_t* qjl_bits) const;
 
-  // Reconstruct a vector from its codes and norm.
-  void Decode(const uint8_t* codes, float norm,
-              float* out, core::Dimension dim) const;
-
   // Bytes of packed storage per vector
   size_t CodeBytesPerVector() const { return code_bytes_; }
   size_t QJLBytesPerVector() const { return qjl_bytes_; }
 
   core::Dimension dimension() const { return dimension_; }
-  int padded_dim() const { return padded_dim_; }
   int bit_width() const { return bit_width_; }
   bool use_qjl() const { return use_qjl_; }
   int qjl_dim() const { return qjl_dim_; }
@@ -78,10 +73,6 @@ class TurboQuantCodec {
 
   // Randomized WHT: random sign flip then WHT
   void ApplyForwardRWHT(float* data, int n,
-                        const std::vector<int8_t>& signs) const;
-
-  // Inverse randomized WHT: WHT then sign flip
-  void ApplyInverseRWHT(float* data, int n,
                         const std::vector<int8_t>& signs) const;
 
   // Bit packing for quantized codes

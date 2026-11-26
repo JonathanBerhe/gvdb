@@ -47,10 +47,6 @@ inline Status FailedPreconditionError(absl::string_view message) {
   return absl::FailedPreconditionError(message);
 }
 
-inline Status OutOfRangeError(absl::string_view message) {
-  return absl::OutOfRangeError(message);
-}
-
 inline Status UnimplementedError(absl::string_view message) {
   return absl::UnimplementedError(message);
 }
@@ -61,10 +57,6 @@ inline Status UnavailableError(absl::string_view message) {
 
 inline Status DeadlineExceededError(absl::string_view message) {
   return absl::DeadlineExceededError(message);
-}
-
-inline Status AbortedError(absl::string_view message) {
-  return absl::AbortedError(message);
 }
 
 inline Status CancelledError(absl::string_view message) {
@@ -79,20 +71,6 @@ inline Status CancelledError(absl::string_view message) {
       return _status;                                               \
     }                                                               \
   } while (0)
-
-// Macro helpers for unique variable names
-#define GVDB_CONCAT_IMPL_(a, b) a##b
-#define GVDB_CONCAT_(a, b) GVDB_CONCAT_IMPL_(a, b)
-
-// Macro for extracting value from StatusOr or returning error.
-// Uses __LINE__ to generate unique variable names so the macro
-// can be used multiple times in the same scope.
-#define ASSIGN_OR_RETURN(lhs, expr)                                 \
-  auto GVDB_CONCAT_(_statusor_, __LINE__) = (expr);                 \
-  if (!GVDB_CONCAT_(_statusor_, __LINE__).ok()) {                   \
-    return GVDB_CONCAT_(_statusor_, __LINE__).status();              \
-  }                                                                  \
-  lhs = std::move(GVDB_CONCAT_(_statusor_, __LINE__).value())
 
 }  // namespace core
 }  // namespace gvdb

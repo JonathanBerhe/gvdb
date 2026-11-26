@@ -44,7 +44,6 @@ std::optional<core::SearchResult> QueryCache::Get(const CacheKey& key,
 
   auto it = map_.find(key);
   if (it == map_.end()) {
-    misses_.fetch_add(1, std::memory_order_relaxed);
     return std::nullopt;
   }
 
@@ -55,13 +54,11 @@ std::optional<core::SearchResult> QueryCache::Get(const CacheKey& key,
     // Stale entry — evict
     lru_list_.erase(it->second);
     map_.erase(it);
-    misses_.fetch_add(1, std::memory_order_relaxed);
     return std::nullopt;
   }
 
   // Move to front (MRU)
   lru_list_.splice(lru_list_.begin(), lru_list_, it->second);
-  hits_.fetch_add(1, std::memory_order_relaxed);
   return it->second->result;
 }
 
@@ -82,7 +79,6 @@ void QueryCache::Put(const CacheKey& key, const core::SearchResult& result,
     auto& back = lru_list_.back();
     map_.erase(back.key);
     lru_list_.pop_back();
-    evictions_.fetch_add(1, std::memory_order_relaxed);
   }
 
   // Get current version
@@ -100,11 +96,6 @@ void QueryCache::Put(const CacheKey& key, const core::SearchResult& result,
 void QueryCache::InvalidateCollection(uint32_t collection_id) {
   std::unique_lock lock(mutex_);
   collection_versions_[collection_id]++;
-}
-
-size_t QueryCache::size() const {
-  std::shared_lock lock(mutex_);
-  return lru_list_.size();
 }
 
 }  // namespace utils

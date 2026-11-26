@@ -67,9 +67,6 @@ class ISegmentStore {
   [[nodiscard]] virtual core::Status DropSegment(
       core::SegmentId id, bool delete_files = false) = 0;
 
-  // Load segment from disk
-  [[nodiscard]] virtual core::Status LoadSegment(core::SegmentId id) = 0;
-
   // Add replicated segment (from network transfer)
   [[nodiscard]] virtual core::Status AddReplicatedSegment(
       std::unique_ptr<Segment> segment) = 0;
@@ -81,17 +78,6 @@ class ISegmentStore {
       core::SegmentId segment_id,
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) = 0;
-
-  // Read vectors from a segment
-  [[nodiscard]] virtual core::StatusOr<std::vector<core::Vector>> ReadVectors(
-      core::SegmentId segment_id,
-      const std::vector<core::VectorId>& ids) const = 0;
-
-  // Search in a specific segment
-  [[nodiscard]] virtual core::StatusOr<core::SearchResult> SearchSegment(
-      core::SegmentId segment_id,
-      const core::Vector& query,
-      int k) const = 0;
 
   // Search across all segments in a collection
   [[nodiscard]] virtual core::StatusOr<core::SearchResult> SearchCollection(
@@ -115,13 +101,6 @@ class ISegmentStore {
       core::CollectionId collection_id,
       size_t required_bytes = 0) = 0;
 
-  // Get all queryable segments for a collection (GROWING + SEALED).
-  [[nodiscard]] virtual std::vector<Segment*> GetQueryableSegments(
-      core::CollectionId collection_id) const = 0;
-
-  // Get all segment IDs across all collections
-  [[nodiscard]] virtual std::vector<core::SegmentId> GetAllSegmentIds() const = 0;
-
   // Run TTL sweep loop — blocks until shutdown. Sweeps expired vectors from
   // GROWING segments at periodic interval.
   virtual void RunTTLSweepLoop(const std::atomic<bool>& shutdown) = 0;
@@ -137,9 +116,6 @@ class ISegmentStore {
 
   // Get segment count
   [[nodiscard]] virtual size_t GetSegmentCount() const = 0;
-
-  // Get total memory usage
-  [[nodiscard]] virtual size_t GetTotalMemoryUsage() const = 0;
 
   // Size cap applied to every segment this store creates. Writers use this
   // to split batches that could never fit a single segment.

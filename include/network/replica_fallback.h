@@ -39,7 +39,6 @@ inline constexpr std::chrono::milliseconds kReplicaFallbackMaxPerAttempt{
 struct ReplicaFallbackResult {
   grpc::Status final_status;
   uint32_t attempts = 0;
-  uint32_t target_node_id_used = 0;
   bool used_replica_fallback = false;
 };
 
@@ -127,7 +126,6 @@ ReplicaFallbackResult CallWithReplicaFallback(
     grpc::Status status = call_fn(&context, opt.node_address());
     ++result.attempts;
     last_status = status;
-    result.target_node_id_used = opt.node_id();
 
     if (status.ok()) {
       result.final_status = status;
@@ -214,7 +212,6 @@ grpc::Status RouteReadAndCallWithFallback(
 
   proto::internal::RouteQueryRequest route_req;
   route_req.set_collection_name(collection_name);
-  route_req.set_top_k(0);
   route_req.set_prefer_routable_replica(true);
 
   proto::internal::RouteQueryResponse route_resp;
@@ -231,31 +228,12 @@ grpc::Status RouteReadAndCallWithFallback(
         route_status.error_message());
     return route_status;
   }
-  // Prefer the new per-shard options list when the coordinator emits it;
-  // synthesize a single-option list from the legacy parallel arrays for
-  // back-compat with older coordinator binaries (and unit-test mocks
-  // that haven't been updated to populate per_shard_options yet).
-  google::protobuf::RepeatedPtrField<proto::internal::RouteQueryNodeOption>
-      synthesized_options;
-  const google::protobuf::RepeatedPtrField<proto::internal::RouteQueryNodeOption>*
-      options_ptr = nullptr;
-
-  if (route_resp.per_shard_options_size() > 0) {
-    options_ptr = &route_resp.per_shard_options(0).options();
-  } else if (route_resp.target_node_addresses_size() > 0) {
-    auto* o = synthesized_options.Add();
-    o->set_node_id(route_resp.target_node_ids_size() > 0
-                       ? route_resp.target_node_ids(0)
-                       : 0);
-    o->set_node_address(route_resp.target_node_addresses(0));
-    o->set_is_primary(true);
-    options_ptr = &synthesized_options;
-  } else {
+  if (route_resp.per_shard_options_size() == 0) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE,
                          "RouteQuery returned no shards");
   }
 
-  const auto& options = *options_ptr;
+  const auto& options = route_resp.per_shard_options(0).options();
   using StubT = std::remove_pointer_t<decltype(dial_fn(std::string{}))>;
 
   auto adapter = [&](grpc::ClientContext* ctx,
@@ -349,7 +327,6 @@ grpc::Status RouteWriteAndCallWithFallback(
   for (int attempt = 0; attempt <= kRouteWriteMaxReroutes; ++attempt) {
     proto::internal::RouteQueryRequest route_req;
     route_req.set_collection_name(collection_name);
-    route_req.set_top_k(0);
     // Writes always go to the primary. A draining-but-routable replica
     // is fine for reads but fatal for writes (lost on next swap).
     route_req.set_prefer_routable_replica(false);
@@ -372,11 +349,8 @@ grpc::Status RouteWriteAndCallWithFallback(
       return last_status;
     }
 
-    // Pick the primary option. Prefer the per_shard_options list
-    // (carries primary_term) when present; fall back to the legacy
-    // parallel arrays for back-compat with older coordinators (the
-    // back-compat path stamps no term — older coordinators didn't
-    // generate them, so the data-node's old-proxy bypass logs+accepts).
+    // Pick the primary option from the per_shard_options list, which
+    // carries the primary_term to stamp on the call.
     std::string target_addr;
     uint64_t primary_term = 0;
     if (route_resp.per_shard_options_size() > 0 &&
@@ -384,8 +358,6 @@ grpc::Status RouteWriteAndCallWithFallback(
       const auto& opt = route_resp.per_shard_options(0).options(0);
       target_addr = opt.node_address();
       primary_term = opt.primary_term();
-    } else if (route_resp.target_node_addresses_size() > 0) {
-      target_addr = route_resp.target_node_addresses(0);
     } else {
       last_status = grpc::Status(grpc::StatusCode::UNAVAILABLE,
                                   "RouteQuery returned no target");

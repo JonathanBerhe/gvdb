@@ -37,7 +37,3 @@ if(GVDB_WITH_GCS)
   target_link_libraries(gvdb_storage PUBLIC google-cloud-cpp::storage)
   target_compile_definitions(gvdb_storage PUBLIC GVDB_HAS_GCS=1)
 endif()
-
-# Apache Arrow Parquet support (future, blocked on Arrow FetchContent and Docker issues)
-# target_sources(gvdb_storage PRIVATE parquet_reader.cpp)
-# target_link_libraries(gvdb_storage PUBLIC parquet_static)

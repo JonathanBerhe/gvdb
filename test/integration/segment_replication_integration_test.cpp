@@ -1,5 +1,5 @@
 // test/integration/segment_replication_integration_test.cpp
-// Integration tests for segment replication (Phase 5)
+// Integration tests for segment replication
 
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
@@ -56,7 +56,6 @@ class SegmentReplicationIntegrationTest {
         coord_segment_store_,
         coord_query_executor_,
         nullptr,  // node_registry not needed
-        nullptr,  // timestamp_oracle not needed
         coordinator_);
 
     // Start gRPC server for InternalService
@@ -354,10 +353,10 @@ class ReadRepairIntegrationTest {
     // with its own segment manager
     primary_internal_ = std::make_unique<network::InternalService>(
         shard_manager_, primary_segment_store_, primary_qe,
-        nullptr, nullptr, coordinator_);
+        nullptr, coordinator_);
     replica_internal_ = std::make_unique<network::InternalService>(
         shard_manager_, replica_segment_store_, replica_qe,
-        nullptr, nullptr, coordinator_);
+        nullptr, coordinator_);
 
     grpc::ServerBuilder builder1;
     builder1.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &primary_port_);

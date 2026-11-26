@@ -6,7 +6,6 @@
 #include <libnuraft/log_store.hxx>
 
 #include <atomic>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -22,17 +21,8 @@ namespace gvdb {
 namespace consensus {
 
 /**
- * GVDB implementation of NuRaft's log_store interface.
+ * GVDB implementation of NuRaft's log_store interface, backed by RocksDB.
  *
- * Supports both in-memory (for development/testing) and persistent (RocksDB-backed)
- * storage modes.
- *
- * **In-Memory Mode**:
- * - Fast, no disk I/O
- * - Suitable for testing and development
- * - Data lost on restart
- *
- * **Persistent Mode (RocksDB)**:
  * - Durable across restarts
  * - Uses RocksDB column family for log entries
  * - Automatic crash recovery
@@ -42,11 +32,6 @@ namespace consensus {
  */
 class GvdbLogStore : public nuraft::log_store {
  public:
-  /**
-   * Create an in-memory log store (for testing).
-   */
-  GvdbLogStore();
-
   /**
    * Create a persistent log store backed by RocksDB.
    *
@@ -159,13 +144,7 @@ class GvdbLogStore : public nuraft::log_store {
   // Mutex protecting all data structures
   mutable std::mutex mutex_;
 
-  // Storage mode
-  bool persistent_mode_{false};
-
-  // In-memory storage (used when persistent_mode_ == false)
-  std::map<nuraft::ulong, nuraft::ptr<nuraft::log_entry>> logs_;
-
-  // RocksDB storage (used when persistent_mode_ == true)
+  // RocksDB storage
   std::unique_ptr<rocksdb::DB> db_;
   rocksdb::ColumnFamilyHandle* log_cf_{nullptr};  // Column family for log entries
   std::string db_path_;
@@ -173,7 +152,7 @@ class GvdbLogStore : public nuraft::log_store {
   // Start index after compaction
   std::atomic<nuraft::ulong> start_idx_{1};
 
-  // Next index for appends (only used in persistent mode)
+  // Next index for appends
   std::atomic<nuraft::ulong> next_idx_{1};
 
   // Helpers

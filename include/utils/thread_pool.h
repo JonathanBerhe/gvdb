@@ -43,9 +43,6 @@ class ThreadPool {
   // Get number of worker threads
   [[nodiscard]] size_t size() const noexcept { return workers_.size(); }
 
-  // Get number of pending tasks
-  [[nodiscard]] size_t pending() const;
-
  private:
   // Worker threads
   std::vector<std::thread> workers_;
@@ -54,7 +51,7 @@ class ThreadPool {
   std::queue<std::function<void()>> tasks_;
 
   // Synchronization
-  mutable std::mutex queue_mutex_;
+  std::mutex queue_mutex_;
   std::condition_variable condition_;
   bool stop_ = false;
 };

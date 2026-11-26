@@ -8,7 +8,6 @@
 #include "core/vector.h"
 #include "index/index_factory.h"
 #include "storage/segment_manager.h"
-#include "utils/thread_pool.h"
 
 namespace gvdb {
 namespace compute {
@@ -97,17 +96,6 @@ class ComputeTest {
 // ============================================================================
 // QueryExecutor Tests
 // ============================================================================
-
-TEST_CASE_FIXTURE(ComputeTest, "CreateQueryExecutor") {
-  compute::QueryExecutor executor(segment_manager_.get());
-  CHECK_GT(executor.thread_count(), 0);
-}
-
-TEST_CASE_FIXTURE(ComputeTest, "CreateQueryExecutorWithThreadPool") {
-  utils::ThreadPool pool(4);
-  compute::QueryExecutor executor(segment_manager_.get(), &pool);
-  CHECK_EQ(executor.thread_count(), 4);
-}
 
 TEST_CASE_FIXTURE(ComputeTest, "CreateQueryExecutorNullSegmentManager") {
   CHECK_THROWS_AS(
@@ -230,88 +218,6 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchExactMatch") {
 }
 
 // ============================================================================
-// Batch Search Tests
-// ============================================================================
-
-TEST_CASE_FIXTURE(ComputeTest, "SearchBatchEmpty") {
-  compute::QueryExecutor executor(segment_manager_.get());
-
-  std::vector<core::Vector> queries;
-  auto result = executor.SearchBatch(collection_id_, queries, 10);
-
-  INFO(result.status().message());
-  REQUIRE(result.ok());
-  CHECK_EQ(result.value().size(), 0);
-}
-
-TEST_CASE_FIXTURE(ComputeTest, "SearchBatchSingleQuery") {
-  PopulateSegmentManager(100);
-
-  compute::QueryExecutor executor(segment_manager_.get());
-
-  auto queries = CreateTestVectors(1, dimension_);
-  auto result = executor.SearchBatch(collection_id_, queries, 10);
-
-  INFO(result.status().message());
-  REQUIRE(result.ok());
-  CHECK_EQ(result.value().size(), 1);
-  CHECK_EQ(result.value()[0].entries.size(), 10);
-}
-
-TEST_CASE_FIXTURE(ComputeTest, "SearchBatchMultipleQueries") {
-  PopulateSegmentManager(100);
-
-  compute::QueryExecutor executor(segment_manager_.get());
-
-  auto queries = CreateTestVectors(10, dimension_);
-  auto result = executor.SearchBatch(collection_id_, queries, 5);
-
-  INFO(result.status().message());
-  REQUIRE(result.ok());
-  CHECK_EQ(result.value().size(), 10);
-
-  for (const auto& search_result : result.value()) {
-    CHECK_EQ(search_result.entries.size(), 5);
-  }
-}
-
-TEST_CASE_FIXTURE(ComputeTest, "SearchBatchParallelExecution") {
-  PopulateSegmentManager(100);
-
-  utils::ThreadPool pool(4);
-  compute::QueryExecutor executor(segment_manager_.get(), &pool);
-
-  // Large batch to ensure parallel execution
-  auto queries = CreateTestVectors(20, dimension_);
-  auto result = executor.SearchBatch(collection_id_, queries, 10);
-
-  INFO(result.status().message());
-  REQUIRE(result.ok());
-  CHECK_EQ(result.value().size(), 20);
-
-  // Each result should have 10 entries
-  for (const auto& search_result : result.value()) {
-    CHECK_EQ(search_result.entries.size(), 10);
-
-    // Verify sorted
-    for (size_t i = 1; i < search_result.entries.size(); ++i) {
-      CHECK_LE(search_result.entries[i - 1].distance,
-                search_result.entries[i].distance);
-    }
-  }
-}
-
-TEST_CASE_FIXTURE(ComputeTest, "SearchBatchInvalidTopK") {
-  compute::QueryExecutor executor(segment_manager_.get());
-
-  auto queries = CreateTestVectors(5, dimension_);
-
-  auto result = executor.SearchBatch(collection_id_, queries, 0);
-  CHECK_FALSE(result.ok());
-  CHECK_EQ(result.status().code(), absl::StatusCode::kInvalidArgument);
-}
-
-// ============================================================================
 // Performance Tests
 // ============================================================================
 
@@ -355,29 +261,6 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchPerformance") {
 
   // Search should complete in reasonable time (< 100ms for 1000 vectors)
   CHECK_LT(duration_ms, 100);
-}
-
-TEST_CASE_FIXTURE(ComputeTest, "BatchSearchPerformance") {
-  PopulateSegmentManager(500);
-
-  utils::ThreadPool pool(4);
-  compute::QueryExecutor executor(segment_manager_.get(), &pool);
-
-  auto queries = CreateTestVectors(50, dimension_);
-
-  auto start = std::chrono::steady_clock::now();
-  auto result = executor.SearchBatch(collection_id_, queries, 10);
-  auto end = std::chrono::steady_clock::now();
-
-  INFO(result.status().message());
-  REQUIRE(result.ok());
-  CHECK_EQ(result.value().size(), 50);
-
-  auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-      end - start).count();
-
-  // Batch search should benefit from parallelism
-  CHECK_LT(duration_ms, 500);
 }
 
 // ============================================================================

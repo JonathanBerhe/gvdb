@@ -35,12 +35,6 @@ class MetalCompute {
   // Singleton access. Lazily initializes Metal device and compiles kernels.
   static MetalCompute& Instance();
 
-  // Create a GPU buffer from CPU data. Uses shared storage mode (unified memory).
-  MTL::Buffer* CreateBuffer(const void* data, size_t bytes);
-
-  // Create an uninitialized GPU buffer.
-  MTL::Buffer* CreateBuffer(size_t bytes);
-
   // Compute batch distances using pre-allocated vector buffer.
   // vec_buf: persistent Metal buffer holding [nb * dim] floats
   // queries: [nq * dim] float array (copied per call — small)

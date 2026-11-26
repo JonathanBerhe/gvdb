@@ -72,16 +72,12 @@ void ScalarIndex::Add(uint64_t vector_id, const core::MetadataValue& value) {
 
   auto sort_key = ValueToSortKey(value);
   sorted_index_[sort_key].insert(vector_id);
-
-  total_entries_++;
 }
 
 void ScalarIndex::Remove(uint64_t vector_id) {
   // Remove from all postings (O(n) but infrequent)
   for (auto& [key, ids] : hash_index_) {
-    if (ids.erase(vector_id)) {
-      total_entries_--;
-    }
+    ids.erase(vector_id);
   }
   for (auto& [key, ids] : sorted_index_) {
     ids.erase(vector_id);
@@ -144,17 +140,6 @@ VectorIdSet ScalarIndex::LookupPrefix(const std::string& prefix) const {
     result.insert(it->second.begin(), it->second.end());
   }
   return result;
-}
-
-size_t ScalarIndex::GetMemoryUsage() const {
-  size_t usage = sizeof(*this);
-  for (const auto& [key, ids] : hash_index_) {
-    usage += key.size() + ids.size() * sizeof(uint64_t) + 64;
-  }
-  for (const auto& [key, ids] : sorted_index_) {
-    usage += key.size() + ids.size() * sizeof(uint64_t) + 64;
-  }
-  return usage;
 }
 
 // ============================================================================
@@ -290,14 +275,6 @@ std::optional<VectorIdSet> ScalarIndexSet::Evaluate(
   }
 
   return std::nullopt;
-}
-
-size_t ScalarIndexSet::GetMemoryUsage() const {
-  size_t usage = sizeof(*this);
-  for (const auto& [field, idx] : field_indexes_) {
-    usage += field.size() + idx.GetMemoryUsage();
-  }
-  return usage;
 }
 
 }  // namespace storage

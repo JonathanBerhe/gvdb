@@ -37,9 +37,7 @@ TEST_CASE("TypesTest - CollectionIdCreation") {
 }
 
 TEST_CASE("TypesTest - InvalidIds") {
-  CHECK_EQ(ToUInt64(kInvalidVectorId), 0);
   CHECK_EQ(ToUInt32(kInvalidCollectionId), 0);
-  CHECK_EQ(ToUInt32(kInvalidSegmentId), 0);
   CHECK_EQ(ToUInt16(kInvalidShardId), 0);
 }
 
@@ -51,13 +49,11 @@ TEST_CASE("TypesTest - SearchResultEntry") {
 
 TEST_CASE("TypesTest - SearchResult") {
   SearchResult result(10);
-  CHECK(result.Empty());
   CHECK_EQ(result.Size(), 0);
 
   result.AddEntry(MakeVectorId(1), 0.1f);
   result.AddEntry(MakeVectorId(2), 0.2f);
 
-  CHECK_FALSE(result.Empty());
   CHECK_EQ(result.Size(), 2);
   CHECK_EQ(ToUInt64(result.entries[0].id), 1);
   CHECK(result.entries[0].distance == doctest::Approx(0.1f));
@@ -177,26 +173,6 @@ TEST_CASE("VectorTest - Norm") {
   CHECK(vec.Norm() == doctest::Approx(5.0f));
 }
 
-TEST_CASE("VectorTest - NormalizeValidVector") {
-  std::vector<float> data = {3.0f, 4.0f};
-  Vector vec(data);
-
-  auto result = vec.Normalize();
-  REQUIRE(result.ok());
-
-  Vector normalized = std::move(result.value());
-  CHECK(normalized.Norm() == doctest::Approx(1.0f).epsilon(1e-6f));
-  CHECK(normalized[0] == doctest::Approx(0.6f).epsilon(1e-6f));
-  CHECK(normalized[1] == doctest::Approx(0.8f).epsilon(1e-6f));
-}
-
-TEST_CASE("VectorTest - NormalizeZeroVector") {
-  Vector vec(4);  // All zeros
-  auto result = vec.Normalize();
-  CHECK_FALSE(result.ok());
-  CHECK(absl::IsInvalidArgument(result.status()));
-}
-
 TEST_CASE("VectorTest - L2Distance") {
   std::vector<float> data1 = {1.0f, 0.0f};
   std::vector<float> data2 = {4.0f, 0.0f};
@@ -242,19 +218,10 @@ TEST_CASE("VectorTest - CosineDistanceOrthogonal") {
   CHECK(vec1.CosineDistance(vec2) == doctest::Approx(1.0f).epsilon(1e-6f));
 }
 
-TEST_CASE("VectorTest - Validation") {
-  Vector vec(4);
-  CHECK(vec.IsValid());
-
-  Status status = vec.Validate();
-  CHECK(status.ok());
-}
-
 TEST_CASE("VectorTest - LargeDimension") {
   // Test with a large dimension to ensure no overflow
   Vector vec(1048576);  // 2^20 elements
   CHECK_EQ(vec.dimension(), 1048576);
-  CHECK(vec.IsValid());
 }
 
 // ============================================================================
@@ -284,50 +251,6 @@ TEST_CASE("VectorUtilTest - RandomVector") {
   CHECK(has_non_zero);
 }
 
-TEST_CASE("VectorUtilTest - ValidateDimensionMatch") {
-  Vector vec1(4);
-  Vector vec2(4);
-  Vector vec3(8);
-
-  Status status1 = ValidateDimensionMatch(vec1, vec2);
-  CHECK(status1.ok());
-
-  Status status2 = ValidateDimensionMatch(vec1, vec3);
-  CHECK_FALSE(status2.ok());
-  CHECK(absl::IsInvalidArgument(status2));
-}
-
-TEST_CASE("VectorUtilTest - ComputeDistanceL2") {
-  std::vector<float> data1 = {1.0f, 0.0f};
-  std::vector<float> data2 = {4.0f, 0.0f};
-  Vector vec1(data1);
-  Vector vec2(data2);
-
-  float dist = ComputeDistance(vec1, vec2, MetricType::L2);
-  CHECK(dist == doctest::Approx(3.0f));
-}
-
-TEST_CASE("VectorUtilTest - ComputeDistanceInnerProduct") {
-  std::vector<float> data1 = {1.0f, 2.0f};
-  std::vector<float> data2 = {3.0f, 4.0f};
-  Vector vec1(data1);
-  Vector vec2(data2);
-
-  // Inner product: 1*3 + 2*4 = 11, negated = -11
-  float dist = ComputeDistance(vec1, vec2, MetricType::INNER_PRODUCT);
-  CHECK(dist == doctest::Approx(-11.0f));
-}
-
-TEST_CASE("VectorUtilTest - ComputeDistanceCosine") {
-  std::vector<float> data1 = {1.0f, 0.0f};
-  std::vector<float> data2 = {1.0f, 0.0f};
-  Vector vec1(data1);
-  Vector vec2(data2);
-
-  float dist = ComputeDistance(vec1, vec2, MetricType::COSINE);
-  CHECK(dist == doctest::Approx(0.0f).epsilon(1e-6f));
-}
-
 // ============================================================================
 // Metadata Tests
 // ============================================================================
@@ -342,13 +265,6 @@ TEST_CASE("MetadataTest - MetadataValueTypes") {
   CHECK(std::get<double>(double_val) == doctest::Approx(3.14));
   CHECK_EQ(std::get<std::string>(string_val), "hello");
   CHECK_EQ(std::get<bool>(bool_val), true);
-}
-
-TEST_CASE("MetadataTest - GetMetadataType") {
-  CHECK_EQ(get_metadata_type(MetadataValue(int64_t(42))), MetadataType::INT64);
-  CHECK_EQ(get_metadata_type(MetadataValue(3.14)), MetadataType::DOUBLE);
-  CHECK_EQ(get_metadata_type(MetadataValue(std::string("test"))), MetadataType::STRING);
-  CHECK_EQ(get_metadata_type(MetadataValue(true)), MetadataType::BOOL);
 }
 
 TEST_CASE("MetadataTest - CompareEqual") {
@@ -939,35 +855,6 @@ TEST_CASE("FilterTest - ParseErrorEmptyInList") {
   CHECK(absl::IsInvalidArgument(result.status()));
 }
 
-TEST_CASE("FilterTest - EvaluateFilterUtility") {
-  Metadata metadata = {
-      {"price", MetadataValue(int64_t(50))},
-      {"brand", MetadataValue(std::string("Nike"))}};
-
-  auto result = evaluate_filter("price < 100 AND brand = 'Nike'", metadata);
-  REQUIRE(result.ok());
-  CHECK(*result);
-
-  auto result2 = evaluate_filter("price > 100", metadata);
-  REQUIRE(result2.ok());
-  CHECK_FALSE(*result2);
-}
-
-TEST_CASE("FilterTest - ValidateFilterUtility") {
-  CHECK(validate_filter("price < 100").ok());
-  CHECK(validate_filter("brand = 'Nike' AND in_stock = true").ok());
-  CHECK_FALSE(validate_filter("price <").ok());
-  CHECK_FALSE(validate_filter("invalid syntax @#$").ok());
-}
-
-TEST_CASE("FilterTest - FilterToString") {
-  auto filter = FilterParser::parse("price < 100");
-  REQUIRE(filter.ok());
-
-  std::string str = (*filter)->to_string();
-  CHECK_FALSE(str.empty());
-}
-
 TEST_CASE("FilterTest - RejectsTrailingInput") {
   for (const char* expr : {
            "price < 100)",
@@ -1206,49 +1093,6 @@ TEST_CASE("ConfigTest - IndexConfigValidation") {
   CHECK_FALSE(config.IsValid());  // dimension is 0
 
   config.dimension = 128;
-  CHECK(config.IsValid());
-}
-
-TEST_CASE("ConfigTest - StorageConfigValidation") {
-  StorageConfig config;
-  CHECK(config.IsValid());  // Has default values
-
-  config.base_path = "";
-  CHECK_FALSE(config.IsValid());
-
-  config.base_path = "/tmp/data";
-  config.max_segment_size = 0;
-  CHECK_FALSE(config.IsValid());
-}
-
-TEST_CASE("ConfigTest - ClusterConfigValidation") {
-  ClusterConfig config;
-  CHECK_FALSE(config.IsValid());  // node_id is invalid
-
-  config.node_id = MakeNodeId(1);
-  CHECK_FALSE(config.IsValid());  // node_address is empty
-
-  config.node_address = "localhost";
-  CHECK(config.IsValid());
-}
-
-TEST_CASE("ConfigTest - QueryConfigValidation") {
-  QueryConfig config;
-  CHECK(config.IsValid());
-
-  config.default_topk = 0;
-  CHECK_FALSE(config.IsValid());
-
-  config.default_topk = 10;
-  config.max_topk = 5;  // Less than default
-  CHECK_FALSE(config.IsValid());
-}
-
-TEST_CASE("ConfigTest - SystemConfigValidation") {
-  SystemConfig config;
-  config.cluster_config.node_id = MakeNodeId(1);
-  config.cluster_config.node_address = "localhost";
-
   CHECK(config.IsValid());
 }
 

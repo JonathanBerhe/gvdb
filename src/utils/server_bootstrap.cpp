@@ -131,32 +131,6 @@ std::shared_ptr<grpc::ServerCredentials> ServerBootstrap::MakeServerCredentials(
 std::unique_ptr<grpc::Server> ServerBootstrap::StartGrpcServer(
     const std::string& bind_address,
     const std::vector<grpc::Service*>& services,
-    const TlsConfig& tls_config) {
-
-  return StartGrpcServer(bind_address, services, MakeServerCredentials(tls_config));
-}
-
-std::unique_ptr<grpc::Server> ServerBootstrap::StartGrpcServer(
-    const std::string& bind_address,
-    const std::vector<grpc::Service*>& services,
-    std::shared_ptr<grpc::ServerCredentials> credentials) {
-
-  grpc::ServerBuilder builder;
-  builder.AddListeningPort(bind_address, credentials);
-
-  for (auto* service : services) {
-    builder.RegisterService(service);
-  }
-
-  builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
-  builder.SetMaxSendMessageSize(256 * 1024 * 1024);
-
-  return builder.BuildAndStart();
-}
-
-std::unique_ptr<grpc::Server> ServerBootstrap::StartGrpcServer(
-    const std::string& bind_address,
-    const std::vector<grpc::Service*>& services,
     std::shared_ptr<grpc::ServerCredentials> credentials,
     std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors) {
 
@@ -175,31 +149,6 @@ std::unique_ptr<grpc::Server> ServerBootstrap::StartGrpcServer(
   }
 
   return builder.BuildAndStart();
-}
-
-std::shared_ptr<grpc::ChannelCredentials> ServerBootstrap::MakeChannelCredentials(
-    const TlsConfig& tls_config) {
-
-  if (!tls_config.enabled) {
-    return grpc::InsecureChannelCredentials();
-  }
-
-  grpc::SslCredentialsOptions ssl_opts;
-
-  if (!tls_config.ca_cert_path.empty()) {
-    ssl_opts.pem_root_certs = ReadFile(tls_config.ca_cert_path);
-  }
-
-  if (tls_config.mutual_tls) {
-    if (!tls_config.cert_path.empty()) {
-      ssl_opts.pem_cert_chain = ReadFile(tls_config.cert_path);
-    }
-    if (!tls_config.key_path.empty()) {
-      ssl_opts.pem_private_key = ReadFile(tls_config.key_path);
-    }
-  }
-
-  return grpc::SslCredentials(ssl_opts);
 }
 
 }  // namespace utils

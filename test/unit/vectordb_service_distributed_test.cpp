@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
+#include <atomic>
 #include <filesystem>
 #include <thread>
 

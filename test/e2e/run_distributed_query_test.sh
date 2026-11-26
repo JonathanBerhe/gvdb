@@ -56,7 +56,6 @@ echo -e "${YELLOW}Starting data node on localhost:50052...${NC}"
   --node-id 2 \
   --bind-address localhost:50052 \
   --coordinator localhost:50051 \
-  --shards 1,2,3,4,5,6,7,8 \
   --data-dir /tmp/gvdb-e2e-datanode \
   > /tmp/gvdb-datanode.log 2>&1 &
 DATA_PID=$!

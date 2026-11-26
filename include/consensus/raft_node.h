@@ -4,12 +4,14 @@
 #pragma once
 
 #include "consensus/raft_config.h"
-#include "consensus/metadata_store.h"
 #include "consensus/timestamp_oracle.h"
 #include "core/status.h"
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
 
 // Forward declarations for NuRaft
 namespace nuraft {
@@ -26,8 +28,8 @@ namespace consensus {
 class MetadataStateMachine;
 class GvdbStateManager;
 
-// A Raft peer derived from the "id:host:port" --raft-peers format (roadmap
-// 0b.4). Public so the parser can be unit-tested without spinning up a
+// A Raft peer derived from the "id:host:port" --raft-peers format.
+// Public so the parser can be unit-tested without spinning up a
 // real Raft server.
 struct RaftPeerSpec {
   int id = 0;
@@ -47,7 +49,7 @@ struct PeerListPlan {
   bool needs_seed = false;
 };
 
-// Validate + prepare a peer list for cluster_config seeding (roadmap 0b.4):
+// Validate + prepare a peer list for cluster_config seeding:
 //   * every entry parses
 //   * peer ids are unique
 //   * `self_id` is present as one of the entries (prevents a rogue member
@@ -85,36 +87,10 @@ class RaftNode {
   int GetLeaderId() const;
   // Current Raft term as observed by this server. Returns 0 before NuRaft
   // has started or in single-node mode. Exposed so operators can detect
-  // term stability across reconciles (roadmap 0b.6.C-hardening follow-up).
+  // term stability across reconciles.
   uint64_t GetCurrentTerm() const;
-  int GetNodeId() const { return config_.node_id; }
 
-  // Metadata operations (go through consensus)
-  core::StatusOr<core::CollectionId> CreateCollection(
-      const std::string& name,
-      core::Dimension dimension,
-      core::MetricType metric_type,
-      core::IndexType index_type,
-      size_t replication_factor);
-
-  core::Status DropCollection(core::CollectionId collection_id);
-
-  core::StatusOr<cluster::CollectionMetadata> GetCollectionMetadata(
-      core::CollectionId id) const;
-
-  core::StatusOr<cluster::CollectionMetadata> GetCollectionMetadata(
-      const std::string& name) const;
-
-  std::vector<cluster::CollectionMetadata> ListCollections() const;
-
-  // Node operations
-  core::Status RegisterNode(const cluster::NodeInfo& node_info);
-  core::Status UnregisterNode(core::NodeId node_id);
-
-  core::StatusOr<cluster::NodeInfo> GetNodeInfo(core::NodeId id) const;
-  std::vector<cluster::NodeInfo> ListNodes() const;
-
-  // Raft membership changes (roadmap 1.7b). Both methods are leader-only;
+  // Raft membership changes. Both methods are leader-only;
   // they return FailedPreconditionError when called on a follower, carrying
   // the current leader id in the status message so callers can retry.
   //
@@ -131,7 +107,7 @@ class RaftNode {
   // transfer leadership first or let NuRaft re-elect after the pod exits.
   core::Status RemovePeer(int32_t node_id);
 
-  // Raft scale reconciliation (roadmap 1.8). Unlike Add/Remove above,
+  // Raft scale reconciliation. Unlike Add/Remove above,
   // these two methods support the operator's scale-down safety net
   // when a coordinator pod was SIGKILLed without running its self-remove
   // handler, leaving a ghost peer in cluster_config.
@@ -158,13 +134,6 @@ class RaftNode {
 
   // Timestamp oracle access
   TimestampOracle* GetTimestampOracle() { return &tso_; }
-  const TimestampOracle* GetTimestampOracle() const { return &tso_; }
-
-  // Metadata store access (read-only)
-  const MetadataStore* GetMetadataStore() const { return &metadata_store_; }
-
-  // Statistics
-  size_t GetCommittedOpCount() const;
 
  private:
   RaftConfig config_;
@@ -173,7 +142,6 @@ class RaftNode {
 
   // Core components
   TimestampOracle tso_;
-  MetadataStore metadata_store_;
 
   // NuRaft components (for multi-node mode)
   std::shared_ptr<MetadataStateMachine> state_machine_;
@@ -185,16 +153,12 @@ class RaftNode {
   // Synchronization
   mutable std::mutex mutex_;
 
-  // Statistics
-  std::atomic<size_t> committed_ops_{0};
-
   // Set by InitializeNuRaft when the peer probe found a live leader on
   // startup. Non-empty value triggers a JoinCluster RPC after NuRaft is
-  // up (roadmap 1.7b). Cleared once the join has been announced.
+  // up. Cleared once the join has been announced.
   std::string joining_peer_;
 
   // Helpers
-  core::Status ProposeOperation(const MetadataOp& op);
   core::Status InitializeNuRaft();
   // Announce our join to the Raft leader via JoinCluster RPC. Called from
   // Start() after InitializeNuRaft returns when joining_peer_ is set.

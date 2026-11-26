@@ -27,7 +27,7 @@ namespace cluster {
 enum class NodeType {
   COORDINATOR,  // Manages metadata and coordinates operations
   QUERY_NODE,   // Serves read requests with cached data
-  DATA_NODE,    // Handles index building and compaction
+  DATA_NODE,    // Handles index building
   PROXY         // Routes client requests to appropriate nodes
 };
 
@@ -120,7 +120,7 @@ inline core::SegmentId ShardSegmentId(core::CollectionId cid, uint32_t shard_ind
   return static_cast<core::SegmentId>(core::ToUInt32(cid) * 1000 + shard_index);
 }
 
-// Auto-rebalance configuration (roadmap 0b.2). `debounce` caps how often a
+// Auto-rebalance configuration. `debounce` caps how often a
 // new-node event can trigger ExecuteRebalancePlan — a rolling restart of N
 // pods within the window only fires one rebalance. Tests pass a very small
 // value to drive the debounce path deterministically. Defined outside the
@@ -146,11 +146,6 @@ class Coordinator {
 
   // Node registration and health
   absl::Status RegisterNode(const NodeInfo& node_info);
-  absl::Status UnregisterNode(core::NodeId node_id);
-  absl::Status UpdateNodeStatus(core::NodeId node_id, NodeStatus status);
-  absl::Status ProcessHeartbeat(core::NodeId node_id, const NodeInfo& node_info);
-  absl::StatusOr<NodeInfo> GetNodeInfo(core::NodeId node_id) const;
-  std::vector<NodeInfo> GetAllNodes() const;
   std::vector<NodeInfo> GetHealthyNodes(NodeType type) const;
 
   // Collection management
@@ -162,7 +157,6 @@ class Coordinator {
       size_t replication_factor,
       size_t num_shards = 1);
   absl::Status DropCollection(const std::string& name);
-  absl::Status DropCollection(core::CollectionId collection_id);
   absl::StatusOr<CollectionMetadata> GetCollectionMetadata(const std::string& name) const;
   absl::StatusOr<CollectionMetadata> GetCollectionMetadata(core::CollectionId id) const;
   std::vector<CollectionMetadata> ListCollections() const;
@@ -171,11 +165,6 @@ class Coordinator {
   absl::Status AssignShardsToCollection(core::CollectionId collection_id,
                                         size_t num_shards,
                                         size_t replication_factor);
-
-  // Cluster health and monitoring
-  bool IsHealthy() const;
-  size_t GetHealthyNodeCount() const;
-  float GetClusterLoad() const;
 
   // Failure detection and recovery
   void StartHealthCheckLoop();
@@ -199,17 +188,16 @@ class Coordinator {
   // Runs the plan in a detached thread so it does not block the
   // health-check loop (rebalance is bounded at kMaxMovesPerCycle, but each
   // ReplicateSegmentData call can take seconds). Called from the
-  // health-check loop; public so tests can drive it directly (roadmap
-  // 0b.2).
+  // health-check loop; public so tests can drive it directly.
   void DetectNewDataNodes();
 
   // Public for testing: snapshot the set of data-node IDs the coordinator
-  // currently considers "known" for auto-rebalance bookkeeping (0b.2).
+  // currently considers "known" for auto-rebalance bookkeeping.
   // Tests use this to assert that new nodes are tracked and that pruning
   // on unregister works.
   std::set<core::NodeId> KnownDataNodesForTesting() const;
 
-  // Observable state for the most recent auto-rebalance attempt (0b.2).
+  // Observable state for the most recent auto-rebalance attempt.
   // Returns std::nullopt if no auto-rebalance has run yet. The returned
   // pair is (status, steady-clock timestamp of completion). Exposed for
   // dashboards, post-incident forensics, and tests that need to assert
@@ -234,11 +222,11 @@ class Coordinator {
   // Block until the most recent auto-rebalance worker finishes (or the
   // timeout elapses). Returns true if the worker joined within the
   // deadline. Tests use this to deterministically sequence against the
-  // detached rebalance thread (0b.2).
+  // detached rebalance thread.
   bool WaitForAutoRebalanceIdleForTesting(std::chrono::milliseconds timeout);
 
-  // Migrate shards off a node that has signalled NODE_STATUS_DRAINING
-  // (roadmap 0b.3). Unlike HandleFailedNode, the draining node is still
+  // Migrate shards off a node that has signalled NODE_STATUS_DRAINING.
+  // Unlike HandleFailedNode, the draining node is still
   // alive and serving reads — we can safely promote replicas and remove
   // the draining node from the shard assignment map before its gRPC server
   // is shut down. Called from the health-check loop; safe to invoke
@@ -332,7 +320,6 @@ class Coordinator {
   void PersistRegistry() const;
 
   // ID generation
-  std::atomic<uint32_t> next_node_id_{1};
   std::atomic<uint32_t> next_collection_id_{1};
 
   // Health check
@@ -386,7 +373,7 @@ class Coordinator {
   mutable std::mutex migration_mutex_;
   std::set<core::ShardId> shards_migrating_;
 
-  // Auto-rebalance bookkeeping (roadmap 0b.2).
+  // Auto-rebalance bookkeeping.
   //
   // Lock order (to prevent nested-lock deadlock): NodeRegistry's internal
   // mutex is acquired INSIDE GetHealthyNodesByType()/GetDrainingNodes() and
@@ -404,9 +391,9 @@ class Coordinator {
   std::chrono::steady_clock::time_point last_auto_rebalance_at_{};  // guarded by known_nodes_mutex_
 
   // Serializes access to the detached rebalance worker. Only one rebalance
-  // is permitted in flight at a time (#2 from review); see
-  // `rebalance_in_flight_`. On shutdown, Shutdown() joins this thread to
-  // prevent the worker from touching a destroyed coordinator (#1 from review).
+  // is permitted in flight at a time; see `rebalance_in_flight_`. On
+  // shutdown, Shutdown() joins this thread to prevent the worker from
+  // touching a destroyed coordinator.
   mutable std::mutex rebalance_worker_mutex_;
   std::unique_ptr<std::thread> rebalance_worker_;
   std::atomic<bool> rebalance_in_flight_{false};
@@ -416,7 +403,6 @@ class Coordinator {
   std::optional<LastAutoRebalance> last_auto_rebalance_;
 
   // Helper methods
-  core::NodeId AllocateNodeId();
   core::CollectionId AllocateCollectionId();
   core::Timestamp GetCurrentTimestamp() const;
 

@@ -590,7 +590,9 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentManagerWriteRead") {
                                              core::MakeVectorId(25),
                                              core::MakeVectorId(50)};
 
-  auto read_result = manager.ReadVectors(segment_id.value(), query_ids);
+  auto* segment = manager.GetSegment(segment_id.value());
+  REQUIRE(segment != nullptr);
+  auto read_result = segment->ReadVectors(query_ids);
   INFO("ReadVectors failed: " << read_result.status().message());
   REQUIRE(read_result.ok());
 
@@ -658,9 +660,6 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentManagerDropSegment") {
   CHECK_EQ(manager.GetSegmentCount(), 0);
   CHECK_EQ(manager.GetSegment(segment_id.value()), nullptr);
 }
-
-// LocalStorage and StorageFactory tests removed — replaced by ISegmentStore.
-// See: tiered_segment_manager_test.cpp, s3_integration_test.cpp
 
 // =============================================================================
 // Get Vectors Tests
@@ -1847,34 +1846,6 @@ TEST_CASE_FIXTURE(RotationTest, "SealCallback_InvokedOnRotation") {
   // Callback should have been called with the original segment
   REQUIRE_EQ(sealed_ids.size(), 1);
   CHECK_EQ(sealed_ids[0], original_id);
-}
-
-TEST_CASE_FIXTURE(RotationTest, "GetQueryableSegments_ReturnsAllStates") {
-  // Create a segment and add vectors
-  auto seg_result = manager_->CreateSegment(collection_id_, dimension_, metric_);
-  REQUIRE(seg_result.ok());
-  auto seg1_id = *seg_result;
-
-  auto vecs = MakeVectors(10);
-  auto ids = MakeIds(10);
-  auto* seg1 = manager_->GetSegment(seg1_id);
-  REQUIRE(seg1->AddVectors(vecs, ids).ok());
-
-  // Seal it
-  core::IndexConfig config;
-  config.index_type = core::IndexType::FLAT;
-  config.dimension = dimension_;
-  config.metric_type = metric_;
-  REQUIRE(manager_->SealSegment(seg1_id, config).ok());
-  CHECK_EQ(seg1->GetState(), core::SegmentState::SEALED);
-
-  // Create a second GROWING segment
-  auto seg2_result = manager_->CreateSegment(collection_id_, dimension_, metric_);
-  REQUIRE(seg2_result.ok());
-
-  // GetQueryableSegments should return both SEALED and GROWING
-  auto queryable = manager_->GetQueryableSegments(collection_id_);
-  CHECK_EQ(queryable.size(), 2);
 }
 
 TEST_CASE_FIXTURE(RotationTest, "RotationPreservesCollectionMapping") {

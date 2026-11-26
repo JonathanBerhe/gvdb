@@ -129,12 +129,6 @@ class MetricsRegistry {
   void SetCollectionCount(uint64_t count);
 
   /**
-   * @brief Update memory usage gauge
-   * @param bytes Current memory usage in bytes
-   */
-  void SetMemoryUsage(uint64_t bytes);
-
-  /**
    * @brief Update the gauge of tiered-storage uploads that have failed and are
    *        awaiting a background retry. A non-zero value that does not fall back
    *        to zero indicates segments stranded on local disk.
@@ -143,7 +137,7 @@ class MetricsRegistry {
   void SetPendingFailedUploads(uint64_t count);
 
   // ============================================================================
-  // Auto-Rebalance Metrics (roadmap 0b.2)
+  // Auto-Rebalance Metrics
   // ============================================================================
 
   /**
@@ -225,7 +219,6 @@ class MetricsRegistry {
   prometheus::Family<prometheus::Counter>* get_requests_total_;
   prometheus::Family<prometheus::Counter>* delete_requests_total_;
   prometheus::Family<prometheus::Counter>* update_metadata_requests_total_;
-  prometheus::Family<prometheus::Counter>* grpc_errors_total_;
 
   // Latency histograms (in seconds)
   prometheus::Family<prometheus::Histogram>* insert_duration_seconds_;
@@ -240,10 +233,9 @@ class MetricsRegistry {
   // System gauges
   prometheus::Family<prometheus::Gauge>* vector_count_;
   prometheus::Family<prometheus::Gauge>* collection_count_;
-  prometheus::Family<prometheus::Gauge>* memory_usage_bytes_;
   prometheus::Family<prometheus::Gauge>* tiered_upload_failed_pending_;
 
-  // Auto-rebalance counters (roadmap 0b.2)
+  // Auto-rebalance counters
   prometheus::Family<prometheus::Counter>* auto_rebalance_triggered_;
   prometheus::Family<prometheus::Counter>* auto_rebalance_debounced_;
   prometheus::Family<prometheus::Counter>* auto_rebalance_moves_completed_;

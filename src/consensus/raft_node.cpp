@@ -14,6 +14,7 @@
 #include <chrono>
 #include <filesystem>
 #include <optional>
+#include <set>
 #include <thread>
 
 namespace gvdb {
@@ -178,7 +179,7 @@ core::Status RaftNode::Start() {
       return core::InvalidArgumentError(absl::StrCat(
           "coordinator_grpc_peers size (", config_.coordinator_grpc_peers.size(),
           ") must match --raft-peers size (", config_.peers.size(),
-          ") for correct leader-redirect indexing (roadmap 1.7b)"));
+          ") for correct leader-redirect indexing"));
     }
 
     auto status = InitializeNuRaft();
@@ -189,7 +190,7 @@ core::Status RaftNode::Start() {
     // If the peer probe during InitializeNuRaft found a live leader, we
     // skipped self-seeding and must now announce our join. Failure here
     // is fatal for startup: we have no cluster membership and no quorum.
-    // K8s will restart us, and the next probe will try again (roadmap 1.7b).
+    // K8s will restart us, and the next probe will try again.
     if (!joining_peer_.empty()) {
       auto join_status = AnnounceJoinToCluster();
       if (!join_status.ok()) {
@@ -299,7 +300,7 @@ struct LeaderProbeResult {
 // on fresh-PVC startup (persisted_cluster_size <= 1) to distinguish
 // "initial bootstrap" from "runtime scale-up": if any peer reports
 // leader_id > 0 we're joining an existing cluster and must NOT seed our
-// own cluster_config (roadmap 1.7b).
+// own cluster_config.
 //
 // Each RPC is bounded at 1.5s (matches the operator's existing pattern
 // in operator/internal/gvdbclient/client.go:230-243). The probe is
@@ -532,7 +533,7 @@ core::Status RaftNode::AnnounceJoinToCluster() {
   // Called from Start() after InitializeNuRaft returns, only when
   // joining_peer_ was set by the peer probe. Calls JoinCluster on the
   // responding peer; if that peer is a follower, it returns NOT_LEADER
-  // with current_leader_id, and we retry against the leader (roadmap 1.7b).
+  // with current_leader_id, and we retry against the leader.
   //
   // Retry strategy: exponential backoff (250ms → 500ms → 1s → 2s → 4s,
   // capped) bounded by an absolute wall-clock deadline of kTotalBudget.
@@ -639,151 +640,6 @@ core::Status RaftNode::AnnounceJoinToCluster() {
       attempt, " attempts within ", kTotalBudget.count(), "s"));
 }
 
-core::StatusOr<core::CollectionId> RaftNode::CreateCollection(
-    const std::string& name,
-    core::Dimension dimension,
-    core::MetricType metric_type,
-    core::IndexType index_type,
-    size_t replication_factor) {
-
-  if (!IsLeader()) {
-    return core::FailedPreconditionError("Not leader, cannot propose operations");
-  }
-
-  // Get timestamp from TSO
-  core::Timestamp ts = tso_.GetTimestamp();
-
-  // Apply directly to metadata store (in single-node mode, no consensus needed)
-  auto result = metadata_store_.CreateCollection(
-      name, dimension, metric_type, index_type, replication_factor, ts);
-
-  if (result.ok()) {
-    committed_ops_.fetch_add(1, std::memory_order_relaxed);
-  }
-
-  return result;
-}
-
-core::Status RaftNode::DropCollection(core::CollectionId collection_id) {
-  if (!IsLeader()) {
-    return core::FailedPreconditionError("Not leader, cannot propose operations");
-  }
-
-  core::Timestamp ts = tso_.GetTimestamp();
-
-  auto status = metadata_store_.DropCollection(collection_id, ts);
-
-  if (status.ok()) {
-    committed_ops_.fetch_add(1, std::memory_order_relaxed);
-  }
-
-  return status;
-}
-
-core::StatusOr<cluster::CollectionMetadata> RaftNode::GetCollectionMetadata(
-    core::CollectionId id) const {
-  return metadata_store_.GetCollectionMetadata(id);
-}
-
-core::StatusOr<cluster::CollectionMetadata> RaftNode::GetCollectionMetadata(
-    const std::string& name) const {
-  return metadata_store_.GetCollectionMetadata(name);
-}
-
-std::vector<cluster::CollectionMetadata> RaftNode::ListCollections() const {
-  return metadata_store_.ListCollections();
-}
-
-core::Status RaftNode::RegisterNode(const cluster::NodeInfo& node_info) {
-  if (!IsLeader()) {
-    return core::FailedPreconditionError("Not leader, cannot propose operations");
-  }
-
-  core::Timestamp ts = tso_.GetTimestamp();
-
-  auto status = metadata_store_.RegisterNode(node_info, ts);
-
-  if (status.ok()) {
-    committed_ops_.fetch_add(1, std::memory_order_relaxed);
-  }
-
-  return status;
-}
-
-core::Status RaftNode::UnregisterNode(core::NodeId node_id) {
-  if (!IsLeader()) {
-    return core::FailedPreconditionError("Not leader, cannot propose operations");
-  }
-
-  core::Timestamp ts = tso_.GetTimestamp();
-
-  auto status = metadata_store_.UnregisterNode(node_id, ts);
-
-  if (status.ok()) {
-    committed_ops_.fetch_add(1, std::memory_order_relaxed);
-  }
-
-  return status;
-}
-
-core::StatusOr<cluster::NodeInfo> RaftNode::GetNodeInfo(core::NodeId id) const {
-  return metadata_store_.GetNodeInfo(id);
-}
-
-std::vector<cluster::NodeInfo> RaftNode::ListNodes() const {
-  return metadata_store_.ListNodes();
-}
-
-size_t RaftNode::GetCommittedOpCount() const {
-  return committed_ops_.load(std::memory_order_relaxed);
-}
-
-core::Status RaftNode::ProposeOperation(const MetadataOp& op) {
-  if (!IsLeader()) {
-    return core::FailedPreconditionError("Not leader");
-  }
-
-  // Single-node mode: apply directly to metadata store
-  if (config_.single_node_mode) {
-    auto status = metadata_store_.Apply(op);
-    if (status.ok()) {
-      committed_ops_.fetch_add(1, std::memory_order_relaxed);
-    }
-    return status;
-  }
-
-  // Multi-node mode: propose through NuRaft
-  if (!raft_server_) {
-    return core::InternalError("NuRaft server not initialized");
-  }
-
-  // Serialize the operation using the state machine's serialization
-  auto buffer = MetadataStateMachine::SerializeMetadataOp(op);
-
-  // Propose to NuRaft (this will replicate and wait for commit)
-  auto result = raft_server_->append_entries({buffer});
-
-  if (!result->get_accepted()) {
-    return core::InternalError(
-        absl::StrCat("Raft proposal rejected: ",
-                     result->get_result_code()));
-  }
-
-  // Wait for commit (blocking mode)
-  // The state machine's commit() will be called when this is committed
-  // and it will apply to metadata_store_
-
-  // Check the result code
-  if (result->get_result_code() != nuraft::cmd_result_code::OK) {
-    return core::InternalError(
-        absl::StrCat("Raft commit failed with code: ",
-                     static_cast<int>(result->get_result_code())));
-  }
-
-  committed_ops_.fetch_add(1, std::memory_order_relaxed);
-  return core::OkStatus();
-}
-
 core::Status RaftNode::InitializeNuRaft() {
   utils::Logger::Instance().Info("Initializing NuRaft for multi-node mode");
 
@@ -791,13 +647,12 @@ core::Status RaftNode::InitializeNuRaft() {
   nuraft_logger_ = nuraft::cs_new<NuRaftLoggerAdapter>();
   nuraft_logger_->set_level(4);  // INFO level
 
-  // Create metadata state machine with shared metadata store
-  // This ensures both single-node and multi-node modes use the same store
-  state_machine_ = std::make_shared<MetadataStateMachine>(&metadata_store_);
+  // Create the NuRaft state machine
+  state_machine_ = std::make_shared<MetadataStateMachine>();
 
   // The NuRaft srv_config endpoint is what peers use to connect to us —
   // prefer the explicit advertise_address (K8s FQDN) and fall back to
-  // listen_address for single-node / backward-compat paths (roadmap 0b.4).
+  // listen_address for single-node / backward-compat paths.
   const std::string& advertise = config_.advertise_address.empty()
       ? config_.listen_address
       : config_.advertise_address;
@@ -812,7 +667,7 @@ core::Status RaftNode::InitializeNuRaft() {
       log_path,
       state_path);
 
-  // Seed the cluster configuration with the declared peers (roadmap 0b.4).
+  // Seed the cluster configuration with the declared peers.
   // Accepted format for each entry: "id:host:port" — self is identified by
   // matching `id` against `config_.node_id` and skipped. Without this step
   // NuRaft starts with a single-server cluster config and no quorum ever
@@ -829,7 +684,7 @@ core::Status RaftNode::InitializeNuRaft() {
     if (!plan.ok()) return plan.status();
 
     if (plan->needs_seed) {
-      // Bootstrap-vs-join detection (roadmap 1.7b). Probe declared
+      // Bootstrap-vs-join detection. Probe declared
       // coordinator gRPC peers for a live Raft leader. If one is found, we
       // are runtime-joining an existing cluster: leave existing config as
       // just-self, remember the responding peer for an AnnounceJoin call

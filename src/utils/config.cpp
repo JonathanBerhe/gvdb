@@ -3,9 +3,6 @@
 
 #include "utils/config.h"
 
-#include <fstream>
-#include <sstream>
-
 #include "absl/strings/str_cat.h"
 #include "yaml-cpp/yaml.h"
 
@@ -269,83 +266,6 @@ absl::Status Config::validate(const GVDBConfig& config) {
   }
 
   return absl::OkStatus();
-}
-
-absl::Status Config::save_to_file(const GVDBConfig& config, const std::string& config_path) {
-  try {
-    YAML::Emitter out;
-    out << YAML::BeginMap;
-
-    // Server config
-    out << YAML::Key << "server" << YAML::Value << YAML::BeginMap;
-    out << YAML::Key << "bind_address" << YAML::Value << config.server.bind_address;
-    out << YAML::Key << "grpc_port" << YAML::Value << config.server.grpc_port;
-    out << YAML::Key << "metrics_port" << YAML::Value << config.server.metrics_port;
-    out << YAML::Key << "max_message_size_mb" << YAML::Value << config.server.max_message_size_mb;
-    out << YAML::Key << "max_concurrent_streams" << YAML::Value << config.server.max_concurrent_streams;
-    out << YAML::EndMap;
-
-    // Storage config
-    out << YAML::Key << "storage" << YAML::Value << YAML::BeginMap;
-    out << YAML::Key << "data_dir" << YAML::Value << config.storage.data_dir;
-    out << YAML::Key << "segment_max_size_mb" << YAML::Value << config.storage.segment_max_size_mb;
-    out << YAML::Key << "wal_buffer_size_mb" << YAML::Value << config.storage.wal_buffer_size_mb;
-    out << YAML::Key << "enable_compression" << YAML::Value << config.storage.enable_compression;
-    out << YAML::Key << "compaction_threads" << YAML::Value << config.storage.compaction_threads;
-    out << YAML::EndMap;
-
-    // Index config
-    out << YAML::Key << "index" << YAML::Value << YAML::BeginMap;
-    out << YAML::Key << "default_index_type" << YAML::Value << config.index.default_index_type;
-    out << YAML::Key << "hnsw_m" << YAML::Value << config.index.hnsw_m;
-    out << YAML::Key << "hnsw_ef_construction" << YAML::Value << config.index.hnsw_ef_construction;
-    out << YAML::Key << "hnsw_ef_search" << YAML::Value << config.index.hnsw_ef_search;
-    out << YAML::Key << "ivf_nlist" << YAML::Value << config.index.ivf_nlist;
-    out << YAML::Key << "use_gpu" << YAML::Value << config.index.use_gpu;
-    out << YAML::EndMap;
-
-    // Logging config
-    out << YAML::Key << "logging" << YAML::Value << YAML::BeginMap;
-    out << YAML::Key << "level" << YAML::Value << config.logging.level;
-    out << YAML::Key << "console_enabled" << YAML::Value << config.logging.console_enabled;
-    out << YAML::Key << "file_enabled" << YAML::Value << config.logging.file_enabled;
-    out << YAML::Key << "file_path" << YAML::Value << config.logging.file_path;
-    out << YAML::Key << "max_file_size_mb" << YAML::Value << config.logging.max_file_size_mb;
-    out << YAML::Key << "max_files" << YAML::Value << config.logging.max_files;
-    out << YAML::EndMap;
-
-    // Consensus config
-    out << YAML::Key << "consensus" << YAML::Value << YAML::BeginMap;
-    out << YAML::Key << "node_id" << YAML::Value << config.consensus.node_id;
-    out << YAML::Key << "single_node_mode" << YAML::Value << config.consensus.single_node_mode;
-    out << YAML::Key << "election_timeout_ms" << YAML::Value << config.consensus.election_timeout_ms;
-    out << YAML::Key << "heartbeat_interval_ms" << YAML::Value << config.consensus.heartbeat_interval_ms;
-
-    if (!config.consensus.peers.empty()) {
-      out << YAML::Key << "peers" << YAML::Value << YAML::BeginSeq;
-      for (const auto& peer : config.consensus.peers) {
-        out << peer;
-      }
-      out << YAML::EndSeq;
-    }
-    out << YAML::EndMap;
-
-    out << YAML::EndMap;
-
-    // Write to file
-    std::ofstream fout(config_path);
-    if (!fout) {
-      return absl::InternalError("Failed to open file for writing");
-    }
-    fout << out.c_str();
-    fout.close();
-
-    return absl::OkStatus();
-
-  } catch (const std::exception& e) {
-    return absl::InternalError(
-        absl::StrCat("Failed to save config file: ", e.what()));
-  }
 }
 
 }  // namespace utils

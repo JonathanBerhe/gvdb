@@ -73,8 +73,6 @@ class TieredSegmentManager : public ISegmentStore {
   [[nodiscard]] core::Status DropSegment(
       core::SegmentId id, bool delete_files = false) override;
 
-  [[nodiscard]] core::Status LoadSegment(core::SegmentId id) override;
-
   [[nodiscard]] core::Status AddReplicatedSegment(
       std::unique_ptr<Segment> segment) override;
 
@@ -82,14 +80,6 @@ class TieredSegmentManager : public ISegmentStore {
       core::SegmentId segment_id,
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) override;
-
-  [[nodiscard]] core::StatusOr<std::vector<core::Vector>> ReadVectors(
-      core::SegmentId segment_id,
-      const std::vector<core::VectorId>& ids) const override;
-
-  [[nodiscard]] core::StatusOr<core::SearchResult> SearchSegment(
-      core::SegmentId segment_id,
-      const core::Vector& query, int k) const override;
 
   [[nodiscard]] core::StatusOr<core::SearchResult> SearchCollection(
       core::CollectionId collection_id,
@@ -101,11 +91,6 @@ class TieredSegmentManager : public ISegmentStore {
       core::CollectionId collection_id,
       size_t required_bytes = 0) override;
 
-  [[nodiscard]] std::vector<Segment*> GetQueryableSegments(
-      core::CollectionId collection_id) const override;
-
-  [[nodiscard]] std::vector<core::SegmentId> GetAllSegmentIds() const override;
-
   void RunTTLSweepLoop(const std::atomic<bool>& shutdown) override;
 
   [[nodiscard]] absl::Status LoadAllSegments() override;
@@ -114,7 +99,6 @@ class TieredSegmentManager : public ISegmentStore {
       core::CollectionId collection_id) const override;
 
   [[nodiscard]] size_t GetSegmentCount() const override;
-  [[nodiscard]] size_t GetTotalMemoryUsage() const override;
 
   [[nodiscard]] size_t GetMaxSegmentSize() const override {
     return local_->GetMaxSegmentSize();
@@ -123,12 +107,6 @@ class TieredSegmentManager : public ISegmentStore {
   void Clear() override;
 
   // ── S3-specific accessors (for testing / diagnostics) ──
-
-  // Number of segments known to exist in object storage
-  [[nodiscard]] size_t GetRemoteSegmentCount() const;
-
-  // Whether a segment is currently being uploaded
-  [[nodiscard]] bool IsUploading(core::SegmentId id) const;
 
   // Segment IDs whose S3 upload failed (for monitoring / retry)
   [[nodiscard]] std::vector<core::SegmentId> GetFailedUploads() const;
@@ -222,9 +200,6 @@ class TieredSegmentManager : public ISegmentStore {
   [[nodiscard]] std::string MakeS3Key(
       uint32_t collection_id, uint32_t segment_id,
       const std::string& filename) const;
-
-  // Get the local base path from the underlying SegmentManager
-  [[nodiscard]] const std::string& GetLocalBasePath() const;
 };
 
 }  // namespace storage

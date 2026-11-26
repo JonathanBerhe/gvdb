@@ -17,7 +17,6 @@ namespace core {
 
 // Forward declarations
 struct IndexConfig;
-struct StorageConfig;
 
 // ============================================================================
 // IVectorIndex - Abstract interface for all vector index implementations
@@ -89,68 +88,6 @@ class IVectorIndex {
 };
 
 // ============================================================================
-// IStorage - Abstract interface for storage backends
-// ============================================================================
-class IStorage {
- public:
-  virtual ~IStorage() = default;
-
-  // Segment operations
-
-  // Create a new segment
-  [[nodiscard]] virtual StatusOr<SegmentId> CreateSegment(
-      CollectionId collection_id) = 0;
-
-  // Write vectors to a segment
-  [[nodiscard]] virtual Status WriteVectors(
-      SegmentId segment_id,
-      const std::vector<Vector>& vectors,
-      const std::vector<VectorId>& ids) = 0;
-
-  // Read vectors from a segment
-  [[nodiscard]] virtual StatusOr<std::vector<Vector>> ReadVectors(
-      SegmentId segment_id,
-      const std::vector<VectorId>& ids) = 0;
-
-  // Seal a segment (make it read-only)
-  [[nodiscard]] virtual Status SealSegment(SegmentId segment_id) = 0;
-
-  // Flush segment to persistent storage
-  [[nodiscard]] virtual Status FlushSegment(SegmentId segment_id) = 0;
-
-  // Drop a segment
-  [[nodiscard]] virtual Status DropSegment(SegmentId segment_id) = 0;
-
-  // Get segment state
-  [[nodiscard]] virtual StatusOr<SegmentState> GetSegmentState(
-      SegmentId segment_id) const = 0;
-
-  // Metadata operations
-
-  // Store metadata
-  [[nodiscard]] virtual Status PutMetadata(
-      const std::string& key, const std::string& value) = 0;
-
-  // Retrieve metadata
-  [[nodiscard]] virtual StatusOr<std::string> GetMetadata(
-      const std::string& key) const = 0;
-
-  // Delete metadata
-  [[nodiscard]] virtual Status DeleteMetadata(const std::string& key) = 0;
-
-  // Storage management
-
-  // Get storage size in bytes
-  [[nodiscard]] virtual size_t GetStorageSize() const = 0;
-
-  // Compact storage (remove deleted data)
-  [[nodiscard]] virtual Status Compact() = 0;
-
-  // Close storage
-  [[nodiscard]] virtual Status Close() = 0;
-};
-
-// ============================================================================
 // IIndexFactory - Factory interface for creating index instances
 // ============================================================================
 class IIndexFactory {
@@ -160,18 +97,6 @@ class IIndexFactory {
   // Create an index instance based on configuration
   [[nodiscard]] virtual StatusOr<std::unique_ptr<IVectorIndex>> CreateIndex(
       const IndexConfig& config) = 0;
-};
-
-// ============================================================================
-// IStorageFactory - Factory interface for creating storage instances
-// ============================================================================
-class IStorageFactory {
- public:
-  virtual ~IStorageFactory() = default;
-
-  // Create a storage instance based on configuration
-  [[nodiscard]] virtual StatusOr<std::unique_ptr<IStorage>> CreateStorage(
-      const StorageConfig& config) = 0;
 };
 
 }  // namespace core

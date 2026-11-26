@@ -171,8 +171,8 @@ Coordinator::~Coordinator() {
 absl::Status Coordinator::Start(const std::string& bind_address) {
   utils::Logger::Instance().Info("Starting coordinator on {}", bind_address);
 
-  // Seed the "known data nodes" set with whoever is already heartbeating
-  // (roadmap 0b.2 review #3). Without this, every existing data node
+  // Seed the "known data nodes" set with whoever is already heartbeating.
+  // Without this, every existing data node
   // looks "new" on the first health-check cycle after a coordinator
   // restart → we would fire an unnecessary rebalance even if the cluster
   // was already balanced. Seeding on Start() means only nodes that join
@@ -207,7 +207,7 @@ absl::Status Coordinator::Shutdown() {
 
   // Always wait for any in-flight auto-rebalance worker — even if Start()
   // was never called — so that a joinable std::thread isn't destroyed
-  // and doesn't std::terminate the process (roadmap 0b.2 review #1).
+  // and doesn't std::terminate the process.
   // Tests construct a Coordinator and call DetectNewDataNodes directly
   // without Start(); the worker thread is still live.
   {
@@ -223,10 +223,6 @@ absl::Status Coordinator::Shutdown() {
   }
 
   return absl::OkStatus();
-}
-
-core::NodeId Coordinator::AllocateNodeId() {
-  return core::MakeNodeId(next_node_id_.fetch_add(1, std::memory_order_relaxed));
 }
 
 core::CollectionId Coordinator::AllocateCollectionId() {
@@ -265,76 +261,6 @@ absl::Status Coordinator::RegisterNode(const NodeInfo& node_info) {
   return absl::OkStatus();
 }
 
-absl::Status Coordinator::UnregisterNode(core::NodeId node_id) {
-  // Check if node exists in NodeRegistry
-  RegisteredNode existing;
-  if (!node_registry_->GetNode(core::ToUInt32(node_id), &existing)) {
-    return absl::NotFoundError(
-        absl::StrCat("Node not found: ", core::ToUInt32(node_id)));
-  }
-
-  // Remove from NodeRegistry
-  node_registry_->RemoveNode(core::ToUInt32(node_id));
-
-  // Unregister from shard manager
-  shard_manager_->UnregisterNode(node_id, false).IgnoreError();
-
-  utils::Logger::Instance().Info("Unregistered node {}", core::ToUInt32(node_id));
-
-  return absl::OkStatus();
-}
-
-absl::Status Coordinator::UpdateNodeStatus(core::NodeId node_id, NodeStatus status) {
-  // Get current node info from registry
-  RegisteredNode existing;
-  if (!node_registry_->GetNode(core::ToUInt32(node_id), &existing)) {
-    return absl::NotFoundError(
-        absl::StrCat("Node not found: ", core::ToUInt32(node_id)));
-  }
-
-  // Convert current info and update status
-  NodeInfo info = ConvertRegisteredNode(existing);
-  info.status = status;
-  node_registry_->UpdateNode(ToProtoNodeInfo(info));
-
-  utils::Logger::Instance().Info("Updated node {} status to {}",
-                                 core::ToUInt32(node_id),
-                                 static_cast<int>(status));
-
-  return absl::OkStatus();
-}
-
-absl::Status Coordinator::ProcessHeartbeat(core::NodeId /*node_id*/, const NodeInfo& node_info) {
-  // Delegate to NodeRegistry — UpdateNode refreshes the heartbeat timestamp
-  node_registry_->UpdateNode(ToProtoNodeInfo(node_info));
-  return absl::OkStatus();
-}
-
-absl::StatusOr<NodeInfo> Coordinator::GetNodeInfo(core::NodeId node_id) const {
-  RegisteredNode reg_node;
-  if (!node_registry_->GetNode(core::ToUInt32(node_id), &reg_node)) {
-    return absl::NotFoundError(
-        absl::StrCat("Node not found: ", core::ToUInt32(node_id)));
-  }
-
-  return ConvertRegisteredNode(reg_node);
-}
-
-std::vector<NodeInfo> Coordinator::GetAllNodes() const {
-  // Get all nodes from NodeRegistry (includes both healthy and failed)
-  auto registered_nodes = node_registry_->GetAllNodes();
-
-  // Convert to Coordinator::NodeInfo
-  std::vector<NodeInfo> result;
-  result.reserve(registered_nodes.size());
-
-  for (const auto& reg_node : registered_nodes) {
-    result.push_back(ConvertRegisteredNode(reg_node));
-  }
-
-  return result;
-}
-
 std::vector<NodeInfo> Coordinator::GetHealthyNodes(NodeType type) const {
   // Convert Coordinator::NodeType to proto::internal::NodeType
   proto::internal::NodeType proto_type;
@@ -358,7 +284,7 @@ std::vector<NodeInfo> Coordinator::GetHealthyNodes(NodeType type) const {
 
   // Get nodes fit to receive new work — healthy AND not draining. Draining
   // nodes have sent a graceful-shutdown heartbeat and should not be targets
-  // of new placement or replication (roadmap 0b.1).
+  // of new placement or replication.
   auto registered_nodes = node_registry_->GetRoutableNodesByType(proto_type);
 
   // Convert to Coordinator::NodeInfo
@@ -586,22 +512,6 @@ absl::Status Coordinator::DropCollection(const std::string& name) {
   return absl::OkStatus();
 }
 
-absl::Status Coordinator::DropCollection(core::CollectionId collection_id) {
-  std::shared_lock lock(collection_mutex_);
-
-  auto it = collections_.find(collection_id);
-  if (it == collections_.end()) {
-    return absl::NotFoundError(
-        absl::StrCat("Collection not found: ", core::ToUInt32(collection_id)));
-  }
-
-  std::string name = it->second.collection_name;
-  lock.unlock();  // Release lock before calling the other overload
-
-  // Delegate to the by-name implementation which handles distributed cleanup
-  return DropCollection(name);
-}
-
 absl::StatusOr<CollectionMetadata> Coordinator::GetCollectionMetadata(
     const std::string& name) const {
   std::shared_lock lock(collection_mutex_);
@@ -713,27 +623,6 @@ absl::Status Coordinator::AssignShardsToCollection(core::CollectionId collection
   return absl::OkStatus();
 }
 
-bool Coordinator::IsHealthy() const {
-  return GetHealthyNodeCount() > 0;
-}
-
-size_t Coordinator::GetHealthyNodeCount() const {
-  // Get all healthy nodes from NodeRegistry
-  auto healthy_nodes = node_registry_->GetHealthyNodes();
-  return healthy_nodes.size();
-}
-
-float Coordinator::GetClusterLoad() const {
-  auto all_nodes = node_registry_->GetAllNodes();
-  if (all_nodes.empty()) {
-    return 0.0f;
-  }
-
-  // NodeInfo carries no CPU usage, so every node contributes 0.
-  float total_cpu = 0.0f;
-  return total_cpu / all_nodes.size();
-}
-
 void Coordinator::StartHealthCheckLoop() {
   health_check_thread_ = std::make_unique<std::thread>([this] { HealthCheckLoop(); });
   utils::Logger::Instance().Info("Health check loop started");
@@ -757,8 +646,8 @@ void Coordinator::HealthCheckLoop() {
     // would be handled as a failure instead (less graceful).
     DetectDrainingNodes();
     DetectFailedNodes();
-    // Fire auto-rebalance if any new data node has joined since last cycle
-    // (roadmap 0b.2). Ordered after drain/failure so we don't rebalance
+    // Fire auto-rebalance if any new data node has joined since last cycle.
+    // Ordered after drain/failure so we don't rebalance
     // onto nodes that are actively leaving.
     DetectNewDataNodes();
     CheckReplication();
@@ -832,8 +721,8 @@ void Coordinator::DetectNewDataNodes() {
 
     // Debounce: in a rolling restart scenario, several pods come up in
     // quick succession. Only fire the rebalance once per debounce window
-    // regardless of how many nodes newly joined (review #13: timestamp is
-    // read+written under the same mutex as known_data_nodes_).
+    // regardless of how many nodes newly joined. The timestamp is read and
+    // written under the same mutex as known_data_nodes_.
     const auto now = std::chrono::steady_clock::now();
     if (last_auto_rebalance_at_ != std::chrono::steady_clock::time_point{} &&
         now - last_auto_rebalance_at_ < auto_rebalance_config_.debounce) {
@@ -859,8 +748,7 @@ void Coordinator::DetectNewDataNodes() {
 
   // Overlap guard: one rebalance thread at a time. If a worker is still
   // running from a previous trigger, drop this one rather than spawn a
-  // concurrent rebalance that would double-count moves and log noise
-  // (review #2).
+  // concurrent rebalance that would double-count moves and log noise.
   bool expected = false;
   if (!rebalance_in_flight_.compare_exchange_strong(
           expected, true, std::memory_order_acq_rel)) {
@@ -876,8 +764,8 @@ void Coordinator::DetectNewDataNodes() {
       "ExecuteRebalancePlan", ids_str);
   utils::MetricsRegistry::Instance().IncAutoRebalanceTriggered();
 
-  // Join any previous finished worker so we don't leak the thread handle
-  // (review #1). Then start a new one.
+  // Join any previous finished worker so we don't leak the thread handle.
+  // Then start a new one.
   {
     std::lock_guard lock(rebalance_worker_mutex_);
     if (rebalance_worker_ && rebalance_worker_->joinable()) {
@@ -931,7 +819,7 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
     (void)shard_manager_->UnregisterNode(draining_node_id, /*graceful=*/true);
     {
       // Same pruning as the post-migration path: let a future rejoin
-      // be detected as a scale-up event (0b.2).
+      // be detected as a scale-up event.
       std::lock_guard lock(known_nodes_mutex_);
       known_data_nodes_.erase(draining_node_id);
     }
@@ -962,9 +850,9 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
         // cycle — either another node becomes routable or the draining
         // node's heartbeat eventually times out and HandleFailedNode
         // takes over with its own replica-promotion logic. Proactive
-        // segment replication to a fresh node is deferred to a later
-        // phase of 0b.3 (needs the collection context to compute
-        // ShardSegmentId and bounded concurrency).
+        // segment replication to a fresh node is not done here: it needs
+        // the collection context to compute ShardSegmentId and bounded
+        // concurrency.
         utils::Logger::Instance().Warn(
             "Drain: no routable replica for shard {} on draining node {}; "
             "will retry next cycle",
@@ -1011,7 +899,7 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
     (void)shard_manager_->UnregisterNode(draining_node_id, /*graceful=*/true);
     {
       // Forget this node so a future rejoin (same id) is treated as a
-      // genuine scale-up event and auto-rebalance fires again (0b.2).
+      // genuine scale-up event and auto-rebalance fires again.
       std::lock_guard lock(known_nodes_mutex_);
       known_data_nodes_.erase(draining_node_id);
     }
@@ -1276,7 +1164,7 @@ void Coordinator::HandleFailedNode(core::NodeId failed_node_id) {
   shard_manager_->UnregisterNode(failed_node_id, false).IgnoreError();
   {
     // Same pruning as the drain path: allow a future rejoin to be detected
-    // as a scale-up event (0b.2).
+    // as a scale-up event.
     std::lock_guard lock(known_nodes_mutex_);
     known_data_nodes_.erase(failed_node_id);
   }
