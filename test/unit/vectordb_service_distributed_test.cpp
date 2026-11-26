@@ -2,7 +2,8 @@
 #include <grpcpp/grpcpp.h>
 #include <atomic>
 #include <filesystem>
-#include <thread>
+#include <random>
+#include <string>
 
 #include "network/vectordb_service.h"
 #include "network/collection_resolver.h"
@@ -14,14 +15,32 @@
 
 using namespace gvdb;
 
+namespace {
+
+// A per-fixture data directory under the system temp dir, unique across
+// processes and fixture instances.
+std::string UniqueTestDir() {
+  std::random_device rd;
+  std::mt19937_64 gen(rd());
+  return (std::filesystem::temp_directory_path() /
+          ("gvdb_vectordb_distributed_test_" + std::to_string(gen())))
+      .string();
+}
+
+}  // namespace
+
 // ============================================================================
 // Mock Coordinator InternalService
 // ============================================================================
 
+// Answers like the real InternalService::GetCollectionMetadata: a known
+// collection gets found=true with its metadata, and an unknown one gets OK
+// with found=false (not a gRPC error). should_fail makes the RPC itself fail,
+// as when the coordinator cannot serve the call.
 class MockCoordinatorInternalService : public proto::internal::InternalService::Service {
  public:
   std::atomic<int> get_collection_metadata_calls{0};
-  bool should_fail{false};
+  std::atomic<bool> should_fail{false};
 
   grpc::Status GetCollectionMetadata(
       grpc::ServerContext* /*context*/,
@@ -30,7 +49,8 @@ class MockCoordinatorInternalService : public proto::internal::InternalService::
     get_collection_metadata_calls++;
 
     if (should_fail) {
-      return grpc::Status(grpc::StatusCode::NOT_FOUND, "Collection not found");
+      return grpc::Status(grpc::StatusCode::UNAVAILABLE,
+                          "Coordinator unavailable");
     }
 
     // Return mock collection metadata
@@ -58,7 +78,8 @@ class MockCoordinatorInternalService : public proto::internal::InternalService::
       }
     }
 
-    return grpc::Status(grpc::StatusCode::NOT_FOUND, "Collection not found");
+    response->set_found(false);
+    return grpc::Status::OK;
   }
 };
 
@@ -69,7 +90,7 @@ class MockCoordinatorInternalService : public proto::internal::InternalService::
 struct VectorDBServiceDistributedTest {
   VectorDBServiceDistributedTest() {
     // Create test directory
-    test_dir_ = "/tmp/gvdb_vectordb_distributed_test";
+    test_dir_ = UniqueTestDir();
     std::filesystem::create_directories(test_dir_);
 
     // Create index factory and segment manager
@@ -79,12 +100,10 @@ struct VectorDBServiceDistributedTest {
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
 
-    // Start mock coordinator InternalService on dynamic port
+    // Start mock coordinator InternalService on dynamic port. BuildAndStart
+    // returns once the server listens, so no wait is needed before use.
     mock_coordinator_ = std::make_unique<MockCoordinatorInternalService>();
     coordinator_address_ = StartCoordinator();
-
-    // Give server time to start
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Create VectorDBService in DISTRIBUTED mode
     auto resolver = network::MakeCachedCoordinatorResolver(coordinator_address_);
@@ -121,6 +140,8 @@ struct VectorDBServiceDistributedTest {
     builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &selected_port);
     builder.RegisterService(mock_coordinator_.get());
     coordinator_server_ = builder.BuildAndStart();
+    REQUIRE(coordinator_server_ != nullptr);
+    REQUIRE_GT(selected_port, 0);
 
     // Return the actual address with assigned port
     return "localhost:" + std::to_string(selected_port);
@@ -135,33 +156,6 @@ struct VectorDBServiceDistributedTest {
   std::unique_ptr<grpc::Server> coordinator_server_;
   std::unique_ptr<network::VectorDBService> service_;
 };
-
-// ============================================================================
-// Basic Functionality Tests
-// ============================================================================
-
-TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "HealthCheck") {
-  grpc::ServerContext context;
-  proto::HealthCheckRequest request;
-  proto::HealthCheckResponse response;
-
-  auto status = service_->HealthCheck(&context, &request, &response);
-
-  CHECK(status.ok());
-  CHECK_EQ(response.status(), proto::HealthCheckResponse::SERVING);
-}
-
-TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "GetStatsEmpty") {
-  grpc::ServerContext context;
-  proto::GetStatsRequest request;
-  proto::GetStatsResponse response;
-
-  auto status = service_->GetStats(&context, &request, &response);
-
-  CHECK(status.ok());
-  CHECK_EQ(response.total_collections(), 0);
-  CHECK_EQ(response.total_vectors(), 0);
-}
 
 // ============================================================================
 // Metadata Pull-on-Miss Tests
@@ -297,8 +291,8 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "MetadataCacheReusedOnSecondSe
 }
 
 TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "SearchNonexistentCollectionFailsGracefully") {
-  mock_coordinator_->should_fail = true;
-
+  // The coordinator answers the lookup with OK and found=false, as the real
+  // InternalService does. The data node must turn that into NOT_FOUND.
   grpc::ServerContext context;
   proto::SearchRequest request;
   request.set_collection_name("nonexistent_collection");
@@ -315,6 +309,55 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "SearchNonexistentCollectionFa
   CHECK_FALSE(status.ok());
   CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
   CHECK_GE(mock_coordinator_->get_collection_metadata_calls.load(), 1);
+}
+
+TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "CoordinatorLookupErrorIsNotCached") {
+  auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
+  REQUIRE(segment_store_->CreateSegmentWithId(
+      segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2,
+      core::IndexType::FLAT).ok());
+  auto* segment = segment_store_->GetSegment(segment_id);
+  REQUIRE_NE(segment, nullptr);
+  REQUIRE(segment->AddVectors({core::Vector(std::vector<float>(128, 1.0f))},
+                              {core::MakeVectorId(1)}).ok());
+
+  auto search = [&](proto::SearchResponse* response) {
+    grpc::ServerContext context;
+    proto::SearchRequest request;
+    request.set_collection_name("test_collection");
+    auto* query = request.mutable_query_vector();
+    query->set_dimension(128);
+    for (int i = 0; i < 128; ++i) {
+      query->add_values(1.0f);
+    }
+    request.set_top_k(5);
+    return service_->Search(&context, &request, response);
+  };
+
+  // The lookup RPC fails. The search fails too, and the failure is not
+  // reported as a missing collection.
+  mock_coordinator_->should_fail = true;
+  {
+    proto::SearchResponse response;
+    auto status = search(&response);
+    CHECK_FALSE(status.ok());
+    CHECK_NE(status.error_code(), grpc::StatusCode::NOT_FOUND);
+    CHECK_EQ(response.results_size(), 0);
+  }
+  CHECK_EQ(mock_coordinator_->get_collection_metadata_calls.load(), 1);
+
+  // Once the coordinator answers again, the next search asks it again and
+  // succeeds: the failed lookup was not cached.
+  mock_coordinator_->should_fail = false;
+  {
+    proto::SearchResponse response;
+    auto status = search(&response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    REQUIRE_EQ(response.results_size(), 1);
+    CHECK_EQ(response.results(0).id(), 1);
+  }
+  CHECK_EQ(mock_coordinator_->get_collection_metadata_calls.load(), 2);
 }
 
 // ============================================================================
@@ -433,12 +476,10 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "DeleteVectors") {
 // ============================================================================
 
 TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "CoordinatorUnavailableDuringSearch") {
-  // Shutdown coordinator
+  // Shutdown coordinator. Shutdown blocks until the server stops serving, so
+  // no wait is needed afterwards.
   coordinator_server_->Shutdown();
   coordinator_server_.reset();
-
-  // Wait for shutdown
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   grpc::ServerContext context;
   proto::SearchRequest request;

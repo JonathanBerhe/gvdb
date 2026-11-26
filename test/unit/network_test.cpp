@@ -1,5 +1,13 @@
 #include <doctest/doctest.h>
 
+#include <cmath>
+#include <cstdint>
+#include <filesystem>
+#include <random>
+#include <set>
+#include <string>
+#include <vector>
+
 #include "network/proto_conversions.h"
 #include "network/vectordb_service.h"
 #include "network/collection_resolver.h"
@@ -9,6 +17,43 @@
 #include "core/vector.h"
 
 using namespace gvdb;
+
+namespace {
+
+// A per-fixture data directory under the system temp dir, unique across
+// processes and fixture instances.
+std::string UniqueTestDir(const std::string& prefix) {
+  std::random_device rd;
+  std::mt19937_64 gen(rd());
+  return (std::filesystem::temp_directory_path() /
+          (prefix + "_" + std::to_string(gen())))
+      .string();
+}
+
+proto::VectorWithId MakeVector(uint64_t id, const std::vector<float>& values) {
+  proto::VectorWithId v;
+  v.set_id(id);
+  v.mutable_vector()->set_dimension(static_cast<uint32_t>(values.size()));
+  for (float f : values) v.mutable_vector()->add_values(f);
+  return v;
+}
+
+std::set<uint64_t> ResultIds(const proto::SearchResponse& response) {
+  std::set<uint64_t> ids;
+  for (const auto& r : response.results()) ids.insert(r.id());
+  return ids;
+}
+
+// Returns a copy of the named metadata field, which must be present. A copy,
+// because callers pass the key as a temporary string.
+proto::MetadataValue FieldOf(const proto::Metadata& metadata, const std::string& key) {
+  auto it = metadata.fields().find(key);
+  REQUIRE_MESSAGE(it != metadata.fields().end(),
+                  "missing metadata field: " << key);
+  return it->second;
+}
+
+}  // namespace
 
 // ============================================================================
 // Proto Conversion Tests
@@ -82,17 +127,60 @@ TEST_CASE_FIXTURE(ProtoConversionTest, "MetricTypeConversion") {
 }
 
 TEST_CASE_FIXTURE(ProtoConversionTest, "IndexTypeConversion") {
-  auto flat = network::fromProto(proto::CreateCollectionRequest::FLAT);
-  REQUIRE(flat.ok());
-  CHECK_EQ(*flat, core::IndexType::FLAT);
+  struct Case {
+    proto::CreateCollectionRequest::IndexType proto_type;
+    core::IndexType core_type;
+  };
+  const std::vector<Case> cases = {
+      {proto::CreateCollectionRequest::FLAT, core::IndexType::FLAT},
+      {proto::CreateCollectionRequest::HNSW, core::IndexType::HNSW},
+      {proto::CreateCollectionRequest::IVF_FLAT, core::IndexType::IVF_FLAT},
+      {proto::CreateCollectionRequest::IVF_PQ, core::IndexType::IVF_PQ},
+      {proto::CreateCollectionRequest::IVF_SQ, core::IndexType::IVF_SQ},
+      {proto::CreateCollectionRequest::IVF_TURBOQUANT,
+       core::IndexType::IVF_TURBOQUANT},
+      {proto::CreateCollectionRequest::TURBOQUANT, core::IndexType::TURBOQUANT},
+      {proto::CreateCollectionRequest::AUTO, core::IndexType::AUTO},
+  };
+  // Every proto value is listed, so a new one must be added here too.
+  CHECK_EQ(cases.size(), static_cast<size_t>(
+      proto::CreateCollectionRequest::IndexType_descriptor()->value_count()));
 
-  auto hnsw = network::fromProto(proto::CreateCollectionRequest::HNSW);
-  REQUIRE(hnsw.ok());
-  CHECK_EQ(*hnsw, core::IndexType::HNSW);
+  for (const auto& c : cases) {
+    const std::string name =
+        proto::CreateCollectionRequest::IndexType_Name(c.proto_type);
+    CAPTURE(name);
+    auto result = network::fromProto(c.proto_type);
+    REQUIRE(result.ok());
+    CHECK_EQ(*result, c.core_type);
+  }
+}
 
-  auto ivf = network::fromProto(proto::CreateCollectionRequest::IVF_FLAT);
-  REQUIRE(ivf.ok());
-  CHECK_EQ(*ivf, core::IndexType::IVF_FLAT);
+// The coordinator sends the index type to data nodes as a string (toString)
+// and the data node parses it back (indexTypeFromString).
+TEST_CASE_FIXTURE(ProtoConversionTest, "IndexTypeStringRoundTrip") {
+  struct Case {
+    core::IndexType type;
+    std::string name;
+  };
+  const std::vector<Case> cases = {
+      {core::IndexType::FLAT, "FLAT"},
+      {core::IndexType::HNSW, "HNSW"},
+      {core::IndexType::IVF_FLAT, "IVF_FLAT"},
+      {core::IndexType::IVF_PQ, "IVF_PQ"},
+      {core::IndexType::IVF_SQ, "IVF_SQ"},
+      {core::IndexType::TURBOQUANT, "TURBOQUANT"},
+      {core::IndexType::IVF_TURBOQUANT, "IVF_TURBOQUANT"},
+      {core::IndexType::AUTO, "AUTO"},
+  };
+
+  for (const auto& c : cases) {
+    CAPTURE(c.name);
+    CHECK_EQ(network::toString(c.type), c.name);
+    auto parsed = network::indexTypeFromString(network::toString(c.type));
+    REQUIRE(parsed.ok());
+    CHECK_EQ(*parsed, c.type);
+  }
 }
 
 TEST_CASE_FIXTURE(ProtoConversionTest, "CoreToProtoVector") {
@@ -148,7 +236,7 @@ class VectorDBServiceTest {
  public:
   VectorDBServiceTest() {
     // Create temporary directory for test data
-    test_dir_ = "/tmp/gvdb_network_test";
+    test_dir_ = UniqueTestDir("gvdb_network_test");
     std::filesystem::create_directories(test_dir_);
 
     // Create index factory
@@ -176,6 +264,83 @@ class VectorDBServiceTest {
 
     // Clean up test directory
     std::filesystem::remove_all(test_dir_);
+  }
+
+  grpc::Status CreateCollection(
+      const std::string& name, uint32_t dimension,
+      proto::CreateCollectionRequest::MetricType metric =
+          proto::CreateCollectionRequest::L2) {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name(name);
+    request.set_dimension(dimension);
+    request.set_metric(metric);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+    proto::CreateCollectionResponse response;
+    return service_->CreateCollection(&context, &request, &response);
+  }
+
+  grpc::Status Insert(const std::string& name,
+                      const std::vector<proto::VectorWithId>& vectors) {
+    grpc::ServerContext context;
+    proto::InsertRequest request;
+    request.set_collection_name(name);
+    for (const auto& v : vectors) *request.add_vectors() = v;
+    proto::InsertResponse response;
+    return service_->Insert(&context, &request, &response);
+  }
+
+  grpc::Status Search(const std::string& name, const std::vector<float>& query,
+                      uint32_t top_k, proto::SearchResponse* response,
+                      const std::string& filter = "",
+                      bool return_metadata = false) {
+    grpc::ServerContext context;
+    proto::SearchRequest request;
+    request.set_collection_name(name);
+    request.mutable_query_vector()->set_dimension(
+        static_cast<uint32_t>(query.size()));
+    for (float f : query) request.mutable_query_vector()->add_values(f);
+    request.set_top_k(top_k);
+    request.set_filter(filter);
+    request.set_return_metadata(return_metadata);
+    return service_->Search(&context, &request, response);
+  }
+
+  // Fetches ids with their metadata; the call must succeed.
+  proto::GetResponse GetWithMetadata(const std::string& name,
+                                     const std::vector<uint64_t>& ids) {
+    grpc::ServerContext context;
+    proto::GetRequest request;
+    request.set_collection_name(name);
+    for (uint64_t id : ids) request.add_ids(id);
+    request.set_return_metadata(true);
+    proto::GetResponse response;
+    auto status = service_->Get(&context, &request, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    return response;
+  }
+
+  proto::ListCollectionsResponse ListCollections() {
+    grpc::ServerContext context;
+    proto::ListCollectionsRequest request;
+    proto::ListCollectionsResponse response;
+    auto status = service_->ListCollections(&context, &request, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    return response;
+  }
+
+  uint64_t TotalCount(const std::string& name) {
+    grpc::ServerContext context;
+    proto::ListVectorsRequest request;
+    request.set_collection_name(name);
+    request.set_limit(1);
+    proto::ListVectorsResponse response;
+    auto status = service_->ListVectors(&context, &request, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    return response.total_count();
   }
 
   std::string test_dir_;
@@ -257,6 +422,23 @@ TEST_CASE_FIXTURE(VectorDBServiceTest, "CreateDuplicateCollection") {
     CHECK_FALSE(status.ok());
     CHECK_EQ(status.error_code(), grpc::StatusCode::ALREADY_EXISTS);
   }
+}
+
+TEST_CASE_FIXTURE(VectorDBServiceTest, "CreateCollectionRejectsInvalidArguments") {
+  SUBCASE("empty name") {
+    auto status = CreateCollection("", 128);
+    CHECK_FALSE(status.ok());
+    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  }
+
+  SUBCASE("dimension above the maximum of 8192") {
+    auto status = CreateCollection("too_wide", 8193);
+    CHECK_FALSE(status.ok());
+    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  }
+
+  // A rejected create leaves nothing behind.
+  CHECK_EQ(ListCollections().collections_size(), 0);
 }
 
 TEST_CASE_FIXTURE(VectorDBServiceTest, "ListCollections") {
@@ -376,6 +558,50 @@ TEST_CASE_FIXTURE(VectorDBServiceTest, "SearchNonexistentCollection") {
   CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
 }
 
+TEST_CASE_FIXTURE(VectorDBServiceTest, "SearchEmptyCollectionReturnsNoResults") {
+  REQUIRE(CreateCollection("empty_collection", 4).ok());
+
+  proto::SearchResponse response;
+  auto status = Search("empty_collection", {1, 2, 3, 4}, 5, &response);
+  INFO(status.error_message());
+  CHECK(status.ok());
+  CHECK_EQ(response.results_size(), 0);
+}
+
+TEST_CASE_FIXTURE(VectorDBServiceTest, "InsertRejectsInvalidRequests") {
+  REQUIRE(CreateCollection("insert_invalid", 128).ok());
+
+  SUBCASE("unknown collection") {
+    auto status = Insert("no_such_collection",
+                         {MakeVector(1, std::vector<float>(128, 1.0f))});
+    CHECK_FALSE(status.ok());
+    CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
+  }
+
+  SUBCASE("dimension 64 into a 128-dim collection") {
+    auto status = Insert("insert_invalid",
+                         {MakeVector(1, std::vector<float>(64, 1.0f))});
+    CHECK_FALSE(status.ok());
+    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  }
+
+  SUBCASE("dimension 256 into a 128-dim collection") {
+    auto status = Insert("insert_invalid",
+                         {MakeVector(1, std::vector<float>(256, 1.0f))});
+    CHECK_FALSE(status.ok());
+    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  }
+
+  SUBCASE("vector with no values") {
+    auto status = Insert("insert_invalid", {MakeVector(1, {})});
+    CHECK_FALSE(status.ok());
+    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  }
+
+  // A rejected insert writes nothing.
+  CHECK_EQ(TotalCount("insert_invalid"), 0);
+}
+
 TEST_CASE_FIXTURE(VectorDBServiceTest, "DropCollection") {
   // Create collection
   {
@@ -412,6 +638,104 @@ TEST_CASE_FIXTURE(VectorDBServiceTest, "DropCollection") {
     auto status = service_->ListCollections(&context, &request, &response);
     CHECK(status.ok());
     CHECK_EQ(response.collections().size(), 0);
+  }
+}
+
+TEST_CASE_FIXTURE(VectorDBServiceTest, "DropAndRecreateCollection") {
+  for (const char* name : {"keep_a", "dropped", "keep_b"}) {
+    REQUIRE(CreateCollection(name, 4).ok());
+    REQUIRE(Insert(name, {MakeVector(1, {1, 0, 0, 0}),
+                          MakeVector(2, {0, 1, 0, 0})}).ok());
+  }
+
+  {
+    grpc::ServerContext context;
+    proto::DropCollectionRequest request;
+    request.set_collection_name("dropped");
+    proto::DropCollectionResponse response;
+    auto status = service_->DropCollection(&context, &request, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+  }
+
+  // Only the dropped collection is gone.
+  {
+    const auto list = ListCollections();
+    std::set<std::string> names;
+    for (const auto& c : list.collections()) {
+      names.insert(c.collection_name());
+    }
+    CHECK_EQ(names, std::set<std::string>{"keep_a", "keep_b"});
+
+    proto::SearchResponse response;
+    auto status = Search("dropped", {1, 0, 0, 0}, 1, &response);
+    CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
+  }
+
+  // A survivor still takes writes and answers searches.
+  {
+    REQUIRE(Insert("keep_b", {MakeVector(3, {0, 0, 1, 0})}).ok());
+    proto::SearchResponse response;
+    auto status = Search("keep_b", {0, 0, 1, 0}, 5, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    REQUIRE_EQ(response.results_size(), 3);
+    CHECK_EQ(response.results(0).id(), 3);
+    CHECK(response.results(0).distance() == doctest::Approx(0.0f));
+  }
+
+  // Recreate the dropped name with another dimension and metric.
+  {
+    auto status = CreateCollection("dropped", 8,
+                                   proto::CreateCollectionRequest::COSINE);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+  }
+  {
+    auto list = ListCollections();
+    REQUIRE_EQ(list.collections_size(), 3);
+    for (const auto& c : list.collections()) {
+      CAPTURE(c.collection_name());
+      if (c.collection_name() == "dropped") {
+        CHECK_EQ(c.dimension(), 8);
+        CHECK_EQ(c.metric_type(), "COSINE");
+        CHECK_EQ(c.vector_count(), 0);
+      } else {
+        CHECK_EQ(c.dimension(), 4);
+        CHECK_EQ(c.metric_type(), "L2");
+      }
+    }
+  }
+
+  // The new collection takes the new dimension only.
+  {
+    auto status = Insert("dropped", {MakeVector(1, {1, 0, 0, 0})});
+    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  }
+  {
+    auto status = Insert("dropped", {MakeVector(1, {1, 0, 0, 0, 0, 0, 0, 0}),
+                                     MakeVector(2, {0, 1, 0, 0, 0, 0, 0, 0}),
+                                     MakeVector(3, {1, 1, 0, 0, 0, 0, 0, 0})});
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+  }
+
+  // The search uses the new metric: cosine distance is 1 - cos, so a query
+  // along id 2 is at distance 0 from it, 1 - 1/sqrt(2) from id 3 and 1 from
+  // id 1.
+  {
+    proto::SearchResponse response;
+    auto status = Search("dropped", {0, 2, 0, 0, 0, 0, 0, 0}, 5, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    REQUIRE_EQ(response.results_size(), 3);
+    CHECK_EQ(response.results(0).id(), 2);
+    CHECK_EQ(response.results(1).id(), 3);
+    CHECK_EQ(response.results(2).id(), 1);
+    CHECK(response.results(0).distance() == doctest::Approx(0.0f));
+    CHECK(response.results(1).distance() ==
+          doctest::Approx(1.0f - 1.0f / std::sqrt(2.0f)));
+    CHECK(response.results(2).distance() == doctest::Approx(1.0f));
   }
 }
 
@@ -598,6 +922,88 @@ TEST_CASE_FIXTURE(VectorDBServiceTest, "GetVectorsWithMetadata") {
 
     CHECK_EQ(meta0.at("name").string_value(), "vector_0");
     CHECK_EQ(meta1.at("name").string_value(), "vector_2");
+  }
+}
+
+// Each metadata value type goes in through Insert and comes back from Get with
+// the same type and value.
+TEST_CASE_FIXTURE(VectorDBServiceTest, "MetadataValueTypesRoundTrip") {
+  struct Row {
+    uint64_t id;
+    std::vector<float> values;
+    int64_t count;
+    double score;
+    bool active;
+    std::string label;
+  };
+  // 2^53 + 1 has no exact double, so it shows the int64 is not carried as a
+  // double anywhere on the way.
+  constexpr int64_t kBeyondDouble = (int64_t{1} << 53) + 1;
+  const std::vector<Row> rows = {
+      {1, {1, 0, 0, 0}, -20, -1.5, true, "alpha"},
+      {2, {0, 1, 0, 0}, 0, 0.25, false, "beta"},
+      {3, {0, 0, 1, 0}, 7, 2.5, true, "gamma"},
+      {4, {0, 0, 0, 1}, 8, 1e10, false, "delta"},
+      {5, {1, 1, 0, 0}, kBeyondDouble, 3.75, true, "epsilon"},
+  };
+
+  REQUIRE(CreateCollection("metadata_types", 4).ok());
+  {
+    std::vector<proto::VectorWithId> vectors;
+    for (const auto& row : rows) {
+      auto v = MakeVector(row.id, row.values);
+      auto& fields = *v.mutable_metadata()->mutable_fields();
+      fields["count"].set_int_value(row.count);
+      fields["score"].set_double_value(row.score);
+      fields["active"].set_bool_value(row.active);
+      fields["label"].set_string_value(row.label);
+      vectors.push_back(std::move(v));
+    }
+    auto status = Insert("metadata_types", vectors);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+  }
+
+  auto response = GetWithMetadata("metadata_types", {1, 2, 3, 4, 5});
+  REQUIRE_EQ(response.vectors_size(), static_cast<int>(rows.size()));
+  for (size_t i = 0; i < rows.size(); ++i) {
+    const auto& row = rows[i];
+    const auto& vec = response.vectors(static_cast<int>(i));
+    CAPTURE(row.id);
+    REQUIRE_EQ(vec.id(), row.id);
+    CHECK_EQ(vec.metadata().fields().size(), 4);
+
+    const auto& count = FieldOf(vec.metadata(), "count");
+    CHECK_EQ(count.value_case(), proto::MetadataValue::kIntValue);
+    CHECK_EQ(count.int_value(), row.count);
+
+    const auto& score = FieldOf(vec.metadata(), "score");
+    CHECK_EQ(score.value_case(), proto::MetadataValue::kDoubleValue);
+    CHECK_EQ(score.double_value(), row.score);
+
+    const auto& active = FieldOf(vec.metadata(), "active");
+    CHECK_EQ(active.value_case(), proto::MetadataValue::kBoolValue);
+    CHECK_EQ(active.bool_value(), row.active);
+
+    const auto& label = FieldOf(vec.metadata(), "label");
+    CHECK_EQ(label.value_case(), proto::MetadataValue::kStringValue);
+    CHECK_EQ(label.string_value(), row.label);
+  }
+
+  // A filter on the int64 field selects the rows by their int value.
+  {
+    proto::SearchResponse search;
+    auto status = Search("metadata_types", {1, 0, 0, 0}, 10, &search,
+                         "count >= 7", /*return_metadata=*/true);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    CHECK_EQ(ResultIds(search), std::set<uint64_t>{3, 4, 5});
+    for (const auto& r : search.results()) {
+      CAPTURE(r.id());
+      const auto& count = FieldOf(r.metadata(), "count");
+      CHECK_EQ(count.value_case(), proto::MetadataValue::kIntValue);
+      CHECK_GE(count.int_value(), 7);
+    }
   }
 }
 
@@ -972,6 +1378,51 @@ TEST_CASE_FIXTURE(VectorDBServiceTest, "UpdateMetadataMerge") {
   }
 }
 
+TEST_CASE_FIXTURE(VectorDBServiceTest, "UpdateMetadataMergeOntoVectorWithoutMetadata") {
+  REQUIRE(CreateCollection("merge_target", 4).ok());
+  REQUIRE(Insert("merge_target", {MakeVector(1, {1, 0, 0, 0}),
+                                  MakeVector(2, {0, 1, 0, 0})}).ok());
+
+  {
+    grpc::ServerContext context;
+    proto::UpdateMetadataRequest request;
+    request.set_collection_name("merge_target");
+    request.set_id(1);
+    request.set_merge(true);
+    auto& fields = *request.mutable_metadata()->mutable_fields();
+    fields["price"].set_double_value(80.5);
+    fields["in_stock"].set_bool_value(true);
+    fields["brand"].set_string_value("Nike");
+
+    proto::UpdateMetadataResponse response;
+    auto status = service_->UpdateMetadata(&context, &request, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    CHECK(response.updated());
+  }
+
+  auto response = GetWithMetadata("merge_target", {1, 2});
+  REQUIRE_EQ(response.vectors_size(), 2);
+
+  // The merged vector carries exactly the merged fields.
+  REQUIRE_EQ(response.vectors(0).id(), 1);
+  const auto& merged = response.vectors(0).metadata();
+  CHECK_EQ(merged.fields().size(), 3);
+  const auto& price = FieldOf(merged, "price");
+  CHECK_EQ(price.value_case(), proto::MetadataValue::kDoubleValue);
+  CHECK_EQ(price.double_value(), 80.5);
+  const auto& in_stock = FieldOf(merged, "in_stock");
+  CHECK_EQ(in_stock.value_case(), proto::MetadataValue::kBoolValue);
+  CHECK(in_stock.bool_value());
+  const auto& brand = FieldOf(merged, "brand");
+  CHECK_EQ(brand.value_case(), proto::MetadataValue::kStringValue);
+  CHECK_EQ(brand.string_value(), "Nike");
+
+  // The other vector is untouched.
+  REQUIRE_EQ(response.vectors(1).id(), 2);
+  CHECK(response.vectors(1).metadata().fields().empty());
+}
+
 TEST_CASE_FIXTURE(VectorDBServiceTest, "UpdateMetadataNotFound") {
   // Create collection
   {
@@ -1049,8 +1500,7 @@ class SmallSegmentServiceTest {
   static constexpr size_t kMaxSegmentBytes = 1200;  // fits 4 vectors of dim 64
 
   SmallSegmentServiceTest() {
-    test_dir_ = "/tmp/gvdb_network_small_segment_test";
-    std::filesystem::remove_all(test_dir_);
+    test_dir_ = UniqueTestDir("gvdb_network_small_segment_test");
     std::filesystem::create_directories(test_dir_);
 
     index_factory_ = std::make_unique<index::IndexFactory>();

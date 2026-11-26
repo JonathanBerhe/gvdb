@@ -1,5 +1,7 @@
 #include <doctest/doctest.h>
 #include <filesystem>
+#include <random>
+#include <string>
 
 #include "network/vectordb_service.h"
 #include "network/collection_resolver.h"
@@ -13,6 +15,20 @@
 
 using namespace gvdb;
 
+namespace {
+
+// A per-fixture data directory under the system temp dir, unique across
+// processes and fixture instances.
+std::string UniqueTestDir() {
+  std::random_device rd;
+  std::mt19937_64 gen(rd());
+  return (std::filesystem::temp_directory_path() /
+          ("gvdb_vectordb_coordinator_test_" + std::to_string(gen())))
+      .string();
+}
+
+}  // namespace
+
 // ============================================================================
 // Test Fixture for COORDINATOR Mode
 // ============================================================================
@@ -20,7 +36,7 @@ using namespace gvdb;
 struct VectorDBServiceCoordinatorTest {
   VectorDBServiceCoordinatorTest() {
     // Create test directories
-    test_dir_ = "/tmp/gvdb_vectordb_coordinator_test";
+    test_dir_ = UniqueTestDir();
     raft_dir_ = test_dir_ + "/raft";
     std::filesystem::create_directories(test_dir_);
     std::filesystem::create_directories(raft_dir_);
@@ -86,29 +102,36 @@ struct VectorDBServiceCoordinatorTest {
 };
 
 // ============================================================================
-// Basic Functionality Tests
+// Stats
 // ============================================================================
 
-TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "HealthCheck") {
-  grpc::ServerContext context;
-  proto::HealthCheckRequest request;
-  proto::HealthCheckResponse response;
+// The proxy forwards every client GetStats to the coordinator, so GetStats
+// must be served (not refused like the data operations) and must count the
+// collections the coordinator holds.
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest,
+                  "GetStatsCountsCoordinatorCollections") {
+  for (const char* name : {"stats_a", "stats_b"}) {
+    grpc::ServerContext context;
+    proto::CreateCollectionRequest request;
+    request.set_collection_name(name);
+    request.set_dimension(16);
+    request.set_metric(proto::CreateCollectionRequest::L2);
+    request.set_index_type(proto::CreateCollectionRequest::FLAT);
+    proto::CreateCollectionResponse response;
+    auto status = service_->CreateCollection(&context, &request, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+  }
 
-  auto status = service_->HealthCheck(&context, &request, &response);
-
-  CHECK(status.ok());
-  CHECK_EQ(response.status(), proto::HealthCheckResponse::SERVING);
-}
-
-TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "GetStatsEmpty") {
   grpc::ServerContext context;
   proto::GetStatsRequest request;
   proto::GetStatsResponse response;
 
   auto status = service_->GetStats(&context, &request, &response);
 
+  INFO(status.error_message());
   CHECK(status.ok());
-  CHECK_EQ(response.total_collections(), 0);
+  CHECK_EQ(response.total_collections(), 2);
   CHECK_EQ(response.total_vectors(), 0);
 }
 
@@ -262,66 +285,6 @@ TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "DropNonexistentCollection") {
 // Vector Operations Tests
 // ============================================================================
 
-TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "InsertAndSearch") {
-  // Create collection (metadata operation - works on coordinator)
-  grpc::ServerContext create_context;
-  proto::CreateCollectionRequest create_request;
-  create_request.set_collection_name("test_collection");
-  create_request.set_dimension(128);
-  create_request.set_metric(proto::CreateCollectionRequest::L2);
-  create_request.set_index_type(proto::CreateCollectionRequest::FLAT);
-  proto::CreateCollectionResponse create_response;
-  auto create_status = service_->CreateCollection(&create_context, &create_request, &create_response);
-  REQUIRE(create_status.ok());
-
-  // Attempt to insert vectors (should fail - coordinators don't handle data operations)
-  grpc::ServerContext insert_context;
-  proto::InsertRequest insert_request;
-  insert_request.set_collection_name("test_collection");
-
-  for (int i = 0; i < 10; ++i) {
-    auto* vec = insert_request.add_vectors();
-    vec->set_id(i + 1);
-    vec->mutable_vector()->set_dimension(128);
-    for (int j = 0; j < 128; ++j) {
-      vec->mutable_vector()->add_values(static_cast<float>(i));
-    }
-  }
-
-  proto::InsertResponse insert_response;
-  auto insert_status = service_->Insert(&insert_context, &insert_request, &insert_response);
-
-  // Coordinator nodes reject vector operations - they should be sent to data nodes
-  CHECK_FALSE(insert_status.ok());
-  CHECK_EQ(insert_status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
-
-  // Skip search test since we can't insert vectors on coordinator
-  return;
-
-  // Search for similar vectors
-  grpc::ServerContext search_context;
-  proto::SearchRequest search_request;
-  search_request.set_collection_name("test_collection");
-  auto* query = search_request.mutable_query_vector();
-  query->set_dimension(128);
-  for (int i = 0; i < 128; ++i) {
-    query->add_values(5.0f);  // Should match vector ID 6
-  }
-  search_request.set_top_k(3);
-  proto::SearchResponse search_response;
-
-  auto search_status = service_->Search(&search_context, &search_request, &search_response);
-
-  CHECK(search_status.ok());
-  CHECK_GT(search_response.results().size(), 0);
-  CHECK_LE(search_response.results().size(), 3);
-
-  // First result should be vector ID 6 (closest to 5.0)
-  if (search_response.results().size() > 0) {
-    CHECK_EQ(search_response.results(0).id(), 6);
-  }
-}
-
 TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "GetVectors") {
   // Create collection (metadata operation - works on coordinator)
   {
@@ -449,7 +412,9 @@ TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "CreateCollectionWithInvalidDi
 }
 
 TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "InsertWithDimensionMismatch") {
-  // Create collection with dimension 128 (metadata operation - works on coordinator)
+  // Create collection with dimension 128 (metadata operation - works on
+  // coordinator). The create must succeed, so the refusal below is for an
+  // insert into a collection that exists.
   {
     grpc::ServerContext context;
     proto::CreateCollectionRequest request;
@@ -458,7 +423,9 @@ TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "InsertWithDimensionMismatch")
     request.set_metric(proto::CreateCollectionRequest::L2);
     request.set_index_type(proto::CreateCollectionRequest::FLAT);
     proto::CreateCollectionResponse response;
-    service_->CreateCollection(&context, &request, &response);
+    auto status = service_->CreateCollection(&context, &request, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
   }
 
   // Attempt to insert vector (should fail - coordinators don't handle data operations)

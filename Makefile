@@ -1,4 +1,4 @@
-.PHONY: build build-release test test-e2e test-e2e-kind test-s3 coverage clean \
+.PHONY: build build-release test test-s3 coverage clean \
        docker-build kind-create kind-load deploy apply \
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
        undeploy clean-kind port-forward status \
@@ -28,10 +28,8 @@ K8S_DIR          = deploy/k8s
 # Extra cache settings for the configure step, for example
 # CMAKE_EXTRA="-DGVDB_WITH_S3=ON".
 CMAKE_EXTRA     ?=
-E2E_DIR          = test/e2e
 PYTHON_SDK_DIR   = clients/python
 CONNECTORS_DIR   = connectors
-GVDB_SERVER_ADDR ?= localhost:50051
 
 # ---------------------------------------------------------------------------
 # Local development
@@ -72,15 +70,6 @@ coverage:
 	@cmake --build --preset coverage
 	@tools/coverage.sh build/coverage
 
-test-e2e:
-	@cd $(E2E_DIR) && GVDB_SERVER_BIN=$(CURDIR)/$(BUILD_DIR)/bin/gvdb-single-node GVDB_SERVER_ADDR=$(GVDB_SERVER_ADDR) ./run_all_tests.sh
-
-# Kind clusters are typically resource-constrained; default GVDB_E2E_SCALE to
-# 0.2 so the load test doesn't OOM the proxy. Any value set in the caller's
-# environment still wins thanks to the `${VAR:-default}` shell expansion.
-test-e2e-kind:
-	@cd $(E2E_DIR) && GVDB_SERVER_ADDR=localhost:50050 NO_SERVER=true GVDB_E2E_SCALE=$${GVDB_E2E_SCALE:-0.2} ./run_all_tests.sh
-
 # S3 tests against the S3-compatible endpoint from
 # test/integration/docker-compose.s3.yml. Needs a build with S3: run
 # `make build CMAKE_EXTRA="-DGVDB_WITH_S3=ON"` first.
@@ -89,12 +78,6 @@ test-s3:
 	@docker compose -f $(CURDIR)/test/integration/docker-compose.s3.yml up -d --wait
 	@echo "Running C++ S3 tests..."
 	@GVDB_TEST_S3_ENDPOINT=http://localhost:9000 ctest --preset $(PRESET) -L s3; status=$$?; \
-	if [ $$status -eq 0 ]; then \
-		echo "Running Go S3 e2e test..."; \
-		(cd $(E2E_DIR) && GVDB_S3_ENDPOINT=http://localhost:9000 GVDB_SERVER_BIN=$(CURDIR)/$(BUILD_DIR)/bin/gvdb-single-node \
-			GVDB_SERVER_ADDR=$(GVDB_SERVER_ADDR) ./run_all_tests.sh); \
-		status=$$?; \
-	fi; \
 	echo "Stopping the S3 test endpoint..."; \
 	docker compose -f $(CURDIR)/test/integration/docker-compose.s3.yml down; \
 	exit $$status
@@ -154,8 +137,8 @@ helm-install-operator:
 helm-uninstall-operator:
 	helm uninstall $(HELM_OPERATOR_RELEASE) -n $(HELM_OPERATOR_NAMESPACE)
 
-# Regenerate the Go protobuf stubs used by both test/e2e and the operator
-# so they never drift from proto/*.proto. Covers vectordb.proto (public
+# Regenerate the operator's Go protobuf stubs so they never drift from
+# proto/*.proto. Covers vectordb.proto (public
 # VectorDBService) and internal.proto (InternalService for operator's
 # GetLeaderInfo + GetClusterHealth calls).
 generate-operator-pb:

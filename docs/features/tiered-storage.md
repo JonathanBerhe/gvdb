@@ -176,12 +176,22 @@ For GCS testing without a real bucket, run the fake-gcs-server emulator:
 docker compose -f test/integration/docker-compose.fake-gcs.yml up -d
 ```
 
-Then set `object_store_type: gcs`, `object_store_bucket: gvdb-test`, and
-`object_store_endpoint: http://localhost:4443`. The Go e2e (`gcs_storage.go`)
-runs when `GVDB_GCS_ENDPOINT` is set:
+Then point the server at it:
+
+```yaml
+storage:
+  object_store:
+    type: "gcs"
+    endpoint: "http://localhost:4443"
+    bucket: "gvdb-test"
+```
+
+To run the object store tests against the emulator, build the `gcs` preset first. It needs vcpkg with `VCPKG_ROOT` set, because google-cloud-cpp comes from vcpkg.
 
 ```bash
-GVDB_GCS_ENDPOINT=http://localhost:4443 ./test/e2e/run_all_tests.sh
+cmake --preset gcs
+cmake --build --preset gcs --target object_store_tests object_store_gcs_tests
+GVDB_TEST_GCS_ENDPOINT=http://localhost:4443 ctest --preset gcs -R '^object_store_(gcs_)?tests$'
 ```
 
 ## Cache behaviour

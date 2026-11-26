@@ -47,7 +47,6 @@ _REPO_IGNORE = [
     "docs/**",
     "scripts/**",
     "outputs/**",
-    "test/e2e/**",
 ]
 
 app = modal.App("gvdb-gpu-test")
