@@ -94,8 +94,16 @@ def client(server_address):
 
 def start_server_with_config(
     config_yaml: str, port: int
-) -> tuple[subprocess.Popen, str]:
-    """Start a gvdb-single-node with a custom YAML config. Returns (process, address)."""
+) -> tuple[subprocess.Popen, str, str, str]:
+    """Start a gvdb-single-node with a custom YAML config.
+
+    The server gets a new temporary data directory through --data-dir, which
+    overrides any storage.data_dir in the config.
+
+    Returns:
+        (process, address, data_dir, config_path). The caller stops the
+        process and removes data_dir and config_path.
+    """
     server_bin = _find_server_binary()
     if not os.path.isfile(server_bin):
         pytest.skip(f"Server binary not found: {server_bin}. Run 'make build' first.")
