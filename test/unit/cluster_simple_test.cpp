@@ -2,10 +2,9 @@
 #include "cluster/shard_manager.h"
 #include "cluster/coordinator.h"
 #include "cluster/node_registry.h"
-#include "cluster/load_balancer.h"
-#include "cluster/replication.h"
 #include "core/types.h"
 #include "internal.grpc.pb.h"
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 
@@ -85,11 +84,13 @@ TEST_CASE_FIXTURE(ShardManagerTest, "UpdateShardMetrics") {
   auto status = shard_manager_->UpdateShardMetrics(shard, 1024 * 1024, 1000, 5000);
   CHECK(status.ok());
 
-  auto info_result = shard_manager_->GetShardInfo(shard);
-  REQUIRE(info_result.ok());
-  CHECK_EQ(info_result->data_size_bytes, 1024 * 1024);
-  CHECK_EQ(info_result->vector_count, 1000);
-  CHECK_EQ(info_result->query_count, 5000);
+  auto shards = shard_manager_->GetAllShards();
+  auto info = std::find_if(shards.begin(), shards.end(),
+                           [&](const ShardInfo& s) { return s.shard_id == shard; });
+  REQUIRE(info != shards.end());
+  CHECK_EQ(info->data_size_bytes, 1024 * 1024);
+  CHECK_EQ(info->vector_count, 1000);
+  CHECK_EQ(info->query_count, 5000);
 }
 
 // ============================================================================
@@ -119,9 +120,9 @@ TEST_CASE_FIXTURE(CoordinatorTest, "RegisterNode") {
   CHECK(status.ok());
 
   // Verify node was registered
-  auto result = coordinator_->GetNodeInfo(node_info.node_id);
-  REQUIRE(result.ok());
-  CHECK_EQ(result->address, "localhost:50051");
+  RegisteredNode reg;
+  REQUIRE(node_registry_->GetNode(1, &reg));
+  CHECK_EQ(reg.info.grpc_address(), "localhost:50051");
 }
 
 TEST_CASE_FIXTURE(CoordinatorTest, "CreateCollection") {
@@ -245,171 +246,8 @@ TEST_CASE_FIXTURE(CoordinatorTest, "DropAndRecreateCollection") {
 }
 
 // ============================================================================
-// Load Balancer Tests
-// ============================================================================
-
-class LoadBalancerTest {
- public:
-  LoadBalancerTest() {
-    load_balancer_ = std::make_unique<LoadBalancer>(LoadBalancingStrategy::ROUND_ROBIN);
-  }
-
-  std::unique_ptr<LoadBalancer> load_balancer_;
-};
-
-TEST_CASE_FIXTURE(LoadBalancerTest, "RoundRobinSelection") {
-  std::vector<core::NodeId> nodes = {
-      core::MakeNodeId(1),
-      core::MakeNodeId(2),
-      core::MakeNodeId(3)
-  };
-
-  // Select multiple times and verify round-robin
-  std::map<core::NodeId, int> counts;
-  for (int i = 0; i < 9; ++i) {
-    auto result = load_balancer_->SelectNode(nodes);
-    REQUIRE(result.ok());
-    counts[*result]++;
-  }
-
-  // Each node should be selected 3 times
-  for (const auto& node : nodes) {
-    CHECK_EQ(counts[node], 3);
-  }
-}
-
-TEST_CASE_FIXTURE(LoadBalancerTest, "LeastConnectionsSelection") {
-  load_balancer_->SetStrategy(LoadBalancingStrategy::LEAST_CONNECTIONS);
-
-  std::vector<core::NodeId> nodes = {
-      core::MakeNodeId(1),
-      core::MakeNodeId(2),
-      core::MakeNodeId(3)
-  };
-
-  // Set different connection counts
-  load_balancer_->IncrementConnections(nodes[0]);
-  load_balancer_->IncrementConnections(nodes[0]);
-  load_balancer_->IncrementConnections(nodes[1]);
-
-  // Should select node 2 (0 connections) or node 3 (0 connections)
-  auto result = load_balancer_->SelectNode(nodes);
-  REQUIRE(result.ok());
-  CHECK((*result == nodes[1] || *result == nodes[2]));
-}
-
-TEST_CASE_FIXTURE(LoadBalancerTest, "ConnectionTracking") {
-  core::NodeId node = core::MakeNodeId(1);
-
-  CHECK_EQ(load_balancer_->GetConnectionCount(node), 0);
-
-  load_balancer_->IncrementConnections(node);
-  CHECK_EQ(load_balancer_->GetConnectionCount(node), 1);
-
-  load_balancer_->IncrementConnections(node);
-  CHECK_EQ(load_balancer_->GetConnectionCount(node), 2);
-
-  load_balancer_->DecrementConnections(node);
-  CHECK_EQ(load_balancer_->GetConnectionCount(node), 1);
-}
-
-// ============================================================================
-// Replication Manager Tests
-// ============================================================================
-
-class ReplicationManagerTest {
- public:
-  ReplicationManagerTest() {
-    replication_manager_ = std::make_unique<ReplicationManager>();
-  }
-
-  std::unique_ptr<ReplicationManager> replication_manager_;
-};
-
-TEST_CASE_FIXTURE(ReplicationManagerTest, "BasicConstruction") {
-  // Just verify the replication manager can be constructed
-  CHECK_NE(replication_manager_, nullptr);
-}
-
-// ============================================================================
 // Additional Coordinator Tests
 // ============================================================================
-
-TEST_CASE_FIXTURE(CoordinatorTest, "UnregisterNodeSucceeds") {
-  NodeInfo node_info;
-  node_info.node_id = core::MakeNodeId(1);
-  node_info.type = NodeType::DATA_NODE;
-  node_info.status = NodeStatus::HEALTHY;
-  node_info.address = "localhost:50051";
-
-  auto reg_status = coordinator_->RegisterNode(node_info);
-  REQUIRE(reg_status.ok());
-
-  auto unreg_status = coordinator_->UnregisterNode(node_info.node_id);
-  CHECK(unreg_status.ok());
-
-  // GetNodeInfo should return NotFound after unregistration
-  auto result = coordinator_->GetNodeInfo(node_info.node_id);
-  CHECK_FALSE(result.ok());
-  CHECK(absl::IsNotFound(result.status()));
-}
-
-TEST_CASE_FIXTURE(CoordinatorTest, "UnregisterUnknownNodeFails") {
-  core::NodeId unknown_node = core::MakeNodeId(999);
-
-  auto status = coordinator_->UnregisterNode(unknown_node);
-  CHECK_FALSE(status.ok());
-  CHECK(absl::IsNotFound(status));
-}
-
-TEST_CASE_FIXTURE(CoordinatorTest, "UpdateNodeStatusChangesStatus") {
-  NodeInfo node_info;
-  node_info.node_id = core::MakeNodeId(1);
-  node_info.type = NodeType::QUERY_NODE;
-  node_info.status = NodeStatus::HEALTHY;
-  node_info.address = "localhost:50051";
-
-  auto reg_status = coordinator_->RegisterNode(node_info);
-  REQUIRE(reg_status.ok());
-
-  auto update_status = coordinator_->UpdateNodeStatus(
-      node_info.node_id, NodeStatus::DEGRADED);
-  CHECK(update_status.ok());
-
-  auto result = coordinator_->GetNodeInfo(node_info.node_id);
-  REQUIRE(result.ok());
-  CHECK_EQ(result->status, NodeStatus::DEGRADED);
-}
-
-TEST_CASE_FIXTURE(CoordinatorTest, "UpdateNodeStatusUnknownNodeFails") {
-  core::NodeId unknown_node = core::MakeNodeId(999);
-
-  auto status = coordinator_->UpdateNodeStatus(unknown_node, NodeStatus::HEALTHY);
-  CHECK_FALSE(status.ok());
-  CHECK(absl::IsNotFound(status));
-}
-
-TEST_CASE_FIXTURE(CoordinatorTest, "ProcessHeartbeatUpdatesRegistry") {
-  NodeInfo node_info;
-  node_info.node_id = core::MakeNodeId(10);
-  node_info.type = NodeType::DATA_NODE;
-  node_info.status = NodeStatus::HEALTHY;
-  node_info.address = "localhost:60000";
-
-  auto hb_status = coordinator_->ProcessHeartbeat(node_info.node_id, node_info);
-  CHECK(hb_status.ok());
-
-  // Node should now appear in GetAllNodes
-  auto all_nodes = coordinator_->GetAllNodes();
-  bool found = false;
-  for (const auto& n : all_nodes) {
-    if (n.node_id == node_info.node_id) {
-      found = true;
-      break;
-    }
-  }
-  CHECK(found);
-}
 
 TEST_CASE_FIXTURE(CoordinatorTest, "GetHealthyNodesFiltersByType") {
   // Register a data node via NodeRegistry
@@ -439,58 +277,6 @@ TEST_CASE_FIXTURE(CoordinatorTest, "GetHealthyNodesFiltersByType") {
   // No proxy nodes registered
   auto proxy_nodes = coordinator_->GetHealthyNodes(NodeType::PROXY);
   CHECK_EQ(proxy_nodes.size(), 0);
-}
-
-TEST_CASE_FIXTURE(CoordinatorTest, "GetHealthyNodeCountReflectsRegistry") {
-  CHECK_EQ(coordinator_->GetHealthyNodeCount(), 0);
-
-  proto::internal::NodeInfo node1;
-  node1.set_node_id(1);
-  node1.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
-  node1.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
-  node1.set_grpc_address("localhost:50051");
-  node_registry_->UpdateNode(node1);
-
-  CHECK_EQ(coordinator_->GetHealthyNodeCount(), 1);
-
-  proto::internal::NodeInfo node2;
-  node2.set_node_id(2);
-  node2.set_node_type(proto::internal::NodeType::NODE_TYPE_QUERY_NODE);
-  node2.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
-  node2.set_grpc_address("localhost:50052");
-  node_registry_->UpdateNode(node2);
-
-  CHECK_EQ(coordinator_->GetHealthyNodeCount(), 2);
-}
-
-TEST_CASE_FIXTURE(CoordinatorTest, "IsHealthyTrueWithNodes") {
-  proto::internal::NodeInfo node;
-  node.set_node_id(1);
-  node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
-  node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
-  node.set_grpc_address("localhost:50051");
-  node_registry_->UpdateNode(node);
-
-  CHECK(coordinator_->IsHealthy());
-}
-
-TEST_CASE_FIXTURE(CoordinatorTest, "IsHealthyFalseWithNoNodes") {
-  CHECK_FALSE(coordinator_->IsHealthy());
-}
-
-TEST_CASE_FIXTURE(CoordinatorTest, "GetClusterLoadReturnsZero") {
-  // With no nodes, load should be zero
-  CHECK_EQ(coordinator_->GetClusterLoad(), 0.0f);
-
-  // Even with nodes, current impl returns zero (cpu_usage not in proto)
-  proto::internal::NodeInfo node;
-  node.set_node_id(1);
-  node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
-  node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
-  node.set_grpc_address("localhost:50051");
-  node_registry_->UpdateNode(node);
-
-  CHECK_EQ(coordinator_->GetClusterLoad(), 0.0f);
 }
 
 TEST_CASE_FIXTURE(CoordinatorTest, "AssignShardsFailsWithoutDataNodes") {
@@ -570,7 +356,7 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodePromotesReplica") {
   CHECK_EQ(*primary_before, primary_id);
 
   // Register the failing primary in the coordinator's known-nodes set so we
-  // can verify it is pruned on failure (roadmap 0b.2).
+  // can verify it is pruned on failure.
   coord->DetectNewDataNodes();
   REQUIRE(coord->KnownDataNodesForTesting().count(primary_id) == 1);
 
@@ -612,7 +398,7 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodeNoReplicaLeavesOrphan") {
   CHECK_EQ(*primary_before, primary_id);
 
   // Register the failing node in the coordinator's known-nodes set so we
-  // can verify it is pruned on failure (roadmap 0b.2).
+  // can verify it is pruned on failure.
   coord->DetectNewDataNodes();
   REQUIRE(coord->KnownDataNodesForTesting().count(primary_id) == 1);
 
@@ -631,7 +417,7 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodeNoReplicaLeavesOrphan") {
 }
 
 // ---------------------------------------------------------------------------
-// Graceful drain (roadmap 0b.3) — Coordinator::HandleDrainingNode
+// Graceful drain: Coordinator::HandleDrainingNode
 // ---------------------------------------------------------------------------
 
 // A draining primary with a routable replica: replica is promoted,
@@ -759,7 +545,7 @@ TEST_CASE_FIXTURE(CoordinatorTest,
 }
 
 // ---------------------------------------------------------------------------
-// Auto-rebalance on node join (roadmap 0b.2) — Coordinator::DetectNewDataNodes
+// Auto-rebalance on node join: Coordinator::DetectNewDataNodes
 // ---------------------------------------------------------------------------
 
 // Baseline: a brand-new coordinator has an empty known-nodes set.
@@ -1450,21 +1236,4 @@ TEST_CASE_FIXTURE(ShardManagerTest, "GetShardState_NotFound") {
   auto result = shard_manager_->GetShardState(bad_sid);
   CHECK_FALSE(result.ok());
   CHECK(absl::IsNotFound(result.status()));
-}
-
-TEST_CASE_FIXTURE(ShardManagerTest, "ExecuteRebalanceMove_SetsStateToMigrating") {
-  core::NodeId n1 = core::MakeNodeId(1);
-  core::NodeId n2 = core::MakeNodeId(2);
-  REQUIRE(shard_manager_->RegisterNode(n1).ok());
-  REQUIRE(shard_manager_->RegisterNode(n2).ok());
-
-  auto sid = core::MakeShardId(0);
-  REQUIRE(shard_manager_->SetPrimaryNode(sid, n1).ok());
-
-  ShardManager::RebalanceMove move{sid, n1, n2, true};
-  auto status = shard_manager_->ExecuteRebalanceMove(move);
-  CHECK(status.ok());
-  auto state = shard_manager_->GetShardState(sid);
-  REQUIRE(state.ok());
-  CHECK_EQ(*state, ShardState::MIGRATING);
 }

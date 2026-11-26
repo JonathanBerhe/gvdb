@@ -9,7 +9,6 @@
 
 #include "consensus/raft_node.h"
 #include "consensus/raft_config.h"
-#include "consensus/timestamp_oracle.h"
 #include "cluster/coordinator.h"
 #include "cluster/shard_manager.h"
 #include "cluster/node_registry.h"
@@ -39,10 +38,10 @@ struct CoordinatorArgs {
   std::string raft_address = "0.0.0.0:8300";
   // Peer-facing Raft endpoint. Optional — when empty, raft_address is
   // used. Set to the pod FQDN in K8s so other Raft replicas can reach
-  // us regardless of pod IP churn (roadmap 0b.4).
+  // us regardless of pod IP churn.
   std::string raft_advertise_address;
   std::vector<std::string> raft_peers;
-  // Coordinator gRPC InternalService endpoints (host:50051) for the 1.7b
+  // Coordinator gRPC InternalService endpoints (host:50051) for the
   // startup peer probe and self-remove RPC on shutdown. Rendered by the
   // operator alongside --raft-peers. Comma-separated; empty or single-
   // entry list disables auto-join (falls back to the initial-bootstrap
@@ -63,13 +62,13 @@ void PrintUsage(const char* program_name) {
             << "                           Only the port is used; NuRaft binds 0.0.0.0.\n"
             << "  --raft-advertise-address ADDR  Peer-facing Raft endpoint (host:port).\n"
             << "                           Set to the pod FQDN in K8s. Falls back to\n"
-            << "                           --raft-address when empty (roadmap 0b.4).\n"
+            << "                           --raft-address when empty.\n"
             << "  --raft-peers PEERS       Comma-separated Raft peers in 'id:host:port' format\n"
             << "                           (e.g. '1:host1:8300,2:host2:8300,3:host3:8300').\n"
             << "                           Passing this flag implies --multi-node.\n"
             << "  --coordinator-grpc-peers PEERS  Comma-separated coordinator gRPC endpoints\n"
             << "                           ('host1:50051,host2:50051,host3:50051') used for\n"
-            << "                           the 1.7b startup peer-probe and self-remove RPC.\n"
+            << "                           the startup peer-probe and self-remove RPC.\n"
             << "                           Order must match --raft-peers (node_id=ordinal+1).\n"
             << "  --data-dir PATH          Data directory (default: /tmp/gvdb/coordinator)\n"
             << "  --config FILE            YAML configuration file\n"
@@ -193,7 +192,7 @@ int main(int argc, char** argv) {
     }
 
     if (!args.single_node_mode) {
-      // Bootstrap-tolerant leader-election wait (roadmap 0b.4). During a
+      // Bootstrap-tolerant leader-election wait. During a
       // cold start of an HA cluster, peer pods may take tens of seconds
       // to become reachable (DNS propagation, scheduling, image pulls) —
       // a short hard timeout would cause every coordinator pod to
@@ -238,30 +237,21 @@ int main(int argc, char** argv) {
       return 1;
     }
 
-    // 3. TimestampOracle
-    auto* tso_ptr = raft_node->GetTimestampOracle();
-    std::shared_ptr<consensus::TimestampOracle> timestamp_oracle;
-    if (tso_ptr) {
-      timestamp_oracle = std::shared_ptr<consensus::TimestampOracle>(
-          tso_ptr, [](consensus::TimestampOracle*){});
-    }
-
-    // 4. Storage/compute stubs (coordinator doesn't store data)
+    // 3. Storage/compute stubs (coordinator doesn't store data)
     auto index_factory = std::make_unique<index::IndexFactory>();
     auto segment_manager = std::make_shared<storage::SegmentManager>(
         args.data_dir + "/segments", index_factory.get());
     auto query_executor = std::make_shared<compute::QueryExecutor>(
         segment_manager.get());
 
-    // 5. Services
+    // 4. Services
     // Non-owning alias-shared_ptr mirror of the unique_ptr raft_node — the
-    // local variable outlives internal_service so this is safe. Same pattern
-    // we use for timestamp_oracle above.
+    // local variable outlives internal_service so this is safe.
     std::shared_ptr<consensus::RaftNode> raft_node_ptr(
         raft_node.get(), [](consensus::RaftNode*){});
     auto internal_service = std::make_unique<network::InternalService>(
         shard_manager, segment_manager, query_executor,
-        node_registry, timestamp_oracle, coordinator, raft_node_ptr);
+        node_registry, coordinator, raft_node_ptr);
     // Load config for auth (optional)
     utils::GVDBConfig config = utils::Config::get_default();
     if (!args.config_file.empty()) {
@@ -269,7 +259,7 @@ int main(int argc, char** argv) {
       if (cfg_result.ok()) config = std::move(*cfg_result);
     }
 
-    // 5.1. Backup / restore engines on the coordinator. The coordinator
+    // 4.1. Backup / restore engines on the coordinator. The coordinator
     // needs its own IObjectStore to write the top-level manifest — same
     // bucket the data-nodes upload per-shard objects to. When no S3
     // store is configured, only LocalBackupTarget is available (and
@@ -348,7 +338,7 @@ int main(int argc, char** argv) {
     utils::Logger::Instance().Info(
         "Coordinator backup/restore served via distributed shard orchestration");
 
-    // 6. Start gRPC server
+    // 5. Start gRPC server
     auto credentials = utils::ServerBootstrap::MakeServerCredentials(config.server.tls);
     auto grpc_server = utils::ServerBootstrap::StartGrpcServer(
         args.bind_address,
@@ -386,7 +376,7 @@ int main(int argc, char** argv) {
     std::cout << "\nShutting down gracefully..." << std::endl;
 
     // Self-remove from Raft membership BEFORE shutting down the gRPC
-    // server (roadmap 1.7b). Only relevant in multi-node mode and only
+    // server. Only relevant in multi-node mode and only
     // if we're a follower — NuRaft refuses to remove the current leader
     // (CANNOT_REMOVE_LEADER) and letting the cluster re-elect after we
     // exit is the clean path. Failures here are non-fatal: a lingering

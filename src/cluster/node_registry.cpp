@@ -44,9 +44,6 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
     if (!node_info.grpc_address().empty()) {
       stored.set_grpc_address(node_info.grpc_address());
     }
-    if (!node_info.raft_address().empty()) {
-      stored.set_raft_address(node_info.raft_address());
-    }
 
     // Resource fields: only overwrite when the incoming message provides a
     // non-zero value (proto3 cannot distinguish "unset" from "zero").
@@ -57,11 +54,6 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
     if (node_info.disk_total_bytes() > 0) {
       stored.set_disk_total_bytes(node_info.disk_total_bytes());
       stored.set_disk_used_bytes(node_info.disk_used_bytes());
-    }
-    if (node_info.total_requests() > 0) {
-      stored.set_total_requests(node_info.total_requests());
-      stored.set_avg_latency_ms(node_info.avg_latency_ms());
-      stored.set_error_count(node_info.error_count());
     }
 
     it->second.last_heartbeat = now;
@@ -123,21 +115,6 @@ std::vector<RegisteredNode> NodeRegistry::GetAllNodes() const {
   return result;
 }
 
-std::vector<RegisteredNode> NodeRegistry::GetNodesByType(
-    proto::internal::NodeType type) const {
-  std::shared_lock lock(mutex_);
-
-  std::vector<RegisteredNode> result;
-
-  for (const auto& [id, node] : nodes_) {
-    if (node.info.node_type() == type) {
-      result.push_back(node);
-    }
-  }
-
-  return result;
-}
-
 std::vector<RegisteredNode> NodeRegistry::GetHealthyNodes() const {
   std::shared_lock lock(mutex_);
 
@@ -167,18 +144,6 @@ std::vector<RegisteredNode> NodeRegistry::GetHealthyNodesByType(
   return result;
 }
 
-std::vector<RegisteredNode> NodeRegistry::GetRoutableNodes() const {
-  std::shared_lock lock(mutex_);
-
-  std::vector<RegisteredNode> result;
-  for (const auto& [id, node] : nodes_) {
-    if (node.IsRoutable(heartbeat_timeout_)) {
-      result.push_back(node);
-    }
-  }
-  return result;
-}
-
 std::vector<RegisteredNode> NodeRegistry::GetRoutableNodesByType(
     proto::internal::NodeType type) const {
   std::shared_lock lock(mutex_);
@@ -198,20 +163,6 @@ bool NodeRegistry::IsNodeRoutable(uint32_t node_id) const {
   auto it = nodes_.find(node_id);
   if (it == nodes_.end()) return false;
   return it->second.IsRoutable(heartbeat_timeout_);
-}
-
-std::vector<RegisteredNode> NodeRegistry::GetFailedNodes() const {
-  std::shared_lock lock(mutex_);
-
-  std::vector<RegisteredNode> result;
-
-  for (const auto& [id, node] : nodes_) {
-    if (!node.IsHealthy(heartbeat_timeout_)) {
-      result.push_back(node);
-    }
-  }
-
-  return result;
 }
 
 std::vector<RegisteredNode> NodeRegistry::GetDrainingNodes() const {
@@ -292,12 +243,6 @@ std::vector<uint32_t> NodeRegistry::DetectFailedNodes() {
   }
 
   return failed_node_ids;
-}
-
-void NodeRegistry::SetHeartbeatTimeout(std::chrono::milliseconds timeout) {
-  std::unique_lock lock(mutex_);
-  heartbeat_timeout_ = timeout;
-  utils::Logger::Instance().Info("Heartbeat timeout updated to {}ms", timeout.count());
 }
 
 } // namespace cluster

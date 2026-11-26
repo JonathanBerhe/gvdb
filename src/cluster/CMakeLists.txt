@@ -6,8 +6,6 @@ gvdb_add_library(cluster
     coordinator.cpp
     query_node.cpp
     data_node.cpp
-    load_balancer.cpp
-    replication.cpp
     node_registry.cpp
     internal_client.cpp
     heartbeat_sender.cpp
@@ -20,7 +18,6 @@ gvdb_add_library(cluster
     absl::status
     absl::statusor
     absl::strings
-    absl::synchronization
   PRIVATE_DEPS
     gvdb::storage
     gvdb::compute

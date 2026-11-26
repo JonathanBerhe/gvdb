@@ -185,7 +185,6 @@ sudo systemctl start grafana-server
 ### Gauges
 - `gvdb_vector_count{collection}` - Current vector count per collection
 - `gvdb_collection_count` - Current number of collections
-- `gvdb_memory_usage_bytes` - Memory usage (future)
 
 ## Dashboard Customization
 

@@ -46,7 +46,7 @@ class ProxyIntegrationTest {
 
     coord_internal_service_ = std::make_unique<network::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
-        node_registry_, nullptr, coordinator_);
+        node_registry_, coordinator_);
 
     auto coord_resolver = network::MakeCoordinatorResolver(coordinator_);
     coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
@@ -109,7 +109,7 @@ class ProxyIntegrationTest {
     // Update internal service's coordinator reference
     coord_internal_service_ = std::make_unique<network::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
-        node_registry_, nullptr, coordinator_);
+        node_registry_, coordinator_);
 
     auto coord_resolver2 = network::MakeCoordinatorResolver(coordinator_);
     coord_vectordb_service_ = std::make_unique<network::VectorDBService>(

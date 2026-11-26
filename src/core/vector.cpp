@@ -124,19 +124,6 @@ float Vector::Norm() const {
   return std::sqrt(sum);
 }
 
-StatusOr<Vector> Vector::Normalize() const {
-  float norm = Norm();
-  if (norm < 1e-8f) {
-    return InvalidArgumentError("Cannot normalize zero vector");
-  }
-
-  Vector result(dimension_);
-  for (size_t i = 0; i < data_.size(); ++i) {
-    result.data_[i] = data_[i] / norm;
-  }
-  return result;
-}
-
 float Vector::L2Distance(const Vector& other) const {
   if (dimension_ != other.dimension_) {
     return -1.0f;  // Invalid
@@ -181,40 +168,6 @@ float Vector::CosineDistance(const Vector& other) const {
   return 1.0f - cosine_similarity;
 }
 
-bool Vector::IsValid() const noexcept {
-  if (dimension_ <= 0 || data_.empty()) {
-    return false;
-  }
-  if (static_cast<Dimension>(data_.size()) != dimension_) {
-    return false;
-  }
-  return IsAligned();
-}
-
-Status Vector::Validate() const {
-  if (dimension_ <= 0) {
-    return InvalidArgumentError(
-        absl::StrCat("Invalid dimension: ", dimension_));
-  }
-  if (data_.empty()) {
-    return InvalidArgumentError("Vector data is empty");
-  }
-  if (static_cast<Dimension>(data_.size()) != dimension_) {
-    return InternalError(
-        absl::StrCat("Dimension mismatch: expected ", dimension_,
-                     " got ", data_.size()));
-  }
-  if (!IsAligned()) {
-    return InternalError("Vector data is not properly aligned");
-  }
-  return OkStatus();
-}
-
-bool Vector::IsAligned() const noexcept {
-  auto addr = reinterpret_cast<uintptr_t>(data_.data());
-  return (addr % 32) == 0;
-}
-
 // ============================================================================
 // Utility Functions
 // ============================================================================
@@ -233,28 +186,6 @@ Vector RandomVector(Dimension dim) {
     vec[i] = dist(gen);
   }
   return vec;
-}
-
-Status ValidateDimensionMatch(const Vector& v1, const Vector& v2) {
-  if (v1.dimension() != v2.dimension()) {
-    return InvalidArgumentError(
-        absl::StrCat("Dimension mismatch: ", v1.dimension(),
-                     " vs ", v2.dimension()));
-  }
-  return OkStatus();
-}
-
-float ComputeDistance(const Vector& v1, const Vector& v2, MetricType metric) {
-  switch (metric) {
-    case MetricType::L2:
-      return v1.L2Distance(v2);
-    case MetricType::INNER_PRODUCT:
-      return -v1.InnerProduct(v2);  // Negative for "smaller is better"
-    case MetricType::COSINE:
-      return v1.CosineDistance(v2);
-    default:
-      return -1.0f;  // Invalid metric
-  }
 }
 
 }  // namespace core

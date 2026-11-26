@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
     // Notify coordinator that we're draining so it stops routing new work
     // immediately instead of waiting for heartbeat timeout. DrainAndStop()
     // joins the heartbeat loop first so no racing READY heartbeat can
-    // overwrite the DRAINING signal at the coordinator (roadmap 0b.1).
+    // overwrite the DRAINING signal at the coordinator.
     if (heartbeat) heartbeat->DrainAndStop();
 
     heartbeat.reset();  // no-op join (already stopped above)

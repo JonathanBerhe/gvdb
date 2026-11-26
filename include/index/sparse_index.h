@@ -28,9 +28,6 @@ class SparseIndex {
   [[nodiscard]] core::StatusOr<core::SearchResult> Search(
       const core::SparseVector& query, int k);
 
-  [[nodiscard]] size_t GetDocumentCount() const;
-  [[nodiscard]] size_t GetMemoryUsage() const;
-
  private:
   struct Posting {
     core::VectorId id;

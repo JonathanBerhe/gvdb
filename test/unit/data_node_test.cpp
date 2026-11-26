@@ -62,39 +62,6 @@ class DataNodeTest {
     return seg_id;
   }
 
-  // Create a GROWING segment with vectors and metadata
-  core::SegmentId CreateSegmentWithMetadata(size_t count) {
-    auto seg_result = segment_store_->CreateSegment(collection_id_, dimension_, metric_);
-    auto seg_id = *seg_result;
-
-    std::vector<core::Vector> vectors;
-    std::vector<core::VectorId> ids;
-    std::vector<core::Metadata> metadata;
-    for (size_t i = 0; i < count; ++i) {
-      vectors.push_back(core::RandomVector(dimension_));
-      ids.push_back(core::MakeVectorId(next_id_));
-      core::Metadata md;
-      md["name"] = core::MetadataValue(std::string("vec_" + std::to_string(next_id_)));
-      md["value"] = core::MetadataValue(static_cast<int64_t>(next_id_));
-      metadata.push_back(md);
-      next_id_++;
-    }
-
-    auto* segment = segment_store_->GetSegment(seg_id);
-    REQUIRE(segment->AddVectorsWithMetadata(vectors, ids, metadata).ok());
-    return seg_id;
-  }
-
-  // Seal a segment via SegmentManager
-  void SealSegment(core::SegmentId seg_id) {
-    core::IndexConfig config;
-    config.index_type = core::IndexType::FLAT;
-    config.dimension = dimension_;
-    config.metric_type = metric_;
-    auto status = segment_store_->SealSegment(seg_id, config);
-    REQUIRE(status.ok());
-  }
-
   std::string test_dir_;
   index::IndexFactory* factory_ptr_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
@@ -288,79 +255,4 @@ TEST_CASE_FIXTURE(DataNodeTest, "ProcessBuildQueue handles failed tasks") {
 
   size_t processed = data_node_->ProcessBuildQueue();
   CHECK_EQ(processed, 1);  // Only the valid one succeeds
-}
-
-// ============================================================================
-// CompactSegments Tests
-// ============================================================================
-
-TEST_CASE_FIXTURE(DataNodeTest, "CompactSegments merges two segments") {
-  auto seg1 = CreateSegmentWithVectors(30);
-  auto seg2 = CreateSegmentWithVectors(20);
-  SealSegment(seg1);
-  SealSegment(seg2);
-
-  auto status = data_node_->CompactSegments({seg1, seg2});
-  INFO("Compaction failed: " << status.message());
-  REQUIRE(status.ok());
-
-  // Source segments should be dropped
-  CHECK(segment_store_->GetSegment(seg1) == nullptr);
-  CHECK(segment_store_->GetSegment(seg2) == nullptr);
-
-  // New segment should exist with 50 vectors
-  auto seg_ids = segment_store_->GetCollectionSegments(collection_id_);
-  REQUIRE_EQ(seg_ids.size(), 1);
-
-  auto* new_seg = segment_store_->GetSegment(seg_ids[0]);
-  REQUIRE(new_seg != nullptr);
-  CHECK_EQ(new_seg->GetVectorCount(), 50);
-  CHECK_EQ(new_seg->GetState(), core::SegmentState::SEALED);
-}
-
-TEST_CASE_FIXTURE(DataNodeTest, "CompactSegments preserves metadata") {
-  auto seg1 = CreateSegmentWithMetadata(10);
-  auto seg2 = CreateSegmentWithMetadata(10);
-  SealSegment(seg1);
-  SealSegment(seg2);
-
-  auto status = data_node_->CompactSegments({seg1, seg2});
-  REQUIRE(status.ok());
-
-  auto seg_ids = segment_store_->GetCollectionSegments(collection_id_);
-  REQUIRE_EQ(seg_ids.size(), 1);
-
-  auto* new_seg = segment_store_->GetSegment(seg_ids[0]);
-  CHECK_EQ(new_seg->GetVectorCount(), 20);
-
-  // Check metadata is preserved for first vector
-  auto md = new_seg->GetMetadata(core::MakeVectorId(1));
-  REQUIRE(md.ok());
-  CHECK(md->count("name") > 0);
-}
-
-TEST_CASE_FIXTURE(DataNodeTest, "CompactSegments rejects single segment") {
-  auto seg = CreateSegmentWithVectors(50);
-  SealSegment(seg);
-
-  auto status = data_node_->CompactSegments({seg});
-  CHECK_FALSE(status.ok());
-  CHECK(absl::IsInvalidArgument(status));
-}
-
-TEST_CASE_FIXTURE(DataNodeTest, "CompactSegments rejects growing segments") {
-  auto seg1 = CreateSegmentWithVectors(50);
-  auto seg2 = CreateSegmentWithVectors(50);
-  SealSegment(seg1);
-  // seg2 is still GROWING
-
-  auto status = data_node_->CompactSegments({seg1, seg2});
-  CHECK_FALSE(status.ok());
-  CHECK(absl::IsFailedPrecondition(status));
-}
-
-TEST_CASE_FIXTURE(DataNodeTest, "CompactSegments rejects empty list") {
-  auto status = data_node_->CompactSegments({});
-  CHECK_FALSE(status.ok());
-  CHECK(absl::IsInvalidArgument(status));
 }

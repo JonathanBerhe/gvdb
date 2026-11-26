@@ -342,33 +342,6 @@ core::Status SegmentManager::WriteVectors(
   return it->second->AddVectors(vectors, ids);
 }
 
-core::StatusOr<std::vector<core::Vector>> SegmentManager::ReadVectors(
-    core::SegmentId segment_id,
-    const std::vector<core::VectorId>& ids) const {
-  std::shared_lock lock(mutex_);
-
-  auto it = segments_.find(segment_id);
-  if (it == segments_.end()) {
-    return core::NotFoundError(
-        absl::StrCat("Segment not found: ", core::ToUInt32(segment_id)));
-  }
-
-  return it->second->ReadVectors(ids);
-}
-
-core::StatusOr<core::SearchResult> SegmentManager::SearchSegment(
-    core::SegmentId segment_id, const core::Vector& query, int k) const {
-  std::shared_lock lock(mutex_);
-
-  auto it = segments_.find(segment_id);
-  if (it == segments_.end()) {
-    return core::NotFoundError(
-        absl::StrCat("Segment not found: ", core::ToUInt32(segment_id)));
-  }
-
-  return it->second->Search(query, k);
-}
-
 core::StatusOr<core::SearchResult> SegmentManager::SearchCollection(
     core::CollectionId collection_id, const core::Vector& query, int k) const {
   std::shared_lock lock(mutex_);
@@ -443,16 +416,6 @@ std::vector<core::SegmentId> SegmentManager::GetCollectionSegments(
 size_t SegmentManager::GetSegmentCount() const {
   std::shared_lock lock(mutex_);
   return segments_.size();
-}
-
-size_t SegmentManager::GetTotalMemoryUsage() const {
-  std::shared_lock lock(mutex_);
-
-  size_t total = 0;
-  for (const auto& [id, segment] : segments_) {
-    total += segment->GetMemoryUsage();
-  }
-  return total;
 }
 
 void SegmentManager::Clear() {
@@ -564,28 +527,6 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
       static_cast<int>(metric));
 
   return ptr;
-}
-
-std::vector<Segment*> SegmentManager::GetQueryableSegments(
-    core::CollectionId collection_id) const {
-  std::shared_lock lock(mutex_);
-
-  std::vector<Segment*> result;
-  auto coll_it = collection_segments_.find(collection_id);
-  if (coll_it == collection_segments_.end()) return result;
-
-  for (const auto& sid : coll_it->second) {
-    auto seg_it = segments_.find(sid);
-    if (seg_it == segments_.end()) continue;
-    auto* seg = seg_it->second.get();
-    auto state = seg->GetState();
-    if (state == core::SegmentState::GROWING ||
-        state == core::SegmentState::SEALED ||
-        state == core::SegmentState::FLUSHED) {
-      result.push_back(seg);
-    }
-  }
-  return result;
 }
 
 std::vector<core::SegmentId> SegmentManager::GetAllSegmentIds() const {

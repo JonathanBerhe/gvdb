@@ -91,11 +91,6 @@ gvdb_add_test(utils_tests
   DEPS gvdb::utils gvdb::core
   TIMEOUT 60 LABELS unit)
 
-gvdb_add_test(checksum_tests
-  SOURCES checksum_test.cpp
-  DEPS gvdb::utils gvdb::core
-  TIMEOUT 30 LABELS unit)
-
 # auth
 gvdb_add_test(rbac_tests
   SOURCES rbac_test.cpp

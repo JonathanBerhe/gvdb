@@ -36,7 +36,6 @@ struct LogConfig {
 
   // Console logging
   bool console_enabled = true;
-  bool console_colored = true;
 
   // File logging
   bool file_enabled = true;
@@ -73,17 +72,7 @@ class Logger {
   Logger(Logger&&) = delete;
   Logger& operator=(Logger&&) = delete;
 
-  // Set log level at runtime
-  void SetLevel(LogLevel level);
-
   // Logging methods
-  template <typename... Args>
-  void Trace(const std::string& fmt, Args&&... args) {
-    if (logger_) {
-      logger_->trace(::fmt::runtime(fmt), std::forward<Args>(args)...);
-    }
-  }
-
   template <typename... Args>
   void Debug(const std::string& fmt, Args&&... args) {
     if (logger_) {
@@ -112,13 +101,6 @@ class Logger {
     }
   }
 
-  template <typename... Args>
-  void Critical(const std::string& fmt, Args&&... args) {
-    if (logger_) {
-      logger_->critical(::fmt::runtime(fmt), std::forward<Args>(args)...);
-    }
-  }
-
   // Flush logs (useful before shutdown)
   void Flush();
 
@@ -134,16 +116,6 @@ class Logger {
   std::shared_ptr<spdlog::logger> logger_;
   static std::unique_ptr<Logger> instance_;
 };
-
-// ============================================================================
-// Convenience macros for logging
-// ============================================================================
-#define LOG_TRACE(...) ::gvdb::utils::Logger::Instance().Trace(__VA_ARGS__)
-#define LOG_DEBUG(...) ::gvdb::utils::Logger::Instance().Debug(__VA_ARGS__)
-#define LOG_INFO(...) ::gvdb::utils::Logger::Instance().Info(__VA_ARGS__)
-#define LOG_WARN(...) ::gvdb::utils::Logger::Instance().Warn(__VA_ARGS__)
-#define LOG_ERROR(...) ::gvdb::utils::Logger::Instance().Error(__VA_ARGS__)
-#define LOG_CRITICAL(...) ::gvdb::utils::Logger::Instance().Critical(__VA_ARGS__)
 
 }  // namespace utils
 }  // namespace gvdb

@@ -249,7 +249,7 @@ func (c *CoordinatorClient) FetchLeaderInfo(ctx context.Context) (LeaderInfo, er
 type NodeHealth struct {
 	NodeID uint32
 	// Ready is true when the coordinator last heartbeat-observed this node as
-	// NODE_STATUS_READY. Other statuses (STARTING, BUSY, DEGRADED, DOWN,
+	// NODE_STATUS_READY. Other statuses (STARTING, DEGRADED, DOWN,
 	// DRAINING) are all "not safe to treat as a failover replica."
 	Ready bool
 	// IsDataNode is true when NodeInfo.node_type == NODE_TYPE_DATA_NODE.
@@ -314,7 +314,7 @@ type ShardAssignment struct {
 }
 
 // FetchShardAssignments returns the cluster-wide shard layout (collection_id=0
-// means "all collections" per proto/internal.proto:84). Safety check for the
+// means "all collections" per GetShardAssignmentsRequest in proto/internal.proto). Safety check for the
 // data-node rollout gate: len(node_ids \ {target, non-ready}) >= 1 per shard.
 func (c *CoordinatorClient) FetchShardAssignments(ctx context.Context) ([]ShardAssignment, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)

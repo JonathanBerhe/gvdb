@@ -7,7 +7,6 @@ gvdb_add_library(index
     faiss_hnsw.cpp
     faiss_ivf.cpp
     index_factory.cpp
-    index_manager.cpp
     turboquant/turboquant_codec.cpp
     turboquant/turboquant_index.cpp
     turboquant/ivf_turboquant_index.cpp

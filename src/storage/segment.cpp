@@ -903,11 +903,6 @@ core::StatusOr<core::SearchResult> Segment::SearchHybrid(
   return result;
 }
 
-void Segment::SetTextIndex(std::unique_ptr<index::ITextIndex> text_index) {
-  std::unique_lock lock(mutex_);
-  text_index_ = std::move(text_index);
-}
-
 core::Status Segment::BuildTextIndex(
     std::unique_ptr<index::ITextIndex> text_index,
     const std::string& text_field) {
@@ -986,16 +981,6 @@ core::Status Segment::Seal(core::IVectorIndex* index) {
   // COMPACTION STRATEGY: Keep vectors in memory for fast compaction
   // Memory overhead: 2x (vectors + index both in RAM)
   // Trade-off: Optimized for 4GB pods with fast compaction requirements
-  //
-  // NOTE: For disk-based compaction (Option 2), uncomment these lines:
-  // vectors_.clear();
-  // vectors_.shrink_to_fit();
-  // vector_ids_.clear();
-  // vector_ids_.shrink_to_fit();
-  //
-  // See STORAGE_COMPACTION_OPTIONS.md for detailed analysis of:
-  // - Option 1 (current): In-memory vectors (fast compaction, 2x RAM)
-  // - Option 2 (future): Disk-based vectors (slower compaction, 1x RAM)
 
   // Build scalar indexes from all metadata (ensures full coverage after seal)
   if (!metadata_map_.empty()) {

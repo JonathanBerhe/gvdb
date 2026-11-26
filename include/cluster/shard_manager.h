@@ -78,7 +78,6 @@ class ShardManager {
   core::ShardId AssignShard(const std::string& key) const;
 
   // Get shard information
-  absl::StatusOr<ShardInfo> GetShardInfo(core::ShardId shard_id) const;
   std::vector<ShardInfo> GetAllShards() const;
   std::vector<ShardInfo> GetShardsForNode(core::NodeId node_id) const;
 
@@ -131,11 +130,9 @@ class ShardManager {
   };
 
   std::vector<RebalanceMove> CalculateRebalancePlan();
-  absl::Status ExecuteRebalanceMove(const RebalanceMove& move);
 
   // Metrics
   size_t GetTotalShards() const { return num_shards_; }
-  float CalculateImbalance() const;
 
   // Update shard metrics (called by nodes)
   absl::Status UpdateShardMetrics(core::ShardId shard_id,
@@ -167,8 +164,6 @@ class ShardManager {
 
   // Helper methods
   void InitializeShards();
-  std::vector<core::NodeId> GetLeastLoadedNodes(size_t count) const;
-  size_t GetNodeLoad(core::NodeId node_id) const;
 };
 
 }  // namespace cluster

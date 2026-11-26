@@ -72,17 +72,10 @@ core::Status Logger::Initialize(const LogConfig& config) {
 
     // Console sink (if enabled)
     if (config.console_enabled) {
-      if (config.console_colored) {
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        console_sink->set_level(ToSpdlogLevel(config.level));
-        console_sink->set_pattern(config.pattern);
-        sinks.push_back(console_sink);
-      } else {
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        console_sink->set_level(ToSpdlogLevel(config.level));
-        console_sink->set_pattern(config.pattern);
-        sinks.push_back(console_sink);
-      }
+      auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+      console_sink->set_level(ToSpdlogLevel(config.level));
+      console_sink->set_pattern(config.pattern);
+      sinks.push_back(console_sink);
     }
 
     // File sink with rotation (if enabled)
@@ -135,12 +128,6 @@ Logger& Logger::Instance() {
     (void)status;  // Ignore status for default initialization
   }
   return *instance_;
-}
-
-void Logger::SetLevel(LogLevel level) {
-  if (logger_) {
-    logger_->set_level(ToSpdlogLevel(level));
-  }
 }
 
 void Logger::Flush() {

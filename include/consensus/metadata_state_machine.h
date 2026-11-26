@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include "consensus/metadata_store.h"
 #include "core/status.h"
 #include "utils/logger.h"
 
@@ -18,14 +17,12 @@ namespace consensus {
 using nuraft::ulong;
 
 // NuRaft state machine implementation for metadata operations
-// This class wraps our MetadataStore and implements the nuraft::state_machine interface
+// Implements the nuraft::state_machine interface
 //
 // Thread-safe: NuRaft guarantees single-threaded access to commit()
 class MetadataStateMachine : public nuraft::state_machine {
  public:
-  // Constructor that accepts a shared metadata store
-  // In multi-node mode, this allows RaftNode to share its metadata_store_
-  explicit MetadataStateMachine(MetadataStore* metadata_store);
+  MetadataStateMachine();
   ~MetadataStateMachine() override = default;
 
   // ============================================================================
@@ -95,27 +92,7 @@ class MetadataStateMachine : public nuraft::state_machine {
     // Not used - we handle cleanup automatically
   }
 
-  // ============================================================================
-  // GVDB-specific interface (for direct access to metadata)
-  // ============================================================================
-
-  // Get the underlying metadata store (read-only access)
-  const MetadataStore* GetMetadataStore() const { return metadata_store_; }
-
-  // Get last committed index (for monitoring)
-  uint64_t GetLastCommittedIndex() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return last_committed_idx_;
-  }
-
-  // Serialization helpers (public so RaftNode can use them)
-  static nuraft::ptr<nuraft::buffer> SerializeMetadataOp(const MetadataOp& op);
-  static MetadataOp DeserializeMetadataOp(nuraft::buffer& data);
-
  private:
-  // Core metadata store (non-owning pointer, shared with RaftNode)
-  MetadataStore* metadata_store_;
-
   // Snapshot management
   mutable std::mutex mutex_;
   uint64_t last_committed_idx_ = 0;

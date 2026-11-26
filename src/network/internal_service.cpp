@@ -8,12 +8,9 @@
 #include "cluster/primary_term_tracker.h"
 #include "cluster/shard_write_gate.h"
 #include "consensus/raft_node.h"
-#include "consensus/timestamp_oracle.h"
 #include "storage/backup_manager.h"
 #include "utils/logger.h"
-#include "utils/timer.h"
 #include "core/types.h"
-#include <chrono>
 
 namespace gvdb {
 namespace network {
@@ -23,20 +20,17 @@ InternalService::InternalService(
     std::shared_ptr<storage::ISegmentStore> segment_store,
     std::shared_ptr<compute::QueryExecutor> query_executor,
     std::shared_ptr<cluster::NodeRegistry> node_registry,
-    std::shared_ptr<consensus::TimestampOracle> timestamp_oracle,
     std::shared_ptr<cluster::Coordinator> coordinator,
     std::shared_ptr<consensus::RaftNode> raft_node)
     : shard_manager_(shard_manager),
       segment_store_(segment_store),
       query_executor_(query_executor),
       node_registry_(node_registry),
-      timestamp_oracle_(timestamp_oracle),
       coordinator_(coordinator),
       raft_node_(raft_node) {
   utils::Logger::Instance().Info(
-      "InternalService initialized (node_registry={}, timestamp_oracle={}, coordinator={}, raft_node={})",
+      "InternalService initialized (node_registry={}, coordinator={}, raft_node={})",
       node_registry_ != nullptr ? "yes" : "no",
-      timestamp_oracle_ != nullptr ? "yes" : "no",
       coordinator_ != nullptr ? "yes" : "no",
       raft_node_ != nullptr ? "yes" : "no");
 }
@@ -49,54 +43,10 @@ InternalService::~InternalService() {
 // Shard Management
 // =============================================================================
 
-grpc::Status InternalService::AssignShard(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::AssignShardRequest* request,
-    proto::internal::AssignShardResponse* response) {
-  total_requests_++;
-
-  try {
-    uint32_t shard_id = request->shard_id();
-    uint32_t node_id = request->node_id();
-    bool is_primary = request->is_primary();
-
-    utils::Logger::Instance().Info("AssignShard: shard={}, node={}, primary={}",
-                                    shard_id, node_id, is_primary);
-
-    core::ShardId sid = core::MakeShardId(shard_id);
-    core::NodeId nid = core::MakeNodeId(node_id);
-
-    absl::Status status;
-    if (is_primary) {
-      status = shard_manager_->SetPrimaryNode(sid, nid);
-    } else {
-      status = shard_manager_->AddReplica(sid, nid);
-    }
-
-    if (!status.ok()) {
-      response->set_success(false);
-      response->set_message(std::string(status.message()));
-      return grpc::Status::OK;
-    }
-
-    response->set_success(true);
-    response->set_message(absl::StrFormat("Shard %d assigned to node %d (primary=%d)",
-                                           shard_id, node_id, is_primary));
-    return grpc::Status::OK;
-
-  } catch (const std::exception& e) {
-    total_errors_++;
-    utils::Logger::Instance().Error("AssignShard failed: {}", e.what());
-    return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
-  }
-}
-
 grpc::Status InternalService::GetShardAssignments(
     grpc::ServerContext* /*context*/,
     const proto::internal::GetShardAssignmentsRequest* request,
     proto::internal::GetShardAssignmentsResponse* response) {
-  total_requests_++;
-
   try {
     uint32_t collection_id = request->collection_id();
 
@@ -117,7 +67,6 @@ grpc::Status InternalService::GetShardAssignments(
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
-    total_errors_++;
     utils::Logger::Instance().Error("GetShardAssignments failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
@@ -127,8 +76,6 @@ grpc::Status InternalService::RebalanceShards(
     grpc::ServerContext* /*context*/,
     const proto::internal::RebalanceShardsRequest* request,
     proto::internal::RebalanceShardsResponse* response) {
-  total_requests_++;
-
   try {
     uint32_t collection_id = request->collection_id();
     utils::Logger::Instance().Info("RebalanceShards: collection={}", collection_id);
@@ -152,7 +99,6 @@ grpc::Status InternalService::RebalanceShards(
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
-    total_errors_++;
     utils::Logger::Instance().Error("RebalanceShards failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
@@ -166,8 +112,6 @@ grpc::Status InternalService::ReplicateSegment(
     grpc::ServerContext* /*context*/,
     const proto::internal::ReplicateSegmentRequest* request,
     proto::internal::ReplicateSegmentResponse* response) {
-  total_requests_++;
-
   try {
     const auto& segment_info = request->segment_info();
     uint64_t segment_id = segment_info.segment_id();
@@ -219,7 +163,6 @@ grpc::Status InternalService::ReplicateSegment(
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
-    total_errors_++;
     utils::Logger::Instance().Error("ReplicateSegment failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
@@ -229,8 +172,6 @@ grpc::Status InternalService::GetSegment(
     grpc::ServerContext* /*context*/,
     const proto::internal::GetSegmentRequest* request,
     proto::internal::GetSegmentResponse* response) {
-  total_requests_++;
-
   try {
     uint64_t segment_id = request->segment_id();
 
@@ -256,7 +197,6 @@ grpc::Status InternalService::GetSegment(
     segment_info->set_collection_id(core::ToUInt32(segment->GetCollectionId()));
     segment_info->set_shard_id(0);  // TODO: Track shard_id in segment metadata
     segment_info->set_vector_count(segment->GetVectorCount());
-    segment_info->set_is_sealed(segment->GetState() == core::SegmentState::SEALED);
 
     // Serialize segment data
     auto serialize_result = segment->SerializeToBytes();
@@ -268,17 +208,15 @@ grpc::Status InternalService::GetSegment(
                                           std::string(serialize_result.status().message()).c_str()));
     }
 
-    // Set segment data and size
+    // Set segment data
     const auto& data = serialize_result.value();
     response->set_segment_data(data);
-    segment_info->set_size_bytes(data.size());
 
     utils::Logger::Instance().Debug("GetSegment: found segment={} with {} vectors ({} bytes)",
                                      segment_id, segment->GetVectorCount(), data.size());
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
-    total_errors_++;
     utils::Logger::Instance().Error("GetSegment failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
@@ -288,8 +226,6 @@ grpc::Status InternalService::ListSegments(
     grpc::ServerContext* /*context*/,
     const proto::internal::ListSegmentsRequest* request,
     proto::internal::ListSegmentsResponse* response) {
-  total_requests_++;
-
   try {
     uint32_t collection_id = request->collection_id();
     uint32_t shard_id = request->shard_id();
@@ -319,13 +255,11 @@ grpc::Status InternalService::ListSegments(
       info->set_segment_id(static_cast<uint64_t>(core::ToUInt32(seg_id)));
       info->set_collection_id(collection_id);
       info->set_vector_count(segment->GetVectorCount());
-      info->set_is_sealed(segment->GetState() == core::SegmentState::SEALED);
     }
 
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
-    total_errors_++;
     utils::Logger::Instance().Error("ListSegments failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
@@ -335,8 +269,6 @@ grpc::Status InternalService::DeleteSegment(
     grpc::ServerContext* /*context*/,
     const proto::internal::DeleteSegmentRequest* request,
     proto::internal::DeleteSegmentResponse* response) {
-  total_requests_++;
-
   try {
     uint64_t segment_id = request->segment_id();
     bool force = request->force();
@@ -382,7 +314,6 @@ grpc::Status InternalService::DeleteSegment(
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
-    total_errors_++;
     utils::Logger::Instance().Error("DeleteSegment failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
@@ -392,8 +323,6 @@ grpc::Status InternalService::CreateSegment(
     grpc::ServerContext* /*context*/,
     const proto::internal::CreateSegmentRequest* request,
     proto::internal::CreateSegmentResponse* response) {
-  total_requests_++;
-
   try {
     uint64_t segment_id = request->segment_id();
     uint32_t collection_id = request->collection_id();
@@ -459,54 +388,24 @@ grpc::Status InternalService::CreateSegment(
 
     response->set_success(true);
     response->set_message(absl::StrFormat("Segment %lu created successfully", segment_id));
-    response->set_segment_id(segment_id);
 
     utils::Logger::Instance().Info("CreateSegment: successfully created segment={}", segment_id);
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
-    total_errors_++;
     utils::Logger::Instance().Error("CreateSegment failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
 }
 
 // =============================================================================
-// Metadata Synchronization
+// Collection Metadata
 // =============================================================================
-
-grpc::Status InternalService::SyncMetadata(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::SyncMetadataRequest* request,
-    proto::internal::SyncMetadataResponse* response) {
-  total_requests_++;
-
-  try {
-    uint32_t node_id = request->node_id();
-    int64_t last_sync_timestamp = request->last_sync_timestamp();
-
-    utils::Logger::Instance().Debug("SyncMetadata: node={}, last_sync={}",
-                                     node_id, last_sync_timestamp);
-
-    // TODO Phase 4: Implement metadata synchronization
-    response->set_current_timestamp(
-        std::chrono::system_clock::now().time_since_epoch().count());
-
-    return grpc::Status::OK;
-
-  } catch (const std::exception& e) {
-    total_errors_++;
-    utils::Logger::Instance().Error("SyncMetadata failed: {}", e.what());
-    return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
-  }
-}
 
 grpc::Status InternalService::GetCollectionMetadata(
     grpc::ServerContext* /*context*/,
     const proto::internal::GetCollectionMetadataRequest* request,
     proto::internal::GetCollectionMetadataResponse* response) {
-  total_requests_++;
-
   try {
     // Check if coordinator is available
     if (!coordinator_) {
@@ -567,8 +466,6 @@ grpc::Status InternalService::GetCollectionMetadata(
     // Convert IndexType enum to string (reuse proto_conversions toString)
     proto_metadata->set_index_type(toString(metadata.index_type));
 
-    proto_metadata->set_vector_count(metadata.total_vectors);
-    proto_metadata->set_created_at(metadata.created_at);
     proto_metadata->set_shard_count(metadata.shard_ids.size());
 
     utils::Logger::Instance().Debug("GetCollectionMetadata: found collection '{}' (id={}, dim={})",
@@ -579,7 +476,6 @@ grpc::Status InternalService::GetCollectionMetadata(
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
-    total_errors_++;
     utils::Logger::Instance().Error("GetCollectionMetadata failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
@@ -593,14 +489,10 @@ grpc::Status InternalService::RouteQuery(
     grpc::ServerContext* /*context*/,
     const proto::internal::RouteQueryRequest* request,
     proto::internal::RouteQueryResponse* response) {
-  total_requests_++;
-
   try {
     const std::string& collection_name = request->collection_name();
-    uint32_t top_k = request->top_k();
 
-    utils::Logger::Instance().Debug("RouteQuery: collection={}, top_k={}",
-                                     collection_name, top_k);
+    utils::Logger::Instance().Debug("RouteQuery: collection={}", collection_name);
 
     // Need coordinator to look up collection metadata
     if (!coordinator_) {
@@ -732,7 +624,6 @@ grpc::Status InternalService::RouteQuery(
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
-    total_errors_++;
     utils::Logger::Instance().Error("RouteQuery failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
@@ -742,8 +633,6 @@ grpc::Status InternalService::ExecuteShardQuery(
     grpc::ServerContext* /*context*/,
     const proto::internal::ExecuteShardQueryRequest* request,
     proto::internal::ExecuteShardQueryResponse* response) {
-  total_requests_++;
-
   try {
     uint32_t collection_id = request->collection_id();
     uint32_t top_k = request->top_k();
@@ -777,7 +666,6 @@ grpc::Status InternalService::ExecuteShardQuery(
     }
 
     // Execute search
-    utils::Timer timer;
     core::StatusOr<core::SearchResult> search_result;
 
     if (!request->filter().empty()) {
@@ -805,61 +693,10 @@ grpc::Status InternalService::ExecuteShardQuery(
       }
     }
 
-    response->set_query_time_ms(static_cast<float>(timer.elapsed_millis()));
-    response->set_vectors_scanned(segment->GetVectorCount());
-
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
-    total_errors_++;
     utils::Logger::Instance().Error("ExecuteShardQuery failed: {}", e.what());
-    return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
-  }
-}
-
-// =============================================================================
-// Data Transfer
-// =============================================================================
-
-grpc::Status InternalService::TransferData(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::TransferDataRequest* request,
-    proto::internal::TransferDataResponse* response) {
-  total_requests_++;
-
-  try {
-    uint32_t collection_id = request->collection_id();
-    uint32_t shard_id = request->shard_id();
-    uint32_t source_node_id = request->source_node_id();
-    uint32_t target_node_id = request->target_node_id();
-
-    utils::Logger::Instance().Info("TransferData: collection={}, shard={}, {} -> {}",
-                                    collection_id, shard_id, source_node_id, target_node_id);
-
-    if (!coordinator_) {
-      return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
-                          "TransferData requires coordinator");
-    }
-
-    auto cid = core::CollectionId(collection_id);
-    core::SegmentId seg_id = cluster::ShardSegmentId(cid, shard_id);
-    auto source = core::MakeNodeId(source_node_id);
-    auto target = core::MakeNodeId(target_node_id);
-
-    auto status = coordinator_->ReplicateSegmentData(seg_id, source, target);
-    if (!status.ok()) {
-      response->set_success(false);
-      response->set_message(std::string(status.message()));
-      return grpc::Status::OK;
-    }
-
-    response->set_success(true);
-    response->set_message("Transfer complete");
-    return grpc::Status::OK;
-
-  } catch (const std::exception& e) {
-    total_errors_++;
-    utils::Logger::Instance().Error("TransferData failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
 }
@@ -872,8 +709,6 @@ grpc::Status InternalService::Heartbeat(
     grpc::ServerContext* /*context*/,
     const proto::internal::HeartbeatRequest* request,
     proto::internal::HeartbeatResponse* response) {
-  total_requests_++;
-
   try {
     const auto& node_info = request->node_info();
 
@@ -888,12 +723,10 @@ grpc::Status InternalService::Heartbeat(
     }
 
     response->set_acknowledged(true);
-    response->set_timestamp(
-        std::chrono::system_clock::now().time_since_epoch().count());
 
-    // Send shard assignments back to the node, plus the authoritative
-    // per-shard primary view so the data-node's PrimaryTermTracker
-    // can gate writes against term mismatches.
+    // Send the authoritative per-shard primary view back to the node so
+    // the data-node's PrimaryTermTracker can gate writes against term
+    // mismatches.
     //
     // Scaling note: GetShardsForNode iterates the full shard table per
     // call, making this loop O(shards) per heartbeat. At the default
@@ -905,7 +738,6 @@ grpc::Status InternalService::Heartbeat(
       core::NodeId nid = core::MakeNodeId(node_info.node_id());
       auto shards = shard_manager_->GetShardsForNode(nid);
       for (const auto& shard_info : shards) {
-        response->add_assigned_shards(core::ToUInt16(shard_info.shard_id));
         // Primary view: shard_id, current primary_node_id, current term.
         // Same payload sent to every node touching this shard (primary
         // or replica) — keeps each data-node's tracker in sync without
@@ -920,7 +752,6 @@ grpc::Status InternalService::Heartbeat(
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
-    total_errors_++;
     utils::Logger::Instance().Error("Heartbeat failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
@@ -930,8 +761,6 @@ grpc::Status InternalService::GetClusterHealth(
     grpc::ServerContext* /*context*/,
     const proto::internal::GetClusterHealthRequest* /*request*/,
     proto::internal::GetClusterHealthResponse* response) {
-  total_requests_++;
-
   try {
     utils::Logger::Instance().Debug("GetClusterHealth");
 
@@ -949,7 +778,6 @@ grpc::Status InternalService::GetClusterHealth(
       // Set cluster status
       response->set_total_shards(0);  // TODO: Get from ShardManager
       response->set_healthy_shards(0);
-      response->set_degraded_shards(0);
 
       if (stats.failed_nodes == 0) {
         response->set_cluster_status("healthy");
@@ -964,7 +792,7 @@ grpc::Status InternalService::GetClusterHealth(
     }
 
     // Populate last_rebalance_unix_ms from the coordinator's tracked state
-    // so the operator can surface status.lastRebalance (roadmap 0b.6.E).
+    // so the operator can surface status.lastRebalance.
     // Zero when no rebalance has fired on this coordinator's watch. The
     // value is captured at rebalance completion (wall-clock) rather than
     // reconstructed from a monotonic clock here — that reconstruction was
@@ -979,7 +807,6 @@ grpc::Status InternalService::GetClusterHealth(
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
-    total_errors_++;
     utils::Logger::Instance().Error("GetClusterHealth failed: {}", e.what());
     return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
   }
@@ -989,13 +816,11 @@ grpc::Status InternalService::GetLeaderInfo(
     grpc::ServerContext* /*context*/,
     const proto::internal::GetLeaderInfoRequest* /*request*/,
     proto::internal::GetLeaderInfoResponse* response) {
-  total_requests_++;
-
   // SECURITY NOTE: InternalService is unauthenticated today — any in-cluster
   // client that can reach :50051 can read leader identity and term. The
   // network path is restricted to the gvdb namespace by default (and to
   // NetworkPolicy-ed pods in a hardened install), but this surface should
-  // gain a token or mTLS check before Tier 1.Full ships (roadmap).
+  // gain a token or mTLS check.
 
   if (!raft_node_) {
     // Single-node coordinator: no Raft, so self is the "leader" by fiat.
@@ -1021,7 +846,7 @@ grpc::Status InternalService::GetLeaderInfo(
 }
 
 // =============================================================================
-// Raft Membership (roadmap 1.7b)
+// Raft Membership
 // =============================================================================
 //
 // These two RPCs let coordinator pods add/remove themselves from Raft
@@ -1034,8 +859,6 @@ grpc::Status InternalService::JoinCluster(
     grpc::ServerContext* /*context*/,
     const proto::internal::JoinClusterRequest* request,
     proto::internal::JoinClusterResponse* response) {
-  total_requests_++;
-
   if (!raft_node_) {
     response->set_success(false);
     response->set_message("single-node mode; no Raft cluster to join");
@@ -1058,7 +881,6 @@ grpc::Status InternalService::JoinCluster(
   } else {
     response->set_message(std::string(st.message()));
     response->set_current_leader_id(raft_node_->GetLeaderId());
-    total_errors_++;
   }
   return grpc::Status::OK;
 }
@@ -1067,8 +889,6 @@ grpc::Status InternalService::RemovePeer(
     grpc::ServerContext* /*context*/,
     const proto::internal::RemovePeerRequest* request,
     proto::internal::RemovePeerResponse* response) {
-  total_requests_++;
-
   if (!raft_node_) {
     response->set_success(false);
     response->set_message("single-node mode; no Raft cluster to modify");
@@ -1089,13 +909,12 @@ grpc::Status InternalService::RemovePeer(
   } else {
     response->set_message(std::string(st.message()));
     response->set_current_leader_id(raft_node_->GetLeaderId());
-    total_errors_++;
   }
   return grpc::Status::OK;
 }
 
 // =============================================================================
-// Raft Scale Reconciliation (roadmap 1.8)
+// Raft Scale Reconciliation
 // =============================================================================
 //
 // Observes and mutates Raft membership on behalf of the operator's scale
@@ -1107,8 +926,6 @@ grpc::Status InternalService::GetRaftMembership(
     grpc::ServerContext* /*context*/,
     const proto::internal::GetRaftMembershipRequest* /*request*/,
     proto::internal::GetRaftMembershipResponse* response) {
-  total_requests_++;
-
   if (!raft_node_) {
     // Single-node mode: the "cluster" is just self. Report node_id=1
     // (coordinator convention) so the operator's scale logic treats this
@@ -1135,8 +952,6 @@ grpc::Status InternalService::TransferLeadership(
     grpc::ServerContext* /*context*/,
     const proto::internal::TransferLeadershipRequest* request,
     proto::internal::TransferLeadershipResponse* response) {
-  total_requests_++;
-
   if (!raft_node_) {
     response->set_success(false);
     response->set_message("single-node mode; no Raft leader to transfer");
@@ -1158,7 +973,6 @@ grpc::Status InternalService::TransferLeadership(
   } else {
     response->set_message(std::string(st.message()));
     response->set_current_leader_id(raft_node_->GetLeaderId());
-    total_errors_++;
   }
   return grpc::Status::OK;
 }
@@ -1189,10 +1003,7 @@ grpc::Status InternalService::PausePrimary(
     grpc::ServerContext* /*context*/,
     const proto::internal::PausePrimaryRequest* request,
     proto::internal::PausePrimaryResponse* response) {
-  total_requests_++;
-
   if (!primary_term_tracker_) {
-    total_errors_++;
     response->set_success(false);
     response->set_message("PausePrimary received on a non-data-node host");
     return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
@@ -1204,7 +1015,6 @@ grpc::Status InternalService::PausePrimary(
   const uint32_t new_primary = request->new_primary_node_id();
 
   if (new_term == 0) {
-    total_errors_++;
     response->set_success(false);
     response->set_message("new_term must be > 0");
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
@@ -1240,10 +1050,7 @@ grpc::Status InternalService::PreparePromote(
     grpc::ServerContext* /*context*/,
     const proto::internal::PreparePromoteRequest* request,
     proto::internal::PreparePromoteResponse* response) {
-  total_requests_++;
-
   if (!primary_term_tracker_) {
-    total_errors_++;
     response->set_success(false);
     response->set_message("PreparePromote received on a non-data-node host");
     return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
@@ -1254,7 +1061,6 @@ grpc::Status InternalService::PreparePromote(
   const uint64_t new_term = request->new_term();
 
   if (new_term == 0) {
-    total_errors_++;
     response->set_success(false);
     response->set_message("new_term must be > 0");
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
@@ -1271,7 +1077,6 @@ grpc::Status InternalService::PreparePromote(
     // Idempotent replay at the SAME term goes through RecordPrimary's
     // ok-on-match path (returns true), so we won't reach this branch
     // for a benign retry.
-    total_errors_++;
     response->set_success(false);
     response->set_message(
         "term regression: refusing to promote at term <= currently-recorded term");
@@ -1299,8 +1104,6 @@ grpc::Status InternalService::BackupShard(
     grpc::ServerContext* /*context*/,
     const proto::internal::BackupShardRequest* request,
     proto::internal::BackupShardResponse* response) {
-  total_requests_++;
-
   if (!backup_manager_) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
         "Backup is not configured on this server");
@@ -1323,7 +1126,6 @@ grpc::Status InternalService::BackupShard(
       *target,
       segment_store_);
   if (!result.ok()) {
-    total_errors_++;
     response->set_success(false);
     response->set_message(std::string(result.status().message()));
     return toGrpcStatus(result.status());
@@ -1348,8 +1150,6 @@ grpc::Status InternalService::RestoreShard(
     grpc::ServerContext* /*context*/,
     const proto::internal::RestoreShardRequest* request,
     proto::internal::RestoreShardResponse* response) {
-  total_requests_++;
-
   if (!restore_manager_) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
         "Restore is not configured on this server");
@@ -1371,7 +1171,6 @@ grpc::Status InternalService::RestoreShard(
       core::MakeShardId(static_cast<uint16_t>(request->shard_id())),
       segment_store_);
   if (!status.ok()) {
-    total_errors_++;
     response->set_success(false);
     response->set_message(std::string(status.message()));
     return toGrpcStatus(status);
@@ -1388,8 +1187,6 @@ grpc::Status InternalService::FreezeWrites(
     grpc::ServerContext* /*context*/,
     const proto::internal::FreezeWritesRequest* request,
     proto::internal::FreezeWritesResponse* response) {
-  total_requests_++;
-
   if (!shard_write_gate_) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
         "Write fence is not configured on this server");
@@ -1420,8 +1217,6 @@ grpc::Status InternalService::UnfreezeWrites(
     grpc::ServerContext* /*context*/,
     const proto::internal::UnfreezeWritesRequest* request,
     proto::internal::UnfreezeWritesResponse* response) {
-  total_requests_++;
-
   if (!shard_write_gate_) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
         "Write fence is not configured on this server");
@@ -1438,53 +1233,6 @@ grpc::Status InternalService::UnfreezeWrites(
   response->set_message(ok ? "Writes unfrozen"
                             : "No matching freeze for token");
   return grpc::Status::OK;
-}
-
-// =============================================================================
-// Timestamp Oracle
-// =============================================================================
-
-grpc::Status InternalService::GetTimestamp(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::GetTimestampRequest* request,
-    proto::internal::GetTimestampResponse* response) {
-  total_requests_++;
-
-  try {
-    uint32_t count = request->count();
-    if (count == 0) count = 1;
-
-    utils::Logger::Instance().Debug("GetTimestamp: count={}", count);
-
-    if (timestamp_oracle_) {
-      // Use TimestampOracle for globally unique, monotonic timestamps
-      uint64_t start_ts = timestamp_oracle_->GetTimestamp();
-      uint64_t end_ts = start_ts;
-
-      // Allocate additional timestamps if needed
-      for (uint32_t i = 1; i < count; ++i) {
-        end_ts = timestamp_oracle_->GetTimestamp();
-      }
-
-      response->set_start_timestamp(start_ts);
-      response->set_end_timestamp(end_ts);
-    } else {
-      // Fallback to system time if no TimestampOracle
-      uint64_t start_ts = static_cast<uint64_t>(
-          std::chrono::system_clock::now().time_since_epoch().count());
-      uint64_t end_ts = start_ts + count - 1;
-
-      response->set_start_timestamp(start_ts);
-      response->set_end_timestamp(end_ts);
-    }
-
-    return grpc::Status::OK;
-
-  } catch (const std::exception& e) {
-    total_errors_++;
-    utils::Logger::Instance().Error("GetTimestamp failed: {}", e.what());
-    return grpc::Status(grpc::StatusCode::INTERNAL, e.what());
-  }
 }
 
 } // namespace network

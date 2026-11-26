@@ -4,7 +4,6 @@
 #include "compute/query_executor.h"
 
 #include <algorithm>
-#include <future>
 #include <queue>
 #include <vector>
 
@@ -107,54 +106,6 @@ core::StatusOr<core::SearchResult> QueryExecutor::Search(
   }
 
   return result;
-}
-
-core::StatusOr<std::vector<core::SearchResult>> QueryExecutor::SearchBatch(
-    core::CollectionId collection_id,
-    const std::vector<core::Vector>& queries,
-    int top_k) {
-  utils::Timer timer;
-
-  if (queries.empty()) {
-    return std::vector<core::SearchResult>{};
-  }
-
-  if (top_k <= 0) {
-    return core::InvalidArgumentError("top_k must be positive");
-  }
-
-  // Execute searches in parallel
-  std::vector<std::future<core::StatusOr<core::SearchResult>>> futures;
-  futures.reserve(queries.size());
-
-  for (const auto& query : queries) {
-    futures.push_back(thread_pool_->enqueue([this, collection_id, &query, top_k]() {
-      return segment_store_->SearchCollection(collection_id, query, top_k);
-    }));
-  }
-
-  // Collect results
-  std::vector<core::SearchResult> results;
-  results.reserve(queries.size());
-
-  for (auto& future : futures) {
-    auto result = future.get();
-    if (!result.ok()) {
-      return result.status();
-    }
-    results.push_back(std::move(result.value()));
-  }
-
-  utils::Logger::Instance().Debug("Batch search completed in {} us ({} queries, top_k={})",
-            timer.elapsed_micros(),
-            queries.size(),
-            top_k);
-
-  return results;
-}
-
-size_t QueryExecutor::thread_count() const {
-  return thread_pool_->size();
 }
 
 core::SearchResult QueryExecutor::MergeResults(

@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 //
-// In-process integration tests for roadmap 1.7b coordinator Raft auto-join.
+// In-process integration tests for coordinator Raft auto-join.
 // Spins up multiple RaftNode instances in the same test binary plus an
 // InternalService gRPC server for each — just enough to exercise the
 // JoinCluster / RemovePeer RPCs end-to-end without a real K8s cluster.
@@ -123,7 +123,6 @@ std::unique_ptr<TestCoordinator> StartCoordinator(
       /*segment_store=*/nullptr,
       /*query_executor=*/nullptr,
       /*node_registry=*/nullptr,
-      /*timestamp_oracle=*/nullptr,
       /*coordinator=*/nullptr,
       c->raft);
 
@@ -267,7 +266,7 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "3NodeBootstrapElectsLeader") {
   // peer list. Since no peer has a leader yet, ProbePeersForLeader finds
   // none, we fall through to the seed-from-declared-peers path, and NuRaft
   // elects a leader via the standard bootstrap flow. This test locks in
-  // that the 1.7b probe does NOT break initial-bootstrap semantics.
+  // that the startup peer probe does NOT break initial-bootstrap semantics.
   const int base_raft = UniquePortBase();
   const int base_grpc = base_raft + 50;
   auto layout = MakeLayout(/*count=*/3, base_raft, base_grpc);
@@ -314,9 +313,8 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "ScaleUpJoinsExistingCluster") {
   const int base_raft = UniquePortBase();
   const int base_grpc = base_raft + 50;
 
-  // Phase 1: 3-node cold-start with a layout sized for 4 (so later
-  // adding node 4 doesn't require a restart of nodes 1-3 — which is the
-  // point of 1.7b). Nodes 1-3 start with 4 declared peers but only
+  // Phase 1: 3-node cold-start with a layout sized for 4 (so adding
+  // node 4 later does not require a restart of nodes 1-3). Nodes 1-3 start with 4 declared peers but only
   // themselves are alive initially; NuRaft's bootstrap with the
   // 4-member seed config still elects a leader once the majority (3/4)
   // is up.
@@ -459,7 +457,7 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "GhostPeerCleanupAfterHardKill") {
 
   // Operator-simulated cleanup: call RemovePeer on the leader's gRPC
   // surface exactly as reconcileCoordinatorScale would. Idempotent per
-  // 1.7b MapNuRaftCode if the pod had already left cleanly. Uses retry
+  // MapNuRaftCode if the pod had already left cleanly. Uses retry
   // to absorb NuRaft's transient CONFIG_CHANGING window.
   CHECK(RemovePeerWithRetry(leader->grpc_endpoint(),
                             static_cast<uint32_t>(victim_node_id)));

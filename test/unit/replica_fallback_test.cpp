@@ -60,7 +60,6 @@ TEST_CASE("CallWithReplicaFallback succeeds on the first option when it returns 
 
   CHECK(result.final_status.ok());
   CHECK(result.attempts == 1);
-  CHECK(result.target_node_id_used == 101);
   CHECK_FALSE(result.used_replica_fallback);
   REQUIRE(seq.dialed.size() == 1);
   CHECK(seq.dialed[0] == "addr-101");
@@ -79,7 +78,6 @@ TEST_CASE("CallWithReplicaFallback falls over to a replica on UNAVAILABLE") {
 
   CHECK(result.final_status.ok());
   CHECK(result.attempts == 2);
-  CHECK(result.target_node_id_used == 102);
   CHECK(result.used_replica_fallback);
   REQUIRE(seq.dialed.size() == 2);
   CHECK(seq.dialed[0] == "addr-101");
@@ -104,8 +102,11 @@ TEST_CASE("CallWithReplicaFallback walks past multiple unhealthy candidates") {
 
   CHECK(result.final_status.ok());
   CHECK(result.attempts == 3);
-  CHECK(result.target_node_id_used == 103);
   CHECK(result.used_replica_fallback);
+  REQUIRE(seq.dialed.size() == 3);
+  CHECK(seq.dialed[0] == "addr-101");
+  CHECK(seq.dialed[1] == "addr-102");
+  CHECK(seq.dialed[2] == "addr-103");
 }
 
 TEST_CASE("CallWithReplicaFallback returns immediately on a non-transient error") {

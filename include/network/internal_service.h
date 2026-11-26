@@ -5,12 +5,10 @@
 
 #include "internal.grpc.pb.h"
 #include "cluster/coordinator.h"
-#include "cluster/data_node.h"
 #include "cluster/shard_manager.h"
 #include "storage/segment_store.h"
 #include "compute/query_executor.h"
 #include <memory>
-#include <atomic>
 
 namespace gvdb {
 namespace cluster {
@@ -30,7 +28,6 @@ class Coordinator;
 }
 
 namespace consensus {
-class TimestampOracle;
 class RaftNode;
 }
 
@@ -44,7 +41,6 @@ class InternalService final : public proto::internal::InternalService::Service {
       std::shared_ptr<storage::ISegmentStore> segment_store,
       std::shared_ptr<compute::QueryExecutor> query_executor,
       std::shared_ptr<cluster::NodeRegistry> node_registry = nullptr,
-      std::shared_ptr<consensus::TimestampOracle> timestamp_oracle = nullptr,
       std::shared_ptr<cluster::Coordinator> coordinator = nullptr,
       std::shared_ptr<consensus::RaftNode> raft_node = nullptr);
 
@@ -53,11 +49,6 @@ class InternalService final : public proto::internal::InternalService::Service {
   // =========================================================================
   // Shard Management (Coordinator → Data/Query Nodes)
   // =========================================================================
-
-  grpc::Status AssignShard(
-      grpc::ServerContext* context,
-      const proto::internal::AssignShardRequest* request,
-      proto::internal::AssignShardResponse* response) override;
 
   grpc::Status GetShardAssignments(
       grpc::ServerContext* context,
@@ -99,13 +90,8 @@ class InternalService final : public proto::internal::InternalService::Service {
       proto::internal::CreateSegmentResponse* response) override;
 
   // =========================================================================
-  // Metadata Synchronization (Data/Query Nodes → Coordinator)
+  // Collection Metadata (Data/Query Nodes → Coordinator)
   // =========================================================================
-
-  grpc::Status SyncMetadata(
-      grpc::ServerContext* context,
-      const proto::internal::SyncMetadataRequest* request,
-      proto::internal::SyncMetadataResponse* response) override;
 
   grpc::Status GetCollectionMetadata(
       grpc::ServerContext* context,
@@ -127,15 +113,6 @@ class InternalService final : public proto::internal::InternalService::Service {
       proto::internal::ExecuteShardQueryResponse* response) override;
 
   // =========================================================================
-  // Data Transfer (for rebalancing)
-  // =========================================================================
-
-  grpc::Status TransferData(
-      grpc::ServerContext* context,
-      const proto::internal::TransferDataRequest* request,
-      proto::internal::TransferDataResponse* response) override;
-
-  // =========================================================================
   // Health Monitoring (All Nodes → Coordinator)
   // =========================================================================
 
@@ -155,7 +132,7 @@ class InternalService final : public proto::internal::InternalService::Service {
       proto::internal::GetLeaderInfoResponse* response) override;
 
   // =========================================================================
-  // Raft Membership (Coordinator → Coordinator; roadmap 1.7b)
+  // Raft Membership (Coordinator → Coordinator)
   // =========================================================================
 
   grpc::Status JoinCluster(
@@ -169,7 +146,7 @@ class InternalService final : public proto::internal::InternalService::Service {
       proto::internal::RemovePeerResponse* response) override;
 
   // =========================================================================
-  // Raft Scale Reconciliation (Operator → Coordinator; roadmap 1.8)
+  // Raft Scale Reconciliation (Operator → Coordinator)
   // =========================================================================
 
   grpc::Status GetRaftMembership(
@@ -220,15 +197,6 @@ class InternalService final : public proto::internal::InternalService::Service {
       const proto::internal::UnfreezeWritesRequest* request,
       proto::internal::UnfreezeWritesResponse* response) override;
 
-  // =========================================================================
-  // Timestamp Oracle (All Nodes → Coordinator)
-  // =========================================================================
-
-  grpc::Status GetTimestamp(
-      grpc::ServerContext* context,
-      const proto::internal::GetTimestampRequest* request,
-      proto::internal::GetTimestampResponse* response) override;
-
   // Wire the data-node's local primary-term view so PausePrimary /
   // PreparePromote can update it directly. Optional; null on a coordinator
   // node, query-node, or test fixture (those instantiations don't host
@@ -260,7 +228,6 @@ class InternalService final : public proto::internal::InternalService::Service {
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::shared_ptr<cluster::NodeRegistry> node_registry_;
-  std::shared_ptr<consensus::TimestampOracle> timestamp_oracle_;
   std::shared_ptr<cluster::Coordinator> coordinator_;
   std::shared_ptr<consensus::RaftNode> raft_node_;
 
@@ -280,10 +247,6 @@ class InternalService final : public proto::internal::InternalService::Service {
   // UNIMPLEMENTED in that case.
   std::shared_ptr<storage::BackupManager> backup_manager_;
   std::shared_ptr<storage::RestoreManager> restore_manager_;
-
-  // Statistics
-  std::atomic<uint64_t> total_requests_{0};
-  std::atomic<uint64_t> total_errors_{0};
 };
 
 } // namespace network

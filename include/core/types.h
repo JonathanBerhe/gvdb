@@ -100,7 +100,6 @@ struct SearchResult {
   }
 
   size_t Size() const { return entries.size(); }
-  bool Empty() const { return entries.empty(); }
 };
 
 // Dimension type for vectors
@@ -110,12 +109,9 @@ using Dimension = int32_t;
 using Timestamp = uint64_t;
 
 // Constants
-constexpr VectorId kInvalidVectorId = VectorId{0};
 constexpr CollectionId kInvalidCollectionId = CollectionId{0};
-constexpr SegmentId kInvalidSegmentId = SegmentId{0};
 constexpr ShardId kInvalidShardId = ShardId{0};
 constexpr NodeId kInvalidNodeId = NodeId{0};
-constexpr Timestamp kInvalidTimestamp = 0;
 
 }  // namespace core
 }  // namespace gvdb

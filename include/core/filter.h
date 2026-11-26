@@ -42,11 +42,6 @@ class FilterNode {
    * @return true if metadata matches the filter
    */
   virtual bool evaluate(const Metadata& metadata) const = 0;
-
-  /**
-   * @brief Convert this filter to a string representation
-   */
-  virtual std::string to_string() const = 0;
 };
 
 /**
@@ -57,7 +52,6 @@ class ComparisonNode : public FilterNode {
   ComparisonNode(std::string field, ComparisonOp op, MetadataValue value);
 
   bool evaluate(const Metadata& metadata) const override;
-  std::string to_string() const override;
 
   const std::string& field() const { return field_; }
   ComparisonOp op() const { return op_; }
@@ -77,7 +71,6 @@ class InNode : public FilterNode {
   InNode(std::string field, bool negate, std::vector<MetadataValue> values);
 
   bool evaluate(const Metadata& metadata) const override;
-  std::string to_string() const override;
 
   const std::string& field() const { return field_; }
   bool is_negated() const { return negate_; }
@@ -98,7 +91,6 @@ class LogicalNode : public FilterNode {
               std::unique_ptr<FilterNode> right = nullptr);
 
   bool evaluate(const Metadata& metadata) const override;
-  std::string to_string() const override;
 
   LogicalOp op() const { return op_; }
   const FilterNode& left() const { return *left_; }
@@ -189,26 +181,6 @@ class FilterParser {
   size_t pos_;
   int depth_;
 };
-
-// ============================================================================
-// Filter Utilities
-// ============================================================================
-
-/**
- * @brief Evaluate a filter expression against metadata
- * @param filter_expr SQL-like filter expression
- * @param metadata The metadata to test
- * @return true if metadata matches, false if not, error on parse failure
- */
-absl::StatusOr<bool> evaluate_filter(const std::string& filter_expr,
-                                      const Metadata& metadata);
-
-/**
- * @brief Validate a filter expression (parsing check)
- * @param filter_expr SQL-like filter expression
- * @return OkStatus if valid, error otherwise
- */
-absl::Status validate_filter(const std::string& filter_expr);
 
 }  // namespace core
 }  // namespace gvdb

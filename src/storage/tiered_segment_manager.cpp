@@ -167,10 +167,6 @@ core::Status TieredSegmentManager::DropSegment(
   return status;
 }
 
-core::Status TieredSegmentManager::LoadSegment(core::SegmentId id) {
-  return EnsureSegmentLoaded(id);
-}
-
 core::Status TieredSegmentManager::AddReplicatedSegment(
     std::unique_ptr<Segment> segment) {
   return local_->AddReplicatedSegment(std::move(segment));
@@ -185,31 +181,6 @@ core::Status TieredSegmentManager::WriteVectors(
     const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids) {
   return local_->WriteVectors(segment_id, vectors, ids);
-}
-
-core::StatusOr<std::vector<core::Vector>> TieredSegmentManager::ReadVectors(
-    core::SegmentId segment_id,
-    const std::vector<core::VectorId>& ids) const {
-  auto result = local_->ReadVectors(segment_id, ids);
-  if (result.ok()) return result;
-
-  // Try lazy load from S3
-  auto status = EnsureSegmentLoaded(segment_id);
-  if (!status.ok()) return result;  // return original error
-
-  return local_->ReadVectors(segment_id, ids);
-}
-
-core::StatusOr<core::SearchResult> TieredSegmentManager::SearchSegment(
-    core::SegmentId segment_id,
-    const core::Vector& query, int k) const {
-  auto result = local_->SearchSegment(segment_id, query, k);
-  if (result.ok()) return result;
-
-  auto status = EnsureSegmentLoaded(segment_id);
-  if (!status.ok()) return result;
-
-  return local_->SearchSegment(segment_id, query, k);
 }
 
 core::StatusOr<core::SearchResult> TieredSegmentManager::SearchCollection(
@@ -247,44 +218,6 @@ void TieredSegmentManager::SetSealCallback(SealCallback callback) {
 Segment* TieredSegmentManager::GetWritableSegment(
     core::CollectionId collection_id, size_t required_bytes) {
   return local_->GetWritableSegment(collection_id, required_bytes);
-}
-
-std::vector<Segment*> TieredSegmentManager::GetQueryableSegments(
-    core::CollectionId collection_id) const {
-  // Ensure remote segments for this collection are loaded before querying.
-  std::vector<core::SegmentId> to_load;
-  {
-    std::shared_lock lock(remote_mutex_);
-    for (const auto& [seg_key, info] : remote_segments_) {
-      if (info.collection_id == collection_id) {
-        auto seg_id = static_cast<core::SegmentId>(seg_key);
-        if (local_->GetSegment(seg_id) == nullptr) {
-          to_load.push_back(seg_id);
-        }
-      }
-    }
-  }
-  for (auto seg_id : to_load) {
-    (void)EnsureSegmentLoaded(seg_id);
-  }
-  return local_->GetQueryableSegments(collection_id);
-}
-
-std::vector<core::SegmentId> TieredSegmentManager::GetAllSegmentIds() const {
-  auto local_ids = local_->GetAllSegmentIds();
-
-  // Add remote segment IDs not yet loaded locally (O(1) lookup via set)
-  absl::flat_hash_set<uint32_t> local_set;
-  local_set.reserve(local_ids.size());
-  for (auto id : local_ids) local_set.insert(core::ToUInt32(id));
-
-  std::shared_lock lock(remote_mutex_);
-  for (const auto& [seg_key, _] : remote_segments_) {
-    if (!local_set.contains(seg_key)) {
-      local_ids.push_back(static_cast<core::SegmentId>(seg_key));
-    }
-  }
-  return local_ids;
 }
 
 void TieredSegmentManager::RunTTLSweepLoop(const std::atomic<bool>& shutdown) {
@@ -345,10 +278,6 @@ size_t TieredSegmentManager::GetSegmentCount() const {
   return local_count + remote_only;
 }
 
-size_t TieredSegmentManager::GetTotalMemoryUsage() const {
-  return local_->GetTotalMemoryUsage();
-}
-
 void TieredSegmentManager::Clear() {
   local_->Clear();
   std::unique_lock lock(remote_mutex_);
@@ -358,16 +287,6 @@ void TieredSegmentManager::Clear() {
 // ============================================================================
 // S3-specific accessors
 // ============================================================================
-
-size_t TieredSegmentManager::GetRemoteSegmentCount() const {
-  std::shared_lock lock(remote_mutex_);
-  return remote_segments_.size();
-}
-
-bool TieredSegmentManager::IsUploading(core::SegmentId id) const {
-  std::lock_guard lock(upload_mutex_);
-  return uploading_.count(core::ToUInt32(id)) > 0;
-}
 
 std::vector<core::SegmentId> TieredSegmentManager::GetFailedUploads() const {
   std::lock_guard lock(upload_mutex_);
@@ -728,10 +647,6 @@ std::string TieredSegmentManager::MakeS3Key(
     const std::string& filename) const {
   return absl::StrCat(prefix_, "/collections/", collection_id,
                       "/segments/", segment_id, "/", filename);
-}
-
-const std::string& TieredSegmentManager::GetLocalBasePath() const {
-  return local_->GetBasePath();
 }
 
 }  // namespace storage

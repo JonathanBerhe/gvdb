@@ -66,7 +66,6 @@ void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata);
 
 // Sparse vector conversions
 absl::StatusOr<core::SparseVector> fromProto(const proto::SparseVector& proto_sparse);
-void toProto(const core::SparseVector& sparse, proto::SparseVector* proto_sparse);
 
 // ============================================================================
 // Backup / Restore conversions

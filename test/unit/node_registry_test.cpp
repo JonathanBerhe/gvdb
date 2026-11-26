@@ -100,26 +100,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetAllNodesReturnsAll") {
 }
 
 // ============================================================================
-// 5. GetNodesByType filters correctly (2 data + 1 query)
-// ============================================================================
-TEST_CASE_FIXTURE(NodeRegistryTest, "GetNodesByTypeFilters") {
-  registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
-  registry_.UpdateNode(MakeNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));
-  registry_.UpdateNode(MakeNodeInfo(3, proto::internal::NODE_TYPE_QUERY_NODE));
-
-  auto data_nodes = registry_.GetNodesByType(proto::internal::NODE_TYPE_DATA_NODE);
-  CHECK_EQ(data_nodes.size(), 2);
-
-  auto query_nodes = registry_.GetNodesByType(proto::internal::NODE_TYPE_QUERY_NODE);
-  CHECK_EQ(query_nodes.size(), 1);
-  CHECK_EQ(query_nodes[0].info.node_id(), 3);
-
-  auto proxies = registry_.GetNodesByType(proto::internal::NODE_TYPE_PROXY);
-  CHECK_EQ(proxies.size(), 0);
-}
-
-// ============================================================================
-// 6. GetHealthyNodes returns recently-updated nodes
+// 5. GetHealthyNodes returns recently-updated nodes
 // ============================================================================
 TEST_CASE_FIXTURE(NodeRegistryTest, "GetHealthyNodesReturnsRecent") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -131,7 +112,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetHealthyNodesReturnsRecent") {
 }
 
 // ============================================================================
-// 7. GetHealthyNodes excludes stale nodes (sleep past timeout)
+// 6. GetHealthyNodes excludes stale nodes (sleep past timeout)
 // ============================================================================
 TEST_CASE_FIXTURE(NodeRegistryTest, "GetHealthyNodesExcludesStale") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -144,7 +125,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetHealthyNodesExcludesStale") {
 }
 
 // ============================================================================
-// 8. GetHealthyNodesByType combines type + health filtering
+// 7. GetHealthyNodesByType combines type + health filtering
 // ============================================================================
 TEST_CASE_FIXTURE(NodeRegistryTest, "GetHealthyNodesByTypeCombinesFilters") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -166,25 +147,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetHealthyNodesByTypeCombinesFilters") {
 }
 
 // ============================================================================
-// 9. GetFailedNodes returns stale nodes
-// ============================================================================
-TEST_CASE_FIXTURE(NodeRegistryTest, "GetFailedNodesReturnsStale") {
-  registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
-  registry_.UpdateNode(MakeNodeInfo(2, proto::internal::NODE_TYPE_QUERY_NODE));
-
-  // Wait past timeout
-  std::this_thread::sleep_for(100ms);
-
-  // Refresh node 1 only
-  registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
-
-  auto failed = registry_.GetFailedNodes();
-  CHECK_EQ(failed.size(), 1);
-  CHECK_EQ(failed[0].info.node_id(), 2);
-}
-
-// ============================================================================
-// 10. RemoveNode makes GetNode return false
+// 8. RemoveNode makes GetNode return false
 // ============================================================================
 TEST_CASE_FIXTURE(NodeRegistryTest, "RemoveNodeMakesItGone") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -201,7 +164,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "RemoveNodeMakesItGone") {
 }
 
 // ============================================================================
-// 11. RemoveNode on unknown ID is no-op
+// 9. RemoveNode on unknown ID is no-op
 // ============================================================================
 TEST_CASE_FIXTURE(NodeRegistryTest, "RemoveUnknownNodeIsNoOp") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -217,7 +180,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "RemoveUnknownNodeIsNoOp") {
 }
 
 // ============================================================================
-// 12. GetClusterStats counts by type
+// 10. GetClusterStats counts by type
 // ============================================================================
 TEST_CASE_FIXTURE(NodeRegistryTest, "GetClusterStatsCountsByType") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_COORDINATOR));
@@ -235,7 +198,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetClusterStatsCountsByType") {
 }
 
 // ============================================================================
-// 13. GetClusterStats healthy vs failed
+// 11. GetClusterStats healthy vs failed
 // ============================================================================
 TEST_CASE_FIXTURE(NodeRegistryTest, "GetClusterStatsHealthyVsFailed") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -255,7 +218,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetClusterStatsHealthyVsFailed") {
 }
 
 // ============================================================================
-// 14. DetectFailedNodes returns stale IDs
+// 12. DetectFailedNodes returns stale IDs
 // ============================================================================
 TEST_CASE_FIXTURE(NodeRegistryTest, "DetectFailedNodesReturnsStaleIds") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -284,7 +247,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "DetectFailedNodesReturnsStaleIds") {
 }
 
 // ============================================================================
-// 15. DetectFailedNodes increments missed_heartbeats
+// 13. DetectFailedNodes increments missed_heartbeats
 // ============================================================================
 TEST_CASE_FIXTURE(NodeRegistryTest, "DetectFailedNodesIncrementsMissedHeartbeats") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -309,27 +272,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "DetectFailedNodesIncrementsMissedHeartbeats
 }
 
 // ============================================================================
-// 16. SetHeartbeatTimeout changes detection window
-// ============================================================================
-TEST_CASE_FIXTURE(NodeRegistryTest, "SetHeartbeatTimeoutChangesWindow") {
-  registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
-
-  // Wait 60ms - past default 50ms timeout
-  std::this_thread::sleep_for(60ms);
-
-  // Node should be unhealthy with the 50ms timeout
-  auto healthy_before = registry_.GetHealthyNodes();
-  CHECK_EQ(healthy_before.size(), 0);
-
-  // Increase timeout to 200ms - node should become healthy again
-  registry_.SetHeartbeatTimeout(200ms);
-
-  auto healthy_after = registry_.GetHealthyNodes();
-  CHECK_EQ(healthy_after.size(), 1);
-}
-
-// ============================================================================
-// 17. RegisteredNode IsHealthy boundary test
+// 14. RegisteredNode IsHealthy boundary test
 // ============================================================================
 TEST_CASE_FIXTURE(NodeRegistryTest, "RegisteredNodeIsHealthyBoundary") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -355,7 +298,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "RegisteredNodeIsHealthyBoundary") {
 }
 
 // ============================================================================
-// 18. RegisteredNode TimeSinceLastHeartbeat
+// 15. RegisteredNode TimeSinceLastHeartbeat
 // ============================================================================
 TEST_CASE_FIXTURE(NodeRegistryTest, "RegisteredNodeTimeSinceLastHeartbeat") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -377,7 +320,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "RegisteredNodeTimeSinceLastHeartbeat") {
 }
 
 // ============================================================================
-// Drain signaling (roadmap 0b.1) — NODE_STATUS_DRAINING
+// Drain signaling: NODE_STATUS_DRAINING
 // ============================================================================
 
 // Helper that mirrors MakeNodeInfo but sets a DRAINING status.
@@ -390,7 +333,7 @@ static proto::internal::NodeInfo MakeDrainingNodeInfo(
   return info;
 }
 
-// 19. A node transitions to DRAINING when it sends a heartbeat with that
+// 16. A node transitions to DRAINING when it sends a heartbeat with that
 //     status. The stored info.status() reflects the latest heartbeat.
 TEST_CASE_FIXTURE(NodeRegistryTest, "UpdateNodeTransitionsToDraining") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -409,7 +352,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "UpdateNodeTransitionsToDraining") {
   CHECK(node.IsDraining());
 }
 
-// 20. IsRoutable requires both healthy heartbeat AND non-draining status.
+// 17. IsRoutable requires both healthy heartbeat AND non-draining status.
 TEST_CASE_FIXTURE(NodeRegistryTest, "IsRoutableRequiresHealthyAndNotDraining") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
 
@@ -429,25 +372,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "IsRoutableRequiresHealthyAndNotDraining") {
   CHECK_FALSE(node.IsRoutable(50ms));
 }
 
-// 21. GetRoutableNodes excludes draining nodes while GetHealthyNodes keeps
-//     them — the latter is used for cluster-level health reporting.
-TEST_CASE_FIXTURE(NodeRegistryTest, "GetRoutableNodesExcludesDraining") {
-  registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
-  registry_.UpdateNode(MakeNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));
-  registry_.UpdateNode(
-      MakeDrainingNodeInfo(3, proto::internal::NODE_TYPE_DATA_NODE));
-
-  auto healthy = registry_.GetHealthyNodes();
-  CHECK_EQ(healthy.size(), 3);  // draining node is still "healthy"
-
-  auto routable = registry_.GetRoutableNodes();
-  CHECK_EQ(routable.size(), 2);
-  for (const auto& n : routable) {
-    CHECK_NE(n.info.node_id(), 3u);
-  }
-}
-
-// 22. GetRoutableNodesByType combines type filter with drain exclusion.
+// 18. GetRoutableNodesByType combines type filter with drain exclusion.
 TEST_CASE_FIXTURE(NodeRegistryTest, "GetRoutableNodesByTypeCombinesFilters") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
   registry_.UpdateNode(
@@ -472,31 +397,28 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetRoutableNodesByTypeCombinesFilters") {
   CHECK_EQ(healthy_data.size(), 2);
 }
 
-// 23. A draining node whose heartbeat eventually times out is no longer
+// 19. A draining node whose heartbeat eventually times out is no longer
 //     routable AND no longer healthy — belt and braces.
 TEST_CASE_FIXTURE(NodeRegistryTest, "DrainingNodeBecomesFailedAfterTimeout") {
   registry_.UpdateNode(
       MakeDrainingNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
 
-  auto routable_now = registry_.GetRoutableNodes();
-  CHECK_EQ(routable_now.size(), 0);
+  CHECK_FALSE(registry_.IsNodeRoutable(1));
 
   // Let the heartbeat age past the 50ms timeout.
   std::this_thread::sleep_for(100ms);
 
-  auto routable_after = registry_.GetRoutableNodes();
-  CHECK_EQ(routable_after.size(), 0);
+  CHECK_FALSE(registry_.IsNodeRoutable(1));
 
   auto healthy_after = registry_.GetHealthyNodes();
   CHECK_EQ(healthy_after.size(), 0);
 
-  auto failed = registry_.GetFailedNodes();
-  CHECK_EQ(failed.size(), 1);
+  CHECK_EQ(registry_.GetClusterStats().failed_nodes, 1);
 }
 
-// 24. GetDrainingNodes returns only nodes that are both DRAINING AND still
+// 20. GetDrainingNodes returns only nodes that are both DRAINING AND still
 //     alive per heartbeat timeout. Stale draining nodes belong to the
-//     failure path, not the graceful drain path (roadmap 0b.3).
+//     failure path, not the graceful drain path.
 TEST_CASE_FIXTURE(NodeRegistryTest, "GetDrainingNodesExcludesStaleDraining") {
   // Node 1: ready (non-draining). Should never appear in GetDrainingNodes.
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -527,7 +449,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetDrainingNodesExcludesStaleDraining") {
   CHECK_EQ(after[0].info.node_id(), 2u);
 
   // Stale draining node 3 is now in the failed set.
-  auto failed = registry_.GetFailedNodes();
+  auto failed = registry_.DetectFailedNodes();
   REQUIRE_EQ(failed.size(), 1);
-  CHECK_EQ(failed[0].info.node_id(), 3u);
+  CHECK_EQ(failed[0], 3u);
 }

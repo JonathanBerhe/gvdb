@@ -160,12 +160,6 @@ class BulkImporter {
                          core::CollectionId collection_id,
                          core::Dimension expected_dim);
 
-  // Import a Parquet file (requires GVDB_HAS_ARROW)
-  core::Status ImportParquet(std::shared_ptr<ImportJob> job,
-                              const std::string& local_path,
-                              core::CollectionId collection_id,
-                              core::Dimension expected_dim);
-
   // Parse s3://bucket/key URI into object store key
   static core::StatusOr<std::string> ParseS3Uri(const std::string& uri);
 

@@ -56,7 +56,6 @@ gvdb-data-node \
 | `--bind-address HOST:PORT` | gRPC bind address |
 | `--advertise-address HOST:PORT` | Address advertised to cluster |
 | `--coordinator HOST:PORT` | Coordinator address (repeatable for HA) |
-| `--shards N` | Number of shards this node owns |
 | `--memory-limit-gb N` | Memory budget for vector data |
 | `--data-dir PATH` | Data directory |
 | `--help`, `-h` | Show help |

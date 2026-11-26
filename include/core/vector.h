@@ -86,23 +86,15 @@ class Vector {
 
   // Vector operations
   [[nodiscard]] float Norm() const;
-  [[nodiscard]] StatusOr<Vector> Normalize() const;
 
   // Distance calculations
   [[nodiscard]] float L2Distance(const Vector& other) const;
   [[nodiscard]] float InnerProduct(const Vector& other) const;
   [[nodiscard]] float CosineDistance(const Vector& other) const;
 
-  // Validation
-  [[nodiscard]] bool IsValid() const noexcept;
-  [[nodiscard]] Status Validate() const;
-
  private:
   Dimension dimension_;
   std::vector<float, AlignedAllocator<float, 32>> data_;
-
-  // Helper: check if pointer is properly aligned
-  [[nodiscard]] bool IsAligned() const noexcept;
 };
 
 // Utility functions for vector operations
@@ -112,12 +104,6 @@ class Vector {
 
 // Create a random vector (useful for testing)
 [[nodiscard]] Vector RandomVector(Dimension dim);
-
-// Validate vector dimension compatibility
-[[nodiscard]] Status ValidateDimensionMatch(const Vector& v1, const Vector& v2);
-
-// Compute distance based on metric type
-[[nodiscard]] float ComputeDistance(const Vector& v1, const Vector& v2, MetricType metric);
 
 }  // namespace core
 }  // namespace gvdb

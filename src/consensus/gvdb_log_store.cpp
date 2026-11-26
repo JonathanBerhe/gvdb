@@ -23,12 +23,8 @@ using nuraft::log_entry;
 using nuraft::ptr;
 using nuraft::ulong;
 
-GvdbLogStore::GvdbLogStore() : persistent_mode_(false) {
-  utils::Logger::Instance().Info("GvdbLogStore initialized (in-memory mode)");
-}
-
 GvdbLogStore::GvdbLogStore(const std::string& db_path)
-    : persistent_mode_(true), db_path_(db_path) {
+    : db_path_(db_path) {
   if (!init_rocksdb()) {
     throw std::runtime_error("Failed to initialize RocksDB at " + db_path);
   }
@@ -36,22 +32,12 @@ GvdbLogStore::GvdbLogStore(const std::string& db_path)
 }
 
 GvdbLogStore::~GvdbLogStore() {
-  if (persistent_mode_) {
-    close_rocksdb();
-  }
+  close_rocksdb();
 }
 
 ulong GvdbLogStore::next_slot() const {
   std::lock_guard<std::mutex> lock(mutex_);
-
-  if (persistent_mode_) {
-    return next_idx_.load(std::memory_order_acquire);
-  } else {
-    if (logs_.empty()) {
-      return start_idx_.load(std::memory_order_acquire);
-    }
-    return logs_.rbegin()->first + 1;
-  }
+  return next_idx_.load(std::memory_order_acquire);
 }
 
 ulong GvdbLogStore::start_index() const {
@@ -61,54 +47,34 @@ ulong GvdbLogStore::start_index() const {
 ptr<log_entry> GvdbLogStore::last_entry() const {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  if (persistent_mode_) {
-    ulong next = next_idx_.load(std::memory_order_acquire);
-    ulong start = start_idx_.load(std::memory_order_acquire);
-    if (next <= start) {
-      // Empty log — return dummy entry with term 0
-      return nuraft::cs_new<log_entry>(0, nuraft::buffer::alloc(0));
-    }
-    auto entry = read_entry_from_db(next - 1);
-    if (!entry) {
-      // DB claims this index exists (next > start) but read returned null —
-      // log an error so corruption isn't silently masked as "empty log".
-      utils::Logger::Instance().Error(
-          "last_entry: read_entry_from_db({}) returned null (start={}, next={})",
-          next - 1, start, next);
-      return nuraft::cs_new<log_entry>(0, nuraft::buffer::alloc(0));
-    }
-    return entry;
-  }
-
-  if (logs_.empty()) {
-    // Return dummy entry with term 0 and null value
+  ulong next = next_idx_.load(std::memory_order_acquire);
+  ulong start = start_idx_.load(std::memory_order_acquire);
+  if (next <= start) {
+    // Empty log: return dummy entry with term 0
     return nuraft::cs_new<log_entry>(0, nuraft::buffer::alloc(0));
   }
-
-  return logs_.rbegin()->second;
+  auto entry = read_entry_from_db(next - 1);
+  if (!entry) {
+    // DB claims this index exists (next > start) but read returned null.
+    // Log an error so corruption isn't silently masked as "empty log".
+    utils::Logger::Instance().Error(
+        "last_entry: read_entry_from_db({}) returned null (start={}, next={})",
+        next - 1, start, next);
+    return nuraft::cs_new<log_entry>(0, nuraft::buffer::alloc(0));
+  }
+  return entry;
 }
 
 ulong GvdbLogStore::append(ptr<log_entry>& entry) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  ulong index;
-
-  if (persistent_mode_) {
-    // Use atomic counter for next index
-    index = next_idx_.fetch_add(1, std::memory_order_acq_rel);
-    if (!write_entry_to_db(index, entry)) {
-      utils::Logger::Instance().Error("Failed to persist log entry at index {}", index);
-      // Rollback counter on failure
-      next_idx_.fetch_sub(1, std::memory_order_acq_rel);
-      throw std::runtime_error("Failed to write log entry to RocksDB");
-    }
-  } else {
-    if (logs_.empty()) {
-      index = start_idx_.load(std::memory_order_acquire);
-    } else {
-      index = logs_.rbegin()->first + 1;
-    }
-    logs_[index] = entry;
+  // Use atomic counter for next index
+  ulong index = next_idx_.fetch_add(1, std::memory_order_acq_rel);
+  if (!write_entry_to_db(index, entry)) {
+    utils::Logger::Instance().Error("Failed to persist log entry at index {}", index);
+    // Rollback counter on failure
+    next_idx_.fetch_sub(1, std::memory_order_acq_rel);
+    throw std::runtime_error("Failed to write log entry to RocksDB");
   }
 
   return index;
@@ -117,34 +83,22 @@ ulong GvdbLogStore::append(ptr<log_entry>& entry) {
 void GvdbLogStore::write_at(ulong index, ptr<log_entry>& entry) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  if (persistent_mode_) {
-    // Delete entries from index+1 to infinity (truncate)
-    // RocksDB doesn't have "infinity", so we delete up to a large number
-    ulong max_index = index + 100000;  // Reasonable upper bound
-    delete_range_from_db(index + 1, max_index);
+  // Delete entries from index+1 to infinity (truncate)
+  // RocksDB doesn't have "infinity", so we delete up to a large number
+  ulong max_index = index + 100000;  // Reasonable upper bound
+  delete_range_from_db(index + 1, max_index);
 
-    // Write the entry at index
-    if (!write_entry_to_db(index, entry)) {
-      throw std::runtime_error("Failed to write log entry to RocksDB");
-    }
-
-    // Update next_idx to point after this entry
-    next_idx_.store(index + 1, std::memory_order_release);
-  } else {
-    // Truncate all entries after index (including index itself will be overwritten)
-    auto it = logs_.upper_bound(index);
-    if (it != logs_.end()) {
-      logs_.erase(it, logs_.end());
-    }
-
-    // Write the entry at index
-    logs_[index] = entry;
+  // Write the entry at index
+  if (!write_entry_to_db(index, entry)) {
+    throw std::runtime_error("Failed to write log entry to RocksDB");
   }
+
+  // Update next_idx to point after this entry
+  next_idx_.store(index + 1, std::memory_order_release);
 }
 
 void GvdbLogStore::end_of_append_batch(ulong start, ulong cnt) {
-  // Optional hook for batch write optimization
-  // For in-memory store, nothing to do
+  // Optional hook for batch write optimization; nothing to do
   (void)start;
   (void)cnt;
 }
@@ -242,23 +196,19 @@ void GvdbLogStore::apply_pack(ulong index, buffer& pack) {
 
     // Deserialize and store
     ptr<log_entry> entry = log_entry::deserialize(*entry_buf);
-    if (persistent_mode_) {
-      if (!write_entry_to_db(current_index, entry)) {
-        // Partial-state on failure: entries N..current_index-1 remain in
-        // RocksDB with next_idx_ already advanced, matching append()'s
-        // throw-on-IO-error contract. NuRaft's snapshot-install path is
-        // expected to retry from scratch on restart.
-        utils::Logger::Instance().Error(
-            "apply_pack: failed to persist entry at index {}", current_index);
-        throw std::runtime_error("Failed to persist entry during apply_pack");
-      }
-      // next_slot() must point one past the highest index we hold, so advance
-      // next_idx_ to current_index + 1 whenever this entry extends the log.
-      if (current_index + 1 > next_idx_.load(std::memory_order_acquire)) {
-        next_idx_.store(current_index + 1, std::memory_order_release);
-      }
-    } else {
-      logs_[current_index] = entry;
+    if (!write_entry_to_db(current_index, entry)) {
+      // Partial-state on failure: entries N..current_index-1 remain in
+      // RocksDB with next_idx_ already advanced, matching append()'s
+      // throw-on-IO-error contract. NuRaft's snapshot-install path is
+      // expected to retry from scratch on restart.
+      utils::Logger::Instance().Error(
+          "apply_pack: failed to persist entry at index {}", current_index);
+      throw std::runtime_error("Failed to persist entry during apply_pack");
+    }
+    // next_slot() must point one past the highest index we hold, so advance
+    // next_idx_ to current_index + 1 whenever this entry extends the log.
+    if (current_index + 1 > next_idx_.load(std::memory_order_acquire)) {
+      next_idx_.store(current_index + 1, std::memory_order_release);
     }
     current_index++;
   }
@@ -267,77 +217,50 @@ void GvdbLogStore::apply_pack(ulong index, buffer& pack) {
 bool GvdbLogStore::compact(ulong last_log_index) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  if (persistent_mode_) {
-    // Delete entries from start_idx to last_log_index (inclusive)
-    ulong start = start_idx_.load(std::memory_order_acquire);
-    if (!delete_range_from_db(start, last_log_index + 1)) {
-      return false;
-    }
-
-    // Update and persist start_idx
-    ulong new_start = last_log_index + 1;
-    start_idx_.store(new_start, std::memory_order_release);
-
-    // Write start_idx to DB metadata
-    std::string start_idx_key = "start_idx";
-    std::string start_idx_value(sizeof(ulong), '\0');
-    std::memcpy(&start_idx_value[0], &new_start, sizeof(ulong));
-
-    rocksdb::WriteOptions write_opts;
-    write_opts.sync = true;
-    rocksdb::Status status = db_->Put(write_opts, start_idx_key, start_idx_value);
-
-    if (!status.ok()) {
-      utils::Logger::Instance().Error("Failed to persist start_idx: {}", status.ToString());
-      return false;
-    }
-
-    utils::Logger::Instance().Info(
-        "Compacted log up to index {} (new start index: {})",
-        last_log_index, new_start);
-  } else {
-    // Remove all entries up to and including last_log_index
-    auto it = logs_.upper_bound(last_log_index);
-    logs_.erase(logs_.begin(), it);
-
-    // Update start index
-    ulong new_start = last_log_index + 1;
-    start_idx_.store(new_start, std::memory_order_release);
-
-    utils::Logger::Instance().Info(
-        "Compacted log up to index {} (new start index: {})",
-        last_log_index, new_start);
+  // Delete entries from start_idx to last_log_index (inclusive)
+  ulong start = start_idx_.load(std::memory_order_acquire);
+  if (!delete_range_from_db(start, last_log_index + 1)) {
+    return false;
   }
+
+  // Update and persist start_idx
+  ulong new_start = last_log_index + 1;
+  start_idx_.store(new_start, std::memory_order_release);
+
+  // Write start_idx to DB metadata
+  std::string start_idx_key = "start_idx";
+  std::string start_idx_value(sizeof(ulong), '\0');
+  std::memcpy(&start_idx_value[0], &new_start, sizeof(ulong));
+
+  rocksdb::WriteOptions write_opts;
+  write_opts.sync = true;
+  rocksdb::Status status = db_->Put(write_opts, start_idx_key, start_idx_value);
+
+  if (!status.ok()) {
+    utils::Logger::Instance().Error("Failed to persist start_idx: {}", status.ToString());
+    return false;
+  }
+
+  utils::Logger::Instance().Info(
+      "Compacted log up to index {} (new start index: {})",
+      last_log_index, new_start);
 
   return true;
 }
 
 bool GvdbLogStore::flush() {
-  if (persistent_mode_) {
-    // RocksDB WAL is fsynced on every write (write_opts.sync = true)
-    // So flush is a no-op, but we could call FlushWAL() for extra safety
-    rocksdb::FlushOptions flush_opts;
-    flush_opts.wait = true;
-    rocksdb::Status status = db_->Flush(flush_opts, log_cf_);
-    return status.ok();
-  } else {
-    // For in-memory store, always durable (no-op)
-    return true;
-  }
+  // RocksDB WAL is fsynced on every write (write_opts.sync = true)
+  // So flush is a no-op, but we could call FlushWAL() for extra safety
+  rocksdb::FlushOptions flush_opts;
+  flush_opts.wait = true;
+  rocksdb::Status status = db_->Flush(flush_opts, log_cf_);
+  return status.ok();
 }
 
 // Private helper
 ptr<log_entry> GvdbLogStore::get_entry_internal(ulong index) const {
   // Caller must hold mutex
-  if (persistent_mode_) {
-    return read_entry_from_db(index);
-  } else {
-    auto it = logs_.find(index);
-    if (it == logs_.end()) {
-      return nullptr;
-    }
-    return it->second;
-  }
+  return read_entry_from_db(index);
 }
 
 // RocksDB initialization

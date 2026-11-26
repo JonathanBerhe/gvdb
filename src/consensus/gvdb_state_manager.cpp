@@ -18,29 +18,10 @@ using nuraft::ptr;
 using nuraft::srv_config;
 using nuraft::srv_state;
 
-GvdbStateManager::GvdbStateManager(int32_t server_id, const std::string& endpoint)
-    : persistent_mode_(false), server_id_(server_id), endpoint_(endpoint) {
-
-  // Create this server's configuration
-  my_srv_config_ = nuraft::cs_new<srv_config>(server_id, endpoint);
-
-  // Create initial cluster configuration (single server cluster)
-  cluster_config_ = nuraft::cs_new<cluster_config>();
-  cluster_config_->get_servers().push_back(my_srv_config_);
-
-  // Create in-memory log store
-  log_store_ = nuraft::cs_new<GvdbLogStore>();
-
-  utils::Logger::Instance().Info(
-      "GvdbStateManager initialized (in-memory, server_id={}, endpoint={})",
-      server_id, endpoint);
-}
-
 GvdbStateManager::GvdbStateManager(int32_t server_id, const std::string& endpoint,
                                    const std::string& log_store_path,
                                    const std::string& state_path)
-    : persistent_mode_(true), state_db_path_(state_path),
-      server_id_(server_id), endpoint_(endpoint) {
+    : state_db_path_(state_path), server_id_(server_id), endpoint_(endpoint) {
 
   // Create this server's configuration
   my_srv_config_ = nuraft::cs_new<srv_config>(server_id, endpoint);
@@ -82,11 +63,9 @@ void GvdbStateManager::save_config(const cluster_config& config) {
   // Deserialize to create a copy
   cluster_config_ = cluster_config::deserialize(*buf);
 
-  // Persist to disk if in persistent mode
-  if (persistent_mode_) {
-    if (!save_config_to_db()) {
-      utils::Logger::Instance().Error("Failed to persist cluster config to disk");
-    }
+  // Persist to disk
+  if (!save_config_to_db()) {
+    utils::Logger::Instance().Error("Failed to persist cluster config to disk");
   }
 
   utils::Logger::Instance().Debug(
@@ -102,11 +81,9 @@ void GvdbStateManager::save_state(const srv_state& state) {
   // Deserialize to create a copy
   server_state_ = srv_state::deserialize(*buf);
 
-  // Persist to disk if in persistent mode
-  if (persistent_mode_) {
-    if (!save_state_to_db()) {
-      utils::Logger::Instance().Error("Failed to persist server state to disk");
-    }
+  // Persist to disk
+  if (!save_state_to_db()) {
+    utils::Logger::Instance().Error("Failed to persist server state to disk");
   }
 
   utils::Logger::Instance().Debug(
