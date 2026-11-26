@@ -18,9 +18,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Every job pins ubuntu-24.04: CI must build and run with the toolchain of
-  # deploy/Dockerfile (Ubuntu 24.04, GCC 13). The ubuntu-latest label moved to
-  # a newer release with GCC 15, where the AWS SDK's s2n-tls fails to compile.
+  # Every Linux job pins ubuntu-24.04, the base of deploy/Dockerfile. The C++
+  # jobs build with Clang 22 and libc++ from apt.llvm.org
+  # (tools/ci/install-llvm.sh), as the release image does.
   build-and-test:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -42,6 +42,7 @@ jobs:
               - 'CMakeLists.txt'
               - 'CMakePresets.json'
               - 'cmake/**'
+              - 'tools/ci/**'
               - 'Makefile'
               - '.github/workflows/ci.yml'
               # The python SDK integration tests download this job's
@@ -62,19 +63,24 @@ jobs:
             ninja-build \
             ccache \
             libasio-dev \
-            libomp-dev \
             libopenblas-dev \
             liblapack-dev \
             zlib1g-dev \
             libcurl4-gnutls-dev
 
+      # Clang 22, libc++, lld and libomp from apt.llvm.org (the ci preset
+      # uses cmake/toolchains/linux-clang-libcxx.cmake).
+      - name: Install LLVM
+        if: steps.filter.outputs.cpp == 'true'
+        run: tools/ci/install-llvm.sh
+
       - name: Set up ccache
         if: steps.filter.outputs.cpp == 'true'
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ccache-gcc-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**') }}
+          key: ccache-clang-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**') }}
           restore-keys: |
-            ccache-gcc-
+            ccache-clang-
 
       - name: Cache FetchContent sources
         if: steps.filter.outputs.cpp == 'true'
@@ -121,6 +127,127 @@ jobs:
         if: steps.filter.outputs.cpp == 'false'
         run: echo "No C++ changes detected, skipping build and test"
 
+  # macOS with Apple clang, Apple's libc++ and the Metal backend. The Linux
+  # jobs use Clang 22 and LLVM's libc++, so code that only one of the two
+  # toolchains accepts fails in one of them. Tests with the gpu label need a
+  # Metal device, which the hosted runner does not have.
+  build-and-test-macos:
+    runs-on: macos-15
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check for C++ changes
+        uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            cpp:
+              - 'src/**'
+              - 'include/**'
+              - 'proto/**'
+              - 'test/**'
+              - 'CMakeLists.txt'
+              - 'CMakePresets.json'
+              - 'cmake/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Install dependencies
+        if: steps.filter.outputs.cpp == 'true'
+        run: brew install ninja ccache libomp zlib
+
+      - name: Set up ccache
+        if: steps.filter.outputs.cpp == 'true'
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ccache-macos-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**') }}
+          restore-keys: |
+            ccache-macos-
+
+      - name: Cache FetchContent sources
+        if: steps.filter.outputs.cpp == 'true'
+        uses: actions/cache@v5
+        id: fc-cache
+        with:
+          path: |
+            build/metal/_deps/*-src
+            build/metal/_deps/*-subbuild
+          key: fetchcontent-macos-${{ hashFiles('cmake/GvdbDependencies.cmake') }}
+          restore-keys: |
+            fetchcontent-macos-
+
+      - name: Configure
+        if: steps.filter.outputs.cpp == 'true'
+        run: >
+          cmake --preset metal
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}
+
+      - name: Build
+        if: steps.filter.outputs.cpp == 'true'
+        run: cmake --build --preset metal
+
+      - name: Test
+        if: steps.filter.outputs.cpp == 'true'
+        run: ctest --preset metal --parallel "$(sysctl -n hw.ncpu)" -LE gpu
+
+      - name: Skip notice
+        if: steps.filter.outputs.cpp == 'false'
+        run: echo "No C++ changes detected, skipping the macOS build"
+
+  # Builds the release image from deploy/Dockerfile when the image or the
+  # build configuration changes, and makes sure that the programs do not
+  # need a C++ standard library on the host.
+  docker-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check for image changes
+        uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            image:
+              - 'deploy/Dockerfile'
+              - '.dockerignore'
+              - 'CMakeLists.txt'
+              - 'CMakePresets.json'
+              - 'cmake/**'
+              - 'tools/ci/install-llvm.sh'
+              - '.github/workflows/ci.yml'
+
+      - name: Build the release image
+        if: steps.filter.outputs.image == 'true'
+        run: docker build -f deploy/Dockerfile -t gvdb:ci .
+
+      - name: Run the programs in the image
+        if: steps.filter.outputs.image == 'true'
+        run: |
+          for bin in gvdb-single-node gvdb-coordinator gvdb-data-node gvdb-query-node gvdb-proxy; do
+            docker run --rm --entrypoint ldd gvdb:ci "/usr/local/bin/$bin" > "ldd-$bin.txt"
+            cat "ldd-$bin.txt"
+            if grep -E 'not found|libc\+\+|libstdc\+\+' "ldd-$bin.txt"; then
+              echo "::error::$bin needs a library that the image does not provide, or links a C++ standard library dynamically"
+              exit 1
+            fi
+            # Every program prints its usage for --help, then exits with 1,
+            # so the step looks for the usage line.
+            if ! docker run --rm --entrypoint "/usr/local/bin/$bin" gvdb:ci --help 2>&1 | grep -q '^Usage:'; then
+              echo "::error::$bin did not start in the image"
+              exit 1
+            fi
+          done
+
+      - name: Skip notice
+        if: steps.filter.outputs.image == 'false'
+        run: echo "No image changes detected, skipping the image build"
+
   # ==========================================================================
   # GCS backend build lane
   # ==========================================================================
@@ -160,6 +287,8 @@ jobs:
               - 'test/unit/object_store_*'
               - 'test/integration/docker-compose.fake-gcs.yml'
               - 'test/integration/fake-gcs-seed/**'
+              - 'tools/ci/**'
+              - 'tools/vcpkg/**'
               - '.github/workflows/ci.yml'
 
       - name: Install system dependencies
@@ -174,21 +303,24 @@ jobs:
             curl zip unzip tar \
             pkg-config \
             libasio-dev \
-            libomp-dev \
             libopenblas-dev \
             liblapack-dev \
             zlib1g-dev \
             libcurl4-openssl-dev \
             libssl-dev
 
+      - name: Install LLVM
+        if: steps.filter.outputs.gcs == 'true'
+        run: tools/ci/install-llvm.sh
+
       - name: Set up ccache
         if: steps.filter.outputs.gcs == 'true'
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ccache-gcs-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**') }}
+          key: ccache-gcs-clang-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**') }}
           restore-keys: |
-            ccache-gcs-
-            ccache-gcc-
+            ccache-gcs-clang-
+            ccache-clang-
 
       - name: Set up vcpkg
         if: steps.filter.outputs.gcs == 'true'
@@ -205,15 +337,18 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/vcpkg/archives
-          key: vcpkg-gcs-${{ runner.os }}-2024.12.16
+          key: vcpkg-gcs-${{ runner.os }}-2024.12.16-clang-libcxx-${{ hashFiles('cmake/toolchains/**', 'tools/vcpkg/triplets/**') }}
           restore-keys: |
-            vcpkg-gcs-${{ runner.os }}-
+            vcpkg-gcs-${{ runner.os }}-2024.12.16-clang-libcxx-
 
+      # The triplet builds google-cloud-cpp with the same Clang and libc++ as
+      # GVDB, because both link into one program.
       - name: Install google-cloud-cpp (storage)
         if: steps.filter.outputs.gcs == 'true'
         run: |
           "$VCPKG_ROOT"/vcpkg install "google-cloud-cpp[core,storage]" \
-            --triplet x64-linux
+            --triplet x64-linux-clang-libcxx \
+            --overlay-triplets "$GITHUB_WORKSPACE/tools/vcpkg/triplets"
 
       - name: Cache FetchContent sources
         if: steps.filter.outputs.gcs == 'true'
@@ -295,6 +430,7 @@ jobs:
               - 'CMakeLists.txt'
               - 'CMakePresets.json'
               - 'cmake/**'
+              - 'tools/ci/**'
 
       - name: Install uv
         if: steps.filter.outputs.python == 'true'
@@ -311,12 +447,14 @@ jobs:
         if: steps.filter.outputs.python == 'true'
         run: chmod +x build/ci/bin/gvdb-single-node
 
+      # The server links libc++ statically. It needs the OpenMP runtime of the
+      # LLVM version it was built with: Ubuntu's libomp5 is older and lacks
+      # symbols that Clang 22 code calls.
       - name: Install runtime deps
         if: steps.filter.outputs.python == 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libomp5 libgomp1 libopenblas0 liblapack3
+          tools/ci/install-llvm.sh --runtime
+          sudo apt-get install -y --no-install-recommends libopenblas0 liblapack3
 
       - name: Install Python SDK deps
         if: steps.filter.outputs.python == 'true'
