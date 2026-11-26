@@ -2901,8 +2901,8 @@ type S3Target struct {
 	// Bucket the data-node uploads to. Credentials come from the data-node's
 	// configured object-store credentials (typically IRSA / Workload Identity).
 	Bucket string `protobuf:"bytes,1,opt,name=bucket,proto3" json:"bucket,omitempty"`
-	// Optional prefix under the bucket. Final key layout is
-	//   <prefix>/backups/<backup_id>/...
+	// Optional prefix under the bucket. The final key layout is
+	// <prefix>/backups/<backup_id>/...
 	Prefix        string `protobuf:"bytes,2,opt,name=prefix,proto3" json:"prefix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3301,9 +3301,9 @@ type GetBackupStatusResponse struct {
 	BytesUploaded   uint64                 `protobuf:"varint,5,opt,name=bytes_uploaded,json=bytesUploaded,proto3" json:"bytes_uploaded,omitempty"`
 	ErrorMessage    string                 `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	ElapsedSeconds  float32                `protobuf:"fixed32,7,opt,name=elapsed_seconds,json=elapsedSeconds,proto3" json:"elapsed_seconds,omitempty"`
-	// Canonical URI of the top-level backup manifest, e.g.
-	//   "s3://bucket/prefix/backups/<id>/backup.manifest.json"
-	// Empty until the backup reaches BACKUP_COMPLETED.
+	// Canonical URI of the top-level backup manifest, for example
+	// "s3://bucket/prefix/backups/<id>/backup.manifest.json". Empty until the
+	// backup reaches BACKUP_COMPLETED.
 	ManifestUri   string `protobuf:"bytes,8,opt,name=manifest_uri,json=manifestUri,proto3" json:"manifest_uri,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

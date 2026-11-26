@@ -3119,9 +3119,9 @@ func (x *BackupShardResponse) GetBytesUploaded() uint64 {
 
 type RestoreShardRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Identifier of the backup to restore from. The data-node derives the
+	// Identifier of the backup to restore from. The data node derives the
 	// shard manifest key as
-	//   <prefix>/backups/<backup_id>/shards/<shard_id>/shard.manifest.json.
+	// <prefix>/backups/<backup_id>/shards/<shard_id>/shard.manifest.json.
 	BackupId           string        `protobuf:"bytes,1,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
 	TargetCollectionId uint32        `protobuf:"varint,2,opt,name=target_collection_id,json=targetCollectionId,proto3" json:"target_collection_id,omitempty"`
 	ShardId            uint32        `protobuf:"varint,3,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
