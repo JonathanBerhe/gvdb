@@ -9,11 +9,10 @@
 #include "index/index_factory.h"
 #include "storage/segment_manager.h"
 #include "internal.grpc.pb.h"
+#include "support/temp_dir.h"
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <chrono>
-#include <cstdlib>
-#include <filesystem>
 
 using namespace gvdb;
 using namespace gvdb::network;
@@ -26,18 +25,13 @@ using namespace gvdb::cluster;
 class InternalServiceRpcTest {
  public:
   InternalServiceRpcTest() {
-    // Create a unique temp directory for segment storage
-    tmp_dir_ = std::filesystem::temp_directory_path() /
-               ("gvdb_rpc_test_" + std::to_string(std::rand()));
-    std::filesystem::create_directories(tmp_dir_);
-
     // Core dependencies
     shard_manager_ = std::make_shared<ShardManager>(8, ShardingStrategy::HASH);
     node_registry_ = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
     coordinator_ = std::make_shared<Coordinator>(shard_manager_, node_registry_);
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
-        tmp_dir_.string(), index_factory_.get());
+        tmp_dir_.str(), index_factory_.get());
 
     // Register a fake data node
     proto::internal::NodeInfo proto_node;
@@ -57,11 +51,12 @@ class InternalServiceRpcTest {
     service_.reset();
     segment_store_.reset();
     index_factory_.reset();
-    std::filesystem::remove_all(tmp_dir_);
   }
 
  protected:
-  std::filesystem::path tmp_dir_;
+  // Segment storage. Declared first, so the folder is removed after every
+  // other member is gone.
+  gvdb::test::ScopedTempDir tmp_dir_{"gvdb_rpc_test"};
   std::shared_ptr<ShardManager> shard_manager_;
   std::shared_ptr<NodeRegistry> node_registry_;
   std::shared_ptr<Coordinator> coordinator_;
@@ -863,10 +858,14 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_Healthy") {
 }
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_Degraded") {
-  // Create a registry with a short timeout so nodes quickly become "failed"
-  auto short_registry = std::make_shared<NodeRegistry>(std::chrono::milliseconds(1));
+  // A registry with a short timeout and a fake clock, so that the test
+  // decides which heartbeats are older than the timeout. The fake time is
+  // declared before the registry, so it outlives it.
+  auto now = std::chrono::steady_clock::time_point{} + std::chrono::hours(1);
+  auto short_registry = std::make_shared<NodeRegistry>(
+      std::chrono::milliseconds(1), [&now] { return now; });
 
-  // Register three nodes (they will all timeout immediately)
+  // Register three nodes
   proto::internal::NodeInfo n1;
   n1.set_node_id(50);
   n1.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
@@ -885,8 +884,8 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_Degraded") {
   n3.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
   short_registry->UpdateNode(n3);
 
-  // Wait for timeout to expire
-  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  // Let the timeout pass
+  now += std::chrono::milliseconds(5);
 
   // Re-register two nodes to make them healthy again (healthy=2, failed=1)
   // The logic is: healthy_nodes > failed_nodes -> "degraded"

@@ -25,6 +25,7 @@
 
 #include <atomic>
 #include <deque>
+#include <initializer_list>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -32,6 +33,7 @@
 #include "internal.grpc.pb.h"
 #include "network/primary_term_header.h"
 #include "network/proxy_service.h"
+#include "support/grpc_server.h"
 #include "vectordb.grpc.pb.h"
 
 namespace gvdb {
@@ -157,32 +159,49 @@ class PrimarySwapDataNode : public proto::VectorDBService::Service {
   std::atomic<int> fail_precondition_remaining_{0};
 };
 
+namespace {
+
+// Starts a server on a free local port with the given services.
+std::unique_ptr<TestGrpcServer> StartServer(
+    std::initializer_list<grpc::Service*> services) {
+  auto server = std::make_unique<TestGrpcServer>(services);
+  REQUIRE(server->ok());
+  return server;
+}
+
+}  // namespace
+
 class PrimarySwapTest {
  public:
   PrimarySwapTest() {
     mock_a_ = std::make_unique<PrimarySwapDataNode>("mock_a", /*term=*/1);
     mock_b_ = std::make_unique<PrimarySwapDataNode>("mock_b", /*term=*/2);
-    mock_a_server_ = StartServer(mock_a_.get(), &mock_a_address_);
-    mock_b_server_ = StartServer(mock_b_.get(), &mock_b_address_);
+    mock_a_server_ = StartServer({mock_a_.get()});
+    mock_b_server_ = StartServer({mock_b_.get()});
+    mock_a_address_ = mock_a_server_->address();
+    mock_b_address_ = mock_b_server_->address();
 
     coord_ = std::make_unique<PrimarySwapCoordinator>();
-    coord_server_ = StartServer(coord_.get(), &coord_address_);
+    coord_server_ = StartServer({coord_.get()});
 
     proxy_ = std::make_unique<network::ProxyService>(
-        std::vector<std::string>{coord_address_}, mock_a_address_);
-    proxy_server_ = StartServer(proxy_.get(), &proxy_address_);
+        std::vector<std::string>{coord_server_->address()}, mock_a_address_);
+    proxy_server_ = StartServer({proxy_.get()});
 
-    auto channel = grpc::CreateChannel(proxy_address_,
-                                        grpc::InsecureChannelCredentials());
-    client_ = proto::VectorDBService::NewStub(channel);
+    client_ = proto::VectorDBService::NewStub(proxy_server_->NewChannel());
   }
 
   ~PrimarySwapTest() {
+    // Close every client channel before the server that it dials. A
+    // graceful server shutdown waits until each open client connection
+    // answers the server's GOAWAY, and on macOS an idle in-process channel
+    // answers only at gRPC's next client backup poll (every 5 s).
     client_.reset();
-    if (proxy_server_) { proxy_server_->Shutdown(); proxy_server_->Wait(); }
-    if (coord_server_) { coord_server_->Shutdown(); coord_server_->Wait(); }
-    if (mock_a_server_) { mock_a_server_->Shutdown(); mock_a_server_->Wait(); }
-    if (mock_b_server_) { mock_b_server_->Shutdown(); mock_b_server_->Wait(); }
+    proxy_server_.reset();
+    proxy_.reset();  // Its channels dial the coordinator and both mocks.
+    coord_server_.reset();
+    mock_a_server_.reset();
+    mock_b_server_.reset();
   }
 
   // Single-vector Upsert to exercise RouteWriteAndCallWithFallback.
@@ -198,32 +217,16 @@ class PrimarySwapTest {
 
   std::unique_ptr<PrimarySwapDataNode> mock_a_;
   std::unique_ptr<PrimarySwapDataNode> mock_b_;
-  std::unique_ptr<grpc::Server> mock_a_server_, mock_b_server_;
+  std::unique_ptr<TestGrpcServer> mock_a_server_, mock_b_server_;
   std::string mock_a_address_, mock_b_address_;
 
   std::unique_ptr<PrimarySwapCoordinator> coord_;
-  std::unique_ptr<grpc::Server> coord_server_;
-  std::string coord_address_;
+  std::unique_ptr<TestGrpcServer> coord_server_;
 
   std::unique_ptr<network::ProxyService> proxy_;
-  std::unique_ptr<grpc::Server> proxy_server_;
-  std::string proxy_address_;
+  std::unique_ptr<TestGrpcServer> proxy_server_;
 
   std::unique_ptr<proto::VectorDBService::Stub> client_;
-
- private:
-  template <typename ServiceT>
-  std::unique_ptr<grpc::Server> StartServer(ServiceT* svc,
-                                              std::string* out_address) {
-    grpc::ServerBuilder b;
-    int port = 0;
-    b.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
-    b.RegisterService(svc);
-    auto server = b.BuildAndStart();
-    REQUIRE_NE(server, nullptr);
-    *out_address = "localhost:" + std::to_string(port);
-    return server;
-  }
 };
 
 // Happy path: coordinator and primary agree on (mock_a, term=1). One

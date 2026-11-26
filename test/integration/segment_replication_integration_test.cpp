@@ -3,9 +3,8 @@
 
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
-#include <memory>
-#include <thread>
 #include <chrono>
+#include <memory>
 
 #include "cluster/coordinator.h"
 #include "cluster/shard_manager.h"
@@ -18,6 +17,7 @@
 #include "storage/segment_manager.h"
 #include "utils/logger.h"
 #include "internal.grpc.pb.h"
+#include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 
 namespace gvdb {
@@ -34,18 +34,21 @@ class SegmentReplicationIntegrationTest {
     node_registry_ = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
     coordinator_ = std::make_shared<cluster::Coordinator>(shard_manager_, node_registry_);
 
-    // Register a fake data node via NodeRegistry (production flow)
+    // Register a data node via NodeRegistry (production flow) so that
+    // CreateCollection can place shard 0 on it. No server runs for it, and
+    // nothing in this fixture dials it: the coordinator has no client
+    // factory, and its InternalService has no node registry. Port 0 is
+    // never a listening port, so the address stays unreachable.
     proto::internal::NodeInfo proto_node;
     proto_node.set_node_id(1);
     proto_node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
     proto_node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
-    proto_node.set_grpc_address("localhost:50051");
+    proto_node.set_grpc_address("localhost:0");
     node_registry_->UpdateNode(proto_node);
 
     // Create coordinator's segment manager and query executor
     coord_segment_store_ = std::make_shared<storage::SegmentManager>(
-        "/tmp/gvdb-segment-replication-test/coordinator",
-        index_factory_.get());
+        (dir_ / "coordinator").string(), index_factory_.get());
 
     coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
         coord_segment_store_.get());
@@ -72,8 +75,7 @@ class SegmentReplicationIntegrationTest {
 
     // Create data node's segment manager (separate storage, won't have segments initially)
     data_segment_store_ = std::make_shared<storage::SegmentManager>(
-        "/tmp/gvdb-segment-replication-test/data_node",
-        index_factory_.get());
+        (dir_ / "data_node").string(), index_factory_.get());
 
     data_query_executor_ = std::make_shared<compute::QueryExecutor>(
         data_segment_store_.get());
@@ -87,11 +89,18 @@ class SegmentReplicationIntegrationTest {
   }
 
   ~SegmentReplicationIntegrationTest() {
+    // The data node's resolver holds a channel to the server. Close it
+    // first: a graceful server shutdown waits until each open client
+    // connection answers the server's GOAWAY, and on macOS an idle
+    // in-process channel answers only at gRPC's next client backup poll
+    // (every 5 s).
+    data_vectordb_service_.reset();
     server_->Shutdown();
     coord_segment_store_->Clear();
     data_segment_store_->Clear();
   }
 
+  ScopedTempDir dir_{"gvdb_segment_replication"};
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<cluster::ShardManager> shard_manager_;
   std::shared_ptr<cluster::NodeRegistry> node_registry_;
@@ -265,13 +274,14 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCache
 
 // Test: Search against a registered backend that isn't actually listening.
 //
-// The fixture registers data-node 1 at "localhost:50051" but no server is
-// bound there — only the coordinator's InternalService runs (on a dynamic
-// port). SearchDistributed routes the query to the registered backend,
-// can't dial it, walks any replicas (none in this fixture), and surfaces
-// UNAVAILABLE listing the failed shard. Pre-replica-fallback the failure
-// was silently swallowed and SearchDistributed returned OK with 0 results
-// — a partial-data hazard masquerading as success. The new contract:
+// The fixture registers data-node 1 but no server runs for it; only the
+// coordinator's InternalService runs (on a dynamic port). The coordinator's
+// InternalService has no node registry, so RouteQuery returns the shard
+// with an empty address. SearchDistributed routes the query to that
+// backend, can't dial it, walks any replicas (none in this fixture), and
+// surfaces an error listing the failed shard. Pre-replica-fallback the failure
+// was silently swallowed and SearchDistributed returned OK with 0 results,
+// a partial-data hazard masquerading as success. The new contract:
 // any unreachable shard is a hard error so callers can act on it.
 TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest,
                   "SearchUnreachableBackendSurfacesUnavailable") {
@@ -320,9 +330,9 @@ class ReadRepairIntegrationTest {
 
     // Two separate segment managers simulate two data nodes
     primary_segment_store_ = std::make_shared<storage::SegmentManager>(
-        "/tmp/gvdb-read-repair-test/primary", index_factory_.get());
+        (dir_ / "primary").string(), index_factory_.get());
     replica_segment_store_ = std::make_shared<storage::SegmentManager>(
-        "/tmp/gvdb-read-repair-test/replica", index_factory_.get());
+        (dir_ / "replica").string(), index_factory_.get());
 
     auto primary_qe = std::make_shared<compute::QueryExecutor>(
         primary_segment_store_.get());
@@ -404,12 +414,20 @@ class ReadRepairIntegrationTest {
   }
 
   ~ReadRepairIntegrationTest() {
+    // This coordinator's client factory holds channels to both servers.
+    // Close them first: a graceful server shutdown waits until each open
+    // client connection answers the server's GOAWAY, and on macOS an idle
+    // in-process channel answers only at gRPC's next client backup poll
+    // (every 5 s). The services hold the first coordinator, which has no
+    // client factory.
+    coordinator_.reset();
     primary_server_->Shutdown();
     replica_server_->Shutdown();
     primary_segment_store_->Clear();
     replica_segment_store_->Clear();
   }
 
+  ScopedTempDir dir_{"gvdb_read_repair"};
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<cluster::ShardManager> shard_manager_;
   std::shared_ptr<cluster::NodeRegistry> node_registry_;

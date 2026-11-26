@@ -1,8 +1,9 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
-#include <filesystem>
+#include <cstdint>
 #include <memory>
 #include <thread>
 
@@ -12,6 +13,8 @@
 #include "storage/segment.h"
 #include "storage/batch_splitter.h"
 #include "storage/segment_manager.h"
+#include "support/temp_dir.h"
+#include "support/vectors.h"
 
 using namespace gvdb;
 
@@ -19,11 +22,6 @@ using namespace gvdb;
 class StorageTest {
  public:
   StorageTest() {
-    // Create temporary directory for tests
-    test_dir_ = "/tmp/gvdb_storage_test";
-    std::filesystem::remove_all(test_dir_);
-    std::filesystem::create_directories(test_dir_);
-
     // Create index factory
     index_factory_ = std::make_unique<index::IndexFactory>();
 
@@ -33,33 +31,24 @@ class StorageTest {
     collection_id_ = core::MakeCollectionId(1);
   }
 
-  ~StorageTest() {
-    // Clean up test directory
-    std::filesystem::remove_all(test_dir_);
+  // Helper: Create test vectors. Each call uses the next seed, so two calls
+  // in one case give different vectors and every run gives the same ones.
+  std::vector<core::Vector> CreateTestVectors(size_t count) {
+    return test::RandomVectors(count, dimension_, next_seed_++);
   }
 
-  // Helper: Create test vectors
-  std::vector<core::Vector> CreateTestVectors(size_t count) {
-    std::vector<core::Vector> vectors;
-    vectors.reserve(count);
-    for (size_t i = 0; i < count; ++i) {
-      vectors.push_back(core::RandomVector(dimension_));
-    }
-    return vectors;
-  }
+  // Helper: Create one test vector (for example a query)
+  core::Vector CreateTestVector() { return CreateTestVectors(1).front(); }
 
   // Helper: Create test vector IDs
   std::vector<core::VectorId> CreateTestVectorIds(size_t count,
                                                    uint64_t start = 1) {
-    std::vector<core::VectorId> ids;
-    ids.reserve(count);
-    for (size_t i = 0; i < count; ++i) {
-      ids.push_back(core::MakeVectorId(start + i));
-    }
-    return ids;
+    return test::SequentialIds(count, start);
   }
 
-  std::string test_dir_;
+  test::ScopedTempDir temp_dir_{"gvdb_storage_test"};
+  std::string test_dir_ = temp_dir_.str();
+  std::uint32_t next_seed_ = 42;
   std::unique_ptr<index::IndexFactory> index_factory_;
   core::Dimension dimension_;
   core::MetricType metric_;
@@ -165,7 +154,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearch") {
   REQUIRE(segment.Seal(index_result.value().release()).ok());
 
   // Search
-  auto query = core::RandomVector(dimension_);
+  auto query = CreateTestVector();
   auto search_result = segment.Search(query, 10);
   INFO("Search failed: " << search_result.status().message());
   REQUIRE(search_result.ok());
@@ -338,7 +327,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterGrowing") {
   REQUIRE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
 
   // Search with filter: price < 150
-  auto query = core::RandomVector(dimension_);
+  auto query = CreateTestVector();
   auto search_result = segment.SearchWithFilter(query, 5, "price < 150");
   INFO("SearchWithFilter failed: " << search_result.status().message());
   REQUIRE(search_result.ok());
@@ -377,7 +366,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterSealed") {
   REQUIRE(segment.Seal(index_result.value().release()).ok());
 
   // Search with filter after sealing
-  auto query = core::RandomVector(dimension_);
+  auto query = CreateTestVector();
   auto search_result = segment.SearchWithFilter(query, 10, "category = 'shoes' AND rating >= 4.0");
   INFO("SearchWithFilter on sealed segment failed: " << search_result.status().message());
   REQUIRE(search_result.ok());
@@ -405,7 +394,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterComplex") {
   REQUIRE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
 
   // Complex filter: (price < 300 OR brand = 'Nike') AND in_stock = true
-  auto query = core::RandomVector(dimension_);
+  auto query = CreateTestVector();
   auto search_result = segment.SearchWithFilter(
       query, 10, "(price < 300 OR brand = 'Nike') AND in_stock = true");
   INFO("Complex filter failed: " << search_result.status().message());
@@ -435,7 +424,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterLike") {
   REQUIRE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
 
   // Filter with LIKE pattern
-  auto query = core::RandomVector(dimension_);
+  auto query = CreateTestVector();
   auto search_result = segment.SearchWithFilter(query, 10, "name LIKE 'Nike%'");
   INFO("LIKE filter failed: " << search_result.status().message());
   REQUIRE(search_result.ok());
@@ -466,7 +455,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterIn") {
   REQUIRE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
 
   // Filter with IN operator
-  auto query = core::RandomVector(dimension_);
+  auto query = CreateTestVector();
   auto search_result = segment.SearchWithFilter(query, 10, "brand IN ('Nike', 'Adidas')");
   INFO("IN filter failed: " << search_result.status().message());
   REQUIRE(search_result.ok());
@@ -485,7 +474,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithInvalidFilter") {
   REQUIRE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
 
   // Invalid filter syntax
-  auto query = core::RandomVector(dimension_);
+  auto query = CreateTestVector();
   auto search_result = segment.SearchWithFilter(query, 10, "price <");
   CHECK_FALSE(search_result.ok());
   CHECK(absl::IsInvalidArgument(search_result.status()));
@@ -544,7 +533,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterNoMatches") {
   REQUIRE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
 
   // Filter that matches nothing
-  auto query = core::RandomVector(dimension_);
+  auto query = CreateTestVector();
   auto search_result = segment.SearchWithFilter(query, 10, "price > 1000");
   REQUIRE(search_result.ok());
 
@@ -1814,10 +1803,6 @@ class RotationTest {
   static constexpr size_t kTinyMaxSize = 1024;
 
   RotationTest() {
-    test_dir_ = "/tmp/gvdb_rotation_test";
-    std::filesystem::remove_all(test_dir_);
-    std::filesystem::create_directories(test_dir_);
-
     index_factory_ = std::make_unique<index::IndexFactory>();
     manager_ = std::make_unique<storage::SegmentManager>(
         test_dir_, index_factory_.get(), kTinyMaxSize);
@@ -1827,29 +1812,20 @@ class RotationTest {
     metric_ = core::MetricType::L2;
   }
 
-  ~RotationTest() {
-    std::filesystem::remove_all(test_dir_);
-  }
-
+  // Each call uses the next seed, so two calls in one case give different
+  // vectors and every run gives the same ones.
   std::vector<core::Vector> MakeVectors(size_t count) {
-    std::vector<core::Vector> vecs;
-    vecs.reserve(count);
-    for (size_t i = 0; i < count; ++i) {
-      vecs.push_back(core::RandomVector(dimension_));
-    }
-    return vecs;
+    return test::RandomVectors(count, dimension_, next_seed_++);
   }
 
   std::vector<core::VectorId> MakeIds(size_t count, uint64_t start = 1) {
-    std::vector<core::VectorId> ids;
-    ids.reserve(count);
-    for (size_t i = 0; i < count; ++i) {
-      ids.push_back(core::MakeVectorId(start + i));
-    }
-    return ids;
+    return test::SequentialIds(count, start);
   }
 
-  std::string test_dir_;
+  // Declared first, so the folder is removed after the manager is destroyed.
+  test::ScopedTempDir temp_dir_{"gvdb_rotation_test"};
+  std::string test_dir_ = temp_dir_.str();
+  std::uint32_t next_seed_ = 42;
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::unique_ptr<storage::SegmentManager> manager_;
   core::CollectionId collection_id_;
@@ -2061,6 +2037,23 @@ TEST_CASE_FIXTURE(RotationTest, "SealCallback_ModifiesMap_NoInvalidation") {
 // TTL Tests
 // ============================================================================
 
+namespace {
+
+// Segment compares expiry timestamps with the clock in whole epoch seconds
+// and treats a vector as expired when now >= expiry. A timestamp one hour
+// ahead is still live and one hour back is already expired, however slow the
+// run is, so the TTL cases move the expiry instead of waiting for the clock.
+int64_t EpochSecondsNow() {
+  return std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+int64_t FutureExpiry() { return EpochSecondsNow() + 3600; }
+
+int64_t PastExpiry() { return EpochSecondsNow() - 3600; }
+
+}  // namespace
+
 TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_BasicExpiry") {
   auto seg_id = core::MakeSegmentId(1);
   storage::Segment segment(seg_id, collection_id_, dimension_, metric_);
@@ -2069,19 +2062,13 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_BasicExpiry") {
   auto ids = CreateTestVectorIds(3);
   REQUIRE(segment.AddVectors(vecs, ids).ok());
 
-  // Set TTL=1 second for vector 1
-  int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
-  segment.SetExpiry(ids[0], now + 1);
-
-  // Immediately: vector 1 should be found
+  // Expiry in the future: vector 1 should be found
+  segment.SetExpiry(ids[0], FutureExpiry());
   auto result = segment.GetVectors({ids[0]}, false);
   CHECK_EQ(result.found_ids.size(), 1);
 
-  // Wait for expiry
-  std::this_thread::sleep_for(std::chrono::seconds(2));
-
-  // Now: vector 1 should be expired (not found)
+  // Expiry moved into the past: vector 1 should be expired (not found)
+  segment.SetExpiry(ids[0], PastExpiry());
   auto result2 = segment.GetVectors({ids[0]}, false);
   CHECK_EQ(result2.found_ids.size(), 0);
   CHECK_EQ(result2.not_found_ids.size(), 1);
@@ -2099,9 +2086,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_NoExpiryWhenZero") {
   auto ids = CreateTestVectorIds(1);
   REQUIRE(segment.AddVectors(vecs, ids).ok());
 
-  // No SetExpiry call → no TTL → never expires
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-
+  // No SetExpiry call → no TTL → never expires, whatever the clock says
   auto result = segment.GetVectors({ids[0]}, false);
   CHECK_EQ(result.found_ids.size(), 1);
 }
@@ -2114,22 +2099,21 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_BruteForceSearch") {
   auto ids = CreateTestVectorIds(5);
   REQUIRE(segment.AddVectors(vecs, ids).ok());
 
-  int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
+  // Expiry in the future for the first 3 vectors
+  segment.SetExpiry(ids[0], FutureExpiry());
+  segment.SetExpiry(ids[1], FutureExpiry());
+  segment.SetExpiry(ids[2], FutureExpiry());
 
-  // Set TTL=1s for first 3 vectors
-  segment.SetExpiry(ids[0], now + 1);
-  segment.SetExpiry(ids[1], now + 1);
-  segment.SetExpiry(ids[2], now + 1);
-
-  // Immediately: search should return up to 5 results
-  auto query = core::RandomVector(dimension_);
+  // Before expiry: search should return up to 5 results
+  auto query = CreateTestVector();
   auto r1 = segment.Search(query, 10);
   REQUIRE(r1.ok());
   CHECK_EQ(r1->entries.size(), 5);
 
-  // Wait for expiry
-  std::this_thread::sleep_for(std::chrono::seconds(2));
+  // Expiry moved into the past for the same 3 vectors
+  segment.SetExpiry(ids[0], PastExpiry());
+  segment.SetExpiry(ids[1], PastExpiry());
+  segment.SetExpiry(ids[2], PastExpiry());
 
   // Now: search should return only 2 (non-expired)
   auto r2 = segment.Search(query, 10);
@@ -2146,12 +2130,9 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_SweepExpired") {
   REQUIRE(segment.AddVectors(vecs, ids).ok());
   CHECK_EQ(segment.GetVectorCount(), 5);
 
-  int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
-  segment.SetExpiry(ids[0], now + 1);
-  segment.SetExpiry(ids[1], now + 1);
-
-  std::this_thread::sleep_for(std::chrono::seconds(2));
+  // Expiry in the past for the first 2 vectors
+  segment.SetExpiry(ids[0], PastExpiry());
+  segment.SetExpiry(ids[1], PastExpiry());
 
   size_t swept = segment.SweepExpired();
   CHECK_EQ(swept, 2);
@@ -2166,9 +2147,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_SerializationRoundTrip") {
   auto ids = CreateTestVectorIds(3);
   REQUIRE(segment.AddVectors(vecs, ids).ok());
 
-  int64_t future_expiry = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count() + 3600;
-  segment.SetExpiry(ids[0], future_expiry);
+  segment.SetExpiry(ids[0], FutureExpiry());
 
   // Serialize and deserialize
   auto bytes = segment.SerializeToBytes();
@@ -2189,10 +2168,8 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_SerializationExpiredFiltered") {
   auto ids = CreateTestVectorIds(3);
   REQUIRE(segment.AddVectors(vecs, ids).ok());
 
-  // Set TTL that has already expired (1 second in the past)
-  int64_t past_expiry = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count() - 1;
-  segment.SetExpiry(ids[0], past_expiry);
+  // Set TTL that has already expired
+  segment.SetExpiry(ids[0], PastExpiry());
 
   // Serialize and deserialize
   auto bytes = segment.SerializeToBytes();
@@ -2218,14 +2195,9 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_AtomicInsertWithExpiry") {
   auto ids = CreateTestVectorIds(3);
 
   // Insert with expiry entries atomically
-  int64_t future_expiry = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count() + 3600;
-  int64_t past_expiry = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count() - 1;
-
   std::unordered_map<uint64_t, int64_t> expiry_entries;
-  expiry_entries[core::ToUInt64(ids[0])] = future_expiry;
-  expiry_entries[core::ToUInt64(ids[1])] = past_expiry;
+  expiry_entries[core::ToUInt64(ids[0])] = FutureExpiry();
+  expiry_entries[core::ToUInt64(ids[1])] = PastExpiry();
 
   REQUIRE(segment.AddVectors(vecs, ids, expiry_entries).ok());
 
@@ -2251,9 +2223,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_DeleteCleansExpiry") {
   auto ids = CreateTestVectorIds(2);
   REQUIRE(segment.AddVectors(vecs, ids).ok());
 
-  int64_t future_expiry = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count() + 3600;
-  segment.SetExpiry(ids[0], future_expiry);
+  segment.SetExpiry(ids[0], FutureExpiry());
 
   // Delete vector 0
   auto del = segment.DeleteVectors({ids[0]});

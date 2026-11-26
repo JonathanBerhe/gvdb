@@ -16,12 +16,12 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <filesystem>
 #include <memory>
 #include <string>
 
 #include "object_store_contract.h"
 #include "storage/gcs_object_store.h"
+#include "support/temp_dir.h"
 
 namespace gvdb {
 namespace storage {
@@ -36,7 +36,7 @@ std::string EnvOr(const char* name, const char* fallback) {
 
 struct GcsObjectStoreFixture {
   GcsObjectStoreFixture()
-      : tmp_dir(contract::MakeUniqueTempDir("gvdb_gcs_objstore")) {
+      : tmp_dir("gvdb_gcs_objstore") {
     GcsConfig config;
     config.endpoint = EnvOr("GVDB_TEST_GCS_ENDPOINT", "");
     config.bucket = EnvOr("GVDB_TEST_GCS_BUCKET", "gvdb-test");
@@ -46,14 +46,9 @@ struct GcsObjectStoreFixture {
         std::move(*created), contract::PrefixedObjectStore::UniquePrefix());
   }
 
-  ~GcsObjectStoreFixture() {
-    std::error_code ec;
-    std::filesystem::remove_all(tmp_dir, ec);
-  }
-
   IObjectStore& Get() { return *store; }
 
-  std::filesystem::path tmp_dir;
+  test::ScopedTempDir tmp_dir;
   std::unique_ptr<contract::PrefixedObjectStore> store;
 };
 

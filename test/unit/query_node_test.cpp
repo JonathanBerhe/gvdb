@@ -14,6 +14,8 @@
 #include "core/vector.h"
 #include "index/index_factory.h"
 #include "storage/segment_manager.h"
+#include "support/temp_dir.h"
+#include "support/vectors.h"
 
 using namespace gvdb;
 using namespace gvdb::cluster;
@@ -33,7 +35,7 @@ class QueryNodeTest {
     index_factory_ = std::make_unique<index::IndexFactory>();
 
     segment_store_ = std::make_shared<storage::SegmentManager>(
-        "/tmp/gvdb_query_node_test", index_factory_.get());
+        test_dir_.str(), index_factory_.get());
 
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
@@ -57,7 +59,7 @@ class QueryNodeTest {
     auto segment_id = segment_result.value();
 
     auto vectors = CreateTestVectors(num_vectors);
-    auto ids = CreateTestVectorIds(num_vectors, next_vector_id_offset_);
+    auto ids = gvdb::test::SequentialIds(num_vectors, next_vector_id_offset_ + 1);
     next_vector_id_offset_ += num_vectors;
 
     auto status = segment_store_->WriteVectors(segment_id, vectors, ids);
@@ -80,16 +82,9 @@ class QueryNodeTest {
     return vectors;
   }
 
-  // Helper: create vector IDs
-  std::vector<core::VectorId> CreateTestVectorIds(size_t count, size_t offset) {
-    std::vector<core::VectorId> ids;
-    ids.reserve(count);
-    for (size_t i = 0; i < count; ++i) {
-      ids.push_back(core::MakeVectorId(static_cast<uint64_t>(offset + i + 1)));
-    }
-    return ids;
-  }
-
+  // Segment storage. Declared first, so the folder is removed after every
+  // other member is gone.
+  gvdb::test::ScopedTempDir test_dir_{"gvdb_query_node_test"};
   core::CollectionId collection_id_;
   int32_t dimension_;
   core::MetricType metric_;

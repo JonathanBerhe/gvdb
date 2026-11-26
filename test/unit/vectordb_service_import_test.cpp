@@ -4,21 +4,14 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cctype>
-#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
-#include <filesystem>
 #include <memory>
 #include <mutex>
-#include <random>
 #include <string>
-#include <thread>
 #include <vector>
-
-#include <unistd.h>
 
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
@@ -27,6 +20,8 @@
 #include "storage/bulk_importer.h"
 #include "storage/object_store.h"
 #include "storage/segment_manager.h"
+#include "support/temp_dir.h"
+#include "support/wait.h"
 
 using namespace gvdb;
 
@@ -77,15 +72,6 @@ std::string BuildNpy(size_t num_vectors, size_t dimension) {
     }
   }
   return out;
-}
-
-std::string UniqueTestDir() {
-  static std::atomic<uint64_t> counter{0};
-  std::random_device rd;
-  return (std::filesystem::temp_directory_path() /
-          ("gvdb_import_service_test_" + std::to_string(::getpid()) + "_" +
-           std::to_string(counter.fetch_add(1)) + "_" + std::to_string(rd())))
-      .string();
 }
 
 std::string ToLower(std::string s) {
@@ -158,19 +144,17 @@ class GatedObjectStore : public storage::IObjectStore {
 class ImportServiceFixtureBase {
  public:
   explicit ImportServiceFixtureBase(bool with_importer) {
-    test_dir_ = UniqueTestDir();
-    std::filesystem::create_directories(test_dir_);
-
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_ + "/data", index_factory_.get());
+        (test_dir_ / "data").string(), index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
 
     object_store_ = std::make_unique<GatedObjectStore>();
     if (with_importer) {
       importer_ = std::make_shared<storage::BulkImporter>(
-          segment_store_, object_store_.get(), test_dir_ + "/import_tmp", 2);
+          segment_store_, object_store_.get(), (test_dir_ / "import_tmp").string(),
+          2);
     }
 
     auto resolver = network::MakeLocalResolver(segment_store_);
@@ -188,9 +172,7 @@ class ImportServiceFixtureBase {
     query_executor_.reset();
     segment_store_.reset();
     index_factory_.reset();
-
-    std::error_code ec;
-    std::filesystem::remove_all(test_dir_, ec);
+    // test_dir_ is the first member, so it removes the folder last.
   }
 
   void CreateCollection(const std::string& name, uint32_t dimension) {
@@ -239,23 +221,20 @@ class ImportServiceFixtureBase {
     return service_->CancelImport(&context, &request, response);
   }
 
-  // Polls GetImportStatus until the predicate holds or 5 seconds pass.
+  // Polls GetImportStatus until the predicate holds or the WaitFor timeout
+  // passes, and returns the last response. The callers check its state.
   template <typename Pred>
   proto::GetImportStatusResponse PollStatus(const std::string& import_id,
                                             Pred pred) {
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(5);
     proto::GetImportStatusResponse response;
-    while (true) {
+    test::WaitFor([&] {
       response.Clear();
       auto status = GetImportStatus(import_id, &response);
       INFO(status.error_message());
       REQUIRE(status.ok());
-      if (pred(response) || std::chrono::steady_clock::now() >= deadline) {
-        return response;
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
+      return pred(response);
+    });
+    return response;
   }
 
   proto::GetImportStatusResponse WaitForTerminal(const std::string& import_id) {
@@ -311,7 +290,7 @@ class ImportServiceFixtureBase {
     return 0;
   }
 
-  std::string test_dir_;
+  test::ScopedTempDir test_dir_{"gvdb_import_service_test"};
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;

@@ -1,5 +1,7 @@
 #include <doctest/doctest.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <thread>
 #include <vector>
 
@@ -7,6 +9,7 @@
 #include "core/vector.h"
 #include "index/index_factory.h"
 #include "index/bm25_index.h"
+#include "support/vectors.h"
 
 // Internal headers — test target adds src/index to its include path so we can
 // verify adaptive parameters propagate into the underlying Faiss structures.
@@ -17,24 +20,23 @@ namespace gvdb {
 namespace index {
 namespace {
 
+// Seed for vectors that are not in the index at build time (queries and
+// later additions), so that they differ from the CreateTestVectors ones.
+constexpr std::uint32_t kExtraVectorSeed = 7;
+
 // Helper to create test vectors
 std::vector<core::Vector> CreateTestVectors(int count, core::Dimension dim) {
-  std::vector<core::Vector> vectors;
-  vectors.reserve(count);
-  for (int i = 0; i < count; ++i) {
-    vectors.push_back(core::RandomVector(dim));
-  }
-  return vectors;
+  return test::RandomVectors(static_cast<std::size_t>(count), dim);
+}
+
+// Helper to create one vector from the extra seed
+core::Vector CreateExtraVector(core::Dimension dim) {
+  return test::RandomVectors(1, dim, kExtraVectorSeed).front();
 }
 
 // Helper to create test IDs
 std::vector<core::VectorId> CreateTestIds(int count) {
-  std::vector<core::VectorId> ids;
-  ids.reserve(count);
-  for (int i = 0; i < count; ++i) {
-    ids.push_back(core::MakeVectorId(i + 1));
-  }
-  return ids;
+  return test::SequentialIds(static_cast<std::size_t>(count));
 }
 
 // ============================================================================
@@ -137,7 +139,7 @@ TEST_CASE("FlatIndexTest - AddAfterBuild") {
   REQUIRE(index->Build(vectors, ids).ok());
 
   // Add more vectors
-  auto new_vector = core::RandomVector(4);
+  auto new_vector = CreateExtraVector(4);
   auto new_id = core::MakeVectorId(100);
   REQUIRE(index->Add(new_vector, new_id).ok());
 
@@ -170,7 +172,7 @@ TEST_CASE("FlatIndexTest - SearchEmpty") {
   REQUIRE(index_result.ok());
   auto index = std::move(index_result.value());
 
-  core::Vector query = core::RandomVector(4);
+  core::Vector query = CreateExtraVector(4);
   auto search_result = index->Search(query, 10);
   CHECK_FALSE(search_result.ok());
 }
@@ -186,7 +188,7 @@ TEST_CASE("FlatIndexTest - DimensionMismatch") {
   REQUIRE(index->Build(vectors, ids).ok());
 
   // This should work
-  core::Vector correct_dim = core::RandomVector(4);
+  core::Vector correct_dim = CreateExtraVector(4);
   CHECK(index->Add(correct_dim, core::MakeVectorId(100)).ok());
 }
 

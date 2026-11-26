@@ -1,7 +1,6 @@
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <cstdint>
-#include <filesystem>
 #include <map>
 #include <memory>
 #include <string>
@@ -14,6 +13,7 @@
 #include "storage/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
+#include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 
 using namespace gvdb;
@@ -31,12 +31,9 @@ using namespace gvdb;
 class AuthIntegrationTest {
  public:
   AuthIntegrationTest() {
-    std::filesystem::remove_all("/tmp/gvdb-auth-test");
-    std::filesystem::create_directories("/tmp/gvdb-auth-test");
-
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
-        "/tmp/gvdb-auth-test", index_factory_.get());
+        test_dir_.str(), index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
 
@@ -74,7 +71,6 @@ class AuthIntegrationTest {
 
   ~AuthIntegrationTest() {
     if (server_) { server_->Shutdown(); server_->Wait(); }
-    std::filesystem::remove_all("/tmp/gvdb-auth-test");
   }
 
   std::unique_ptr<proto::VectorDBService::Stub> MakeStub() {
@@ -136,6 +132,8 @@ class AuthIntegrationTest {
     return vwi;
   }
 
+  // Declared first, so the folder is removed after everything that uses it.
+  test::ScopedTempDir test_dir_{"gvdb_auth_test"};
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;

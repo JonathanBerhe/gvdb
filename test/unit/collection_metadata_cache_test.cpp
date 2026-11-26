@@ -1,6 +1,8 @@
 #include "network/collection_metadata_cache.h"
 
 #include <doctest/doctest.h>
+#include <atomic>
+#include <chrono>
 #include <thread>
 #include <vector>
 
@@ -190,14 +192,15 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentWrites") {
 
 // Test thread safety: concurrent reads and writes
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentReadsAndWrites") {
-  std::vector<std::thread> threads;
-  std::atomic<bool> stop{false};
+  std::vector<std::thread> writers;
+  std::vector<std::thread> readers;
+  std::atomic<bool> writers_done{false};
 
-  // Writers
+  // Writers: each one writes exactly 50 collections. The short pause between
+  // writes only spreads them out so that reads interleave with them.
   for (int t = 0; t < 5; ++t) {
-    threads.emplace_back([this, &stop, t]() {
-      int count = 0;
-      while (!stop.load() && count < 50) {
+    writers.emplace_back([this, t]() {
+      for (int count = 0; count < 50; ++count) {
         int id = t * 50 + count + 1;
         CollectionMetadata metadata(
             static_cast<core::CollectionId>(id),
@@ -206,31 +209,31 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentReadsAndWrites") {
             core::MetricType::L2,
             core::IndexType::FLAT);
         cache_->Put(metadata);
-        count++;
         std::this_thread::sleep_for(std::chrono::microseconds(10));
       }
     });
   }
 
-  // Readers
+  // Readers: read until every writer is done, so reads overlap the whole
+  // write phase. Each reader makes at least one full pass.
   for (int t = 0; t < 5; ++t) {
-    threads.emplace_back([this, &stop]() {
-      while (!stop.load()) {
+    readers.emplace_back([this, &writers_done]() {
+      do {
         for (int i = 1; i <= 250; ++i) {
           // Only exercises concurrent reads; the result can be a miss.
           (void)cache_->GetByName("collection_" + std::to_string(i));
         }
         std::this_thread::sleep_for(std::chrono::microseconds(10));
-      }
+      } while (!writers_done.load());
     });
   }
 
-  // Let them run for a bit
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  stop.store(true);
-
-  for (auto& thread : threads) {
-    thread.join();
+  for (auto& writer : writers) {
+    writer.join();
+  }
+  writers_done.store(true);
+  for (auto& reader : readers) {
+    reader.join();
   }
 
   // Should have all collections written by writers

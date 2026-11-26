@@ -9,8 +9,8 @@
 #include <thread>
 #include <vector>
 
-#include <unistd.h>
-
+#include "support/temp_dir.h"
+#include "support/wait.h"
 #include "utils/config.h"
 #include "utils/logger.h"
 #include "utils/thread_pool.h"
@@ -31,22 +31,13 @@ class LoggerTest {
   LoggerTest() {
     // Clean up any existing logger
     Logger::Shutdown();
-
-    // Create temp log directory
-    log_dir_ = fs::temp_directory_path() / "gvdb_test_logs";
-    fs::create_directories(log_dir_);
   }
 
-  ~LoggerTest() {
-    Logger::Shutdown();
+  ~LoggerTest() { Logger::Shutdown(); }
 
-    // Clean up log files
-    if (fs::exists(log_dir_)) {
-      fs::remove_all(log_dir_);
-    }
-  }
-
-  fs::path log_dir_;
+  // Log files go to a folder that no other test or test process uses. It is
+  // removed after the destructor has shut the logger down.
+  gvdb::test::ScopedTempDir log_dir_{"gvdb_test_logs"};
 };
 
 TEST_CASE_FIXTURE(LoggerTest, "InitializeWithDefaultConfig") {
@@ -228,7 +219,11 @@ TEST_CASE("ThreadPoolTest - ParallelExecution") {
              !max_concurrent.compare_exchange_weak(expected, current)) {
       }
 
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      // Stay in the task until four tasks have run at the same time, so the
+      // result does not depend on how the OS schedules the threads. If the
+      // pool cannot run four tasks at once, the wait times out and the check
+      // below fails.
+      gvdb::test::WaitFor([&max_concurrent] { return max_concurrent.load() >= 4; });
       concurrent_count.fetch_sub(1);
     }));
   }
@@ -266,13 +261,16 @@ TEST_CASE("ThreadPoolTest - DestructorWaitsForTasks") {
 // ============================================================================
 
 TEST_CASE("TimerTest - MeasureElapsedTime") {
-  Timer timer;
+  // A fake clock: time moves only when the test moves it, so the elapsed
+  // time is exact.
+  auto now = std::chrono::steady_clock::time_point{} + std::chrono::hours(1);
+  Timer timer([&now] { return now; });
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  now += std::chrono::milliseconds(100);
 
   int64_t elapsed_millis = timer.elapsed_millis();
-  CHECK_GE(elapsed_millis, 90);   // Allow some tolerance
-  CHECK_LE(elapsed_millis, 150);
+  CHECK_EQ(elapsed_millis, 100);
+  CHECK_EQ(timer.elapsed_micros(), 100000);
 }
 
 // ============================================================================
@@ -283,19 +281,6 @@ TEST_CASE("TimerTest - MeasureElapsedTime") {
 // temporary folder, which is removed afterwards.
 class ConfigFileTest {
  public:
-  ConfigFileTest() {
-    static std::atomic<uint64_t> counter{0};
-    dir_ = fs::temp_directory_path() /
-           ("gvdb_config_test_" + std::to_string(::getpid()) + "_" +
-            std::to_string(counter.fetch_add(1)));
-    fs::create_directories(dir_);
-  }
-
-  ~ConfigFileTest() {
-    std::error_code ec;
-    fs::remove_all(dir_, ec);
-  }
-
   absl::StatusOr<GVDBConfig> Load(const std::string& yaml) {
     const auto path = dir_ / "config.yaml";
     {
@@ -306,7 +291,7 @@ class ConfigFileTest {
     return Config::load_from_file(path.string());
   }
 
-  fs::path dir_;
+  gvdb::test::ScopedTempDir dir_{"gvdb_config_test"};
 };
 
 TEST_CASE_FIXTURE(ConfigFileTest,

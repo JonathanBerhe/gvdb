@@ -1,33 +1,36 @@
 #include <doctest/doctest.h>
 
 #include <cmath>
-#include <filesystem>
+#include <cstddef>
+#include <cstdint>
+#include <string>
 #include <vector>
 
 #include "core/vector.h"
 #include "index/index_factory.h"
+#include "support/temp_dir.h"
+#include "support/vectors.h"
 
 namespace gvdb {
 namespace index {
 namespace {
 
+// Seed for vectors that are not in the index at build time (queries and
+// later additions), so that they differ from the CreateTestVectors ones.
+constexpr std::uint32_t kExtraVectorSeed = 7;
+
 // Helper to create test vectors
 std::vector<core::Vector> CreateTestVectors(int count, core::Dimension dim) {
-  std::vector<core::Vector> vectors;
-  vectors.reserve(count);
-  for (int i = 0; i < count; ++i) {
-    vectors.push_back(core::RandomVector(dim));
-  }
-  return vectors;
+  return test::RandomVectors(static_cast<std::size_t>(count), dim);
+}
+
+// Helper to create one vector from the extra seed
+core::Vector CreateExtraVector(core::Dimension dim) {
+  return test::RandomVectors(1, dim, kExtraVectorSeed).front();
 }
 
 std::vector<core::VectorId> CreateTestIds(int count) {
-  std::vector<core::VectorId> ids;
-  ids.reserve(count);
-  for (int i = 0; i < count; ++i) {
-    ids.push_back(core::MakeVectorId(i + 1));
-  }
-  return ids;
+  return test::SequentialIds(static_cast<std::size_t>(count));
 }
 
 // ============================================================================
@@ -215,13 +218,13 @@ TEST_CASE("TurboQuant - AddSingle") {
   auto index = std::move(result.value());
 
   // Add vectors one by one (no Build needed — always trained)
-  for (int i = 0; i < 20; i++) {
-    auto vec = core::RandomVector(16);
-    REQUIRE(index->Add(vec, core::MakeVectorId(i + 1)).ok());
+  auto vectors = CreateTestVectors(20, 16);
+  for (std::size_t i = 0; i < vectors.size(); i++) {
+    REQUIRE(index->Add(vectors[i], core::MakeVectorId(i + 1)).ok());
   }
   CHECK_EQ(index->GetVectorCount(), 20);
 
-  auto query = core::RandomVector(16);
+  auto query = CreateExtraVector(16);
   auto search_result = index->Search(query, 5);
   REQUIRE(search_result.ok());
   CHECK_EQ(search_result.value().Size(), 5);
@@ -246,7 +249,7 @@ TEST_CASE("TurboQuant - DimensionMismatch") {
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
-  auto wrong_vec = core::RandomVector(32);
+  auto wrong_vec = CreateExtraVector(32);
   CHECK_FALSE(index->Add(wrong_vec, core::MakeVectorId(1)).ok());
 }
 
@@ -283,7 +286,7 @@ TEST_CASE("TurboQuant - SearchEmpty") {
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
-  auto query = core::RandomVector(8);
+  auto query = CreateExtraVector(8);
   auto search_result = index->Search(query, 5);
   REQUIRE(search_result.ok());
   CHECK_EQ(search_result.value().Size(), 0);
@@ -304,7 +307,8 @@ TEST_CASE("TurboQuant - SerializeDeserialize") {
   REQUIRE(index->Build(vectors, ids).ok());
 
   // Serialize
-  std::string path = "/tmp/gvdb_turboquant_test.bin";
+  test::ScopedTempDir temp_dir("gvdb_turboquant_test");
+  std::string path = (temp_dir / "turboquant.bin").string();
   REQUIRE(index->Serialize(path).ok());
 
   // Create new index and deserialize
@@ -318,7 +322,7 @@ TEST_CASE("TurboQuant - SerializeDeserialize") {
   CHECK_EQ(index2->GetDimension(), 16);
 
   // Search results should be similar
-  auto query = core::RandomVector(16);
+  auto query = CreateExtraVector(16);
   auto r1 = index->Search(query, 5);
   auto r2 = index2->Search(query, 5);
   REQUIRE(r1.ok());
@@ -331,9 +335,6 @@ TEST_CASE("TurboQuant - SerializeDeserialize") {
     CHECK_EQ(core::ToUInt64(r1.value().entries[0].id),
              core::ToUInt64(r2.value().entries[0].id));
   }
-
-  // Cleanup
-  std::filesystem::remove(path);
 }
 
 // ============================================================================
@@ -465,10 +466,7 @@ TEST_CASE("TurboQuant - SearchBatch") {
   auto ids = CreateTestIds(100);
   REQUIRE(index->Build(vectors, ids).ok());
 
-  std::vector<core::Vector> queries = {
-      core::RandomVector(32),
-      core::RandomVector(32),
-      core::RandomVector(32)};
+  auto queries = test::RandomVectors(3, 32, kExtraVectorSeed);
 
   auto batch_result = index->SearchBatch(queries, 5);
   REQUIRE(batch_result.ok());
@@ -649,7 +647,8 @@ TEST_CASE("IVFTurboQuant - Remove vector") {
 }
 
 TEST_CASE("IVFTurboQuant - Serialize and deserialize") {
-  std::string test_path = "/tmp/gvdb_ivf_tq_test.idx";
+  test::ScopedTempDir temp_dir("gvdb_ivf_tq_test");
+  std::string test_path = (temp_dir / "ivf_tq.idx").string();
 
   core::IndexConfig config;
   config.index_type = core::IndexType::IVF_TURBOQUANT;
@@ -683,8 +682,6 @@ TEST_CASE("IVFTurboQuant - Serialize and deserialize") {
   auto search_result = index2.Search(vectors[0], 5);
   REQUIRE(search_result.ok());
   CHECK_GE(search_result->entries.size(), 1);
-
-  std::filesystem::remove(test_path);
 }
 
 TEST_CASE("IVFTurboQuant - Different bit widths") {
