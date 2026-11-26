@@ -32,6 +32,17 @@ target_compile_options(gvdb_project_options INTERFACE
   $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-array-bounds -Wno-stringop-overflow>
 )
 
+# Clang 22 reports __COUNTER__ under -Wpedantic as a C2y extension, and the
+# doctest macros use it in every test file. The flag must come after
+# -Wpedantic, which turns the warning on again. GCC accepts any -Wno-... flag,
+# so the check uses the positive form.
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag(-Wc2y-extensions GVDB_KNOWS_WC2Y_EXTENSIONS)
+if(GVDB_KNOWS_WC2Y_EXTENSIONS)
+  target_compile_options(gvdb_project_options INTERFACE
+    $<$<COMPILE_LANGUAGE:CXX,OBJCXX>:-Wno-c2y-extensions>)
+endif()
+
 if(GVDB_COVERAGE)
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR "GVDB_COVERAGE needs Clang or AppleClang (source-based coverage)")

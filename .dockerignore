@@ -1,5 +1,6 @@
 # The image builds only the C++ server (deploy/Dockerfile): src, include,
-# proto, cmake, the CMake files and config.example.yaml.
+# proto, cmake, the CMake files, config.example.yaml and the LLVM install
+# script.
 build/
 .git/
 .claude/
@@ -13,6 +14,8 @@ connectors/
 operator/
 ui/
 tools/
+# The builder installs LLVM with this script.
+!tools/ci/install-llvm.sh
 deploy/helm/
 deploy/monitoring/
 *.md

@@ -55,16 +55,16 @@ For development or to target a platform without a prebuilt image.
 
 **Prerequisites:**
 
-- C++20 compiler (CI and the container image use GCC 13; macOS uses Apple clang)
 - CMake 3.28+ and Ninja
-- On macOS: Homebrew `libomp` and `zlib` (`brew install libomp zlib`)
+- Linux: Clang 22 with libc++, from apt.llvm.org. `tools/ci/install-llvm.sh` installs it on Ubuntu or Debian. CI, the container image and the `ci`, `release-linux` and `cuda` presets use it. The `dev` preset uses the default compiler, so GCC 13 also works for local builds.
+- macOS: Apple clang from Xcode, plus Homebrew `libomp` and `zlib` (`brew install libomp zlib`)
 - Python 3.8+ (for proto generation)
 
 ```bash
 git clone https://github.com/JonathanBerhe/gvdb.git
 cd gvdb
 make build          # Debug build with tests (preset dev)
-make build-release  # Optimized build as shipped (preset release)
+make build-release  # Optimized build (preset release); the container image uses release-linux
 make test           # Run the C++ test suite
 ```
 
