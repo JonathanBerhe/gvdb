@@ -287,9 +287,16 @@ jobs:
         id: filter
         with:
           filters: |
+            # The SDK tests run against the server built in build-and-test,
+            # so server changes run them too.
             python:
               - 'clients/python/**'
-              - 'proto/vectordb.proto'
+              - 'proto/**'
+              - 'src/**'
+              - 'include/**'
+              - 'CMakeLists.txt'
+              - 'CMakePresets.json'
+              - 'cmake/**'
 
       - name: Install uv
         if: steps.filter.outputs.python == 'true'
