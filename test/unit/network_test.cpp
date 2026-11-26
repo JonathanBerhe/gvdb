@@ -44,9 +44,9 @@ std::set<uint64_t> ResultIds(const proto::SearchResponse& response) {
   return ids;
 }
 
-// Returns the named metadata field, which must be present.
-const proto::MetadataValue& FieldOf(const proto::Metadata& metadata,
-                                    const std::string& key) {
+// Returns a copy of the named metadata field, which must be present. A copy,
+// because callers pass the key as a temporary string.
+proto::MetadataValue FieldOf(const proto::Metadata& metadata, const std::string& key) {
   auto it = metadata.fields().find(key);
   REQUIRE_MESSAGE(it != metadata.fields().end(),
                   "missing metadata field: " << key);
