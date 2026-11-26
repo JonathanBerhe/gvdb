@@ -47,10 +47,10 @@ graph LR
 Cloud backends are behind CMake flags:
 
 ```bash
-# S3 / MinIO — AWS SDK is fetched from source
+# S3 / MinIO: the AWS SDK is fetched from source
 make build CMAKE_EXTRA="-DGVDB_WITH_S3=ON"
 
-# GCS — google-cloud-cpp (storage) must be provided via find_package
+# GCS: google-cloud-cpp (storage) must be provided via find_package
 # (vcpkg feature "storage", a system package, or a source install)
 make build CMAKE_EXTRA="-DGVDB_WITH_GCS=ON"
 ```
@@ -140,19 +140,31 @@ objectStore:
 !!! warning "Static credentials are for dev only"
     `objectStore.accessKey` / `objectStore.secretKey` render into the ConfigMap the pods read. Use them only for dev/MinIO. In production leave both empty and grant bucket access via IRSA (EKS) or Workload Identity (GKE), or mount your own config Secret.
 
-## MinIO locally
+## S3 endpoint locally
 
-For testing, run MinIO via Docker Compose:
+For testing, run an S3-compatible endpoint (adobe/s3mock, with the bucket `gvdb-test`) through Docker Compose. MinIO no longer publishes public container images.
 
 ```bash
-docker compose -f test/integration/docker-compose.minio.yml up -d
+docker compose -f test/integration/docker-compose.s3.yml up -d --wait
 ```
 
-Then set `object_store_type: minio` and `object_store_endpoint: http://localhost:9000`.
+Then point the server at it:
 
-Run the S3 integration tests:
+```yaml
+storage:
+  object_store:
+    type: "minio"
+    endpoint: "http://localhost:9000"
+    bucket: "gvdb-test"
+    access_key: "test"
+    secret_key: "test"
+    use_ssl: false
+```
+
+The endpoint accepts any access key and secret key. To run the S3 tests, build with S3 first, then run them against the endpoint:
 
 ```bash
+make build CMAKE_EXTRA="-DGVDB_WITH_S3=ON"
 make test-s3
 ```
 
@@ -180,5 +192,5 @@ Evictions are background; in-flight queries are never interrupted.
 
 ## See also
 
-- [Configuration](../operations/configuration.md) — full YAML schema
+- [Configuration](../operations/configuration.md): full YAML schema
 - [Deploy with Helm](../operations/deploy-helm.md)

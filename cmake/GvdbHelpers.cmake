@@ -32,24 +32,41 @@ function(gvdb_add_executable name)
 endfunction()
 
 # gvdb_add_test(<name> SOURCES <file>... DEPS <dep>... TIMEOUT <seconds>
-#               LABELS <label>... [INCLUDE_DIRS <dir>...] [WORKING_DIRECTORY <dir>])
+#               LABELS <label>... [INCLUDE_DIRS <dir>...] [WORKING_DIRECTORY <dir>]
+#               [ENVIRONMENT <VAR=value>...] [CUSTOM_MAIN] [SKIP_RETURN_CODE <code>])
 #
 # Creates a doctest executable and registers it with CTest under the same name.
+# CUSTOM_MAIN links doctest without its main(), for tests that define their
+# own (for example to skip when a required service is not configured).
+# SKIP_RETURN_CODE makes CTest report that exit code as skipped. ENVIRONMENT
+# sets variables for the test process when CTest runs it.
 function(gvdb_add_test name)
-  cmake_parse_arguments(PARSE_ARGV 1 arg "" "TIMEOUT;WORKING_DIRECTORY" "SOURCES;DEPS;LABELS;INCLUDE_DIRS")
+  cmake_parse_arguments(PARSE_ARGV 1 arg "CUSTOM_MAIN" "TIMEOUT;WORKING_DIRECTORY;SKIP_RETURN_CODE" "SOURCES;DEPS;LABELS;INCLUDE_DIRS;ENVIRONMENT")
   if(NOT arg_TIMEOUT OR NOT arg_LABELS)
     message(FATAL_ERROR "gvdb_add_test(${name}): TIMEOUT and LABELS are required")
   endif()
 
+  if(arg_CUSTOM_MAIN)
+    set(doctest_target doctest::doctest)
+  else()
+    set(doctest_target doctest::doctest_with_main)
+  endif()
+
   add_executable(${name} ${arg_SOURCES})
   target_include_directories(${name} PRIVATE ${arg_INCLUDE_DIRS})
-  target_link_libraries(${name} PRIVATE ${arg_DEPS} doctest::doctest_with_main)
+  target_link_libraries(${name} PRIVATE ${arg_DEPS} ${doctest_target})
   _gvdb_configure_target(${name})
 
   add_test(NAME ${name} COMMAND ${name})
   set_tests_properties(${name} PROPERTIES TIMEOUT ${arg_TIMEOUT} LABELS "${arg_LABELS}")
   if(arg_WORKING_DIRECTORY)
     set_tests_properties(${name} PROPERTIES WORKING_DIRECTORY "${arg_WORKING_DIRECTORY}")
+  endif()
+  if(DEFINED arg_SKIP_RETURN_CODE)
+    set_tests_properties(${name} PROPERTIES SKIP_RETURN_CODE ${arg_SKIP_RETURN_CODE})
+  endif()
+  if(arg_ENVIRONMENT)
+    set_tests_properties(${name} PROPERTIES ENVIRONMENT "${arg_ENVIRONMENT}")
   endif()
 endfunction()
 

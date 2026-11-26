@@ -34,6 +34,12 @@ C++ / doctest. One file per module.
 | `internal_service_metadata_test.cpp` | Metadata sync RPCs |
 | `vectordb_service_distributed_test.cpp` | Distributed mode with mock coordinator |
 | `vectordb_service_coordinator_test.cpp` | Coordinator mode |
+| `vectordb_service_write_test.cpp` | Upsert, StreamInsert over gRPC, TTL expiry |
+| `vectordb_service_search_test.cpp` | RangeSearch, HybridSearch, sparse search |
+| `vectordb_service_import_test.cpp` | BulkImport, GetImportStatus, CancelImport |
+| `object_store_test.cpp` | Object store contract (in-memory, filesystem), CreateObjectStore |
+| `object_store_s3_test.cpp` | Object store contract against S3 (needs `GVDB_TEST_S3_ENDPOINT`, see `make test-s3`) |
+| `object_store_gcs_test.cpp` | Object store contract against a GCS emulator (needs `GVDB_TEST_GCS_ENDPOINT`) |
 
 ## Integration (`integration/`)
 

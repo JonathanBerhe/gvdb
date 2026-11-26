@@ -1,0 +1,21 @@
+# S3-compatible endpoint for the S3 tests, on http://localhost:9000 with the
+# bucket gvdb-test. It runs adobe/s3mock, which accepts any access key and
+# secret key. MinIO no longer publishes public container images.
+#
+# Usage:
+#   docker compose -f test/integration/docker-compose.s3.yml up -d --wait
+#   GVDB_TEST_S3_ENDPOINT=http://localhost:9000 ctest --preset <preset> -L s3
+#   docker compose -f test/integration/docker-compose.s3.yml down
+
+services:
+  s3:
+    image: adobe/s3mock:4.10.0
+    ports:
+      - "9000:9090"
+    environment:
+      COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS: gvdb-test
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
