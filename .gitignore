@@ -55,7 +55,6 @@ data/
 raft/
 *.db
 *.sst
-*.log
 
 # Test artifacts
 Testing/
@@ -86,28 +85,14 @@ venv/
 
 # Temporary/cache
 .cache/
-/tmp/
 
-# Session notes and analysis documents (exclude from repo)
+# Local notes that stay out of the repository
 ROADMAP.md
-CLAUDE.md
-VECTOR_BATCH_SIZING.md
-*SESSION*.md
-*_COMPLETE.md
-*_STATUS.md
-*_ISSUE*.md
-*_SUCCESS.md
-DEPENDENCY_STRATEGY.md
-FINAL_STATUS.md
-IMPLEMENTATION_*.md
-NEXT_SESSION*.md
-NETWORK_MODULE_IMPLEMENTATION.md
-STORAGE_COMPACTION_OPTIONS.md
+ROADMAP_DISTRIBUTED.md
+**/CLAUDE.md
 
 # Claude Code
 .claude/
-**/CLAUDE.md
-ROADMAP_DISTRIBUTED.md
 
 # Documentation (Zensical build output)
 site/
@@ -118,5 +103,3 @@ ui/gateway/gvdb-ui
 ui/web/node_modules/
 ui/web/dist/
 ui/gateway/gvdb-ui*
-CLAUDE.md
-ROADMAP.md

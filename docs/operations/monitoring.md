@@ -39,7 +39,7 @@ See [Deploy with Helm — `metrics`](deploy-helm.md#metrics-prometheus-operator)
 
 ## Grafana dashboards
 
-GVDB ships Grafana dashboards following the RED method — **R**ate, **E**rrors, **D**uration. Auto-provisioned via docker-compose for local development; for K8s, import the JSON from `grafana/dashboards/` in the repo.
+GVDB ships a Grafana dashboard that follows the RED method: **R**ate, **E**rrors and **D**uration. For local development, `make monitoring-up` starts Prometheus and Grafana with the dashboard provisioned (`deploy/monitoring/`). For Kubernetes, import [`deploy/monitoring/gvdb-dashboard.json`](https://github.com/JonathanBerhe/gvdb/blob/main/deploy/monitoring/gvdb-dashboard.json).
 
 Key panels:
 

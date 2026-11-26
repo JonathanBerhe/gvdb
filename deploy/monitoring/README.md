@@ -29,94 +29,21 @@ The dashboard provides real-time monitoring across 4 key areas:
 
 ## Quick Start with Docker Compose
 
-### 1. Create Prometheus Configuration
-
-Create `prometheus.yml`:
-
-```yaml
-global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
-
-scrape_configs:
-  - job_name: 'gvdb'
-    static_configs:
-      - targets: ['host.docker.internal:9090']
-        labels:
-          service: 'gvdb'
-```
-
-### 2. Create Docker Compose File
-
-Create `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-
-services:
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: gvdb-prometheus
-    ports:
-      - "9091:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus-data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-    restart: unless-stopped
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: gvdb-grafana
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_USERS_ALLOW_SIGN_UP=false
-    volumes:
-      - grafana-data:/var/lib/grafana
-    restart: unless-stopped
-    depends_on:
-      - prometheus
-
-volumes:
-  prometheus-data:
-  grafana-data:
-```
-
-### 3. Start Services
+This folder holds a Docker Compose stack: Prometheus (`prometheus.yml`) and Grafana with the data source and this dashboard provisioned (`provisioning/`, `gvdb-dashboard.json`). Run these commands from the repository root:
 
 ```bash
-docker-compose up -d
+make run             # gvdb-single-node on localhost:50051, metrics on :9090
+make monitoring-up   # Prometheus on localhost:9091, Grafana on localhost:3000
 ```
 
-### 4. Configure Grafana
+Open Grafana at http://localhost:3000 and log in with `admin` / `admin`. The dashboard is in the GVDB folder. Prometheus scrapes `host.docker.internal:9090`, which is the server that `make run` started on this host.
 
-1. **Access Grafana**: http://localhost:3000
-   - Username: `admin`
-   - Password: `admin` (change on first login)
-
-2. **Add Prometheus Data Source**:
-   - Go to: Configuration → Data Sources → Add data source
-   - Select: Prometheus
-   - URL: `http://prometheus:9090`
-   - Click: "Save & Test"
-
-3. **Import Dashboard**:
-   - Go to: Create → Import
-   - Upload: `gvdb-dashboard.json`
-   - Select: Prometheus data source
-   - Click: Import
-
-### 5. Start GVDB Server
+To stop everything:
 
 ```bash
-./build/dev/bin/gvdb-single-node --port 50051
+make stop
+make monitoring-down
 ```
-
-The server exposes metrics on `:9090/metrics` which Prometheus scrapes automatically.
 
 ## Manual Setup (Without Docker)
 

@@ -42,7 +42,6 @@ _REPO_IGNORE = [
     "operator/**",
     "ui/**",
     "connectors/**",
-    "grafana/**",
     "deploy/**",
     "docs/**",
     "scripts/**",
