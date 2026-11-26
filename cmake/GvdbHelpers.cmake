@@ -28,6 +28,10 @@ function(gvdb_add_executable name)
   target_include_directories(${name} PRIVATE ${arg_INCLUDE_DIRS})
   target_link_libraries(${name} PRIVATE ${arg_DEPS})
   set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
+  if(GVDB_STATIC_LIBCXX)
+    # With -stdlib=libc++, Clang links libc++ and libc++abi statically.
+    target_link_options(${name} PRIVATE -static-libstdc++)
+  endif()
   _gvdb_configure_target(${name})
 endfunction()
 

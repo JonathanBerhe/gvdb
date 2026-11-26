@@ -19,6 +19,10 @@ cmake_dependent_option(GVDB_WITH_METAL "Enable Apple Metal acceleration" OFF "AP
 
 option(GVDB_WARNINGS_AS_ERRORS "Treat compiler warnings in GVDB targets as errors" OFF)
 
+# Release images and CI binaries set this, so a program built with Clang and
+# libc++ runs on a host that has no libc++ installed.
+option(GVDB_STATIC_LIBCXX "Link the C++ standard library statically into GVDB programs" OFF)
+
 option(GVDB_COVERAGE "Instrument GVDB targets for Clang source-based coverage" OFF)
 
 set(GVDB_SANITIZERS "" CACHE STRING

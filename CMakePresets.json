@@ -22,6 +22,13 @@
       }
     },
     {
+      "name": "linux-clang",
+      "hidden": true,
+      "description": "Clang 22, libc++ and lld from apt.llvm.org (cmake/toolchains/linux-clang-libcxx.cmake). Only on Linux.",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/linux-clang-libcxx.cmake",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
       "name": "dev",
       "displayName": "Debug build with tests",
       "inherits": ["base", "homebrew"],
@@ -29,13 +36,19 @@
     },
     {
       "name": "release",
-      "displayName": "Release build as shipped in the container image (S3 on, no tests)",
+      "displayName": "Release build with the default compiler (S3 on, no tests)",
       "inherits": ["base", "homebrew"],
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "GVDB_BUILD_TESTS": "OFF",
         "GVDB_WITH_S3": "ON"
       }
+    },
+    {
+      "name": "release-linux",
+      "displayName": "Release build of the container image: Clang 22, libc++ linked statically",
+      "inherits": ["release", "linux-clang"],
+      "cacheVariables": { "GVDB_STATIC_LIBCXX": "ON" }
     },
     {
       "name": "bench",
@@ -45,21 +58,26 @@
     },
     {
       "name": "ci",
-      "displayName": "CI build: release with tests, S3 on, ccache",
-      "inherits": "base",
+      "displayName": "CI build on Linux: Clang 22 and libc++, release with tests, S3 on, ccache",
+      "inherits": ["base", "linux-clang"],
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "GVDB_WITH_S3": "ON",
+        "GVDB_STATIC_LIBCXX": "ON",
         "CMAKE_C_COMPILER_LAUNCHER": "ccache",
         "CMAKE_CXX_COMPILER_LAUNCHER": "ccache"
       }
     },
     {
       "name": "gcs",
-      "displayName": "CI build with Google Cloud Storage (google-cloud-cpp from vcpkg)",
+      "displayName": "CI build on Linux with Google Cloud Storage (google-cloud-cpp from vcpkg, Clang 22 and libc++)",
       "inherits": "base",
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
       "cacheVariables": {
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchains/linux-clang-libcxx.cmake",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/tools/vcpkg/triplets",
+        "VCPKG_TARGET_TRIPLET": "x64-linux-clang-libcxx",
         "CMAKE_BUILD_TYPE": "Release",
         "GVDB_WITH_GCS": "ON",
         "CMAKE_C_COMPILER_LAUNCHER": "ccache",
@@ -95,8 +113,8 @@
     },
     {
       "name": "cuda",
-      "displayName": "Release build with NVIDIA CUDA acceleration",
-      "inherits": "base",
+      "displayName": "Release build with NVIDIA CUDA acceleration (Clang 22 and libc++ as the CUDA host compiler)",
+      "inherits": ["base", "linux-clang"],
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "GVDB_WITH_CUDA": "ON"
@@ -106,6 +124,7 @@
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
     { "name": "release", "configurePreset": "release" },
+    { "name": "release-linux", "configurePreset": "release-linux" },
     { "name": "bench", "configurePreset": "bench" },
     { "name": "ci", "configurePreset": "ci" },
     { "name": "gcs", "configurePreset": "gcs" },
