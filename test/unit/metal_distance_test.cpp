@@ -8,15 +8,15 @@
 #include <doctest/doctest.h>
 
 #include <cmath>
-#include <random>
 #include <vector>
 
 #include "core/interfaces.h"
 #include "core/types.h"
 #include "core/vector.h"
 #include "index/index_factory.h"
+#include "support/vectors.h"
 
-// FaissFlatIndex is in a private header — include directly for CPU baseline
+// FaissFlatIndex is in a private header, so the CPU baseline includes it directly.
 #include "faiss_flat.h"
 
 #ifdef GVDB_HAS_METAL
@@ -28,32 +28,8 @@ using namespace gvdb;
 
 namespace {
 
-// Generate random vectors
-std::vector<core::Vector> RandomVectors(size_t n, core::Dimension dim,
-                                         unsigned seed = 42) {
-  std::mt19937 rng(seed);
-  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-
-  std::vector<core::Vector> vecs;
-  vecs.reserve(n);
-  for (size_t i = 0; i < n; ++i) {
-    std::vector<float> data(dim);
-    for (size_t d = 0; d < static_cast<size_t>(dim); ++d) {
-      data[d] = dist(rng);
-    }
-    vecs.emplace_back(data);
-  }
-  return vecs;
-}
-
-std::vector<core::VectorId> SequentialIds(size_t n) {
-  std::vector<core::VectorId> ids;
-  ids.reserve(n);
-  for (size_t i = 0; i < n; ++i) {
-    ids.push_back(core::MakeVectorId(i + 1));
-  }
-  return ids;
-}
+using test::RandomVectors;
+using test::SequentialIds;
 
 bool MetalAvailable() {
 #ifdef GVDB_HAS_METAL

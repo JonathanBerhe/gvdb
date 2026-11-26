@@ -1,6 +1,5 @@
 #include <doctest/doctest.h>
 #include <filesystem>
-#include <random>
 #include <string>
 
 #include "network/vectordb_service.h"
@@ -12,22 +11,9 @@
 #include "cluster/shard_manager.h"
 #include "index/index_factory.h"
 #include "internal.grpc.pb.h"
+#include "support/temp_dir.h"
 
 using namespace gvdb;
-
-namespace {
-
-// A per-fixture data directory under the system temp dir, unique across
-// processes and fixture instances.
-std::string UniqueTestDir() {
-  std::random_device rd;
-  std::mt19937_64 gen(rd());
-  return (std::filesystem::temp_directory_path() /
-          ("gvdb_vectordb_coordinator_test_" + std::to_string(gen())))
-      .string();
-}
-
-}  // namespace
 
 // ============================================================================
 // Test Fixture for COORDINATOR Mode
@@ -36,15 +22,13 @@ std::string UniqueTestDir() {
 struct VectorDBServiceCoordinatorTest {
   VectorDBServiceCoordinatorTest() {
     // Create test directories
-    test_dir_ = UniqueTestDir();
-    raft_dir_ = test_dir_ + "/raft";
-    std::filesystem::create_directories(test_dir_);
+    raft_dir_ = (test_dir_ / "raft").string();
     std::filesystem::create_directories(raft_dir_);
 
     // Create index factory and segment manager
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_, index_factory_.get());
+        test_dir_.str(), index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
 
@@ -61,6 +45,7 @@ struct VectorDBServiceCoordinatorTest {
     // Register a mock data node directly in node_registry (simulates heartbeat)
     proto::internal::NodeInfo proto_node_info;
     proto_node_info.set_node_id(100);
+    // The coordinator has no client factory, so it never dials this address.
     proto_node_info.set_grpc_address("localhost:50052");
     proto_node_info.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
     proto_node_info.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
@@ -86,11 +71,10 @@ struct VectorDBServiceCoordinatorTest {
     query_executor_.reset();
     segment_store_.reset();
     index_factory_.reset();
-
-    std::filesystem::remove_all(test_dir_);
+    // test_dir_ is the first member, so it removes the folder last.
   }
 
-  std::string test_dir_;
+  test::ScopedTempDir test_dir_{"gvdb_vectordb_coordinator_test"};
   std::string raft_dir_;
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;

@@ -3,12 +3,11 @@
 
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
-#include <filesystem>
+#include <chrono>
 #include <fstream>
 #include <memory>
 #include <sstream>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "network/audit_interceptor.h"
@@ -21,6 +20,7 @@
 #include "storage/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
+#include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 
 using namespace gvdb;
@@ -61,16 +61,11 @@ bool JsonContainsInt(const std::string& json, const std::string& key,
 class AuditIntegrationTest {
  public:
   AuditIntegrationTest() {
-    test_dir_ = "/tmp/gvdb-audit-test-" +
-                std::to_string(std::chrono::steady_clock::now()
-                                   .time_since_epoch()
-                                   .count());
-    std::filesystem::create_directories(test_dir_);
-    audit_log_path_ = test_dir_ + "/audit.jsonl";
+    audit_log_path_ = (test_dir_ / "audit.jsonl").string();
 
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_ + "/data", index_factory_.get());
+        (test_dir_ / "data").string(), index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
 
@@ -122,7 +117,6 @@ class AuditIntegrationTest {
       server_->Wait();
     }
     utils::AuditLogger::Shutdown();
-    std::filesystem::remove_all(test_dir_);
   }
 
   std::unique_ptr<proto::VectorDBService::Stub> MakeStub() {
@@ -131,13 +125,16 @@ class AuditIntegrationTest {
     return proto::VectorDBService::NewStub(channel);
   }
 
+  // No wait is needed for a call that the handler completes: the audit
+  // interceptor writes and flushes the line at PRE_SEND_STATUS, before the
+  // server sends the status, so the line is in the file when the client call
+  // returns.
   std::vector<std::string> GetAuditLines() {
-    // Small delay to let spdlog flush
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
     return ReadLines(audit_log_path_);
   }
 
-  std::string test_dir_;
+  // Declared first, so the folder is removed after everything that uses it.
+  test::ScopedTempDir test_dir_{"gvdb_audit_test"};
   std::string audit_log_path_;
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
@@ -265,6 +262,13 @@ TEST_CASE_FIXTURE(AuditIntegrationTest,
   // Auth interceptor uses TryCancel() which cancels the RPC server-side.
   // PRE_SEND_STATUS may or may not fire for cancelled RPCs (implementation-defined).
   // If an entry was logged, verify it shows a non-OK status with empty collection.
+  //
+  // A cancelled call can reach PRE_SEND_STATUS after the client has its
+  // status. Shutdown returns only when every call has finished, interceptor
+  // hooks included, so a line that this call writes is in the file before it
+  // is read. The deadline is now: no call needs a grace period, and without
+  // it the shutdown waits for the idle client connection to ack a GOAWAY.
+  server_->Shutdown(std::chrono::system_clock::now());
   auto lines = GetAuditLines();
   bool found = false;
   for (const auto& line : lines) {

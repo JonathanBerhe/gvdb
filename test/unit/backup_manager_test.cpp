@@ -9,9 +9,7 @@
 
 #include <doctest/doctest.h>
 
-#include <chrono>
 #include <filesystem>
-#include <thread>
 #include <vector>
 
 #include "core/types.h"
@@ -21,6 +19,8 @@
 #include "storage/backup_manifest.h"
 #include "storage/object_store.h"
 #include "storage/segment_manager.h"
+#include "support/temp_dir.h"
+#include "support/wait.h"
 
 namespace fs = std::filesystem;
 using namespace gvdb;
@@ -28,51 +28,35 @@ using namespace gvdb::storage;
 
 namespace {
 
-std::string MakeTestDir(const char* tag) {
-  return std::string("/tmp/gvdb_backup_test_") + tag + "_" +
-         std::to_string(std::chrono::steady_clock::now()
-                            .time_since_epoch()
-                            .count());
-}
-
-// Wait for a backup to terminate or for `timeout_ms` to elapse. The
-// async pool typically finishes a 3-vector backup in well under 100 ms,
-// but the loop is bounded so the suite never deadlocks on CI.
-BackupState WaitForBackup(BackupManager& mgr, const std::string& id,
-                          int timeout_ms = 5000) {
-  auto deadline = std::chrono::steady_clock::now() +
-                  std::chrono::milliseconds(timeout_ms);
-  while (std::chrono::steady_clock::now() < deadline) {
+// Wait for a backup to terminate. Returns its final state, or RUNNING when
+// it is still not done after the WaitFor timeout, so the suite never hangs.
+BackupState WaitForBackup(BackupManager& mgr, const std::string& id) {
+  BackupState state = BackupState::RUNNING;
+  const bool done = gvdb::test::WaitFor([&] {
     auto s = mgr.GetStatus(id);
     REQUIRE(s.ok());
-    if (s->state == BackupState::COMPLETED ||
-        s->state == BackupState::FAILED ||
-        s->state == BackupState::CANCELLED) {
-      return s->state;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  return BackupState::RUNNING;  // timed out
+    state = s->state;
+    return state == BackupState::COMPLETED || state == BackupState::FAILED ||
+           state == BackupState::CANCELLED;
+  });
+  return done ? state : BackupState::RUNNING;  // RUNNING: timed out
 }
 
-BackupState WaitForRestore(RestoreManager& mgr, const std::string& id,
-                           int timeout_ms = 5000) {
-  auto deadline = std::chrono::steady_clock::now() +
-                  std::chrono::milliseconds(timeout_ms);
-  while (std::chrono::steady_clock::now() < deadline) {
+BackupState WaitForRestore(RestoreManager& mgr, const std::string& id) {
+  BackupState state = BackupState::RUNNING;
+  const bool done = gvdb::test::WaitFor([&] {
     auto s = mgr.GetStatus(id);
     REQUIRE(s.ok());
-    if (s->state == BackupState::COMPLETED ||
-        s->state == BackupState::FAILED) {
-      return s->state;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  return BackupState::RUNNING;
+    state = s->state;
+    return state == BackupState::COMPLETED || state == BackupState::FAILED;
+  });
+  return done ? state : BackupState::RUNNING;  // RUNNING: timed out
 }
 
 struct BackupFixture {
-  std::string test_dir;
+  // Declared first, so the folder is removed after everything that uses it.
+  gvdb::test::ScopedTempDir scoped_dir{"gvdb_backup_test"};
+  std::string test_dir = scoped_dir.str();
   std::string flushed_root;
   std::string tmp_root;
   std::unique_ptr<index::IndexFactory> factory;
@@ -84,7 +68,6 @@ struct BackupFixture {
   core::IndexType index_type = core::IndexType::FLAT;
 
   BackupFixture() {
-    test_dir = MakeTestDir("backup");
     flushed_root = test_dir + "/segments";
     tmp_root = test_dir + "/tmp";
     fs::create_directories(flushed_root);
@@ -92,11 +75,6 @@ struct BackupFixture {
     factory = std::make_unique<index::IndexFactory>();
     store = std::make_shared<SegmentManager>(flushed_root, factory.get());
     object_store = std::make_unique<InMemoryObjectStore>();
-  }
-
-  ~BackupFixture() {
-    std::error_code ec;
-    fs::remove_all(test_dir, ec);
   }
 
   // Seed a growing segment with `n` deterministic vectors.

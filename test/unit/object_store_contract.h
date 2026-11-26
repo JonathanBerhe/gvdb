@@ -38,18 +38,6 @@ namespace gvdb {
 namespace storage {
 namespace contract {
 
-// Creates a temp directory that no other test or test process uses: the name
-// holds the process id and a per-process counter.
-inline std::filesystem::path MakeUniqueTempDir(const char* prefix) {
-  static std::atomic<std::uint64_t> seq{0};
-  const auto n = seq.fetch_add(1, std::memory_order_relaxed);
-  auto dir = std::filesystem::temp_directory_path() /
-             (std::string(prefix) + "_" + std::to_string(::getpid()) + "_" +
-              std::to_string(n));
-  std::filesystem::create_directories(dir);
-  return dir;
-}
-
 // Wraps a store that several tests share (a cloud bucket) and puts every key
 // under a prefix that is unique to this instance. The contract cases then see
 // an empty store, as they do with a fresh local backend. The destructor

@@ -4,13 +4,9 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
-#include <atomic>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <filesystem>
 #include <memory>
-#include <random>
 #include <set>
 #include <string>
 #include <thread>
@@ -24,6 +20,8 @@
 #include "network/collection_resolver.h"
 #include "network/vectordb_service.h"
 #include "storage/segment_manager.h"
+#include "support/temp_dir.h"
+#include "support/vectors.h"
 #include "utils/query_cache.h"
 
 using namespace gvdb;
@@ -128,12 +126,9 @@ void CheckDistancesNonDecreasing(const Results& results) {
   }
 }
 
-std::string UniqueSuffix() {
-  static std::atomic<uint64_t> counter{0};
-  std::random_device rd;
-  auto now = std::chrono::steady_clock::now().time_since_epoch().count();
-  return std::to_string(now) + "_" + std::to_string(rd()) + "_" +
-         std::to_string(counter.fetch_add(1));
+// The values of a core::Vector as a plain float vector.
+std::vector<float> ToFloats(const core::Vector& v) {
+  return {v.data(), v.data() + v.dimension()};
 }
 
 }  // namespace
@@ -145,13 +140,9 @@ std::string UniqueSuffix() {
 class SearchServiceTest {
  public:
   SearchServiceTest() {
-    test_dir_ = std::filesystem::temp_directory_path() /
-                ("gvdb_service_search_test_" + UniqueSuffix());
-    std::filesystem::create_directories(test_dir_);
-
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_.string(), index_factory_.get());
+        test_dir_.str(), index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
 
@@ -165,9 +156,7 @@ class SearchServiceTest {
     query_executor_.reset();
     segment_store_.reset();
     index_factory_.reset();
-
-    std::error_code ec;
-    std::filesystem::remove_all(test_dir_, ec);
+    // test_dir_ is the first member, so it removes the folder last.
   }
 
   // Creates the collection and returns its id.
@@ -240,7 +229,7 @@ class SearchServiceTest {
     return service_->Search(&context, &request, response);
   }
 
-  std::filesystem::path test_dir_;
+  test::ScopedTempDir test_dir_{"gvdb_service_search_test"};
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
@@ -264,13 +253,11 @@ class RangeSearchTest : public SearchServiceTest {
       : metric_(metric) {
     CreateCollection(kCollection, kDim, metric);
 
-    std::mt19937 rng(1234);
-    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+    const auto vectors = test::RandomVectors(kCount, kDim, 1234);
     proto::InsertRequest request;
     request.set_collection_name(kCollection);
     for (int i = 1; i <= kCount; ++i) {
-      std::vector<float> values(kDim);
-      for (auto& x : values) x = dist(rng);
+      const std::vector<float> values = ToFloats(vectors[static_cast<size_t>(i - 1)]);
       points_[static_cast<uint64_t>(i)] = values;
 
       auto* v = request.add_vectors();
@@ -1146,14 +1133,12 @@ class SearchFilterTest : public SearchServiceTest {
 
     const std::vector<std::string> brands = {"Nike", "Adidas", "Puma", "Reebok"};
     const std::vector<std::string> categories = {"Running", "Basketball", "Training", "Casual"};
-    std::mt19937 rng(4321);
-    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+    const auto vectors = test::RandomVectors(kCount, kDim, 4321);
     proto::InsertRequest request;
     request.set_collection_name(kCollection);
     for (int i = 0; i < kCount; ++i) {
       Product p;
-      p.vector.resize(kDim);
-      for (auto& x : p.vector) x = dist(rng);
+      p.vector = ToFloats(vectors[static_cast<size_t>(i)]);
       p.price = 50 + 2 * i;
       p.brand = brands[static_cast<size_t>(i % 4)];
       p.category = categories[static_cast<size_t>((i / 2) % 4)];
@@ -1346,11 +1331,12 @@ std::unordered_map<uint64_t, std::vector<float>> MatrixPoints(uint32_t dimension
   points[2] = cosine_nearest;
   points[3] = ip_nearest;
 
-  std::mt19937 rng(dimension);
-  std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+  // Ids 4 to count, seeded with the dimension.
+  const auto random = test::RandomVectors(static_cast<size_t>(count - 3),
+                                          static_cast<core::Dimension>(dimension),
+                                          dimension);
   for (int i = 4; i <= count; ++i) {
-    std::vector<float> values(dimension);
-    for (auto& x : values) x = dist(rng);
+    std::vector<float> values = ToFloats(random[static_cast<size_t>(i - 4)]);
     values[0] = -std::fabs(values[0]);
     points[static_cast<uint64_t>(i)] = values;
   }
@@ -1499,13 +1485,11 @@ class ConcurrentSearchTest : public SearchServiceTest {
     query_executor_->SetCache(std::make_shared<utils::QueryCache>(10000));
     CreateCollection(kCollection, kDim);
 
-    std::mt19937 rng(97);
-    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+    const auto vectors = test::RandomVectors(kCount, kDim, 97);
     proto::InsertRequest request;
     request.set_collection_name(kCollection);
     for (uint64_t id = 1; id <= static_cast<uint64_t>(kCount); ++id) {
-      std::vector<float> values(kDim);
-      for (auto& x : values) x = dist(rng);
+      const std::vector<float> values = ToFloats(vectors[id - 1]);
       points_[id] = values;
 
       auto* v = request.add_vectors();

@@ -36,6 +36,7 @@ endfunction()
 #               [ENVIRONMENT <VAR=value>...] [CUSTOM_MAIN] [SKIP_RETURN_CODE <code>])
 #
 # Creates a doctest executable and registers it with CTest under the same name.
+# Every test links gvdb::test_support, so it can include "support/...".
 # CUSTOM_MAIN links doctest without its main(), for tests that define their
 # own (for example to skip when a required service is not configured).
 # SKIP_RETURN_CODE makes CTest report that exit code as skipped. ENVIRONMENT
@@ -55,6 +56,9 @@ function(gvdb_add_test name)
   add_executable(${name} ${arg_SOURCES})
   target_include_directories(${name} PRIVATE ${arg_INCLUDE_DIRS})
   target_link_libraries(${name} PRIVATE ${arg_DEPS} ${doctest_target})
+  if(TARGET gvdb::test_support)
+    target_link_libraries(${name} PRIVATE gvdb::test_support)
+  endif()
   _gvdb_configure_target(${name})
 
   add_test(NAME ${name} COMMAND ${name})

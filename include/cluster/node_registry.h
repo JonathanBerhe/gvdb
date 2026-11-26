@@ -5,6 +5,7 @@
 
 #include "internal.pb.h"
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -21,12 +22,12 @@ struct RegisteredNode {
   uint64_t total_heartbeats = 0;
   uint64_t missed_heartbeats = 0;
 
-  // Calculated status
-  bool IsHealthy(std::chrono::milliseconds timeout) const {
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - last_heartbeat);
-    return elapsed < timeout;
+  // Calculated status. `now` is the time to measure the heartbeat age
+  // against: the time from the clock of the registry that set
+  // last_heartbeat, so that both come from the same clock.
+  bool IsHealthy(std::chrono::milliseconds timeout,
+                 std::chrono::steady_clock::time_point now) const {
+    return TimeSinceLastHeartbeat(now) < timeout;
   }
 
   bool IsDraining() const {
@@ -36,12 +37,13 @@ struct RegisteredNode {
   // A node is considered "routable" only if it is healthy AND not actively
   // draining. Draining nodes have sent a graceful-shutdown heartbeat and
   // should not receive new work.
-  bool IsRoutable(std::chrono::milliseconds timeout) const {
-    return IsHealthy(timeout) && !IsDraining();
+  bool IsRoutable(std::chrono::milliseconds timeout,
+                  std::chrono::steady_clock::time_point now) const {
+    return IsHealthy(timeout, now) && !IsDraining();
   }
 
-  std::chrono::milliseconds TimeSinceLastHeartbeat() const {
-    auto now = std::chrono::steady_clock::now();
+  std::chrono::milliseconds TimeSinceLastHeartbeat(
+      std::chrono::steady_clock::time_point now) const {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         now - last_heartbeat);
   }
@@ -50,7 +52,14 @@ struct RegisteredNode {
 // Registry for tracking all nodes in the cluster
 class NodeRegistry {
  public:
-  NodeRegistry(std::chrono::milliseconds heartbeat_timeout = std::chrono::seconds(10));
+  // Returns the current time. The registry reads it for every heartbeat and
+  // every health check, so a test can pass a fake clock and move time
+  // forward without sleeping. Readers call it under a shared lock, so it
+  // must be safe to call from several threads at once.
+  using Clock = std::function<std::chrono::steady_clock::time_point()>;
+
+  NodeRegistry(std::chrono::milliseconds heartbeat_timeout = std::chrono::seconds(10),
+               Clock clock = [] { return std::chrono::steady_clock::now(); });
   ~NodeRegistry();
 
   // Register or update a node from heartbeat
@@ -75,7 +84,7 @@ class NodeRegistry {
   // Convenience: "is this specific node routable right now?" using the
   // registry's configured heartbeat timeout. Callers that only have a node_id
   // should prefer this over constructing a RegisteredNode and calling
-  // IsRoutable(timeout) directly, which risks passing the wrong timeout.
+  // IsRoutable(timeout, now) directly, which risks passing the wrong timeout.
   bool IsNodeRoutable(uint32_t node_id) const;
 
   // Get nodes that are actively draining AND still within heartbeat timeout.
@@ -106,6 +115,7 @@ class NodeRegistry {
   mutable std::shared_mutex mutex_;
   std::unordered_map<uint32_t, RegisteredNode> nodes_;
   std::chrono::milliseconds heartbeat_timeout_;
+  Clock clock_;
 };
 
 } // namespace cluster

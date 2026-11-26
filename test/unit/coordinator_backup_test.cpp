@@ -15,7 +15,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "cluster/coordinator.h"
@@ -26,6 +25,8 @@
 #include "internal.grpc.pb.h"
 #include "storage/backup_manager.h"
 #include "storage/object_store.h"
+#include "support/temp_dir.h"
+#include "support/wait.h"
 
 using namespace gvdb;
 using namespace gvdb::cluster;
@@ -180,6 +181,9 @@ class MockFactory : public IInternalServiceClientFactory {
 // different mock data-nodes. Backup orchestration must hit each shard
 // once with FreezeWrites → BackupShard → UnfreezeWrites in that order.
 struct CoordinatorBackupFixture {
+  // Holds the backup tmp folder and the restore staging folder. Declared
+  // first, so it is removed after the managers are destroyed.
+  gvdb::test::ScopedTempDir temp_dir{"gvdb_coord_backup_test"};
   std::shared_ptr<MockState> mock_state;
   std::shared_ptr<MockFactory> factory;
   std::shared_ptr<ShardManager> shard_manager;
@@ -220,7 +224,7 @@ struct CoordinatorBackupFixture {
     storage::BackupManagerOptions opts;
     opts.default_object_store = object_store.get();
     opts.s3_bucket = "test-bucket";
-    opts.tmp_dir = "/tmp/gvdb_coord_backup_test";
+    opts.tmp_dir = (temp_dir / "backup").string();
     opts.max_concurrent_jobs = 1;
     opts.gvdb_version = "test";
     opts.node_id = 0;
@@ -229,7 +233,7 @@ struct CoordinatorBackupFixture {
     storage::RestoreManagerOptions ropts;
     ropts.default_object_store = object_store.get();
     ropts.s3_bucket = "test-bucket";
-    ropts.staging_dir = "/tmp/gvdb_coord_restore_test";
+    ropts.staging_dir = (temp_dir / "restore").string();
     ropts.max_concurrent_jobs = 1;
     restore_manager = std::make_shared<storage::RestoreManager>(
         std::move(ropts));
@@ -239,24 +243,20 @@ struct CoordinatorBackupFixture {
   }
 };
 
-// Spin until the backup transitions to a terminal state or the deadline
-// elapses. The fan-out for 2 mock shards typically completes in a few
-// milliseconds.
+// Wait until the backup reaches a terminal state. Returns that state, or
+// RUNNING when it is still not done after the WaitFor timeout.
 storage::BackupState WaitForBackup(storage::BackupManager& mgr,
-                                   const std::string& id, int timeout_ms = 5000) {
-  auto deadline = std::chrono::steady_clock::now() +
-                  std::chrono::milliseconds(timeout_ms);
-  while (std::chrono::steady_clock::now() < deadline) {
+                                   const std::string& id) {
+  auto state = storage::BackupState::RUNNING;
+  const bool done = gvdb::test::WaitFor([&] {
     auto s = mgr.GetStatus(id);
     REQUIRE(s.ok());
-    if (s->state == storage::BackupState::COMPLETED ||
-        s->state == storage::BackupState::FAILED ||
-        s->state == storage::BackupState::CANCELLED) {
-      return s->state;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-  }
-  return storage::BackupState::RUNNING;
+    state = s->state;
+    return state == storage::BackupState::COMPLETED ||
+           state == storage::BackupState::FAILED ||
+           state == storage::BackupState::CANCELLED;
+  });
+  return done ? state : storage::BackupState::RUNNING;
 }
 
 }  // namespace

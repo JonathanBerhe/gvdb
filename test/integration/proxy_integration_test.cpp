@@ -3,8 +3,11 @@
 
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
-#include <filesystem>
+
+#include <chrono>
+#include <initializer_list>
 #include <memory>
+#include <string>
 
 #include "cluster/coordinator.h"
 #include "cluster/shard_manager.h"
@@ -17,18 +20,39 @@
 #include "network/proxy_service.h"
 #include "network/collection_resolver.h"
 #include "storage/segment_manager.h"
+#include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 
 namespace gvdb {
 namespace test {
 
+namespace {
+
+// Starts a server on a free local port with the given services and the
+// 256 MB message limits of the production servers. Sets *address to
+// "localhost:<port>".
+std::unique_ptr<grpc::Server> StartServer(
+    std::initializer_list<grpc::Service*> services, std::string* address) {
+  grpc::ServerBuilder builder;
+  int port = 0;
+  builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
+  for (auto* service : services) {
+    builder.RegisterService(service);
+  }
+  builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
+  builder.SetMaxSendMessageSize(256 * 1024 * 1024);
+  auto server = builder.BuildAndStart();
+  REQUIRE_NE(server, nullptr);
+  REQUIRE_GT(port, 0);
+  *address = "localhost:" + std::to_string(port);
+  return server;
+}
+
+}  // namespace
+
 class ProxyIntegrationTest {
  public:
   ProxyIntegrationTest() {
-    std::filesystem::remove_all("/tmp/gvdb-proxy-integration-test");
-    std::filesystem::create_directories("/tmp/gvdb-proxy-integration-test/coordinator");
-    std::filesystem::create_directories("/tmp/gvdb-proxy-integration-test/data_node");
-
     index_factory_ = std::make_unique<index::IndexFactory>();
 
     // --- Step 1: Start coordinator first (data node needs its address) ---
@@ -36,13 +60,15 @@ class ProxyIntegrationTest {
     node_registry_ = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
 
     coord_segment_store_ = std::make_shared<storage::SegmentManager>(
-        "/tmp/gvdb-proxy-integration-test/coordinator", index_factory_.get());
+        (dir_ / "coordinator").string(), index_factory_.get());
     coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
         coord_segment_store_.get());
 
-    // Coordinator without client_factory initially (will recreate after data node is up)
+    // The client factory lets CreateCollection send CreateSegment to the
+    // data node that step 3 registers.
+    auto client_factory = std::make_shared<cluster::GrpcInternalServiceClientFactory>();
     coordinator_ = std::make_shared<cluster::Coordinator>(
-        shard_manager_, node_registry_, nullptr);
+        shard_manager_, node_registry_, client_factory);
 
     coord_internal_service_ = std::make_unique<network::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
@@ -52,22 +78,12 @@ class ProxyIntegrationTest {
     coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
         coord_segment_store_, coord_query_executor_, std::move(coord_resolver));
 
-    {
-      grpc::ServerBuilder builder;
-      int port = 0;
-      builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
-      builder.RegisterService(coord_internal_service_.get());
-      builder.RegisterService(coord_vectordb_service_.get());
-      builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
-      builder.SetMaxSendMessageSize(256 * 1024 * 1024);
-      coord_server_ = builder.BuildAndStart();
-      REQUIRE_NE(coord_server_, nullptr);
-      coord_address_ = "localhost:" + std::to_string(port);
-    }
+    coord_server_ = StartServer(
+        {coord_internal_service_.get(), coord_vectordb_service_.get()}, &coord_address_);
 
     // --- Step 2: Start data node (InternalService for CreateSegment + VectorDBService for Insert/Search) ---
     dn_segment_store_ = std::make_shared<storage::SegmentManager>(
-        "/tmp/gvdb-proxy-integration-test/data_node", index_factory_.get());
+        (dir_ / "data_node").string(), index_factory_.get());
     dn_query_executor_ = std::make_shared<compute::QueryExecutor>(
         dn_segment_store_.get());
 
@@ -80,55 +96,16 @@ class ProxyIntegrationTest {
     dn_vectordb_service_ = std::make_unique<network::VectorDBService>(
         dn_segment_store_, dn_query_executor_, std::move(dn_resolver));
 
-    {
-      grpc::ServerBuilder builder;
-      int port = 0;
-      builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
-      builder.RegisterService(dn_internal_service_.get());
-      builder.RegisterService(dn_vectordb_service_.get());
-      builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
-      builder.SetMaxSendMessageSize(256 * 1024 * 1024);
-      dn_server_ = builder.BuildAndStart();
-      REQUIRE_NE(dn_server_, nullptr);
-      dn_address_ = "localhost:" + std::to_string(port);
-    }
+    dn_server_ = StartServer(
+        {dn_internal_service_.get(), dn_vectordb_service_.get()}, &dn_address_);
 
-    // --- Step 3: Register data node and recreate coordinator with client factory ---
+    // --- Step 3: Register data node with the coordinator ---
     proto::internal::NodeInfo proto_node;
     proto_node.set_node_id(100);
     proto_node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
     proto_node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
     proto_node.set_grpc_address(dn_address_);
     node_registry_->UpdateNode(proto_node);
-
-    // Recreate coordinator with client factory so CreateCollection can send CreateSegment to data node
-    auto client_factory = std::make_shared<cluster::GrpcInternalServiceClientFactory>();
-    coordinator_ = std::make_shared<cluster::Coordinator>(
-        shard_manager_, node_registry_, client_factory);
-
-    // Update internal service's coordinator reference
-    coord_internal_service_ = std::make_unique<network::InternalService>(
-        shard_manager_, coord_segment_store_, coord_query_executor_,
-        node_registry_, coordinator_);
-
-    auto coord_resolver2 = network::MakeCoordinatorResolver(coordinator_);
-    coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
-        coord_segment_store_, coord_query_executor_, std::move(coord_resolver2));
-
-    // Restart coordinator server with new services
-    coord_server_->Shutdown();
-    coord_server_->Wait();
-
-    {
-      grpc::ServerBuilder builder;
-      builder.AddListeningPort(coord_address_, grpc::InsecureServerCredentials());
-      builder.RegisterService(coord_internal_service_.get());
-      builder.RegisterService(coord_vectordb_service_.get());
-      builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
-      builder.SetMaxSendMessageSize(256 * 1024 * 1024);
-      coord_server_ = builder.BuildAndStart();
-      REQUIRE_NE(coord_server_, nullptr);
-    }
 
     // --- Step 4: Start proxy ---
     // Post-1.7: proxy takes a single query-node URI (no more static
@@ -143,18 +120,7 @@ class ProxyIntegrationTest {
     proxy_service_ = std::make_unique<network::ProxyService>(
         std::vector<std::string>{coord_address_},
         dn_address_);
-
-    {
-      grpc::ServerBuilder builder;
-      int port = 0;
-      builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
-      builder.RegisterService(proxy_service_.get());
-      builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
-      builder.SetMaxSendMessageSize(256 * 1024 * 1024);
-      proxy_server_ = builder.BuildAndStart();
-      REQUIRE_NE(proxy_server_, nullptr);
-      proxy_address_ = "localhost:" + std::to_string(port);
-    }
+    proxy_server_ = StartServer({proxy_service_.get()}, &proxy_address_);
 
     // Client connects to proxy
     auto channel = grpc::CreateChannel(proxy_address_, grpc::InsecureChannelCredentials());
@@ -162,21 +128,30 @@ class ProxyIntegrationTest {
   }
 
   ~ProxyIntegrationTest() {
+    // Close every client channel before the server that it dials. A
+    // graceful server shutdown waits until each open client connection
+    // answers the server's GOAWAY, and on macOS an idle in-process channel
+    // answers only at gRPC's next client backup poll (every 5 s).
     client_.reset();
-    if (proxy_server_) { proxy_server_->Shutdown(); proxy_server_->Wait(); }
-    if (coord_server_) { coord_server_->Shutdown(); coord_server_->Wait(); }
-    if (dn_server_) { dn_server_->Shutdown(); dn_server_->Wait(); }
+    proxy_server_->Shutdown();
+    proxy_server_.reset();
+    proxy_service_.reset();  // Its channels dial the coordinator and the data node.
 
-    proxy_service_.reset();
+    // The coordinator and the data node dial each other: the coordinator's
+    // clients dial the data node, and the data node's resolver dials the
+    // coordinator. A deadline that has passed makes the coordinator close
+    // its connections at once instead of waiting for the data node's
+    // channel. No call is running at this point, so none is cancelled.
+    coord_server_->Shutdown(std::chrono::system_clock::now());
+    coord_server_.reset();
     coord_vectordb_service_.reset();
     coord_internal_service_.reset();
-    dn_vectordb_service_.reset();
-    dn_internal_service_.reset();
-    coordinator_.reset();
-
-    std::filesystem::remove_all("/tmp/gvdb-proxy-integration-test");
+    coordinator_.reset();  // Its clients dial the data node.
+    dn_server_->Shutdown();
+    dn_server_.reset();
   }
 
+  ScopedTempDir dir_{"gvdb_proxy_integration"};
   std::unique_ptr<index::IndexFactory> index_factory_;
 
   std::shared_ptr<cluster::ShardManager> shard_manager_;

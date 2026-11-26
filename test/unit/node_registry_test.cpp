@@ -5,7 +5,7 @@
 #include "cluster/node_registry.h"
 #include "internal.pb.h"
 #include <chrono>
-#include <thread>
+#include <set>
 
 using namespace gvdb;
 using namespace gvdb::cluster;
@@ -27,14 +27,19 @@ static proto::internal::NodeInfo MakeNodeInfo(
 }
 
 // ============================================================================
-// Fixture: creates a NodeRegistry with a short 50ms heartbeat timeout
+// Fixture: creates a NodeRegistry with a short 50ms heartbeat timeout and a
+// fake clock. Time moves only when a test calls Advance(), so heartbeat ages
+// are exact and do not depend on how fast the machine runs the test.
 // ============================================================================
 class NodeRegistryTest {
  public:
   NodeRegistryTest()
-      : registry_(50ms) {}
+      : registry_(50ms, [this] { return now_; }) {}
 
  protected:
+  void Advance(std::chrono::milliseconds duration) { now_ += duration; }
+
+  std::chrono::steady_clock::time_point now_ = std::chrono::steady_clock::time_point{} + 1h;
   NodeRegistry registry_;
 };
 
@@ -77,6 +82,29 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "UpdateExistingNodeIncrementsHeartbeats") {
 
   REQUIRE(registry_.GetNode(1, &node));
   CHECK_EQ(node.total_heartbeats, 3);
+
+  // A heartbeat with resource figures overwrites the stored ones.
+  auto with_resources = info;
+  with_resources.set_memory_total_bytes(8000);
+  with_resources.set_memory_used_bytes(3000);
+  with_resources.set_disk_total_bytes(90000);
+  with_resources.set_disk_used_bytes(40000);
+  registry_.UpdateNode(with_resources);
+
+  REQUIRE(registry_.GetNode(1, &node));
+  CHECK_EQ(node.total_heartbeats, 4);
+  CHECK_EQ(node.info.memory_total_bytes(), 8000u);
+  CHECK_EQ(node.info.memory_used_bytes(), 3000u);
+  CHECK_EQ(node.info.disk_total_bytes(), 90000u);
+  CHECK_EQ(node.info.disk_used_bytes(), 40000u);
+
+  // A heartbeat without them (zero in proto3) keeps the stored figures.
+  registry_.UpdateNode(info);
+
+  REQUIRE(registry_.GetNode(1, &node));
+  CHECK_EQ(node.total_heartbeats, 5);
+  CHECK_EQ(node.info.memory_total_bytes(), 8000u);
+  CHECK_EQ(node.info.disk_used_bytes(), 40000u);
 }
 
 // ============================================================================
@@ -112,13 +140,13 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetHealthyNodesReturnsRecent") {
 }
 
 // ============================================================================
-// 6. GetHealthyNodes excludes stale nodes (sleep past timeout)
+// 6. GetHealthyNodes excludes stale nodes (time moved past timeout)
 // ============================================================================
 TEST_CASE_FIXTURE(NodeRegistryTest, "GetHealthyNodesExcludesStale") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
 
-  // Wait past the 50ms heartbeat timeout
-  std::this_thread::sleep_for(100ms);
+  // Move past the 50ms heartbeat timeout
+  Advance(100ms);
 
   auto healthy = registry_.GetHealthyNodes();
   CHECK_EQ(healthy.size(), 0);
@@ -131,8 +159,8 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetHealthyNodesByTypeCombinesFilters") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
   registry_.UpdateNode(MakeNodeInfo(2, proto::internal::NODE_TYPE_QUERY_NODE));
 
-  // Wait past timeout so both become stale
-  std::this_thread::sleep_for(100ms);
+  // Move past the timeout so both become stale
+  Advance(100ms);
 
   // Refresh only the data node
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -205,8 +233,8 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetClusterStatsHealthyVsFailed") {
   registry_.UpdateNode(MakeNodeInfo(2, proto::internal::NODE_TYPE_QUERY_NODE));
   registry_.UpdateNode(MakeNodeInfo(3, proto::internal::NODE_TYPE_PROXY));
 
-  // Wait past timeout so all become stale
-  std::this_thread::sleep_for(100ms);
+  // Move past the timeout so all become stale
+  Advance(100ms);
 
   // Refresh only node 1
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
@@ -225,8 +253,8 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "DetectFailedNodesReturnsStaleIds") {
   registry_.UpdateNode(MakeNodeInfo(2, proto::internal::NODE_TYPE_QUERY_NODE));
   registry_.UpdateNode(MakeNodeInfo(3, proto::internal::NODE_TYPE_PROXY));
 
-  // Wait past timeout
-  std::this_thread::sleep_for(100ms);
+  // Move past the timeout
+  Advance(100ms);
 
   // Refresh only node 2
   registry_.UpdateNode(MakeNodeInfo(2, proto::internal::NODE_TYPE_QUERY_NODE));
@@ -252,8 +280,8 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "DetectFailedNodesReturnsStaleIds") {
 TEST_CASE_FIXTURE(NodeRegistryTest, "DetectFailedNodesIncrementsMissedHeartbeats") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
 
-  // Wait past timeout
-  std::this_thread::sleep_for(100ms);
+  // Move past the timeout
+  Advance(100ms);
 
   // First detection
   auto failed1 = registry_.DetectFailedNodes();
@@ -281,20 +309,20 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "RegisteredNodeIsHealthyBoundary") {
   REQUIRE(registry_.GetNode(1, &node));
 
   // Just registered - should be healthy with a reasonable timeout
-  CHECK(node.IsHealthy(50ms));
+  CHECK(node.IsHealthy(50ms, now_));
 
   // Should not be healthy with zero timeout (always expired)
-  CHECK_FALSE(node.IsHealthy(0ms));
+  CHECK_FALSE(node.IsHealthy(0ms, now_));
 
-  // Wait a bit and check with tight timeout
-  std::this_thread::sleep_for(30ms);
+  // Let 30ms pass and check with tight timeout
+  Advance(30ms);
   REQUIRE(registry_.GetNode(1, &node));
 
   // 30ms elapsed, 50ms timeout - still healthy
-  CHECK(node.IsHealthy(50ms));
+  CHECK(node.IsHealthy(50ms, now_));
 
   // 30ms elapsed, 20ms timeout - no longer healthy
-  CHECK_FALSE(node.IsHealthy(20ms));
+  CHECK_FALSE(node.IsHealthy(20ms, now_));
 }
 
 // ============================================================================
@@ -306,17 +334,16 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "RegisteredNodeTimeSinceLastHeartbeat") {
   RegisteredNode node;
   REQUIRE(registry_.GetNode(1, &node));
 
-  // Just registered, should be very small
-  auto elapsed = node.TimeSinceLastHeartbeat();
-  CHECK(elapsed < 20ms);
+  // Just registered: no time has passed
+  auto elapsed = node.TimeSinceLastHeartbeat(now_);
+  CHECK_EQ(elapsed.count(), 0);
 
-  // Wait and check again
-  std::this_thread::sleep_for(50ms);
+  // Let 50ms pass and check again
+  Advance(50ms);
   REQUIRE(registry_.GetNode(1, &node));
 
-  elapsed = node.TimeSinceLastHeartbeat();
-  CHECK(elapsed >= 50ms);
-  CHECK(elapsed < 200ms);
+  elapsed = node.TimeSinceLastHeartbeat(now_);
+  CHECK_EQ(elapsed.count(), 50);
 }
 
 // ============================================================================
@@ -359,8 +386,8 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "IsRoutableRequiresHealthyAndNotDraining") {
   RegisteredNode node;
   REQUIRE(registry_.GetNode(1, &node));
 
-  CHECK(node.IsHealthy(50ms));
-  CHECK(node.IsRoutable(50ms));
+  CHECK(node.IsHealthy(50ms, now_));
+  CHECK(node.IsRoutable(50ms, now_));
 
   // Mark as draining via another heartbeat.
   registry_.UpdateNode(
@@ -368,8 +395,8 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "IsRoutableRequiresHealthyAndNotDraining") {
   REQUIRE(registry_.GetNode(1, &node));
 
   // Still healthy (recent heartbeat) but no longer routable.
-  CHECK(node.IsHealthy(50ms));
-  CHECK_FALSE(node.IsRoutable(50ms));
+  CHECK(node.IsHealthy(50ms, now_));
+  CHECK_FALSE(node.IsRoutable(50ms, now_));
 }
 
 // 18. GetRoutableNodesByType combines type filter with drain exclusion.
@@ -406,7 +433,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "DrainingNodeBecomesFailedAfterTimeout") {
   CHECK_FALSE(registry_.IsNodeRoutable(1));
 
   // Let the heartbeat age past the 50ms timeout.
-  std::this_thread::sleep_for(100ms);
+  Advance(100ms);
 
   CHECK_FALSE(registry_.IsNodeRoutable(1));
 
@@ -438,8 +465,8 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetDrainingNodesExcludesStaleDraining") {
   CHECK(fresh_ids.count(2) == 1);
   CHECK(fresh_ids.count(3) == 1);
 
-  // Let only node 3 age out: refresh 1 and 2 after the sleep; leave 3 stale.
-  std::this_thread::sleep_for(100ms);
+  // Let only node 3 age out: refresh 1 and 2 after the timeout; leave 3 stale.
+  Advance(100ms);
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
   registry_.UpdateNode(
       MakeDrainingNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));

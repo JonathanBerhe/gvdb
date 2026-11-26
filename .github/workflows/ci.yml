@@ -108,7 +108,7 @@ jobs:
         if: steps.filter.outputs.cpp == 'true'
         env:
           GVDB_TEST_S3_ENDPOINT: http://localhost:9000
-        run: ctest --preset ci
+        run: ctest --preset ci --parallel "$(nproc)"
 
       - name: Upload server binary
         if: steps.filter.outputs.cpp == 'true'

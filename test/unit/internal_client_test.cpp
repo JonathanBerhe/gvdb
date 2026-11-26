@@ -1,6 +1,11 @@
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
+#include <atomic>
+#include <chrono>
+#include <memory>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "cluster/internal_client.h"
 #include "internal.grpc.pb.h"
@@ -50,35 +55,47 @@ class MockInternalService : public proto::internal::InternalService::Service {
 // Test Fixture
 // ============================================================================
 
+// The server listens on a port that the operating system picks. The fixture
+// does not use TestGrpcServer because ClientReconnectsAfterServerRestart must
+// start the server again on the same port.
 class InternalClientTest {
  public:
   InternalClientTest() {
     // Create mock service
     mock_service_ = std::make_unique<MockInternalService>();
 
-    // Start server
-    server_address_ = "localhost:59051";
-    StartServer();
-
-    // Give server time to start
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    StartServer("localhost:0");
+    server_address_ = "localhost:" + std::to_string(port_);
   }
 
   ~InternalClientTest() {
-    if (server_) {
-      server_->Shutdown();
-    }
-    server_.reset();
+    StopServer();
     mock_service_.reset();
   }
 
-  void StartServer() {
+  // BuildAndStart returns when the server accepts connections, so no wait
+  // is needed before the first call.
+  void StartServer(const std::string& address) {
     grpc::ServerBuilder builder;
-    builder.AddListeningPort(server_address_, grpc::InsecureServerCredentials());
+    builder.AddListeningPort(address, grpc::InsecureServerCredentials(), &port_);
     builder.RegisterService(mock_service_.get());
     server_ = builder.BuildAndStart();
+    REQUIRE(server_ != nullptr);
+    REQUIRE(port_ > 0);
   }
 
+  // Graceful shutdown with no deadline. The server sends GOAWAY and a PING to
+  // each connected client and closes the connection after the client acks,
+  // so when this returns every client has seen the GOAWAY and its next call
+  // opens a new connection. The listening socket is closed too.
+  void StopServer() {
+    if (server_) {
+      server_->Shutdown();
+      server_.reset();
+    }
+  }
+
+  int port_ = 0;
   std::string server_address_;
   std::unique_ptr<MockInternalService> mock_service_;
   std::unique_ptr<grpc::Server> server_;
@@ -247,12 +264,10 @@ TEST_CASE_FIXTURE(InternalClientTest, "NullFactoryReturnsNullptrForAnyAddress") 
 // ============================================================================
 
 TEST_CASE_FIXTURE(InternalClientTest, "ClientHandlesServerUnavailable") {
-  // Shutdown server
-  server_->Shutdown();
-  server_.reset();
-
-  // Wait for shutdown
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // Stop the server. Its port came from the operating system and is closed
+  // now, so the call below finds nothing listening on server_address_,
+  // unless another process binds that exact port in the moment between.
+  StopServer();
 
   // Create client (should succeed - lazy connection)
   cluster::GrpcInternalServiceClientFactory factory;
@@ -295,14 +310,15 @@ TEST_CASE_FIXTURE(InternalClientTest, "ClientReconnectsAfterServerRestart") {
     CHECK(status.ok());
   }
 
-  // Shutdown server
-  server_->Shutdown();
-  server_.reset();
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // Stop the server. StopServer returns after the client has acked the
+  // GOAWAY, so the second call below cannot go out on the old connection.
+  // The client is idle here, and on macOS gRPC reads an idle client socket
+  // only in its backup poller (every 5 s by default), so this can take up
+  // to 5 s there.
+  StopServer();
 
-  // Restart server
-  StartServer();
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // Restart the server on the same port
+  StartServer(server_address_);
 
   // Second RPC should succeed after reconnection
   {

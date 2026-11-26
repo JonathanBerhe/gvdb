@@ -3,9 +3,7 @@
 
 #include <doctest/doctest.h>
 
-#include <chrono>
 #include <filesystem>
-#include <thread>
 
 #include "cluster/data_node.h"
 #include "index/index_factory.h"
@@ -15,6 +13,9 @@
 #include "storage/tiered_segment_manager.h"
 #include "core/types.h"
 #include "core/vector.h"
+#include "support/temp_dir.h"
+#include "support/vectors.h"
+#include "support/wait.h"
 
 using namespace gvdb;
 using namespace gvdb::cluster;
@@ -26,14 +27,10 @@ using namespace gvdb::cluster;
 class DataNodeTest {
  public:
   DataNodeTest() {
-    test_dir_ = "/tmp/gvdb_data_node_test";
-    std::filesystem::remove_all(test_dir_);
-    std::filesystem::create_directories(test_dir_);
-
     auto factory = std::make_unique<index::IndexFactory>();
     factory_ptr_ = factory.get();
     segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_, factory_ptr_);
+        test_dir_.str(), factory_ptr_);
     data_node_ = std::make_unique<DataNode>(std::move(factory), segment_store_);
 
     collection_id_ = core::MakeCollectionId(1);
@@ -41,28 +38,22 @@ class DataNodeTest {
     metric_ = core::MetricType::L2;
   }
 
-  ~DataNodeTest() {
-    std::filesystem::remove_all(test_dir_);
-  }
-
   // Create a GROWING segment with vectors
   core::SegmentId CreateSegmentWithVectors(size_t count) {
     auto seg_result = segment_store_->CreateSegment(collection_id_, dimension_, metric_);
     auto seg_id = *seg_result;
 
-    std::vector<core::Vector> vectors;
-    std::vector<core::VectorId> ids;
-    for (size_t i = 0; i < count; ++i) {
-      vectors.push_back(core::RandomVector(dimension_));
-      ids.push_back(core::MakeVectorId(next_id_++));
-    }
+    auto vectors = gvdb::test::RandomVectors(count, dimension_);
+    auto ids = gvdb::test::SequentialIds(count, next_id_);
+    next_id_ += count;
 
     auto* segment = segment_store_->GetSegment(seg_id);
     REQUIRE(segment->AddVectors(vectors, ids).ok());
     return seg_id;
   }
 
-  std::string test_dir_;
+  // Declared first, so the folder is removed after every other member is gone.
+  gvdb::test::ScopedTempDir test_dir_{"gvdb_data_node_test"};
   index::IndexFactory* factory_ptr_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::unique_ptr<DataNode> data_node_;
@@ -138,7 +129,7 @@ TEST_CASE_FIXTURE(DataNodeTest, "BuildIndex with HNSW") {
   CHECK_EQ(segment->GetState(), core::SegmentState::SEALED);
 
   // Verify search works on sealed segment
-  auto query = core::RandomVector(dimension_);
+  auto query = gvdb::test::RandomVectors(1, dimension_, /*seed=*/7).front();
   auto result = segment->Search(query, 5);
   REQUIRE(result.ok());
   CHECK_EQ(result->entries.size(), 5);
@@ -173,10 +164,11 @@ TEST_CASE_FIXTURE(DataNodeTest, "BuildIndex rejects nonexistent segment") {
 // uploads it to the object store. Sealing alone leaves the segment memory-only;
 // the cold tier stays empty (segments never reach S3/GCS/filesystem).
 TEST_CASE("BuildIndex flushes sealed segment to the tiered object store") {
-  const std::string dir = "/tmp/gvdb_data_node_tiered_test";
-  const std::string cache_dir = "/tmp/gvdb_data_node_tiered_test_cache";
-  std::filesystem::remove_all(dir);
-  std::filesystem::remove_all(cache_dir);
+  // Declared first, so the folder is removed after the data node and the
+  // tiered store are gone.
+  gvdb::test::ScopedTempDir tmp("gvdb_data_node_tiered_test");
+  const std::string dir = (tmp / "segments").string();
+  const std::string cache_dir = (tmp / "cache").string();
   std::filesystem::create_directories(dir);
 
   auto factory = std::make_unique<index::IndexFactory>();
@@ -198,12 +190,8 @@ TEST_CASE("BuildIndex flushes sealed segment to the tiered object store") {
   auto dimension = core::Dimension(32);
   auto seg_id = *tiered->CreateSegment(collection_id, dimension,
                                        core::MetricType::L2);
-  std::vector<core::Vector> vectors;
-  std::vector<core::VectorId> ids;
-  for (size_t i = 0; i < 50; ++i) {
-    vectors.push_back(core::RandomVector(dimension));
-    ids.push_back(core::MakeVectorId(i + 1));
-  }
+  auto vectors = gvdb::test::RandomVectors(50, dimension);
+  auto ids = gvdb::test::SequentialIds(50);
   REQUIRE(tiered->WriteVectors(seg_id, vectors, ids).ok());
 
   // Before BuildIndex, nothing has been uploaded.
@@ -211,14 +199,14 @@ TEST_CASE("BuildIndex flushes sealed segment to the tiered object store") {
 
   REQUIRE(data_node.BuildIndex(seg_id, core::IndexType::FLAT).ok());
 
-  // BuildIndex seals + flushes; the flush schedules an async upload.
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  // BuildIndex seals + flushes; the flush schedules an async upload. Wait
+  // until the upload has written the segment files and the manifest.
+  REQUIRE(gvdb::test::WaitFor([store] {
+    return store->ObjectCount() > 0 && store->GetObject("test-prefix/manifest.json").ok();
+  }));
 
   CHECK(store->ObjectCount() > 0);
   CHECK(store->GetObject("test-prefix/manifest.json").ok());
-
-  std::filesystem::remove_all(dir);
-  std::filesystem::remove_all(cache_dir);
 }
 
 // ============================================================================

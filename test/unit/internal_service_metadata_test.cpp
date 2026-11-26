@@ -3,6 +3,7 @@
 #include "cluster/shard_manager.h"
 #include "cluster/node_registry.h"
 #include "internal.grpc.pb.h"
+#include "support/grpc_server.h"
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <chrono>
@@ -28,6 +29,7 @@ class InternalServiceMetadataTest {
     proto_node.set_node_id(1);
     proto_node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
     proto_node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+    // The coordinator has no client factory, so it never dials this address.
     proto_node.set_grpc_address("localhost:50051");
     node_registry_->UpdateNode(proto_node);
 
@@ -54,26 +56,15 @@ class InternalServiceMetadataTest {
 class InternalServiceMetadataServerTest : public InternalServiceMetadataTest {
  public:
   InternalServiceMetadataServerTest() {
-    grpc::ServerBuilder builder;
-    int port = 0;
-    builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(),
-                             &port);
-    builder.RegisterService(internal_service_.get());
-    server_ = builder.BuildAndStart();
-    REQUIRE(server_ != nullptr);
-    REQUIRE_GT(port, 0);
-    auto channel = grpc::CreateChannel("localhost:" + std::to_string(port),
-                                       grpc::InsecureChannelCredentials());
-    stub_ = proto::internal::InternalService::NewStub(channel);
+    REQUIRE(server_.ok());
+    stub_ = proto::internal::InternalService::NewStub(server_.NewChannel());
   }
 
-  // Shuts the server down before the base class destroys the service.
+  // Drops the stub, then shuts the server down before the base class
+  // destroys the service.
   ~InternalServiceMetadataServerTest() {
     stub_.reset();
-    if (server_) {
-      server_->Shutdown();
-      server_->Wait();
-    }
+    server_.Shutdown();
   }
 
   // Sends one GetCollectionMetadata call through the stub.
@@ -86,7 +77,8 @@ class InternalServiceMetadataServerTest : public InternalServiceMetadataTest {
     return stub_->GetCollectionMetadata(&context, request, response);
   }
 
-  std::unique_ptr<grpc::Server> server_;
+  // The base class is built first, so the service exists here.
+  test::TestGrpcServer server_{internal_service_.get()};
   std::unique_ptr<proto::internal::InternalService::Stub> stub_;
 };
 

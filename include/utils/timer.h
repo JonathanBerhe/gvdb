@@ -6,6 +6,8 @@
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
+#include <utility>
 
 namespace gvdb {
 namespace utils {
@@ -15,27 +17,31 @@ namespace utils {
 // ============================================================================
 class Timer {
  public:
-  using Clock = std::chrono::steady_clock;
-  using TimePoint = std::chrono::time_point<Clock>;
+  using TimePoint = std::chrono::steady_clock::time_point;
+  // Returns the current time. Tests pass a fake clock to measure a known
+  // duration without sleeping.
+  using Clock = std::function<TimePoint()>;
 
   // Start the timer
-  Timer() : start_(Clock::now()) {}
+  explicit Timer(Clock clock = [] { return std::chrono::steady_clock::now(); })
+      : clock_(std::move(clock)), start_(clock_()) {}
 
   // Get elapsed time in microseconds
   [[nodiscard]] int64_t elapsed_micros() const {
     return std::chrono::duration_cast<std::chrono::microseconds>(
-               Clock::now() - start_)
+               clock_() - start_)
         .count();
   }
 
   // Get elapsed time in milliseconds
   [[nodiscard]] int64_t elapsed_millis() const {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
-               Clock::now() - start_)
+               clock_() - start_)
         .count();
   }
 
  private:
+  Clock clock_;
   TimePoint start_;
 };
 

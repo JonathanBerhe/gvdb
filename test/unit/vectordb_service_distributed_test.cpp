@@ -1,8 +1,6 @@
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <atomic>
-#include <filesystem>
-#include <random>
 #include <string>
 
 #include "network/vectordb_service.h"
@@ -12,22 +10,10 @@
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "internal.grpc.pb.h"
+#include "support/grpc_server.h"
+#include "support/temp_dir.h"
 
 using namespace gvdb;
-
-namespace {
-
-// A per-fixture data directory under the system temp dir, unique across
-// processes and fixture instances.
-std::string UniqueTestDir() {
-  std::random_device rd;
-  std::mt19937_64 gen(rd());
-  return (std::filesystem::temp_directory_path() /
-          ("gvdb_vectordb_distributed_test_" + std::to_string(gen())))
-      .string();
-}
-
-}  // namespace
 
 // ============================================================================
 // Mock Coordinator InternalService
@@ -89,24 +75,21 @@ class MockCoordinatorInternalService : public proto::internal::InternalService::
 
 struct VectorDBServiceDistributedTest {
   VectorDBServiceDistributedTest() {
-    // Create test directory
-    test_dir_ = UniqueTestDir();
-    std::filesystem::create_directories(test_dir_);
-
     // Create index factory and segment manager
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_, index_factory_.get());
+        test_dir_.str(), index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
 
-    // Start mock coordinator InternalService on dynamic port. BuildAndStart
-    // returns once the server listens, so no wait is needed before use.
-    mock_coordinator_ = std::make_unique<MockCoordinatorInternalService>();
-    coordinator_address_ = StartCoordinator();
+    // The mock coordinator InternalService listens on a port that the
+    // operating system picks. TestGrpcServer listens once it is built, and
+    // members are built before this body runs, so no wait is needed.
+    REQUIRE(coordinator_server_.ok());
 
     // Create VectorDBService in DISTRIBUTED mode
-    auto resolver = network::MakeCachedCoordinatorResolver(coordinator_address_);
+    auto resolver =
+        network::MakeCachedCoordinatorResolver(coordinator_server_.address());
     service_ = std::make_unique<network::VectorDBService>(
         segment_store_, query_executor_, std::move(resolver));
   }
@@ -116,44 +99,25 @@ struct VectorDBServiceDistributedTest {
     // VectorDBService may have pending RPC calls to coordinator
     service_.reset();
 
-    // Now safe to shutdown the mock coordinator server
-    if (coordinator_server_) {
-      coordinator_server_->Shutdown();
-      coordinator_server_->Wait();  // Wait for all RPCs to complete
-    }
+    // Now safe to shut down the mock coordinator server, before the mock
+    // it serves.
+    coordinator_server_.Shutdown();
 
     // Clean up remaining components
-    coordinator_server_.reset();
     mock_coordinator_.reset();
     query_executor_.reset();
     segment_store_.reset();
     index_factory_.reset();
-
-    std::filesystem::remove_all(test_dir_);
+    // test_dir_ is the first member, so it removes the folder last.
   }
 
-  std::string StartCoordinator() {
-    grpc::ServerBuilder builder;
-
-    // Use port 0 to let OS assign available port (avoids port reuse conflicts)
-    int selected_port = 0;
-    builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &selected_port);
-    builder.RegisterService(mock_coordinator_.get());
-    coordinator_server_ = builder.BuildAndStart();
-    REQUIRE(coordinator_server_ != nullptr);
-    REQUIRE_GT(selected_port, 0);
-
-    // Return the actual address with assigned port
-    return "localhost:" + std::to_string(selected_port);
-  }
-
-  std::string test_dir_;
-  std::string coordinator_address_;
+  test::ScopedTempDir test_dir_{"gvdb_vectordb_distributed_test"};
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
-  std::unique_ptr<MockCoordinatorInternalService> mock_coordinator_;
-  std::unique_ptr<grpc::Server> coordinator_server_;
+  std::unique_ptr<MockCoordinatorInternalService> mock_coordinator_ =
+      std::make_unique<MockCoordinatorInternalService>();
+  test::TestGrpcServer coordinator_server_{mock_coordinator_.get()};
   std::unique_ptr<network::VectorDBService> service_;
 };
 
@@ -477,9 +441,11 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "DeleteVectors") {
 
 TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "CoordinatorUnavailableDuringSearch") {
   // Shutdown coordinator. Shutdown blocks until the server stops serving, so
-  // no wait is needed afterwards.
-  coordinator_server_->Shutdown();
-  coordinator_server_.reset();
+  // no wait is needed afterwards. The address has a port that the operating
+  // system gave this server, and no test listens on a fixed port, so nothing
+  // listens there now (only a new port-0 server that gets the same port
+  // from the operating system again could).
+  coordinator_server_.Shutdown();
 
   grpc::ServerContext context;
   proto::SearchRequest request;

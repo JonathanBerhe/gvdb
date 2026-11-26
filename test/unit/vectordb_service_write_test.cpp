@@ -6,13 +6,10 @@
 
 #include <chrono>
 #include <cstdint>
-#include <filesystem>
 #include <memory>
 #include <optional>
-#include <random>
 #include <set>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "network/vectordb_service.h"
@@ -20,6 +17,9 @@
 #include "storage/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
+#include "support/grpc_server.h"
+#include "support/temp_dir.h"
+#include "support/wait.h"
 #include "vectordb.grpc.pb.h"
 
 using namespace gvdb;
@@ -94,15 +94,6 @@ int64_t EpochMillis() {
       std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-// A per-fixture data directory under the system temp dir, unique across
-// processes and fixture instances.
-std::filesystem::path UniqueTestDir() {
-  std::random_device rd;
-  std::mt19937_64 gen(rd());
-  return std::filesystem::temp_directory_path() /
-         ("gvdb_service_write_test_" + std::to_string(gen()));
-}
-
 }  // namespace
 
 // ============================================================================
@@ -112,12 +103,9 @@ std::filesystem::path UniqueTestDir() {
 class ServiceWriteTest {
  public:
   ServiceWriteTest() {
-    test_dir_ = UniqueTestDir();
-    std::filesystem::create_directories(test_dir_);
-
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_.string(), index_factory_.get());
+        test_dir_.str(), index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
 
@@ -131,8 +119,7 @@ class ServiceWriteTest {
     query_executor_.reset();
     segment_store_.reset();
     index_factory_.reset();
-    std::error_code ec;
-    std::filesystem::remove_all(test_dir_, ec);
+    // test_dir_ is the first member, so it removes the folder last.
   }
 
   void CreateCollection(const std::string& name, uint32_t dim = kDim) {
@@ -247,7 +234,7 @@ class ServiceWriteTest {
     return resp.total_count();
   }
 
-  std::filesystem::path test_dir_;
+  test::ScopedTempDir test_dir_{"gvdb_service_write_test"};
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
@@ -259,25 +246,15 @@ class ServiceWriteTest {
 class ServiceWriteServerTest : public ServiceWriteTest {
  public:
   ServiceWriteServerTest() {
-    grpc::ServerBuilder builder;
-    int port = 0;
-    builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(),
-                             &port);
-    builder.RegisterService(service_.get());
-    server_ = builder.BuildAndStart();
-    REQUIRE(server_ != nullptr);
-    REQUIRE_GT(port, 0);
-    auto channel = grpc::CreateChannel("localhost:" + std::to_string(port),
-                                       grpc::InsecureChannelCredentials());
-    stub_ = proto::VectorDBService::NewStub(channel);
+    REQUIRE(server_.ok());
+    stub_ = proto::VectorDBService::NewStub(server_.NewChannel());
   }
 
+  // Drops the stub, then shuts the server down before the base class
+  // destroys the service.
   ~ServiceWriteServerTest() {
     stub_.reset();
-    if (server_) {
-      server_->Shutdown();
-      server_->Wait();
-    }
+    server_.Shutdown();
   }
 
   // Sends every message on one StreamInsert call and returns the final status.
@@ -295,7 +272,8 @@ class ServiceWriteServerTest : public ServiceWriteTest {
     return writer->Finish();
   }
 
-  std::unique_ptr<grpc::Server> server_;
+  // The base class is built first, so the service exists here.
+  test::TestGrpcServer server_{service_.get()};
   std::unique_ptr<proto::VectorDBService::Stub> stub_;
 };
 
@@ -527,9 +505,11 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertRejectsInvalidRequests") {
 // "insert second + ttl", with a vector expired once the wall-clock second
 // reaches that value. So ttl_seconds = 1 expires at the next second
 // boundary, 0 to 1 s after the write. The API has no finer unit and no
-// injectable clock, so this one test waits at most about 1.5 s: up to 0.5 s
-// to start early in a second (so the "still visible" checks have at least
-// 0.5 s of margin) and up to 1 s for the boundary.
+// injectable clock, so this one test waits for real time to pass, about
+// 1.5 s at most: up to 0.5 s to start early in a second (so the "still
+// visible" checks have at least 0.5 s of margin) and up to 1 s for the
+// boundary. Both waits poll with WaitFor, whose timeout only stops a broken
+// run.
 
 TEST_CASE_FIXTURE(ServiceWriteTest, "TtlVectorsExpireFromGetAndSearch") {
   const std::string coll = "ttl_coll";
@@ -544,15 +524,8 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "TtlVectorsExpireFromGetAndSearch") {
                   MakeVector(102, {102, 0, 0, 1}),
                   MakeVector(103, {103, 0, 0, 1}),
                   MakeVector(104, {104, 0, 0, 1})});
-  // Bounded poll: wait until the wall clock is in the first half of a second.
-  {
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(600);
-    while (EpochMillis() % 1000 >= 500 &&
-           std::chrono::steady_clock::now() < deadline) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    }
-  }
+  // Wait until the wall clock is in the first half of a second.
+  REQUIRE(test::WaitFor([] { return EpochMillis() % 1000 < 500; }));
   const auto ttl_start = std::chrono::steady_clock::now();
 
   // Insert with TTL: ids 1-5 in a dense-only batch, ids 6 and 8 with
@@ -609,19 +582,12 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "TtlVectorsExpireFromGetAndSearch") {
                               .count();
   INFO("visibility checks finished " << visible_ms << " ms after the TTL writes started");
 
-  // Bounded poll until every TTL vector of both collections is gone from Get.
+  // Poll until every TTL vector of both collections is gone from Get.
   const std::vector<uint64_t> expiring_ids(expiring.begin(), expiring.end());
-  const auto deadline = ttl_start + std::chrono::milliseconds(2000);
-  bool all_expired = false;
-  while (std::chrono::steady_clock::now() < deadline) {
-    if (Get(coll, expiring_ids).vectors_size() == 0 &&
-        Get(ttl_only, ttl_only_ids).vectors_size() == 0) {
-      all_expired = true;
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-  }
-  REQUIRE(all_expired);
+  REQUIRE(test::WaitFor([&] {
+    return Get(coll, expiring_ids).vectors_size() == 0 &&
+           Get(ttl_only, ttl_only_ids).vectors_size() == 0;
+  }));
 
   // After expiry: Get reports TTL ids as not found and keeps the rest.
   auto got = Get(coll, all_ids);

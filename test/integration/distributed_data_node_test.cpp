@@ -3,10 +3,11 @@
 
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
-#include <filesystem>
-#include <memory>
-#include <thread>
+
 #include <chrono>
+#include <initializer_list>
+#include <memory>
+#include <string>
 
 #include "cluster/coordinator.h"
 #include "cluster/shard_manager.h"
@@ -20,42 +21,72 @@
 #include "network/collection_resolver.h"
 #include "storage/segment_manager.h"
 #include "internal.grpc.pb.h"
+#include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 
 namespace gvdb {
 namespace test {
 
+namespace {
+
+// Starts a server on a free local port with the given services and the
+// 256 MB message limits of the production servers. Sets *address to
+// "localhost:<port>".
+std::unique_ptr<grpc::Server> StartServer(
+    std::initializer_list<grpc::Service*> services, std::string* address) {
+  grpc::ServerBuilder builder;
+  int port = 0;
+  builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
+  for (auto* service : services) {
+    builder.RegisterService(service);
+  }
+  builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
+  builder.SetMaxSendMessageSize(256 * 1024 * 1024);
+  auto server = builder.BuildAndStart();
+  REQUIRE_NE(server, nullptr);
+  REQUIRE_GT(port, 0);
+  *address = "localhost:" + std::to_string(port);
+  return server;
+}
+
+void ShutdownServer(std::unique_ptr<grpc::Server>& server) {
+  if (server) {
+    server->Shutdown();
+    server->Wait();
+    server.reset();
+  }
+}
+
+}  // namespace
+
 class DistributedDataNodeTest {
  public:
   DistributedDataNodeTest() {
-    // Clean up test directories
-    std::filesystem::remove_all("/tmp/gvdb-distributed-dn-test");
-    std::filesystem::create_directories("/tmp/gvdb-distributed-dn-test/coordinator");
-    std::filesystem::create_directories("/tmp/gvdb-distributed-dn-test/data_node");
-    std::filesystem::create_directories("/tmp/gvdb-distributed-dn-test/data_node_2");
-
     index_factory_ = std::make_unique<index::IndexFactory>();
 
-    // --- Coordinator setup ---
+    // --- Coordinator state ---
     shard_manager_ = std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
     node_registry_ = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
 
     coord_segment_store_ = std::make_shared<storage::SegmentManager>(
-        "/tmp/gvdb-distributed-dn-test/coordinator", index_factory_.get());
+        (dir_ / "coordinator").string(), index_factory_.get());
     coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
         coord_segment_store_.get());
 
     // --- Data node setup (separate storage) ---
+    // The data node starts first, so that the coordinator finds its address
+    // in the NodeRegistry and sends it CreateSegment RPCs.
     dn_segment_store_ = std::make_shared<storage::SegmentManager>(
-        "/tmp/gvdb-distributed-dn-test/data_node", index_factory_.get());
+        (dir_ / "data_node").string(), index_factory_.get());
     dn_query_executor_ = std::make_shared<compute::QueryExecutor>(
         dn_segment_store_.get());
-
-    // Start coordinator gRPC server (InternalService + VectorDBService)
-    StartCoordinator();
+    auto dn_shard_manager = std::make_shared<cluster::ShardManager>(
+        8, cluster::ShardingStrategy::HASH);
+    dn_internal_service_ = std::make_unique<network::InternalService>(
+        dn_shard_manager, dn_segment_store_, dn_query_executor_);
+    dn_server_ = StartServer({dn_internal_service_.get()}, &dn_server_address_);
 
     // Register data node in NodeRegistry (simulates heartbeat)
-    // Use the coordinator server address so coordinator can call CreateSegment on data node
     RegisterDataNode(dn_server_address_);
 
     // Create coordinator with client factory that can reach data node
@@ -73,37 +104,10 @@ class DistributedDataNodeTest {
     coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
         coord_segment_store_, coord_query_executor_, std::move(coord_resolver));
 
-    // Start data node gRPC server (InternalService + VectorDBService)
-    StartDataNode();
-
-    // Re-register data node with actual data node address
-    // (the data node's InternalService will receive CreateSegment RPCs)
-    RegisterDataNode(dn_server_address_);
-
-    // Now restart coordinator with the real data node address
-    coord_server_->Shutdown();
-    coord_server_->Wait();
-
-    // Rebuild coordinator services with fresh state
-    coordinator_ = std::make_shared<cluster::Coordinator>(
-        shard_manager_, node_registry_, client_factory);
-    coord_internal_service_ = std::make_unique<network::InternalService>(
-        shard_manager_, coord_segment_store_, coord_query_executor_,
-        node_registry_, coordinator_);
-    auto coord_resolver2 = network::MakeCoordinatorResolver(coordinator_);
-    coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
-        coord_segment_store_, coord_query_executor_, std::move(coord_resolver2));
-
-    // Restart coordinator server
-    grpc::ServerBuilder coord_builder;
-    coord_builder.AddListeningPort(coord_server_address_,
-                                    grpc::InsecureServerCredentials());
-    coord_builder.RegisterService(coord_internal_service_.get());
-    coord_builder.RegisterService(coord_vectordb_service_.get());
-    coord_builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
-    coord_builder.SetMaxSendMessageSize(256 * 1024 * 1024);
-    coord_server_ = coord_builder.BuildAndStart();
-    REQUIRE_NE(coord_server_, nullptr);
+    // Start coordinator gRPC server (InternalService + VectorDBService)
+    coord_server_ = StartServer(
+        {coord_internal_service_.get(), coord_vectordb_service_.get()},
+        &coord_server_address_);
 
     // Create data node VectorDBService pointing at coordinator
     auto dn_resolver = network::MakeCachedCoordinatorResolver(coord_server_address_);
@@ -112,63 +116,40 @@ class DistributedDataNodeTest {
   }
 
   ~DistributedDataNodeTest() {
-    dn_vectordb_service_.reset();
+    // Close every client channel before the server that it dials. A
+    // graceful server shutdown waits until each open client connection
+    // answers the server's GOAWAY, and on macOS an idle in-process channel
+    // answers only at gRPC's next client backup poll (every 5 s).
+    dn_vectordb_service_.reset();  // Its resolver dials the coordinator.
+    ShutdownServer(coord_server_);
     coord_vectordb_service_.reset();
     coord_internal_service_.reset();
-    dn_internal_service_.reset();
+    coordinator_.reset();  // Its clients dial the data nodes.
+    ShutdownServer(dn_server_);
+    ShutdownServer(dn2_server_);
+  }
 
-    if (dn_server_) {
-      dn_server_->Shutdown();
-      dn_server_->Wait();
+  // Starts a second data node with its own storage and returns its
+  // address. The fixture owns it, so that the destructor can close the
+  // coordinator's channel to it before it shuts the server down.
+  std::string StartSecondDataNode(cluster::PrimaryTermTracker* tracker = nullptr) {
+    dn2_segment_store_ = std::make_shared<storage::SegmentManager>(
+        (dir_ / "data_node_2").string(), index_factory_.get());
+    dn2_query_executor_ = std::make_shared<compute::QueryExecutor>(
+        dn2_segment_store_.get());
+    auto dn2_shard_manager = std::make_shared<cluster::ShardManager>(
+        8, cluster::ShardingStrategy::HASH);
+    dn2_internal_service_ = std::make_unique<network::InternalService>(
+        dn2_shard_manager, dn2_segment_store_, dn2_query_executor_);
+    if (tracker != nullptr) {
+      dn2_internal_service_->SetPrimaryTermTracker(tracker);
     }
-    if (coord_server_) {
-      coord_server_->Shutdown();
-      coord_server_->Wait();
-    }
-
-    coordinator_.reset();
-    node_registry_.reset();
-    shard_manager_.reset();
-    dn_query_executor_.reset();
-    dn_segment_store_.reset();
-    coord_query_executor_.reset();
-    coord_segment_store_.reset();
-
-    std::filesystem::remove_all("/tmp/gvdb-distributed-dn-test");
+    std::string address;
+    dn2_server_ = StartServer({dn2_internal_service_.get()}, &address);
+    return address;
   }
 
  private:
-  void StartCoordinator() {
-    grpc::ServerBuilder builder;
-    int port = 0;
-    builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
-    // Register a dummy service temporarily -- we'll restart with real services
-    coord_internal_service_ = std::make_unique<network::InternalService>(
-        shard_manager_, coord_segment_store_, coord_query_executor_);
-    builder.RegisterService(coord_internal_service_.get());
-    builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
-    builder.SetMaxSendMessageSize(256 * 1024 * 1024);
-    coord_server_ = builder.BuildAndStart();
-    REQUIRE_NE(coord_server_, nullptr);
-    coord_server_address_ = "localhost:" + std::to_string(port);
-  }
-
-  void StartDataNode() {
-    grpc::ServerBuilder builder;
-    int port = 0;
-    builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
-    auto dn_shard_manager = std::make_shared<cluster::ShardManager>(
-        8, cluster::ShardingStrategy::HASH);
-    dn_internal_service_ = std::make_unique<network::InternalService>(
-        dn_shard_manager, dn_segment_store_, dn_query_executor_);
-    builder.RegisterService(dn_internal_service_.get());
-    builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
-    builder.SetMaxSendMessageSize(256 * 1024 * 1024);
-    dn_server_ = builder.BuildAndStart();
-    REQUIRE_NE(dn_server_, nullptr);
-    dn_server_address_ = "localhost:" + std::to_string(port);
-  }
-
   void RegisterDataNode(const std::string& address) {
     proto::internal::NodeInfo proto_node;
     proto_node.set_node_id(100);
@@ -181,6 +162,7 @@ class DistributedDataNodeTest {
   }
 
  public:
+  ScopedTempDir dir_{"gvdb_distributed_dn"};
   std::unique_ptr<index::IndexFactory> index_factory_;
 
   // Coordinator components
@@ -201,6 +183,13 @@ class DistributedDataNodeTest {
   std::unique_ptr<network::VectorDBService> dn_vectordb_service_;
   std::unique_ptr<grpc::Server> dn_server_;
   std::string dn_server_address_;
+
+  // Second data node, started by StartSecondDataNode()
+  cluster::PrimaryTermTracker dn2_tracker_;
+  std::shared_ptr<storage::ISegmentStore> dn2_segment_store_;
+  std::shared_ptr<compute::QueryExecutor> dn2_query_executor_;
+  std::unique_ptr<network::InternalService> dn2_internal_service_;
+  std::unique_ptr<grpc::Server> dn2_server_;
 };
 
 // Test: Coordinator creates collection -> segment appears on data node
@@ -473,7 +462,7 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "DistributedSearchAcrossDataNodes" * 
   // Now create a "query node" VectorDBService that has NO local data
   // It should fan out to data nodes via distributed search
   auto qn_segment_manager = std::make_shared<storage::SegmentManager>(
-      "/tmp/gvdb-distributed-dn-test/query_node", index_factory_.get());
+      (dir_ / "query_node").string(), index_factory_.get());
   auto qn_query_executor = std::make_shared<compute::QueryExecutor>(
       qn_segment_manager.get());
   auto qn_resolver = network::MakeCachedCoordinatorResolver(coord_server_address_);
@@ -539,24 +528,7 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "ReplicateSegmentBetweenNodes") {
   REQUIRE(dn_vectordb_service_->Insert(&ctx2, &insert_req, &insert_resp).ok());
 
   // Start a second data node
-  auto dn2_segment_manager = std::make_shared<storage::SegmentManager>(
-      "/tmp/gvdb-distributed-dn-test/data_node_2", index_factory_.get());
-  auto dn2_query_executor = std::make_shared<compute::QueryExecutor>(
-      dn2_segment_manager.get());
-  auto dn2_shard_manager = std::make_shared<cluster::ShardManager>(
-      8, cluster::ShardingStrategy::HASH);
-  auto dn2_internal_service = std::make_unique<network::InternalService>(
-      dn2_shard_manager, dn2_segment_manager, dn2_query_executor);
-
-  grpc::ServerBuilder dn2_builder;
-  int dn2_port = 0;
-  dn2_builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &dn2_port);
-  dn2_builder.RegisterService(dn2_internal_service.get());
-  dn2_builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
-  dn2_builder.SetMaxSendMessageSize(256 * 1024 * 1024);
-  auto dn2_server = dn2_builder.BuildAndStart();
-  REQUIRE_NE(dn2_server, nullptr);
-  std::string dn2_address = "localhost:" + std::to_string(dn2_port);
+  std::string dn2_address = StartSecondDataNode();
 
   // Register second data node
   proto::internal::NodeInfo proto_node2;
@@ -576,40 +548,17 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "ReplicateSegmentBetweenNodes") {
   REQUIRE(status.ok());
 
   // Verify data node 2 now has the segment with vectors
-  auto* replicated_segment = dn2_segment_manager->GetSegment(seg_id);
+  auto* replicated_segment = dn2_segment_store_->GetSegment(seg_id);
   INFO("Replicated segment not found on node 2");
   REQUIRE_NE(replicated_segment, nullptr);
   CHECK_EQ(replicated_segment->GetVectorCount(), 3);
-
-  // Cleanup
-  dn2_server->Shutdown();
-  dn2_server->Wait();
 }
 
 // Test: Coordinator handles failed node by promoting replica
 TEST_CASE_FIXTURE(DistributedDataNodeTest, "FailoverPromotion") {
   // Stand up a real second data node so PreparePromote during failover
   // has a server to talk to. Mirrors ReplicateSegmentBetweenNodes.
-  auto dn2_segment_manager = std::make_shared<storage::SegmentManager>(
-      "/tmp/gvdb-distributed-dn-test/data_node_2", index_factory_.get());
-  auto dn2_query_executor = std::make_shared<compute::QueryExecutor>(
-      dn2_segment_manager.get());
-  auto dn2_shard_manager = std::make_shared<cluster::ShardManager>(
-      8, cluster::ShardingStrategy::HASH);
-  cluster::PrimaryTermTracker dn2_tracker;
-  auto dn2_internal_service = std::make_unique<network::InternalService>(
-      dn2_shard_manager, dn2_segment_manager, dn2_query_executor);
-  dn2_internal_service->SetPrimaryTermTracker(&dn2_tracker);
-
-  grpc::ServerBuilder dn2_builder;
-  int dn2_port = 0;
-  dn2_builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &dn2_port);
-  dn2_builder.RegisterService(dn2_internal_service.get());
-  dn2_builder.SetMaxReceiveMessageSize(256 * 1024 * 1024);
-  dn2_builder.SetMaxSendMessageSize(256 * 1024 * 1024);
-  auto dn2_server = dn2_builder.BuildAndStart();
-  REQUIRE_NE(dn2_server, nullptr);
-  std::string dn2_address = "localhost:" + std::to_string(dn2_port);
+  std::string dn2_address = StartSecondDataNode(&dn2_tracker_);
 
   proto::internal::NodeInfo proto_node2;
   proto_node2.set_node_id(200);
@@ -641,9 +590,6 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "FailoverPromotion") {
   auto primary_after = shard_manager_->GetPrimaryNode(shard);
   REQUIRE(primary_after.ok());
   CHECK_EQ(*primary_after, replica);
-
-  dn2_server->Shutdown();
-  dn2_server->Wait();
 }
 
 }  // namespace test

@@ -4,11 +4,13 @@
 #include "cluster/node_registry.h"
 #include "utils/logger.h"
 
+#include <utility>
+
 namespace gvdb {
 namespace cluster {
 
-NodeRegistry::NodeRegistry(std::chrono::milliseconds heartbeat_timeout)
-    : heartbeat_timeout_(heartbeat_timeout) {
+NodeRegistry::NodeRegistry(std::chrono::milliseconds heartbeat_timeout, Clock clock)
+    : heartbeat_timeout_(heartbeat_timeout), clock_(std::move(clock)) {
   utils::Logger::Instance().Info("NodeRegistry initialized (timeout={}ms)",
                                   heartbeat_timeout.count());
 }
@@ -22,7 +24,7 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
   std::unique_lock lock(mutex_);
 
   uint32_t node_id = node_info.node_id();
-  auto now = std::chrono::steady_clock::now();
+  auto now = clock_();
   const bool is_draining =
       node_info.status() == proto::internal::NodeStatus::NODE_STATUS_DRAINING;
 
@@ -118,10 +120,11 @@ std::vector<RegisteredNode> NodeRegistry::GetAllNodes() const {
 std::vector<RegisteredNode> NodeRegistry::GetHealthyNodes() const {
   std::shared_lock lock(mutex_);
 
+  const auto now = clock_();
   std::vector<RegisteredNode> result;
 
   for (const auto& [id, node] : nodes_) {
-    if (node.IsHealthy(heartbeat_timeout_)) {
+    if (node.IsHealthy(heartbeat_timeout_, now)) {
       result.push_back(node);
     }
   }
@@ -133,10 +136,11 @@ std::vector<RegisteredNode> NodeRegistry::GetHealthyNodesByType(
     proto::internal::NodeType type) const {
   std::shared_lock lock(mutex_);
 
+  const auto now = clock_();
   std::vector<RegisteredNode> result;
 
   for (const auto& [id, node] : nodes_) {
-    if (node.info.node_type() == type && node.IsHealthy(heartbeat_timeout_)) {
+    if (node.info.node_type() == type && node.IsHealthy(heartbeat_timeout_, now)) {
       result.push_back(node);
     }
   }
@@ -148,10 +152,11 @@ std::vector<RegisteredNode> NodeRegistry::GetRoutableNodesByType(
     proto::internal::NodeType type) const {
   std::shared_lock lock(mutex_);
 
+  const auto now = clock_();
   std::vector<RegisteredNode> result;
   for (const auto& [id, node] : nodes_) {
     if (node.info.node_type() == type &&
-        node.IsRoutable(heartbeat_timeout_)) {
+        node.IsRoutable(heartbeat_timeout_, now)) {
       result.push_back(node);
     }
   }
@@ -162,18 +167,19 @@ bool NodeRegistry::IsNodeRoutable(uint32_t node_id) const {
   std::shared_lock lock(mutex_);
   auto it = nodes_.find(node_id);
   if (it == nodes_.end()) return false;
-  return it->second.IsRoutable(heartbeat_timeout_);
+  return it->second.IsRoutable(heartbeat_timeout_, clock_());
 }
 
 std::vector<RegisteredNode> NodeRegistry::GetDrainingNodes() const {
   std::shared_lock lock(mutex_);
 
+  const auto now = clock_();
   std::vector<RegisteredNode> result;
   for (const auto& [id, node] : nodes_) {
     // Only include nodes that are *actively* draining: status = DRAINING
     // AND last heartbeat is still within the timeout. A draining node whose
     // heartbeat has expired is stale — the failure-detection path handles it.
-    if (node.IsDraining() && node.IsHealthy(heartbeat_timeout_)) {
+    if (node.IsDraining() && node.IsHealthy(heartbeat_timeout_, now)) {
       result.push_back(node);
     }
   }
@@ -193,11 +199,12 @@ void NodeRegistry::RemoveNode(uint32_t node_id) {
 NodeRegistry::ClusterStats NodeRegistry::GetClusterStats() const {
   std::shared_lock lock(mutex_);
 
+  const auto now = clock_();
   ClusterStats stats;
   stats.total_nodes = nodes_.size();
 
   for (const auto& [id, node] : nodes_) {
-    if (node.IsHealthy(heartbeat_timeout_)) {
+    if (node.IsHealthy(heartbeat_timeout_, now)) {
       stats.healthy_nodes++;
     } else {
       stats.failed_nodes++;
@@ -227,17 +234,18 @@ NodeRegistry::ClusterStats NodeRegistry::GetClusterStats() const {
 std::vector<uint32_t> NodeRegistry::DetectFailedNodes() {
   std::unique_lock lock(mutex_);
 
+  const auto now = clock_();
   std::vector<uint32_t> failed_node_ids;
 
   for (auto& [id, node] : nodes_) {
-    if (!node.IsHealthy(heartbeat_timeout_)) {
+    if (!node.IsHealthy(heartbeat_timeout_, now)) {
       failed_node_ids.push_back(id);
       node.missed_heartbeats++;
 
       utils::Logger::Instance().Warn(
           "Node {} appears to have failed (last heartbeat {}ms ago, missed={})",
           id,
-          node.TimeSinceLastHeartbeat().count(),
+          node.TimeSinceLastHeartbeat(now).count(),
           node.missed_heartbeats);
     }
   }
