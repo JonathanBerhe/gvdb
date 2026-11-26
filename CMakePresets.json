@@ -38,6 +38,12 @@
       }
     },
     {
+      "name": "bench",
+      "displayName": "Release build with tests and benchmarks",
+      "inherits": ["base", "homebrew"],
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
       "name": "ci",
       "displayName": "CI build: release with tests, S3 on, ccache",
       "inherits": "base",
@@ -100,6 +106,7 @@
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
     { "name": "release", "configurePreset": "release" },
+    { "name": "bench", "configurePreset": "bench" },
     { "name": "ci", "configurePreset": "ci" },
     { "name": "gcs", "configurePreset": "gcs" },
     { "name": "coverage", "configurePreset": "coverage" },
@@ -116,6 +123,7 @@
     },
     { "name": "dev", "inherits": "base", "configurePreset": "dev" },
     { "name": "ci", "inherits": "base", "configurePreset": "ci" },
+    { "name": "gcs", "inherits": "base", "configurePreset": "gcs" },
     { "name": "coverage", "inherits": "base", "configurePreset": "coverage" },
     { "name": "asan-ubsan", "inherits": "base", "configurePreset": "asan-ubsan" },
     { "name": "metal", "inherits": "base", "configurePreset": "metal" },

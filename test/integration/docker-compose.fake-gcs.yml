@@ -12,7 +12,7 @@ version: '3.8'
 
 services:
   fake-gcs:
-    image: fsouza/fake-gcs-server:latest
+    image: fsouza/fake-gcs-server:1.52.3
     ports:
       - "4443:4443"
     # -scheme http serves plain HTTP (matches MakeInsecureCredentials on the

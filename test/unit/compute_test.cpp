@@ -1,6 +1,11 @@
 #include <doctest/doctest.h>
 
+#include <filesystem>
 #include <memory>
+#include <random>
+#include <set>
+#include <string>
+#include <system_error>
 #include <vector>
 
 #include "compute/query_executor.h"
@@ -27,14 +32,20 @@ class ComputeTest {
     // Create index factory
     index_factory_ = std::make_unique<index::IndexFactory>();
 
-    // Create segment manager
+    // Create segment manager in a unique scratch folder
+    std::random_device rd;
+    data_dir_ = std::filesystem::temp_directory_path() /
+                ("gvdb_compute_test_" + std::to_string(rd()) + "_" +
+                 std::to_string(rd()));
     segment_manager_ = std::make_unique<storage::SegmentManager>(
-        "./test_compute_data", index_factory_.get());
+        data_dir_.string(), index_factory_.get());
   }
 
   ~ComputeTest() {
     segment_manager_.reset();
     index_factory_.reset();
+    std::error_code ec;
+    std::filesystem::remove_all(data_dir_, ec);
   }
 
   // Helper: Create test vectors
@@ -86,6 +97,7 @@ class ComputeTest {
     REQUIRE(status.ok());
   }
 
+  std::filesystem::path data_dir_;
   core::CollectionId collection_id_;
   uint32_t dimension_;
   core::MetricType metric_;
@@ -217,15 +229,17 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchExactMatch") {
   CHECK(result.value().entries[0].distance == doctest::Approx(0.0f).epsilon(1e-5));
 }
 
-// ============================================================================
-// Performance Tests
-// ============================================================================
-
-TEST_CASE_FIXTURE(ComputeTest, "SearchPerformance") {
-  // Populate with larger dataset
-  for (int i = 0; i < 5; ++i) {
-    auto vectors = CreateTestVectors(200, dimension_);
-    auto ids = CreateTestVectorIds(200, i * 200);
+// Search latency is measured by test/bench/search_bench.cpp (make
+// bench-search), not here: a wall-clock limit in a unit test fails on a
+// loaded machine and proves nothing about correctness.
+TEST_CASE_FIXTURE(ComputeTest, "SearchMergesTopKAcrossFiveSegments") {
+  // Five sealed segments hold the same 200 vectors under different ids, so
+  // every distance appears exactly five times in the collection.
+  constexpr size_t kSegments = 5;
+  constexpr size_t kPerSegment = 200;
+  for (size_t i = 0; i < kSegments; ++i) {
+    auto vectors = CreateTestVectors(kPerSegment, dimension_);
+    auto ids = CreateTestVectorIds(kPerSegment, i * kPerSegment);
 
     auto segment_result = segment_manager_->CreateSegment(
         collection_id_, dimension_, metric_);
@@ -247,20 +261,49 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchPerformance") {
   compute::QueryExecutor executor(segment_manager_.get());
 
   auto query = CreateTestVectors(1, dimension_)[0];
-
-  auto start = std::chrono::steady_clock::now();
   auto result = executor.Search(collection_id_, query, 50);
-  auto end = std::chrono::steady_clock::now();
 
   INFO(result.status().message());
   REQUIRE(result.ok());
-  CHECK_EQ(result.value().entries.size(), 50);
+  const auto& entries = result.value().entries;
+  REQUIRE_EQ(entries.size(), 50);
 
-  auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-      end - start).count();
+  // Ascending by distance after the merge
+  for (size_t i = 1; i < entries.size(); ++i) {
+    CHECK_LE(entries[i - 1].distance, entries[i].distance);
+  }
 
-  // Search should complete in reasonable time (< 100ms for 1000 vectors)
-  CHECK_LT(duration_ms, 100);
+  // Ids are unique: no entry is returned twice
+  std::set<uint64_t> seen;
+  for (const auto& entry : entries) {
+    CHECK(seen.insert(core::ToUInt64(entry.id)).second);
+  }
+
+  // The 50 nearest are the 10 nearest distinct vectors, each from all five
+  // segments. The checks do not depend on the distance scale (squared or
+  // plain L2): the copies of a vector tie, the exact match is at 0, and each
+  // group is farther than the one before.
+  float previous_group_distance = -1.0f;
+  for (size_t rank = 0; rank < 10; ++rank) {
+    const float group_distance = entries[rank * kSegments].distance;
+    if (rank == 0) {
+      CHECK(group_distance == doctest::Approx(0.0));
+    } else {
+      CHECK_GT(group_distance, previous_group_distance);
+    }
+    previous_group_distance = group_distance;
+    std::set<uint64_t> group_ids;
+    for (size_t copy = 0; copy < kSegments; ++copy) {
+      const auto& entry = entries[rank * kSegments + copy];
+      CHECK(entry.distance == doctest::Approx(group_distance).epsilon(1e-5));
+      group_ids.insert(core::ToUInt64(entry.id));
+    }
+    std::set<uint64_t> expected_ids;
+    for (size_t copy = 0; copy < kSegments; ++copy) {
+      expected_ids.insert(copy * kPerSegment + rank + 1);
+    }
+    CHECK_EQ(group_ids, expected_ids);
+  }
 }
 
 // ============================================================================
