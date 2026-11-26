@@ -1,5 +1,8 @@
 #include <doctest/doctest.h>
 
+#include <cstddef>
+#include <iterator>
+
 #include "auth/rbac.h"
 #include "auth/auth_context.h"
 #include "utils/config.h"
@@ -7,68 +10,59 @@
 using namespace gvdb;
 
 // ============================================================================
-// Permission matrix tests
+// Permission matrix
 // ============================================================================
 
-TEST_CASE("HasPermission - admin has all permissions") {
-  CHECK(auth::HasPermission(auth::Role::ADMIN, auth::Permission::CREATE_COLLECTION));
-  CHECK(auth::HasPermission(auth::Role::ADMIN, auth::Permission::DROP_COLLECTION));
-  CHECK(auth::HasPermission(auth::Role::ADMIN, auth::Permission::INSERT));
-  CHECK(auth::HasPermission(auth::Role::ADMIN, auth::Permission::SEARCH));
-  CHECK(auth::HasPermission(auth::Role::ADMIN, auth::Permission::DELETE));
-  CHECK(auth::HasPermission(auth::Role::ADMIN, auth::Permission::LIST_COLLECTIONS));
-}
+TEST_CASE("HasPermission - every role against every permission") {
+  using auth::Permission;
+  using auth::Role;
 
-TEST_CASE("HasPermission - readwrite can insert/search but not create/drop") {
-  CHECK(auth::HasPermission(auth::Role::READWRITE, auth::Permission::INSERT));
-  CHECK(auth::HasPermission(auth::Role::READWRITE, auth::Permission::SEARCH));
-  CHECK(auth::HasPermission(auth::Role::READWRITE, auth::Permission::DELETE));
-  CHECK(auth::HasPermission(auth::Role::READWRITE, auth::Permission::UPSERT));
-  CHECK(auth::HasPermission(auth::Role::READWRITE, auth::Permission::LIST_COLLECTIONS));
-  CHECK_FALSE(auth::HasPermission(auth::Role::READWRITE, auth::Permission::CREATE_COLLECTION));
-  CHECK_FALSE(auth::HasPermission(auth::Role::READWRITE, auth::Permission::DROP_COLLECTION));
-}
+  struct Row {
+    Permission permission;
+    const char* name;
+    bool admin;
+    bool readwrite;
+    bool readonly;
+    bool collection_admin;
+  };
+  // One row per Permission value, in declaration order. Columns: admin,
+  // readwrite, readonly, collection_admin.
+  static constexpr Row kMatrix[] = {
+      {Permission::CREATE_COLLECTION, "CREATE_COLLECTION", true, false, false, false},
+      {Permission::DROP_COLLECTION, "DROP_COLLECTION", true, false, false, false},
+      {Permission::LIST_COLLECTIONS, "LIST_COLLECTIONS", true, true, true, true},
+      {Permission::INSERT, "INSERT", true, true, false, true},
+      {Permission::STREAM_INSERT, "STREAM_INSERT", true, true, false, true},
+      {Permission::SEARCH, "SEARCH", true, true, true, true},
+      {Permission::RANGE_SEARCH, "RANGE_SEARCH", true, true, true, true},
+      {Permission::HYBRID_SEARCH, "HYBRID_SEARCH", true, true, true, true},
+      {Permission::GET, "GET", true, true, true, true},
+      {Permission::DELETE, "DELETE", true, true, false, true},
+      {Permission::UPDATE_METADATA, "UPDATE_METADATA", true, true, false, true},
+      {Permission::UPSERT, "UPSERT", true, true, false, true},
+      {Permission::LIST_VECTORS, "LIST_VECTORS", true, true, true, true},
+      // BACKUP reads every segment and ships the bytes off the node. Roles
+      // with write authority on a collection may back it up; readonly may
+      // not, and reads the data through Search, Get or ListVectors instead.
+      {Permission::BACKUP, "BACKUP", true, true, false, true},
+      // RESTORE creates a collection or replaces one, so it is gated like
+      // CREATE_COLLECTION and DROP_COLLECTION: admin only.
+      {Permission::RESTORE, "RESTORE", true, false, false, false},
+  };
+  // RESTORE is the last Permission value.
+  static_assert(std::size(kMatrix) == static_cast<size_t>(Permission::RESTORE) + 1,
+                "every Permission value needs a row");
 
-TEST_CASE("HasPermission - readonly can only read") {
-  CHECK(auth::HasPermission(auth::Role::READONLY, auth::Permission::SEARCH));
-  CHECK(auth::HasPermission(auth::Role::READONLY, auth::Permission::GET));
-  CHECK(auth::HasPermission(auth::Role::READONLY, auth::Permission::RANGE_SEARCH));
-  CHECK(auth::HasPermission(auth::Role::READONLY, auth::Permission::HYBRID_SEARCH));
-  CHECK(auth::HasPermission(auth::Role::READONLY, auth::Permission::LIST_VECTORS));
-  CHECK(auth::HasPermission(auth::Role::READONLY, auth::Permission::LIST_COLLECTIONS));
-  CHECK_FALSE(auth::HasPermission(auth::Role::READONLY, auth::Permission::INSERT));
-  CHECK_FALSE(auth::HasPermission(auth::Role::READONLY, auth::Permission::DELETE));
-  CHECK_FALSE(auth::HasPermission(auth::Role::READONLY, auth::Permission::UPSERT));
-  CHECK_FALSE(auth::HasPermission(auth::Role::READONLY, auth::Permission::CREATE_COLLECTION));
-  CHECK_FALSE(auth::HasPermission(auth::Role::READONLY, auth::Permission::DROP_COLLECTION));
-}
-
-TEST_CASE("HasPermission - collection_admin like readwrite") {
-  CHECK(auth::HasPermission(auth::Role::COLLECTION_ADMIN, auth::Permission::INSERT));
-  CHECK(auth::HasPermission(auth::Role::COLLECTION_ADMIN, auth::Permission::SEARCH));
-  CHECK(auth::HasPermission(auth::Role::COLLECTION_ADMIN, auth::Permission::DELETE));
-  CHECK_FALSE(auth::HasPermission(auth::Role::COLLECTION_ADMIN, auth::Permission::CREATE_COLLECTION));
-  CHECK_FALSE(auth::HasPermission(auth::Role::COLLECTION_ADMIN, auth::Permission::DROP_COLLECTION));
-}
-
-TEST_CASE("HasPermission - backup is a read; restore is create-or-drop-equivalent") {
-  // BACKUP is structurally a read across every segment, so any role with
-  // collection-level write authority can also back it up. READONLY does
-  // not get BACKUP because backups are an operational primitive (they
-  // ship bytes off-node); a readonly client that needs the data can use
-  // Search/Get/ListVectors.
-  CHECK(auth::HasPermission(auth::Role::ADMIN, auth::Permission::BACKUP));
-  CHECK(auth::HasPermission(auth::Role::READWRITE, auth::Permission::BACKUP));
-  CHECK(auth::HasPermission(auth::Role::COLLECTION_ADMIN, auth::Permission::BACKUP));
-  CHECK_FALSE(auth::HasPermission(auth::Role::READONLY, auth::Permission::BACKUP));
-
-  // RESTORE materializes a collection (create) or replaces an existing
-  // one (drop+create), so it is gated like CREATE_COLLECTION /
-  // DROP_COLLECTION — admin-only.
-  CHECK(auth::HasPermission(auth::Role::ADMIN, auth::Permission::RESTORE));
-  CHECK_FALSE(auth::HasPermission(auth::Role::READWRITE, auth::Permission::RESTORE));
-  CHECK_FALSE(auth::HasPermission(auth::Role::COLLECTION_ADMIN, auth::Permission::RESTORE));
-  CHECK_FALSE(auth::HasPermission(auth::Role::READONLY, auth::Permission::RESTORE));
+  for (size_t i = 0; i < std::size(kMatrix); ++i) {
+    const Row& row = kMatrix[i];
+    CAPTURE(row.name);
+    CHECK_EQ(static_cast<size_t>(row.permission), i);
+    CHECK_EQ(auth::HasPermission(Role::ADMIN, row.permission), row.admin);
+    CHECK_EQ(auth::HasPermission(Role::READWRITE, row.permission), row.readwrite);
+    CHECK_EQ(auth::HasPermission(Role::READONLY, row.permission), row.readonly);
+    CHECK_EQ(auth::HasPermission(Role::COLLECTION_ADMIN, row.permission),
+             row.collection_admin);
+  }
 }
 
 // ============================================================================
@@ -130,7 +124,7 @@ TEST_CASE("RoleFromString - unknown role returns error") {
 }
 
 // ============================================================================
-// RbacStore::Create tests — valid configs
+// RbacStore::Create tests: valid configs
 // ============================================================================
 
 TEST_CASE("RbacStore - lookup found") {
@@ -192,7 +186,7 @@ TEST_CASE("RbacStore - size") {
 }
 
 // ============================================================================
-// RbacStore::Create — invalid configs (validation)
+// RbacStore::Create: invalid configs (validation)
 // ============================================================================
 
 TEST_CASE("RbacStore rejects unknown role string") {

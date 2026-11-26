@@ -229,6 +229,78 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "CoordinatorCreatesSegmentOnDataNode"
   CHECK_EQ(segment->GetDimension(), 128);
 }
 
+// Test: Create and drop a FLAT collection, then create and drop an IVF_PQ
+// collection, all through the coordinator. The coordinator sends the index
+// type to the data node as a string, so the IVF_PQ segment on the data node
+// shows that the type survives the CreateSegment RPC.
+TEST_CASE_FIXTURE(DistributedDataNodeTest, "CoordinatorCreatesIvfPqAfterFlatDrop") {
+  // Create a FLAT collection.
+  proto::CreateCollectionRequest flat_req;
+  flat_req.set_collection_name("test_flat");
+  flat_req.set_dimension(384);
+  flat_req.set_metric(proto::CreateCollectionRequest::L2);
+  flat_req.set_index_type(proto::CreateCollectionRequest::FLAT);
+
+  proto::CreateCollectionResponse flat_resp;
+  grpc::ServerContext ctx1;
+  auto flat_status = coord_vectordb_service_->CreateCollection(&ctx1, &flat_req, &flat_resp);
+  INFO("FLAT CreateCollection failed: " << flat_status.error_message());
+  REQUIRE(flat_status.ok());
+
+  auto flat_segment_id = cluster::ShardSegmentId(
+      core::CollectionId(flat_resp.collection_id()), 0);
+  auto* flat_segment = dn_segment_store_->GetSegment(flat_segment_id);
+  REQUIRE_NE(flat_segment, nullptr);
+  CHECK_EQ(flat_segment->GetDimension(), 384);
+  CHECK_EQ(flat_segment->GetIndexType(), core::IndexType::FLAT);
+
+  // Drop it. The coordinator deletes the shard segment on the data node
+  // before DropCollection returns.
+  proto::DropCollectionRequest drop_flat_req;
+  drop_flat_req.set_collection_name("test_flat");
+  proto::DropCollectionResponse drop_flat_resp;
+  grpc::ServerContext ctx2;
+  auto drop_flat_status =
+      coord_vectordb_service_->DropCollection(&ctx2, &drop_flat_req, &drop_flat_resp);
+  INFO("FLAT DropCollection failed: " << drop_flat_status.error_message());
+  REQUIRE(drop_flat_status.ok());
+  CHECK_EQ(dn_segment_store_->GetSegment(flat_segment_id), nullptr);
+
+  // Create an IVF_PQ collection with the same dimension.
+  proto::CreateCollectionRequest ivf_req;
+  ivf_req.set_collection_name("test_ivf_pq");
+  ivf_req.set_dimension(384);
+  ivf_req.set_metric(proto::CreateCollectionRequest::L2);
+  ivf_req.set_index_type(proto::CreateCollectionRequest::IVF_PQ);
+
+  proto::CreateCollectionResponse ivf_resp;
+  grpc::ServerContext ctx3;
+  auto ivf_status = coord_vectordb_service_->CreateCollection(&ctx3, &ivf_req, &ivf_resp);
+  INFO("IVF_PQ CreateCollection failed: " << ivf_status.error_message());
+  REQUIRE(ivf_status.ok());
+  CHECK_NE(ivf_resp.collection_id(), flat_resp.collection_id());
+
+  auto ivf_segment_id = cluster::ShardSegmentId(
+      core::CollectionId(ivf_resp.collection_id()), 0);
+  auto* ivf_segment = dn_segment_store_->GetSegment(ivf_segment_id);
+  INFO("IVF_PQ segment not found on data node after CreateCollection");
+  REQUIRE_NE(ivf_segment, nullptr);
+  CHECK_EQ(ivf_segment->GetDimension(), 384);
+  CHECK_EQ(ivf_segment->GetMetric(), core::MetricType::L2);
+  CHECK_EQ(ivf_segment->GetIndexType(), core::IndexType::IVF_PQ);
+
+  // Drop the IVF_PQ collection.
+  proto::DropCollectionRequest drop_ivf_req;
+  drop_ivf_req.set_collection_name("test_ivf_pq");
+  proto::DropCollectionResponse drop_ivf_resp;
+  grpc::ServerContext ctx4;
+  auto drop_ivf_status =
+      coord_vectordb_service_->DropCollection(&ctx4, &drop_ivf_req, &drop_ivf_resp);
+  INFO("IVF_PQ DropCollection failed: " << drop_ivf_status.error_message());
+  REQUIRE(drop_ivf_status.ok());
+  CHECK_EQ(dn_segment_store_->GetSegment(ivf_segment_id), nullptr);
+}
+
 // Test: Insert vectors on data node via VectorDBService
 TEST_CASE_FIXTURE(DistributedDataNodeTest, "InsertVectorsOnDataNode") {
   // Create collection via coordinator

@@ -1,5 +1,7 @@
 #include <doctest/doctest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <memory>
 #include <thread>
@@ -1523,6 +1525,126 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentRangeSearchMaxResults") {
   auto result = segment.SearchRange(query, 1.0f, 3);
   REQUIRE(result.ok());
   CHECK_EQ(result->entries.size(), 3);
+}
+
+// ============================================================================
+// Growing Segment Metric Tests
+// ============================================================================
+//
+// A GROWING segment answers Search by brute force with the segment metric.
+// COSINE returns the cosine distance (1 - cosine similarity) and
+// INNER_PRODUCT returns the negated dot product, so the smallest value ranks
+// first for every metric. The expected values are computed by hand from small
+// 4-dimensional vectors.
+
+namespace {
+
+// Checks one ranked position of a search result.
+void CheckRankedEntry(const core::SearchResultEntry& entry,
+                      uint64_t expected_id, float expected_distance) {
+  CHECK_EQ(core::ToUInt64(entry.id), expected_id);
+  CHECK(entry.distance == doctest::Approx(expected_distance));
+}
+
+// Checks two adjacent positions that hold identical vectors. They tie on
+// distance and the search does not order ties, so either id can come first.
+void CheckTiedPair(const core::SearchResultEntry& a,
+                   const core::SearchResultEntry& b, uint64_t lower_id,
+                   uint64_t higher_id, float expected_distance) {
+  const uint64_t id_a = core::ToUInt64(a.id);
+  const uint64_t id_b = core::ToUInt64(b.id);
+  CHECK_EQ(std::min(id_a, id_b), lower_id);
+  CHECK_EQ(std::max(id_a, id_b), higher_id);
+  CHECK(a.distance == doctest::Approx(expected_distance));
+  CHECK_EQ(a.distance, b.distance);
+}
+
+}  // namespace
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentGrowingSearchCosine") {
+  dimension_ = 4;
+  storage::Segment segment(core::MakeSegmentId(1), collection_id_, dimension_,
+                           core::MetricType::COSINE);
+
+  // The query points along the x axis. Ids 3 and 4 hold the same vector.
+  // Under L2, id 1 would rank last (distance 9). Under COSINE only the
+  // direction counts, so it ranks first.
+  std::vector<core::Vector> vectors = {
+      core::Vector({10.0f, 0.0f, 0.0f, 0.0f}),  // id 1: same direction
+      core::Vector({3.0f, 4.0f, 0.0f, 0.0f}),   // id 2: similarity 3/5
+      core::Vector({1.0f, 1.0f, 0.0f, 0.0f}),   // id 3: similarity 1/sqrt(2)
+      core::Vector({1.0f, 1.0f, 0.0f, 0.0f}),   // id 4: identical to id 3
+      core::Vector({0.0f, 0.5f, 0.0f, 0.0f}),   // id 5: orthogonal
+      core::Vector({-2.0f, 0.0f, 0.0f, 0.0f}),  // id 6: opposite direction
+  };
+  REQUIRE(segment.AddVectors(vectors, CreateTestVectorIds(6)).ok());
+  REQUIRE_EQ(segment.GetState(), core::SegmentState::GROWING);
+
+  const core::Vector query({1.0f, 0.0f, 0.0f, 0.0f});
+  const float diagonal_distance = 1.0f - 1.0f / std::sqrt(2.0f);
+
+  SUBCASE("top_k below the vector count returns the closest vectors") {
+    auto result = segment.Search(query, 3);
+    REQUIRE(result.ok());
+    const auto& entries = result->entries;
+    REQUIRE_EQ(entries.size(), 3);
+    CheckRankedEntry(entries[0], 1, 0.0f);
+    CheckTiedPair(entries[1], entries[2], 3, 4, diagonal_distance);
+  }
+
+  SUBCASE("top_k above the vector count returns every vector") {
+    auto result = segment.Search(query, 10);
+    REQUIRE(result.ok());
+    const auto& entries = result->entries;
+    REQUIRE_EQ(entries.size(), 6);
+    CheckRankedEntry(entries[0], 1, 0.0f);
+    CheckTiedPair(entries[1], entries[2], 3, 4, diagonal_distance);
+    CheckRankedEntry(entries[3], 2, 1.0f - 3.0f / 5.0f);
+    CheckRankedEntry(entries[4], 5, 1.0f);
+    CheckRankedEntry(entries[5], 6, 2.0f);
+  }
+}
+
+TEST_CASE_FIXTURE(StorageTest, "SegmentGrowingSearchInnerProduct") {
+  dimension_ = 4;
+  storage::Segment segment(core::MakeSegmentId(1), collection_id_, dimension_,
+                           core::MetricType::INNER_PRODUCT);
+
+  // Ids 4 and 5 are both copies of the query. Inner product ranks by the
+  // largest dot product, so the longer id 3 ranks above both copies.
+  std::vector<core::Vector> vectors = {
+      core::Vector({3.0f, 0.0f, 0.0f, 0.0f}),   // id 1: dot 3
+      core::Vector({0.0f, 1.0f, 0.0f, 0.0f}),   // id 2: dot 2
+      core::Vector({2.0f, 2.0f, 1.0f, 0.0f}),   // id 3: dot 6
+      core::Vector({1.0f, 2.0f, 0.0f, 0.0f}),   // id 4: dot 5
+      core::Vector({1.0f, 2.0f, 0.0f, 0.0f}),   // id 5: identical to id 4
+      core::Vector({-1.0f, 0.0f, 0.0f, 0.0f}),  // id 6: dot -1
+  };
+  REQUIRE(segment.AddVectors(vectors, CreateTestVectorIds(6)).ok());
+  REQUIRE_EQ(segment.GetState(), core::SegmentState::GROWING);
+
+  const core::Vector query({1.0f, 2.0f, 0.0f, 0.0f});
+
+  SUBCASE("top_k below the vector count returns the closest vectors") {
+    auto result = segment.Search(query, 3);
+    REQUIRE(result.ok());
+    const auto& entries = result->entries;
+    REQUIRE_EQ(entries.size(), 3);
+    CheckRankedEntry(entries[0], 3, -6.0f);
+    CheckTiedPair(entries[1], entries[2], 4, 5, -5.0f);
+  }
+
+  SUBCASE("top_k above the vector count returns every vector") {
+    auto result = segment.Search(query, 10);
+    REQUIRE(result.ok());
+    const auto& entries = result->entries;
+    REQUIRE_EQ(entries.size(), 6);
+    CheckRankedEntry(entries[0], 3, -6.0f);
+    CheckTiedPair(entries[1], entries[2], 4, 5, -5.0f);
+    CheckRankedEntry(entries[3], 1, -3.0f);
+    CheckRankedEntry(entries[4], 2, -2.0f);
+    CheckRankedEntry(entries[5], 6, 1.0f);
+  }
 }
 
 // ============================================================================

@@ -5,6 +5,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <string>
 
 namespace gvdb {
 namespace consensus {
@@ -15,6 +16,13 @@ using nuraft::log_entry;
 using nuraft::log_val_type;
 using nuraft::ptr;
 using nuraft::ulong;
+
+ptr<log_entry> create_log_entry(ulong term, const std::string& data) {
+  auto buf = buffer::alloc(data.size());
+  std::memcpy(buf->data_begin(), data.data(), data.size());
+  buf->pos(0);
+  return nuraft::cs_new<log_entry>(term, buf, log_val_type::app_log);
+}
 
 class GvdbLogStorePersistenceTest {
  public:
@@ -30,13 +38,6 @@ class GvdbLogStorePersistenceTest {
     if (std::filesystem::exists(test_dir_)) {
       std::filesystem::remove_all(test_dir_);
     }
-  }
-
-  ptr<log_entry> create_log_entry(ulong term, const std::string& data) {
-    auto buf = buffer::alloc(data.size());
-    std::memcpy(buf->data_begin(), data.data(), data.size());
-    buf->pos(0);
-    return nuraft::cs_new<log_entry>(term, buf, log_val_type::app_log);
   }
 
   std::filesystem::path test_dir_;
@@ -61,6 +62,10 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "BasicPersistence") {
     CHECK_EQ(idx1, 1);
     CHECK_EQ(idx2, 2);
     CHECK_EQ(idx3, 3);
+
+    // The append counter moves in the same session, without a reopen.
+    CHECK_EQ(log_store.next_slot(), 4);
+    CHECK_EQ(log_store.start_index(), 1);
 
     // Verify we can read them back
     auto read1 = log_store.entry_at(1);
@@ -94,6 +99,49 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "BasicPersistence") {
 
     // Verify next_slot is correct
     CHECK_EQ(log_store.next_slot(), 4);
+
+    // Nothing was compacted, so the store has no saved start index and
+    // starts at 1.
+    CHECK_EQ(log_store.start_index(), 1);
+  }
+}
+
+// Appends after a reopen continue at the recovered next_slot and do not
+// overwrite the entries written before the reopen.
+TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "AppendAfterReopen") {
+  std::string log_path = (test_dir_ / "logs").string();
+  constexpr ulong kBefore = 30;
+  constexpr ulong kAfter = 20;
+
+  {
+    GvdbLogStore log_store(log_path);
+    for (ulong i = 1; i <= kBefore; ++i) {
+      auto entry = create_log_entry(1, "before_" + std::to_string(i));
+      log_store.append(entry);
+    }
+  }
+
+  GvdbLogStore log_store(log_path);
+  REQUIRE_EQ(log_store.next_slot(), kBefore + 1);
+
+  for (ulong i = 1; i <= kAfter; ++i) {
+    auto entry = create_log_entry(2, "after_" + std::to_string(i));
+    ulong idx = log_store.append(entry);
+    CHECK_EQ(idx, kBefore + i);
+  }
+  CHECK_EQ(log_store.next_slot(), kBefore + kAfter + 1);
+
+  for (ulong i = 1; i <= kBefore; ++i) {
+    INFO("entry " << i);
+    auto entry = log_store.entry_at(i);
+    REQUIRE_NE(entry, nullptr);
+    CHECK_EQ(entry->get_term(), 1);
+  }
+  for (ulong i = kBefore + 1; i <= kBefore + kAfter; ++i) {
+    INFO("entry " << i);
+    auto entry = log_store.entry_at(i);
+    REQUIRE_NE(entry, nullptr);
+    CHECK_EQ(entry->get_term(), 2);
   }
 }
 
@@ -155,12 +203,16 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "CompactionPersistence") {
     // Compact up to index 5
     CHECK(log_store.compact(5));
 
-    // Verify compaction
+    // Verify compaction: every compacted index is gone, every later one stays.
     CHECK_EQ(log_store.start_index(), 6);
-    CHECK_EQ(log_store.entry_at(1), nullptr);  // Compacted
-    CHECK_EQ(log_store.entry_at(5), nullptr);  // Compacted
-    CHECK_NE(log_store.entry_at(6), nullptr);  // Still exists
-    CHECK_NE(log_store.entry_at(10), nullptr); // Still exists
+    for (ulong i = 1; i <= 5; ++i) {
+      INFO("entry " << i);
+      CHECK_EQ(log_store.entry_at(i), nullptr);
+    }
+    for (ulong i = 6; i <= 10; ++i) {
+      INFO("entry " << i);
+      CHECK_NE(log_store.entry_at(i), nullptr);
+    }
   }
 
   // Reopen and verify compaction persisted
@@ -168,10 +220,14 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "CompactionPersistence") {
     GvdbLogStore log_store(log_path);
 
     CHECK_EQ(log_store.start_index(), 6);
-    CHECK_EQ(log_store.entry_at(1), nullptr);
-    CHECK_EQ(log_store.entry_at(5), nullptr);
-    CHECK_NE(log_store.entry_at(6), nullptr);
-    CHECK_NE(log_store.entry_at(10), nullptr);
+    for (ulong i = 1; i <= 5; ++i) {
+      INFO("entry " << i);
+      CHECK_EQ(log_store.entry_at(i), nullptr);
+    }
+    for (ulong i = 6; i <= 10; ++i) {
+      INFO("entry " << i);
+      CHECK_NE(log_store.entry_at(i), nullptr);
+    }
   }
 }
 
@@ -366,6 +422,66 @@ TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "ClusterConfigPersistence") {
   // Reopen and verify cluster config persisted
   {
     GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
+
+    auto config = mgr.load_config();
+    REQUIRE_NE(config, nullptr);
+    CHECK_EQ(config->get_servers().size(), 3);
+
+    // With size 3, three successful lookups mean the IDs are exactly
+    // {1, 2, 3}. get_server() returns nullptr for an unknown ID.
+    auto srv1 = config->get_server(1);
+    auto srv2 = config->get_server(2);
+    auto srv3 = config->get_server(3);
+    REQUIRE_NE(srv1, nullptr);
+    REQUIRE_NE(srv2, nullptr);
+    REQUIRE_NE(srv3, nullptr);
+    CHECK_EQ(srv1->get_endpoint(), "localhost:9000");
+    CHECK_EQ(srv2->get_endpoint(), "localhost:9001");
+    CHECK_EQ(srv3->get_endpoint(), "localhost:9002");
+  }
+}
+
+// A node can start on log and state directories that already exist but are
+// empty, then reopen from what it saved there.
+TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "StartOnExistingEmptyDirs") {
+  std::string log_path = (test_dir_ / "logs").string();
+  std::string state_path = (test_dir_ / "state").string();
+  std::filesystem::create_directories(log_path);
+  std::filesystem::create_directories(state_path);
+  constexpr int kNumEntries = 20;
+
+  {
+    GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
+
+    // Nothing saved yet: no server state, and a config with only this node.
+    CHECK_EQ(mgr.read_state(), nullptr);
+    auto config = mgr.load_config();
+    REQUIRE_NE(config, nullptr);
+    CHECK_EQ(config->get_servers().size(), 1);
+    auto self = config->get_server(1);
+    REQUIRE_NE(self, nullptr);
+    CHECK_EQ(self->get_endpoint(), "localhost:9000");
+
+    config->get_servers().push_back(
+        nuraft::cs_new<nuraft::srv_config>(2, "localhost:9001"));
+    config->get_servers().push_back(
+        nuraft::cs_new<nuraft::srv_config>(3, "localhost:9002"));
+    mgr.save_config(*config);
+
+    auto log_store = mgr.load_log_store();
+    REQUIRE_NE(log_store, nullptr);
+    CHECK_EQ(log_store->next_slot(), 1);
+    for (int i = 1; i <= kNumEntries; ++i) {
+      auto entry = create_log_entry(1, "entry_" + std::to_string(i));
+      log_store->append(entry);
+    }
+  }
+
+  {
+    GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
+
+    auto log_store = mgr.load_log_store();
+    CHECK_EQ(log_store->next_slot(), static_cast<ulong>(kNumEntries + 1));
 
     auto config = mgr.load_config();
     REQUIRE_NE(config, nullptr);

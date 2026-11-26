@@ -3,14 +3,17 @@
 
 #include <doctest/doctest.h>
 #include <filesystem>
+#include <vector>
 
 #include "network/collection_resolver.h"
+#include "storage/segment.h"
 #include "storage/segment_manager.h"
 #include "index/index_factory.h"
 #include "cluster/coordinator.h"
 #include "cluster/node_registry.h"
 #include "cluster/shard_manager.h"
 #include "core/types.h"
+#include "core/vector.h"
 
 using namespace gvdb;
 
@@ -106,6 +109,65 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_DropCollectionUnknown") {
   auto status = resolver_->DropCollection("no_such_collection");
   CHECK_FALSE(status.ok());
   CHECK_EQ(status.code(), absl::StatusCode::kNotFound);
+}
+
+TEST_CASE_FIXTURE(LocalResolverTest, "Local_DropAndRecreateGetsNewIdAndParams") {
+  constexpr size_t kOldShards = 2;
+  auto old_id = resolver_->CreateCollection(
+      "recreated", 128, core::MetricType::L2, core::IndexType::FLAT,
+      kOldShards);
+  REQUIRE(old_id.ok());
+  auto old_segments = resolver_->GetSegmentIds("recreated");
+  REQUIRE(old_segments.ok());
+  REQUIRE_EQ(old_segments->size(), kOldShards);
+
+  // Give the old collection data, so a leak into the new one would show up
+  // in its vector count.
+  std::vector<core::Vector> vectors = {core::Vector(128), core::Vector(128)};
+  std::vector<core::VectorId> ids = {core::MakeVectorId(1),
+                                     core::MakeVectorId(2)};
+  REQUIRE(segment_store_->WriteVectors((*old_segments)[0], vectors, ids).ok());
+
+  REQUIRE(resolver_->DropCollection("recreated").ok());
+
+  auto new_id = resolver_->CreateCollection(
+      "recreated", 1024, core::MetricType::COSINE, core::IndexType::HNSW);
+  REQUIRE(new_id.ok());
+  CHECK_NE(*new_id, *old_id);
+
+  auto looked_up = resolver_->GetCollectionId("recreated");
+  REQUIRE(looked_up.ok());
+  CHECK_EQ(*looked_up, *new_id);
+
+  auto list = resolver_->ListCollections();
+  REQUIRE_EQ(list.size(), 1);
+  CHECK_EQ(list[0].collection_id, *new_id);
+  CHECK_EQ(list[0].collection_name, "recreated");
+  CHECK_EQ(list[0].dimension, 1024);
+  CHECK_EQ(list[0].metric_type, core::MetricType::COSINE);
+  CHECK_EQ(list[0].index_type, core::IndexType::HNSW);
+  CHECK_EQ(list[0].vector_count, 0);
+
+  // The old segments are gone from the store, and the new collection owns
+  // only its own segment, created with the new parameters.
+  for (const auto& old_segment : *old_segments) {
+    CHECK_EQ(segment_store_->GetSegment(old_segment), nullptr);
+  }
+  CHECK(segment_store_->GetCollectionSegments(*old_id).empty());
+
+  auto new_segments = resolver_->GetSegmentIds("recreated");
+  REQUIRE(new_segments.ok());
+  REQUIRE_EQ(new_segments->size(), 1);
+  CHECK_EQ((*new_segments)[0], cluster::ShardSegmentId(*new_id, 0));
+  CHECK_EQ(segment_store_->GetSegmentCount(), 1);
+
+  const auto* new_segment = segment_store_->GetSegment((*new_segments)[0]);
+  REQUIRE_NE(new_segment, nullptr);
+  CHECK_EQ(new_segment->GetCollectionId(), *new_id);
+  CHECK_EQ(new_segment->GetDimension(), 1024);
+  CHECK_EQ(new_segment->GetMetric(), core::MetricType::COSINE);
+  CHECK_EQ(new_segment->GetIndexType(), core::IndexType::HNSW);
+  CHECK_EQ(new_segment->GetVectorCount(), 0);
 }
 
 // ---------------------------------------------------------------------------

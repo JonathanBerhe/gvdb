@@ -266,8 +266,7 @@ All binaries support environment variables (`GVDB_BIND_ADDRESS`, `GVDB_ADVERTISE
 make test             # C++ unit + integration tests
 make coverage         # Same tests with line coverage per module
 make bench-search     # CPU search latency benchmark (Release build)
-make test-e2e         # Go e2e tests against local server
-make test-e2e-kind    # Go e2e tests against kind cluster
+make test-sdk         # Python SDK tests against the gvdb-single-node binary
 ```
 
 See [test/README.md](test/README.md) for details on the test structure.

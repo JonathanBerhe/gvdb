@@ -255,7 +255,12 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCache
   proto::SearchResponse response2;
   grpc::Status status2 = data_vectordb_service_->Search(&context2, &request2, &response2);
   REQUIRE(status2.ok());
-  CHECK_GT(response2.results_size(), 0);
+  REQUIRE_GT(response2.results_size(), 0);
+
+  // The cached search must still find the right neighbour: the all-4.0
+  // query equals vector index 4, which has id 5.
+  CHECK_EQ(response2.results(0).id(), 5);
+  CHECK(response2.results(0).distance() == doctest::Approx(0.0f));
 }
 
 // Test: Search against a registered backend that isn't actually listening.

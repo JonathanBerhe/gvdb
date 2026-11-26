@@ -1,7 +1,10 @@
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
+#include <cstdint>
 #include <filesystem>
+#include <map>
 #include <memory>
+#include <string>
 
 #include "network/auth_processor.h"
 #include "network/vectordb_service.h"
@@ -681,4 +684,232 @@ TEST_CASE_FIXTURE(AuthIntegrationTest, "CollectionAdminDeniedOnOtherCollection")
 
   auto status = stub->Insert(&ctx, req, &resp);
   CHECK_EQ(status.error_code(), grpc::StatusCode::PERMISSION_DENIED);
+}
+
+// ============================================================================
+// Role x RPC x collection matrix
+// ============================================================================
+
+namespace {
+
+enum class Rpc {
+  kCreateCollection,
+  kDropCollection,
+  kSearch,
+  kRangeSearch,
+  kHybridSearch,
+  kGet,
+  kListVectors,
+  kDelete,
+  kUpsert,
+  kUpdateMetadata,
+};
+
+const char* RpcName(Rpc rpc) {
+  switch (rpc) {
+    case Rpc::kCreateCollection: return "CreateCollection";
+    case Rpc::kDropCollection: return "DropCollection";
+    case Rpc::kSearch: return "Search";
+    case Rpc::kRangeSearch: return "RangeSearch";
+    case Rpc::kHybridSearch: return "HybridSearch";
+    case Rpc::kGet: return "Get";
+    case Rpc::kListVectors: return "ListVectors";
+    case Rpc::kDelete: return "Delete";
+    case Rpc::kUpsert: return "Upsert";
+    case Rpc::kUpdateMetadata: return "UpdateMetadata";
+  }
+  return "unknown";
+}
+
+struct AccessCase {
+  const char* key;
+  Rpc rpc;
+  const char* collection;
+  grpc::StatusCode expected;
+};
+
+// Calls `rpc` on `collection` with `key`. Each request is valid for a 4D
+// collection that holds the vectors 1..5, so an allowed call returns OK.
+grpc::Status CallAs(proto::VectorDBService::Stub& stub, const std::string& key,
+                    Rpc rpc, const std::string& collection) {
+  grpc::ClientContext ctx;
+  ctx.AddMetadata("authorization", "Bearer " + key);
+  switch (rpc) {
+    case Rpc::kCreateCollection: {
+      proto::CreateCollectionRequest req;
+      req.set_collection_name(collection);
+      req.set_dimension(4);
+      req.set_metric(proto::CreateCollectionRequest::L2);
+      req.set_index_type(proto::CreateCollectionRequest::FLAT);
+      proto::CreateCollectionResponse resp;
+      return stub.CreateCollection(&ctx, req, &resp);
+    }
+    case Rpc::kDropCollection: {
+      proto::DropCollectionRequest req;
+      req.set_collection_name(collection);
+      proto::DropCollectionResponse resp;
+      return stub.DropCollection(&ctx, req, &resp);
+    }
+    case Rpc::kSearch: {
+      proto::SearchRequest req;
+      req.set_collection_name(collection);
+      req.set_top_k(3);
+      *req.mutable_query_vector() = AuthIntegrationTest::MakeQueryVector();
+      proto::SearchResponse resp;
+      return stub.Search(&ctx, req, &resp);
+    }
+    case Rpc::kRangeSearch: {
+      proto::RangeSearchRequest req;
+      req.set_collection_name(collection);
+      req.set_radius(100.0f);
+      *req.mutable_query_vector() = AuthIntegrationTest::MakeQueryVector();
+      proto::RangeSearchResponse resp;
+      return stub.RangeSearch(&ctx, req, &resp);
+    }
+    case Rpc::kHybridSearch: {
+      proto::HybridSearchRequest req;
+      req.set_collection_name(collection);
+      req.set_top_k(3);
+      *req.mutable_query_vector() = AuthIntegrationTest::MakeQueryVector();
+      proto::HybridSearchResponse resp;
+      return stub.HybridSearch(&ctx, req, &resp);
+    }
+    case Rpc::kGet: {
+      proto::GetRequest req;
+      req.set_collection_name(collection);
+      req.add_ids(1);
+      proto::GetResponse resp;
+      return stub.Get(&ctx, req, &resp);
+    }
+    case Rpc::kListVectors: {
+      proto::ListVectorsRequest req;
+      req.set_collection_name(collection);
+      req.set_limit(10);
+      proto::ListVectorsResponse resp;
+      return stub.ListVectors(&ctx, req, &resp);
+    }
+    case Rpc::kDelete: {
+      proto::DeleteRequest req;
+      req.set_collection_name(collection);
+      req.add_ids(1);
+      proto::DeleteResponse resp;
+      return stub.Delete(&ctx, req, &resp);
+    }
+    case Rpc::kUpsert: {
+      proto::UpsertRequest req;
+      req.set_collection_name(collection);
+      *req.add_vectors() = AuthIntegrationTest::MakeVectorWithId(200);
+      proto::UpsertResponse resp;
+      return stub.Upsert(&ctx, req, &resp);
+    }
+    case Rpc::kUpdateMetadata: {
+      proto::UpdateMetadataRequest req;
+      req.set_collection_name(collection);
+      req.set_id(1);
+      (*req.mutable_metadata()->mutable_fields())["tag"].set_string_value(
+          "updated");
+      proto::UpdateMetadataResponse resp;
+      return stub.UpdateMetadata(&ctx, req, &resp);
+    }
+  }
+  return grpc::Status(grpc::StatusCode::INTERNAL, "unknown rpc");
+}
+
+class AuthMatrixTest : public AuthIntegrationTest {
+ public:
+  // Admin view of the server: collection name -> how many of the ids 1..5
+  // Get finds in it.
+  std::map<std::string, int> AdminSnapshot() {
+    auto stub = MakeStub();
+    proto::ListCollectionsResponse collections;
+    {
+      proto::ListCollectionsRequest req;
+      grpc::ClientContext ctx;
+      ctx.AddMetadata("authorization", "Bearer admin-key");
+      auto status = stub->ListCollections(&ctx, req, &collections);
+      REQUIRE(status.ok());
+    }
+    std::map<std::string, int> snapshot;
+    for (const auto& c : collections.collections()) {
+      proto::GetRequest req;
+      req.set_collection_name(c.collection_name());
+      for (uint64_t id = 1; id <= 5; ++id) req.add_ids(id);
+      proto::GetResponse resp;
+      grpc::ClientContext ctx;
+      ctx.AddMetadata("authorization", "Bearer admin-key");
+      auto status = stub->Get(&ctx, req, &resp);
+      REQUIRE(status.ok());
+      snapshot[c.collection_name()] = resp.vectors_size();
+    }
+    return snapshot;
+  }
+
+  // Recreates test_collection and other_coll, each holding the vectors 1..5.
+  void ResetCollections() {
+    auto snapshot = AdminSnapshot();
+    auto stub = MakeStub();
+    for (const char* name : {"test_collection", "other_coll"}) {
+      if (snapshot.count(name) > 0) {
+        proto::DropCollectionRequest req;
+        req.set_collection_name(name);
+        proto::DropCollectionResponse resp;
+        grpc::ClientContext ctx;
+        ctx.AddMetadata("authorization", "Bearer admin-key");
+        REQUIRE(stub->DropCollection(&ctx, req, &resp).ok());
+      }
+      CreateCollectionAsAdmin(name);
+      InsertAsAdmin(name, 5);
+    }
+  }
+};
+
+}  // namespace
+
+// rw-key and ca-key may use test_collection but not other_coll; ro-key may
+// read every collection. Every row starts from freshly seeded collections.
+TEST_CASE_FIXTURE(AuthMatrixTest, "RoleRpcCollectionMatrix") {
+  using grpc::StatusCode;
+  const AccessCase kCases[] = {
+      {"rw-key", Rpc::kUpdateMetadata, "test_collection", StatusCode::OK},
+      {"rw-key", Rpc::kSearch, "other_coll", StatusCode::PERMISSION_DENIED},
+      {"rw-key", Rpc::kDelete, "other_coll", StatusCode::PERMISSION_DENIED},
+
+      {"ro-key", Rpc::kCreateCollection, "ro_new_coll",
+       StatusCode::PERMISSION_DENIED},
+      {"ro-key", Rpc::kDropCollection, "test_collection",
+       StatusCode::PERMISSION_DENIED},
+
+      {"ca-key", Rpc::kUpsert, "test_collection", StatusCode::OK},
+      {"ca-key", Rpc::kGet, "test_collection", StatusCode::OK},
+      {"ca-key", Rpc::kUpdateMetadata, "test_collection", StatusCode::OK},
+      {"ca-key", Rpc::kSearch, "other_coll", StatusCode::PERMISSION_DENIED},
+      {"ca-key", Rpc::kDelete, "other_coll", StatusCode::PERMISSION_DENIED},
+
+      {"admin-key", Rpc::kGet, "other_coll", StatusCode::OK},
+      {"admin-key", Rpc::kUpsert, "other_coll", StatusCode::OK},
+      {"admin-key", Rpc::kUpdateMetadata, "other_coll", StatusCode::OK},
+      {"admin-key", Rpc::kRangeSearch, "other_coll", StatusCode::OK},
+      {"admin-key", Rpc::kHybridSearch, "other_coll", StatusCode::OK},
+      {"admin-key", Rpc::kListVectors, "other_coll", StatusCode::OK},
+
+      // Keys from the legacy api_keys list act as admin.
+      {"legacy-admin-key", Rpc::kDropCollection, "other_coll", StatusCode::OK},
+  };
+
+  auto stub = MakeStub();
+  for (const auto& c : kCases) {
+    INFO(c.key << " " << RpcName(c.rpc) << " on " << c.collection);
+    ResetCollections();
+    const auto before = AdminSnapshot();
+
+    auto status = CallAs(*stub, c.key, c.rpc, c.collection);
+    INFO("got code " << static_cast<int>(status.error_code()) << ": "
+                     << status.error_message());
+    CHECK_EQ(status.error_code(), c.expected);
+
+    // A denied call changes nothing.
+    if (c.expected == StatusCode::PERMISSION_DENIED) {
+      CHECK_EQ(AdminSnapshot(), before);
+    }
+  }
 }

@@ -161,7 +161,6 @@ jobs:
               - 'test/unit/object_store_*'
               - 'test/integration/docker-compose.fake-gcs.yml'
               - 'test/integration/fake-gcs-seed/**'
-              - 'test/e2e/gcs_storage.go'
               - '.github/workflows/ci.yml'
 
       - name: Install system dependencies

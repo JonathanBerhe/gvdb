@@ -226,6 +226,11 @@ gvdb_add_test(vectordb_service_write_tests
   DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
   TIMEOUT 60 LABELS unit)
 
+gvdb_add_test(vectordb_service_backup_tests
+  SOURCES vectordb_service_backup_test.cpp
+  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  TIMEOUT 60 LABELS unit)
+
 gvdb_add_test(vectordb_service_search_tests
   SOURCES vectordb_service_search_test.cpp
   DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto

@@ -1,29 +1,24 @@
 # Integration Tests
 
-C++ integration tests for multi-component interactions within GVDB.
+C++ integration tests for interactions between GVDB components.
 
 See [test/README.md](../README.md) for an overview of all test types.
 
 ## What Are Integration Tests?
 
-Integration tests verify that multiple GVDB components work correctly together when integrated in-process. Unlike unit tests (single component) or e2e tests (full system via gRPC), integration tests focus on **component boundaries and interactions**.
+Integration tests run several GVDB components in one process, usually as real gRPC servers on ephemeral ports. Unit tests cover one component. The Python SDK tests in `clients/python/tests` start the real `gvdb-single-node` binary.
 
 ## Current Test Suites
 
-### Consensus Integration Tests
-
-Tests Raft consensus persistence and recovery scenarios.
-
-**Phase 1: Single-Node Persistence**
-- `BasicRestartRecovery` - Append entries, restart, verify recovery
-- `CrashRecovery` - Simulate crash, verify data persists
-- `LogCompactionRecovery` - Compact log, restart, verify compaction persisted
-- `ConfigurationPersistence` - Multi-server config persistence
-
-**Phase 2: Multi-Node Cluster**
-- `ClusterFormationAndRestart` - 3-node cluster formation and restart
-- `LeaderCrashRecovery` - Leader crash and recovery
-- `MajorityCrashRecovery` - Majority of nodes crash and recover
+| Executable | Covers |
+|------------|--------|
+| `raft_auto_join_tests` | Multi-node Raft: bootstrap, join, scale down, leadership transfer, ghost peer cleanup |
+| `distributed_data_node_tests` | Coordinator to data node: create, insert, search, replicate, failover |
+| `segment_replication_integration_tests` | Segment pull on search, segment cache reuse, read repair |
+| `proxy_integration_tests` | Full flow through the proxy |
+| `backup_restore_integration_tests` | Backup and restore over gRPC |
+| `drain_read_fallback_tests` | Reads through the proxy while a data node drains |
+| `primary_swap_integration_tests` | Upsert retries across a primary swap |
 
 ## Running Integration Tests
 
@@ -34,11 +29,11 @@ cmake --build --preset dev
 # Run all integration tests
 ctest --preset dev -L integration
 
-# Run specific test suite
-./build/dev/test/integration/consensus_integration_tests
+# Run one suite
+./build/dev/test/integration/raft_auto_join_tests
 
-# Run specific test case
-./build/dev/test/integration/consensus_integration_tests --test-case="*BasicRestart*"
+# Run one case
+./build/dev/test/integration/raft_auto_join_tests --test-case="*ScaleUp*"
 ```
 
 ## Adding New Integration Tests
@@ -66,21 +61,12 @@ TEST_CASE("ModuleIntegration - ComponentInteraction") {
 
 ## When to Use Integration Tests
 
-✅ **Use integration tests when:**
-- Testing interactions between 2+ modules
-- Verifying interfaces/contracts between components
-- Testing scenarios requiring real database/persistence
-- Validating state transitions across components
+Use an integration test to:
+- Test interactions between two or more modules
+- Test the interface between components over a real gRPC connection
+- Test scenarios that need real persistence on disk
+- Test state transitions across components
 
-❌ **Don't use integration tests when:**
-- Testing single component (use unit tests)
-- Testing full system via API (use e2e tests)
-- Test can be done with mocks (use unit tests)
-
-## Performance Expectations
-
-| Test | Expected Duration |
-|------|-------------------|
-| Single node tests | 1-5s |
-| Multi-node tests | 5-10s |
-| Full suite | <30s |
+Use a unit test instead to:
+- Test one component
+- Test a behavior that mocks can cover
