@@ -2901,8 +2901,8 @@ type S3Target struct {
 	// Bucket the data-node uploads to. Credentials come from the data-node's
 	// configured object-store credentials (typically IRSA / Workload Identity).
 	Bucket string `protobuf:"bytes,1,opt,name=bucket,proto3" json:"bucket,omitempty"`
-	// Optional prefix under the bucket. Final key layout is
-	//   <prefix>/backups/<backup_id>/...
+	// Optional prefix under the bucket. The final key layout is
+	// <prefix>/backups/<backup_id>/...
 	Prefix        string `protobuf:"bytes,2,opt,name=prefix,proto3" json:"prefix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3301,9 +3301,9 @@ type GetBackupStatusResponse struct {
 	BytesUploaded   uint64                 `protobuf:"varint,5,opt,name=bytes_uploaded,json=bytesUploaded,proto3" json:"bytes_uploaded,omitempty"`
 	ErrorMessage    string                 `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	ElapsedSeconds  float32                `protobuf:"fixed32,7,opt,name=elapsed_seconds,json=elapsedSeconds,proto3" json:"elapsed_seconds,omitempty"`
-	// Canonical URI of the top-level backup manifest, e.g.
-	//   "s3://bucket/prefix/backups/<id>/backup.manifest.json"
-	// Empty until the backup reaches BACKUP_COMPLETED.
+	// Canonical URI of the top-level backup manifest, for example
+	// "s3://bucket/prefix/backups/<id>/backup.manifest.json". Empty until the
+	// backup reaches BACKUP_COMPLETED.
 	ManifestUri   string `protobuf:"bytes,8,opt,name=manifest_uri,json=manifestUri,proto3" json:"manifest_uri,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4111,8 +4111,8 @@ const file_vectordb_proto_rawDesc = "" +
 	"\vListBackups\x12\x1e.gvdb.proto.ListBackupsRequest\x1a\x1f.gvdb.proto.ListBackupsResponse\x12Q\n" +
 	"\fCancelBackup\x12\x1f.gvdb.proto.CancelBackupRequest\x1a .gvdb.proto.CancelBackupResponse\x12N\n" +
 	"\vHealthCheck\x12\x1e.gvdb.proto.HealthCheckRequest\x1a\x1f.gvdb.proto.HealthCheckResponse\x12E\n" +
-	"\bGetStats\x12\x1b.gvdb.proto.GetStatsRequest\x1a\x1c.gvdb.proto.GetStatsResponseB;\n" +
-	"\rio.gvdb.protoB\rVectorDbProtoP\x01Z\x19gvdb/integration-tests/pbb\x06proto3"
+	"\bGetStats\x12\x1b.gvdb.proto.GetStatsRequest\x1a\x1c.gvdb.proto.GetStatsResponseBS\n" +
+	"\rio.gvdb.protoB\rVectorDbProtoP\x01Z1github.com/JonathanBerhe/gvdb/proto/gvdbpb;gvdbpbb\x06proto3"
 
 var (
 	file_vectordb_proto_rawDescOnce sync.Once

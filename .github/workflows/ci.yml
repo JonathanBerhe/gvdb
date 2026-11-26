@@ -388,7 +388,7 @@ jobs:
             operator:
               - 'operator/**'
               - 'deploy/helm/gvdb-operator/**'
-              - 'proto/vectordb.proto'
+              - 'proto/**'
             gvdb-chart:
               - 'deploy/helm/gvdb/**'
 
@@ -667,3 +667,71 @@ jobs:
       - name: Skip notice
         if: steps.filter.outputs.operator == 'false' && steps.filter.outputs.gvdb-chart == 'false'
         run: echo "No operator or gvdb chart changes, skipping"
+
+  # The checked-in protobuf stubs (Python SDK, operator, UI gateway) must match
+  # proto/*.proto. The job generates them again with the pinned generators and
+  # fails on any difference.
+  proto-stubs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check for proto changes
+        uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            proto:
+              - 'proto/**'
+              - 'tools/proto/**'
+              - 'clients/python/gvdb/pb/**'
+              - 'clients/python/uv.lock'
+              - 'operator/internal/gvdbpb/**'
+              - 'ui/gateway/**'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+
+      - name: Set up Go
+        if: steps.filter.outputs.proto == 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache: false
+
+      - name: Install the pinned generators
+        if: steps.filter.outputs.proto == 'true'
+        run: |
+          source tools/proto/versions.env
+          curl -sSfL -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          sudo unzip -q -o "$RUNNER_TEMP/protoc.zip" -d /usr/local bin/protoc 'include/*'
+          go install "google.golang.org/protobuf/cmd/protoc-gen-go@v${PROTOC_GEN_GO_VERSION}"
+          go install "google.golang.org/grpc/cmd/protoc-gen-go-grpc@v${PROTOC_GEN_GO_GRPC_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install uv
+        if: steps.filter.outputs.proto == 'true'
+        uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Generate the stubs
+        if: steps.filter.outputs.proto == 'true'
+        run: make proto
+
+      - name: Fail on stale stubs
+        if: steps.filter.outputs.proto == 'true'
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::The checked-in protobuf stubs differ from proto/. Run 'make proto' and commit the result."
+            exit 1
+          fi
+
+      - name: Build the UI gateway
+        if: steps.filter.outputs.proto == 'true'
+        run: cd ui/gateway && go build ./...
+
+      - name: Skip notice
+        if: steps.filter.outputs.proto == 'false'
+        run: echo "No proto or stub changes, skipping the stub check"
