@@ -8,7 +8,8 @@ version: '3.8'
 #     type: "gcs"
 #     bucket: "gvdb-test"
 #     endpoint: "http://localhost:4443"
-# and run the e2e with GVDB_GCS_ENDPOINT=http://localhost:4443.
+# The GCS object store tests run against it with
+# GVDB_TEST_GCS_ENDPOINT=http://localhost:4443.
 
 services:
   fake-gcs:
