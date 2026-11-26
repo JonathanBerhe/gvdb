@@ -104,7 +104,7 @@ consensus:
 
 ## Default config shipped with the Helm chart
 
-The Helm chart renders a ConfigMap with a subset of these keys — see [Deploy with Helm](deploy-helm.md). The starting-point ConfigMap lives at [`deploy/k8s/configmap.yaml`](https://github.com/JonathanBerhe/gvdb/blob/main/deploy/k8s/configmap.yaml).
+The Helm chart renders a ConfigMap with a subset of these keys — see [Deploy with Helm](deploy-helm.md). The chart's template is [`deploy/helm/gvdb/templates/configmap.yaml`](https://github.com/JonathanBerhe/gvdb/blob/main/deploy/helm/gvdb/templates/configmap.yaml). [`config.example.yaml`](https://github.com/JonathanBerhe/gvdb/blob/main/config.example.yaml) lists every key.
 
 ## Overriding in Helm deployments
 
