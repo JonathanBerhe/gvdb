@@ -1,8 +1,8 @@
 # Tests
 
 ```bash
-# All tests of the dev build
-ctest --preset dev
+# All tests of the dev build, eight test binaries at a time
+ctest --preset dev --parallel 8
 
 # One kind of test
 ctest --preset dev -L unit
@@ -11,6 +11,19 @@ ctest --preset dev -L integration
 # Single suite (CTest names equal the executable names)
 ctest --preset dev -R storage_tests
 ```
+
+The test binaries are isolated: each test writes to its own temp folder and starts its servers on free ports, so CTest can run them in parallel. `make test` does that.
+
+## Shared helpers (`support/`)
+
+Header-only helpers that every test links (`#include "support/<file>.h"`, namespace `gvdb::test`):
+
+| File | Provides |
+|------|----------|
+| `temp_dir.h` | `MakeUniqueTempDir`, `ScopedTempDir`: a temp folder that no other test or process uses |
+| `wait.h` | `WaitFor`: polls a condition with a timeout, instead of a fixed sleep |
+| `grpc_server.h` | `TestGrpcServer`: an in-process gRPC server on a free port |
+| `vectors.h` | `RandomVectors` (seeded) and `SequentialIds` |
 
 ## Unit (`unit/`)
 
