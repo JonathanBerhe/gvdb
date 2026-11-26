@@ -6,6 +6,10 @@
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <chrono>
+#include <memory>
+#include <string>
+#include <thread>
+#include <vector>
 
 using namespace gvdb;
 using namespace gvdb::network;
@@ -43,6 +47,47 @@ class InternalServiceMetadataTest {
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::shared_ptr<NodeRegistry> node_registry_;
   std::unique_ptr<InternalService> internal_service_;
+};
+
+// The fixture's InternalService, also served by a real in-process gRPC
+// server on an ephemeral port, so requests and responses cross the wire.
+class InternalServiceMetadataServerTest : public InternalServiceMetadataTest {
+ public:
+  InternalServiceMetadataServerTest() {
+    grpc::ServerBuilder builder;
+    int port = 0;
+    builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(),
+                             &port);
+    builder.RegisterService(internal_service_.get());
+    server_ = builder.BuildAndStart();
+    REQUIRE(server_ != nullptr);
+    REQUIRE_GT(port, 0);
+    auto channel = grpc::CreateChannel("localhost:" + std::to_string(port),
+                                       grpc::InsecureChannelCredentials());
+    stub_ = proto::internal::InternalService::NewStub(channel);
+  }
+
+  // Shuts the server down before the base class destroys the service.
+  ~InternalServiceMetadataServerTest() {
+    stub_.reset();
+    if (server_) {
+      server_->Shutdown();
+      server_->Wait();
+    }
+  }
+
+  // Sends one GetCollectionMetadata call through the stub.
+  grpc::Status GetMetadata(
+      const proto::internal::GetCollectionMetadataRequest& request,
+      proto::internal::GetCollectionMetadataResponse* response) {
+    grpc::ClientContext context;
+    context.set_deadline(std::chrono::system_clock::now() +
+                         std::chrono::seconds(10));
+    return stub_->GetCollectionMetadata(&context, request, response);
+  }
+
+  std::unique_ptr<grpc::Server> server_;
+  std::unique_ptr<proto::internal::InternalService::Stub> stub_;
 };
 
 // Test getting collection metadata by name
@@ -219,4 +264,94 @@ TEST_CASE_FIXTURE(InternalServiceMetadataTest, "InvalidRequest") {
   // Should return error
   CHECK_FALSE(status.ok());
   CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+}
+
+// The by-id lookup, the not-found answer and the empty-request error, sent
+// through a real channel to the real handler.
+TEST_CASE_FIXTURE(InternalServiceMetadataServerTest,
+                  "GetCollectionMetadataOverGrpc") {
+  proto::internal::GetCollectionMetadataRequest request;
+  proto::internal::GetCollectionMetadataResponse response;
+
+  SUBCASE("by id") {
+    auto collection_id = coordinator_->CreateCollection(
+        "id_test_collection", 256, core::MetricType::COSINE,
+        core::IndexType::IVF_FLAT, 1);
+    REQUIRE(collection_id.ok());
+    request.set_collection_id(core::ToUInt32(collection_id.value()));
+
+    auto status = GetMetadata(request, &response);
+
+    INFO("gRPC error: " << status.error_message());
+    REQUIRE(status.ok());
+    CHECK(response.found());
+    CHECK_EQ(response.metadata().collection_id(),
+             core::ToUInt32(collection_id.value()));
+    CHECK_EQ(response.metadata().collection_name(), "id_test_collection");
+    CHECK_EQ(response.metadata().dimension(), 256);
+    CHECK_EQ(response.metadata().metric_type(), "COSINE");
+    CHECK_EQ(response.metadata().index_type(), "IVF_FLAT");
+  }
+
+  SUBCASE("unknown name is not an RPC error") {
+    request.set_collection_name("nonexistent_collection");
+
+    auto status = GetMetadata(request, &response);
+
+    INFO("gRPC error: " << status.error_message());
+    REQUIRE(status.ok());
+    CHECK_FALSE(response.found());
+  }
+
+  SUBCASE("request without id or name") {
+    auto status = GetMetadata(request, &response);
+
+    CHECK_FALSE(status.ok());
+    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  }
+}
+
+// Parallel calls through one channel to a real server: each caller gets its
+// own collection back, field for field.
+TEST_CASE_FIXTURE(InternalServiceMetadataServerTest,
+                  "ConcurrentGetCollectionMetadataOverGrpc") {
+  constexpr int kNumCollections = 10;
+  std::vector<uint32_t> ids(kNumCollections);
+  for (int i = 0; i < kNumCollections; ++i) {
+    auto collection_id = coordinator_->CreateCollection(
+        "collection_" + std::to_string(i), 128 + i, core::MetricType::L2,
+        core::IndexType::FLAT, 1);
+    REQUIRE(collection_id.ok());
+    ids[i] = core::ToUInt32(collection_id.value());
+  }
+
+  std::vector<grpc::Status> statuses(kNumCollections);
+  std::vector<proto::internal::GetCollectionMetadataResponse> responses(
+      kNumCollections);
+  std::vector<std::thread> threads;
+  threads.reserve(kNumCollections);
+  for (int i = 0; i < kNumCollections; ++i) {
+    // Each thread writes only its own slot. Assertions run on this thread.
+    threads.emplace_back([this, i, &statuses, &responses] {
+      proto::internal::GetCollectionMetadataRequest request;
+      request.set_collection_name("collection_" + std::to_string(i));
+      statuses[i] = GetMetadata(request, &responses[i]);
+    });
+  }
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  for (int i = 0; i < kNumCollections; ++i) {
+    INFO("request " << i << ": " << statuses[i].error_message());
+    REQUIRE(statuses[i].ok());
+    CHECK(responses[i].found());
+    const auto& metadata = responses[i].metadata();
+    CHECK_EQ(metadata.collection_id(), ids[i]);
+    CHECK_EQ(metadata.collection_name(), "collection_" + std::to_string(i));
+    CHECK_EQ(metadata.dimension(), static_cast<uint32_t>(128 + i));
+    CHECK_EQ(metadata.metric_type(), "L2");
+    CHECK_EQ(metadata.index_type(), "FLAT");
+    CHECK_EQ(metadata.shard_count(), 1u);
+  }
 }
