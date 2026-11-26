@@ -196,6 +196,22 @@ gvdb_add_test(vectordb_service_distributed_tests
   DEPS gvdb::network gvdb::storage gvdb::compute gvdb::index gvdb::core gvdb::proto
   TIMEOUT 120 LABELS unit)
 
+# VectorDBService handlers end to end, in local mode.
+gvdb_add_test(vectordb_service_write_tests
+  SOURCES vectordb_service_write_test.cpp
+  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  TIMEOUT 60 LABELS unit)
+
+gvdb_add_test(vectordb_service_search_tests
+  SOURCES vectordb_service_search_test.cpp
+  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  TIMEOUT 60 LABELS unit)
+
+gvdb_add_test(vectordb_service_import_tests
+  SOURCES vectordb_service_import_test.cpp
+  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  TIMEOUT 60 LABELS unit)
+
 gvdb_add_test(vectordb_service_coordinator_tests
   SOURCES vectordb_service_coordinator_test.cpp
   DEPS gvdb::network gvdb::cluster gvdb::storage gvdb::compute gvdb::index gvdb::core gvdb::proto
