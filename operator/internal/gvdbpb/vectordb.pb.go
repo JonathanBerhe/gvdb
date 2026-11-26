@@ -4111,8 +4111,8 @@ const file_vectordb_proto_rawDesc = "" +
 	"\vListBackups\x12\x1e.gvdb.proto.ListBackupsRequest\x1a\x1f.gvdb.proto.ListBackupsResponse\x12Q\n" +
 	"\fCancelBackup\x12\x1f.gvdb.proto.CancelBackupRequest\x1a .gvdb.proto.CancelBackupResponse\x12N\n" +
 	"\vHealthCheck\x12\x1e.gvdb.proto.HealthCheckRequest\x1a\x1f.gvdb.proto.HealthCheckResponse\x12E\n" +
-	"\bGetStats\x12\x1b.gvdb.proto.GetStatsRequest\x1a\x1c.gvdb.proto.GetStatsResponseB;\n" +
-	"\rio.gvdb.protoB\rVectorDbProtoP\x01Z\x19gvdb/integration-tests/pbb\x06proto3"
+	"\bGetStats\x12\x1b.gvdb.proto.GetStatsRequest\x1a\x1c.gvdb.proto.GetStatsResponseBS\n" +
+	"\rio.gvdb.protoB\rVectorDbProtoP\x01Z1github.com/JonathanBerhe/gvdb/proto/gvdbpb;gvdbpbb\x06proto3"
 
 var (
 	file_vectordb_proto_rawDescOnce sync.Once

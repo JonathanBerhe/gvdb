@@ -3751,7 +3751,7 @@ const file_internal_proto_rawDesc = "" +
 	"\vBackupShard\x12'.gvdb.proto.internal.BackupShardRequest\x1a(.gvdb.proto.internal.BackupShardResponse\x12c\n" +
 	"\fRestoreShard\x12(.gvdb.proto.internal.RestoreShardRequest\x1a).gvdb.proto.internal.RestoreShardResponse\x12c\n" +
 	"\fFreezeWrites\x12(.gvdb.proto.internal.FreezeWritesRequest\x1a).gvdb.proto.internal.FreezeWritesResponse\x12i\n" +
-	"\x0eUnfreezeWrites\x12*.gvdb.proto.internal.UnfreezeWritesRequest\x1a+.gvdb.proto.internal.UnfreezeWritesResponseB\x12Z\x10gvdb/internal/pbb\x06proto3"
+	"\x0eUnfreezeWrites\x12*.gvdb.proto.internal.UnfreezeWritesRequest\x1a+.gvdb.proto.internal.UnfreezeWritesResponseB3Z1github.com/JonathanBerhe/gvdb/proto/gvdbpb;gvdbpbb\x06proto3"
 
 var (
 	file_internal_proto_rawDescOnce sync.Once

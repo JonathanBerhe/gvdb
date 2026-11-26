@@ -5,7 +5,8 @@ syntax = "proto3";
 
 package gvdb.proto;
 
-option go_package = "gvdb/integration-tests/pb";
+// Go code generators override this with -M flags (tools/proto/generate.sh).
+option go_package = "github.com/JonathanBerhe/gvdb/proto/gvdbpb;gvdbpb";
 
 option java_package = "io.gvdb.proto";
 option java_multiple_files = true;
