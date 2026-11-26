@@ -153,7 +153,7 @@ make status   # check pods
 
 ```bash
 make build          # Debug build with tests (preset dev, output in build/dev)
-make build-release  # Release build as shipped (preset release, output in build/release)
+make build-release  # Release build (preset release, output in build/release); the container image uses release-linux
 make test           # Run all C++ tests of the dev build
 ```
 
@@ -263,9 +263,9 @@ All binaries support environment variables (`GVDB_BIND_ADDRESS`, `GVDB_ADVERTISE
 
 ## Build Requirements
 
-- C++20 compiler (CI and the container image use GCC 13; macOS uses Apple clang)
 - CMake 3.28+ and Ninja
-- On macOS: Homebrew `libomp` and `zlib`
+- Linux: Clang 22 with libc++, from apt.llvm.org (`tools/ci/install-llvm.sh` installs it on Ubuntu or Debian). CI, the container image and the `ci`, `release-linux` and `cuda` presets use it. The `dev` preset uses the default compiler, so GCC 13 also works for local builds.
+- macOS: Apple clang from Xcode, plus Homebrew `libomp` and `zlib`
 - Dependencies fetched automatically via CMake FetchContent
 
 ## Tests

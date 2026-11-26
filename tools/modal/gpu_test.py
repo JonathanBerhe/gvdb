@@ -44,17 +44,21 @@ _REPO_IGNORE = [
     "connectors/**",
     "deploy/**",
     "docs/**",
-    "scripts/**",
     "outputs/**",
 ]
+
+# The CUDA build uses the same toolchain as the Linux CI and the release
+# image: Clang 22 with libc++ (cmake/toolchains/linux-clang-libcxx.cmake).
+# CUDA 13.4 and later accept it as the nvcc host compiler.
+TOOLCHAIN_FILE = f"{REPO_REMOTE}/cmake/toolchains/linux-clang-libcxx.cmake"
 
 app = modal.App("gvdb-gpu-test")
 
 image = (
-    # Ubuntu 24.04 ships cmake >= 3.28, satisfying faiss v1.8.0's requirement
-    # (Ubuntu 22.04's apt cmake is 3.22.1, too old).
+    # Ubuntu 24.04 ships cmake >= 3.28, satisfying faiss v1.8.0's requirement.
+    # CUDA 13.4 is the first release that supports libc++ host code.
     modal.Image.from_registry(
-        "nvidia/cuda:12.6.2-devel-ubuntu24.04",
+        "nvidia/cuda:13.5.0-devel-ubuntu24.04",
         add_python="3.11",
     )
     .apt_install(
@@ -64,13 +68,25 @@ image = (
         "ninja-build",
         "git",
         "pkg-config",
-        "libomp-dev",
         "libopenblas-dev",
         "liblapack-dev",
         "zlib1g-dev",
         "libssl-dev",
         "libcurl4-openssl-dev",
     )
+    # Clang 22, libc++, lld and libomp from apt.llvm.org, with the version
+    # from the toolchain file.
+    .add_local_file(
+        os.path.join(REPO_LOCAL, "tools/ci/install-llvm.sh"),
+        "/opt/gvdb/tools/ci/install-llvm.sh",
+        copy=True,
+    )
+    .add_local_file(
+        os.path.join(REPO_LOCAL, "cmake/toolchains/linux-clang-libcxx.cmake"),
+        "/opt/gvdb/cmake/toolchains/linux-clang-libcxx.cmake",
+        copy=True,
+    )
+    .run_commands("bash /opt/gvdb/tools/ci/install-llvm.sh")
     .env({"CCACHE_DIR": CCACHE_DIR})
     .add_local_dir(REPO_LOCAL, remote_path=REPO_REMOTE, ignore=_REPO_IGNORE)
 )
@@ -98,6 +114,7 @@ def run_tests(jobs: int = 8) -> None:
             REPO_REMOTE,
             "-B",
             BUILD_DIR,
+            f"-DCMAKE_TOOLCHAIN_FILE={TOOLCHAIN_FILE}",
             "-DCMAKE_BUILD_TYPE=Release",
             "-DGVDB_WITH_CUDA=ON",
             "-DGVDB_BUILD_TESTS=ON",

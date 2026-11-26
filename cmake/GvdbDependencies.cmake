@@ -136,9 +136,9 @@ gvdb_fetch(spdlog
   OPTIONS
     SPDLOG_BUILD_SHARED=OFF
 )
-if(APPLE)
-  # Apple clang on macOS SDK 26.4+ rejects consteval calls that mainline
-  # clang and GCC accept, and fmt's basic_format_string constructor is
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  # Clang 22 and Apple clang on macOS SDK 26.4+ reject the consteval calls in
+  # the fmt that spdlog bundles: fmt's basic_format_string constructor is
   # consteval. An empty FMT_CONSTEVAL makes fmt fall back to constexpr,
   # which still checks format strings at compile time. PUBLIC, so every
   # translation unit that includes spdlog or fmt headers sees it.
