@@ -50,10 +50,34 @@ gvdb_add_test(storage_tests
   DEPS gvdb::storage gvdb::index gvdb::core
   TIMEOUT 120 LABELS unit)
 
+# AWS_EC2_METADATA_DISABLED keeps the AWS SDK from probing the EC2 metadata
+# service when the S3 tests create a client off EC2.
 gvdb_add_test(object_store_tests
   SOURCES object_store_test.cpp
-  DEPS gvdb::storage gvdb::core
+  DEPS gvdb::storage gvdb::utils gvdb::core
+  ENVIRONMENT AWS_EC2_METADATA_DISABLED=true
   TIMEOUT 30 LABELS unit)
+
+# The object store contract against real cloud endpoints. Each binary exits
+# with code 77 (reported as skipped) when its endpoint variable is not set:
+# GVDB_TEST_S3_ENDPOINT (adobe/s3mock, test/integration/docker-compose.s3.yml) or
+# GVDB_TEST_GCS_ENDPOINT (test/integration/docker-compose.fake-gcs.yml).
+if(GVDB_WITH_S3)
+  gvdb_add_test(object_store_s3_tests
+    SOURCES object_store_s3_test.cpp
+    DEPS gvdb::storage gvdb::core
+    ENVIRONMENT AWS_EC2_METADATA_DISABLED=true
+    CUSTOM_MAIN SKIP_RETURN_CODE 77
+    TIMEOUT 120 LABELS integration s3)
+endif()
+
+if(GVDB_WITH_GCS)
+  gvdb_add_test(object_store_gcs_tests
+    SOURCES object_store_gcs_test.cpp
+    DEPS gvdb::storage gvdb::core
+    CUSTOM_MAIN SKIP_RETURN_CODE 77
+    TIMEOUT 120 LABELS integration gcs)
+endif()
 
 gvdb_add_test(segment_cache_tests
   SOURCES segment_cache_test.cpp
@@ -195,6 +219,22 @@ gvdb_add_test(vectordb_service_distributed_tests
   SOURCES vectordb_service_distributed_test.cpp
   DEPS gvdb::network gvdb::storage gvdb::compute gvdb::index gvdb::core gvdb::proto
   TIMEOUT 120 LABELS unit)
+
+# VectorDBService handlers end to end, in local mode.
+gvdb_add_test(vectordb_service_write_tests
+  SOURCES vectordb_service_write_test.cpp
+  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  TIMEOUT 60 LABELS unit)
+
+gvdb_add_test(vectordb_service_search_tests
+  SOURCES vectordb_service_search_test.cpp
+  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  TIMEOUT 60 LABELS unit)
+
+gvdb_add_test(vectordb_service_import_tests
+  SOURCES vectordb_service_import_test.cpp
+  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  TIMEOUT 60 LABELS unit)
 
 gvdb_add_test(vectordb_service_coordinator_tests
   SOURCES vectordb_service_coordinator_test.cpp

@@ -1,5 +1,11 @@
-# GPU benchmarks. They run by hand (make bench-metal, make bench-cuda), not
-# under CTest.
+# Benchmarks. They run by hand (make bench-search, make bench-metal,
+# make bench-cuda), not under CTest.
+
+# CPU search latency of the query executor over FAISS segments.
+gvdb_add_executable(gvdb-search-bench
+  SOURCES search_bench.cpp
+  DEPS gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core
+)
 
 if(GVDB_WITH_METAL)
   gvdb_add_executable(gvdb-metal-bench

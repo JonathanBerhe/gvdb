@@ -99,8 +99,15 @@ jobs:
         if: steps.filter.outputs.cpp == 'true'
         run: cmake --build --preset ci
 
+      # S3-compatible endpoint (adobe/s3mock) for object_store_s3_tests.
+      - name: Start the S3 test endpoint
+        if: steps.filter.outputs.cpp == 'true'
+        run: docker compose -f test/integration/docker-compose.s3.yml up -d --wait
+
       - name: Test
         if: steps.filter.outputs.cpp == 'true'
+        env:
+          GVDB_TEST_S3_ENDPOINT: http://localhost:9000
         run: ctest --preset ci
 
       - name: Upload server binary
@@ -149,6 +156,11 @@ jobs:
               - 'CMakeLists.txt'
               - 'CMakePresets.json'
               - 'cmake/**'
+              - 'test/CMakeLists.txt'
+              - 'test/unit/CMakeLists.txt'
+              - 'test/unit/object_store_*'
+              - 'test/integration/docker-compose.fake-gcs.yml'
+              - 'test/integration/fake-gcs-seed/**'
               - 'test/e2e/gcs_storage.go'
               - '.github/workflows/ci.yml'
 
@@ -241,6 +253,22 @@ jobs:
         if: steps.filter.outputs.gcs == 'true'
         run: cmake --build --preset gcs --target gvdb-single-node
 
+      # Stage 3: the object store contract against a GCS emulator, plus the
+      # factory tests with GCS compiled in.
+      - name: Build the object store tests
+        if: steps.filter.outputs.gcs == 'true'
+        run: cmake --build --preset gcs --target object_store_tests object_store_gcs_tests
+
+      - name: Start the GCS emulator
+        if: steps.filter.outputs.gcs == 'true'
+        run: docker compose -f test/integration/docker-compose.fake-gcs.yml up -d --wait
+
+      - name: Run the object store tests
+        if: steps.filter.outputs.gcs == 'true'
+        env:
+          GVDB_TEST_GCS_ENDPOINT: http://localhost:4443
+        run: ctest --preset gcs -R '^object_store_(gcs_)?tests$'
+
       - name: Skip notice
         if: steps.filter.outputs.gcs == 'false'
         run: echo "No GCS-relevant changes, skipping GCS build lane"
@@ -259,9 +287,16 @@ jobs:
         id: filter
         with:
           filters: |
+            # The SDK tests run against the server built in build-and-test,
+            # so server changes run them too.
             python:
               - 'clients/python/**'
-              - 'proto/vectordb.proto'
+              - 'proto/**'
+              - 'src/**'
+              - 'include/**'
+              - 'CMakeLists.txt'
+              - 'CMakePresets.json'
+              - 'cmake/**'
 
       - name: Install uv
         if: steps.filter.outputs.python == 'true'

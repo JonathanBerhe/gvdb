@@ -265,6 +265,7 @@ All binaries support environment variables (`GVDB_BIND_ADDRESS`, `GVDB_ADVERTISE
 ```bash
 make test             # C++ unit + integration tests
 make coverage         # Same tests with line coverage per module
+make bench-search     # CPU search latency benchmark (Release build)
 make test-e2e         # Go e2e tests against local server
 make test-e2e-kind    # Go e2e tests against kind cluster
 ```

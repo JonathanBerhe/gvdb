@@ -1,6 +1,6 @@
 // S3/MinIO storage e2e test.
 // Requires MinIO running on localhost:9000 with bucket "gvdb-test".
-// Start with: docker compose -f test/integration/docker-compose.minio.yml up -d
+// Start with: docker compose -f test/integration/docker-compose.s3.yml up -d --wait
 //
 // This test verifies:
 // 1. Server starts with S3 config

@@ -4,7 +4,7 @@
        undeploy clean-kind port-forward status \
        build-ui docker-build-ui run-ui \
        lint-sdk test-sdk test-sdk-kind generate-python-stubs \
-       bench-metal bench-cuda \
+       bench-search bench-metal bench-cuda \
        build-connectors test-connectors \
        build-operator test-operator docker-build-operator \
        helm-install-operator helm-uninstall-operator \
@@ -43,6 +43,14 @@ build:
 build-release:
 	@$(MAKE) build PRESET=release
 
+# CPU search latency of the query executor over FAISS segments, built with
+# the bench preset (Release, tests and benchmarks). Compare runs on the same
+# machine.
+bench-search:
+	@cmake --preset bench
+	@cmake --build --preset bench --target gvdb-search-bench
+	@./build/bench/bin/gvdb-search-bench
+
 # The Metal benchmark loads its kernel source from <build>/kernels.
 bench-metal:
 	@cmake --preset metal
@@ -73,19 +81,22 @@ test-e2e:
 test-e2e-kind:
 	@cd $(E2E_DIR) && GVDB_SERVER_ADDR=localhost:50050 NO_SERVER=true GVDB_E2E_SCALE=$${GVDB_E2E_SCALE:-0.2} ./run_all_tests.sh
 
+# S3 tests against the S3-compatible endpoint from
+# test/integration/docker-compose.s3.yml. Needs a build with S3: run
+# `make build CMAKE_EXTRA="-DGVDB_WITH_S3=ON"` first.
 test-s3:
-	@echo "Starting MinIO..."
-	@docker compose -f $(CURDIR)/test/integration/docker-compose.minio.yml up -d --wait
-	@echo "Running C++ S3 integration tests..."
-	@ctest --preset $(PRESET) -R s3_integration; status=$$?; \
+	@echo "Starting the S3 test endpoint..."
+	@docker compose -f $(CURDIR)/test/integration/docker-compose.s3.yml up -d --wait
+	@echo "Running C++ S3 tests..."
+	@GVDB_TEST_S3_ENDPOINT=http://localhost:9000 ctest --preset $(PRESET) -L s3; status=$$?; \
 	if [ $$status -eq 0 ]; then \
 		echo "Running Go S3 e2e test..."; \
 		(cd $(E2E_DIR) && GVDB_S3_ENDPOINT=http://localhost:9000 GVDB_SERVER_BIN=$(CURDIR)/$(BUILD_DIR)/bin/gvdb-single-node \
 			GVDB_SERVER_ADDR=$(GVDB_SERVER_ADDR) ./run_all_tests.sh); \
 		status=$$?; \
 	fi; \
-	echo "Stopping MinIO..."; \
-	docker compose -f $(CURDIR)/test/integration/docker-compose.minio.yml down; \
+	echo "Stopping the S3 test endpoint..."; \
+	docker compose -f $(CURDIR)/test/integration/docker-compose.s3.yml down; \
 	exit $$status
 
 lint-sdk:
