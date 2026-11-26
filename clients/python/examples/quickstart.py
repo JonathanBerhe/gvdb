@@ -4,7 +4,7 @@ Prerequisites:
     pip install gvdb
 
     # Start GVDB server:
-    ./build/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb
+    ./build/dev/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb
 """
 
 import random

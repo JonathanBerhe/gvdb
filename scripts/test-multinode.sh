@@ -35,7 +35,7 @@ mkdir -p /tmp/gvdb-test/{coordinator,data_node,query_node,proxy}/logs
 
 # Start coordinator
 echo -e "${YELLOW}Starting coordinator (node_id=1)...${NC}"
-./build/bin/gvdb-coordinator \
+./build/dev/bin/gvdb-coordinator \
   --node-id 1 \
   --bind-address 0.0.0.0:50051 \
   --raft-address 0.0.0.0:8300 \
@@ -56,7 +56,7 @@ fi
 
 # Start data node
 echo -e "${YELLOW}Starting data node (node_id=101)...${NC}"
-./build/bin/gvdb-data-node \
+./build/dev/bin/gvdb-data-node \
   --node-id 101 \
   --bind-address 0.0.0.0:50060 \
   --data-dir /tmp/gvdb-test/data_node \
@@ -76,7 +76,7 @@ fi
 
 # Start query node
 echo -e "${YELLOW}Starting query node (node_id=201)...${NC}"
-./build/bin/gvdb-query-node \
+./build/dev/bin/gvdb-query-node \
   --node-id 201 \
   --bind-address 0.0.0.0:50070 \
   --data-dir /tmp/gvdb-test/query_node \
@@ -96,7 +96,7 @@ fi
 
 # Start proxy
 echo -e "${YELLOW}Starting proxy (node_id=1)...${NC}"
-./build/bin/gvdb-proxy \
+./build/dev/bin/gvdb-proxy \
   --node-id 1 \
   --bind-address 0.0.0.0:50050 \
   --data-dir /tmp/gvdb-test/proxy \

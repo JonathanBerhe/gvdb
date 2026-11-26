@@ -207,7 +207,7 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCache
     vectors.push_back(core::Vector(std::move(data)));
     ids.push_back(core::MakeVectorId(i + 1));
   }
-  coord_segment_store_->WriteVectors(segment_id, vectors, ids);
+  REQUIRE(coord_segment_store_->WriteVectors(segment_id, vectors, ids).ok());
 
   // Create segment on data node too (simulate push replication)
   if (!data_segment_store_->GetSegment(segment_id)) {
@@ -215,7 +215,7 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCache
         segment_id, *collection_id, 64, core::MetricType::L2, core::IndexType::FLAT);
     REQUIRE(ds.ok());
     auto* dn_seg = data_segment_store_->GetSegment(segment_id);
-    dn_seg->AddVectors(vectors, ids);
+    REQUIRE(dn_seg->AddVectors(vectors, ids).ok());
     core::IndexConfig cfg;
     cfg.index_type = core::IndexType::FLAT;
     cfg.dimension = 64;

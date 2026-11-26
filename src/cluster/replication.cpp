@@ -77,7 +77,7 @@ absl::Status ReplicationManager::ReplicateWrite(
 
 absl::Status ReplicationManager::ReadRepair(
     core::ShardId shard_id,
-    const std::vector<core::NodeId>& replica_nodes) {
+    const std::vector<core::NodeId>& /*replica_nodes*/) {
 
   utils::Logger::Instance().Info("Performing read repair for shard {}",
                                  core::ToUInt16(shard_id));
@@ -111,8 +111,8 @@ absl::Status ReplicationManager::ReplicateShard(
 std::future<absl::Status> ReplicationManager::SendWriteToNode(
     core::NodeId node_id,
     core::ShardId shard_id,
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids) {
+    const std::vector<core::Vector>& /*vectors*/,
+    const std::vector<core::VectorId>& /*ids*/) {
 
   return std::async(std::launch::async, [=]() -> absl::Status {
     // TODO: Implement actual network write via gRPC

@@ -58,7 +58,7 @@ class DataNodeTest {
     }
 
     auto* segment = segment_store_->GetSegment(seg_id);
-    segment->AddVectors(vectors, ids);
+    REQUIRE(segment->AddVectors(vectors, ids).ok());
     return seg_id;
   }
 
@@ -81,7 +81,7 @@ class DataNodeTest {
     }
 
     auto* segment = segment_store_->GetSegment(seg_id);
-    segment->AddVectorsWithMetadata(vectors, ids, metadata);
+    REQUIRE(segment->AddVectorsWithMetadata(vectors, ids, metadata).ok());
     return seg_id;
   }
 
@@ -262,8 +262,8 @@ TEST_CASE_FIXTURE(DataNodeTest, "ProcessBuildQueue processes all tasks") {
   auto seg1 = CreateSegmentWithVectors(50);
   auto seg2 = CreateSegmentWithVectors(50);
 
-  data_node_->ScheduleBuildTask({seg1, core::IndexType::FLAT, 10});
-  data_node_->ScheduleBuildTask({seg2, core::IndexType::FLAT, 20});
+  REQUIRE(data_node_->ScheduleBuildTask({seg1, core::IndexType::FLAT, 10}).ok());
+  REQUIRE(data_node_->ScheduleBuildTask({seg2, core::IndexType::FLAT, 20}).ok());
 
   size_t processed = data_node_->ProcessBuildQueue();
   CHECK_EQ(processed, 2);
@@ -280,11 +280,11 @@ TEST_CASE_FIXTURE(DataNodeTest, "ProcessBuildQueue empty queue returns 0") {
 
 TEST_CASE_FIXTURE(DataNodeTest, "ProcessBuildQueue handles failed tasks") {
   // Schedule a task for a nonexistent segment
-  data_node_->ScheduleBuildTask({core::MakeSegmentId(999), core::IndexType::FLAT, 10});
+  REQUIRE(data_node_->ScheduleBuildTask({core::MakeSegmentId(999), core::IndexType::FLAT, 10}).ok());
 
   // Also schedule a valid one
   auto seg = CreateSegmentWithVectors(50);
-  data_node_->ScheduleBuildTask({seg, core::IndexType::FLAT, 5});
+  REQUIRE(data_node_->ScheduleBuildTask({seg, core::IndexType::FLAT, 5}).ok());
 
   size_t processed = data_node_->ProcessBuildQueue();
   CHECK_EQ(processed, 1);  // Only the valid one succeeds

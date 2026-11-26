@@ -138,11 +138,11 @@ TEST_CASE("SparseIndex_AddAndSearch") {
   index::SparseIndex idx;
 
   // Add 5 vectors with known sparse patterns
-  idx.AddVector(core::MakeVectorId(1), MakeSparse({{0, 1.0f}, {1, 0.0f}, {2, 3.0f}}));
-  idx.AddVector(core::MakeVectorId(2), MakeSparse({{0, 2.0f}, {3, 1.0f}}));
-  idx.AddVector(core::MakeVectorId(3), MakeSparse({{2, 5.0f}, {3, 2.0f}}));
-  idx.AddVector(core::MakeVectorId(4), MakeSparse({{0, 0.5f}, {2, 1.0f}}));
-  idx.AddVector(core::MakeVectorId(5), MakeSparse({{1, 4.0f}, {3, 3.0f}}));
+  REQUIRE(idx.AddVector(core::MakeVectorId(1), MakeSparse({{0, 1.0f}, {1, 0.0f}, {2, 3.0f}})).ok());
+  REQUIRE(idx.AddVector(core::MakeVectorId(2), MakeSparse({{0, 2.0f}, {3, 1.0f}})).ok());
+  REQUIRE(idx.AddVector(core::MakeVectorId(3), MakeSparse({{2, 5.0f}, {3, 2.0f}})).ok());
+  REQUIRE(idx.AddVector(core::MakeVectorId(4), MakeSparse({{0, 0.5f}, {2, 1.0f}})).ok());
+  REQUIRE(idx.AddVector(core::MakeVectorId(5), MakeSparse({{1, 4.0f}, {3, 3.0f}})).ok());
 
   CHECK_EQ(idx.GetDocumentCount(), 5);
 
@@ -160,7 +160,7 @@ TEST_CASE("SparseIndex_AddAndSearch") {
 
 TEST_CASE("SparseIndex_NoMatchingDimensions") {
   index::SparseIndex idx;
-  idx.AddVector(core::MakeVectorId(1), MakeSparse({{0, 1.0f}}));
+  REQUIRE(idx.AddVector(core::MakeVectorId(1), MakeSparse({{0, 1.0f}})).ok());
 
   // Query on dimension 99 — no postings
   core::SparseVector query({{99, 1.0f}});
@@ -182,14 +182,14 @@ TEST_CASE("SparseIndex_MemoryTracking") {
   index::SparseIndex idx;
   size_t initial = idx.GetMemoryUsage();
 
-  idx.AddVector(core::MakeVectorId(1), MakeSparse({{0, 1.0f}, {1, 2.0f}}));
+  REQUIRE(idx.AddVector(core::MakeVectorId(1), MakeSparse({{0, 1.0f}, {1, 2.0f}})).ok());
   CHECK_GT(idx.GetMemoryUsage(), initial);
 }
 
 TEST_CASE("SparseIndex_LargeK") {
   index::SparseIndex idx;
-  idx.AddVector(core::MakeVectorId(1), MakeSparse({{0, 1.0f}}));
-  idx.AddVector(core::MakeVectorId(2), MakeSparse({{0, 2.0f}}));
+  REQUIRE(idx.AddVector(core::MakeVectorId(1), MakeSparse({{0, 1.0f}})).ok());
+  REQUIRE(idx.AddVector(core::MakeVectorId(2), MakeSparse({{0, 2.0f}})).ok());
 
   // k=100 but only 2 documents
   core::SparseVector query({{0, 1.0f}});

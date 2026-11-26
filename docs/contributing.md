@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in GVDB. Contributions are welcome — from bug reports to typo fixes to full feature PRs.
+Thanks for your interest in GVDB. Contributions are welcome, from bug reports to typo fixes to full feature PRs.
 
 ## Repository
 
@@ -11,9 +11,11 @@ Thanks for your interest in GVDB. Contributions are welcome — from bug reports
 ```bash
 git clone https://github.com/JonathanBerhe/gvdb.git
 cd gvdb
-make build          # Debug build
-make test           # C++ unit + integration tests (37 suites)
+make build          # Debug build with tests (preset dev)
+make test           # C++ unit + integration tests
 ```
+
+The `.clangd` file in the repository root points clangd at `build/dev/compile_commands.json`, so run `make build` once before you open the code in an editor that uses clangd.
 
 Python SDK:
 
@@ -42,7 +44,7 @@ See [installation](getting-started/installation.md) for prerequisites.
 
 ## Commit messages
 
-**Conventional commits** — parsed by release-please to compute version bumps.
+**Conventional commits**, parsed by release-please to compute version bumps.
 
 ```
 <type>(<scope>): <subject>
@@ -58,14 +60,14 @@ fix(storage): correct segment state transitions
 refactor(network): simplify gRPC service initialization
 ```
 
-Subject-only commits — no body, no `Co-Authored-By` footer.
+Subject-only commits: no body, no `Co-Authored-By` footer.
 
 See the [changelog](changelog.md) for the version-bump rules.
 
 ## Pull requests
 
 - Keep PRs focused. One topic per PR.
-- CI runs `make build && make test` and must pass.
+- CI builds and tests the `ci` preset (`cmake --preset ci`, `cmake --build --preset ci`, `ctest --preset ci`) and must pass.
 - Update the relevant [module CLAUDE.md](https://github.com/JonathanBerhe/gvdb/blob/main/CLAUDE.md) if you change architecture.
 - Add tests for new features and bug fixes (TDD welcome).
 
@@ -73,10 +75,10 @@ See the [changelog](changelog.md) for the version-bump rules.
 
 See the top-level [`CLAUDE.md`](https://github.com/JonathanBerhe/gvdb/blob/main/CLAUDE.md) in the repo:
 
-- C++17 minimum, C++20 preferred
+- C++20, set in one place (`GVDB_CXX_STANDARD` in `cmake/GvdbCompilerSettings.cmake`)
 - RAII + smart pointers (no raw `new`/`delete`)
 - `absl::Status` / `absl::StatusOr<T>` for fallible operations
-- Warnings as errors (`-Wall -Wextra -Werror`)
+- `-Wall -Wextra -Wpedantic` on every GVDB target, and warnings are errors in every preset
 - Module dependency rules (see [`CLAUDE.md`](https://github.com/JonathanBerhe/gvdb/blob/main/CLAUDE.md#module-architecture-and-dependencies))
 
 Python SDK follows `ruff` defaults. Run `make lint-sdk`.

@@ -14,8 +14,6 @@ FaissHNSWIndex::FaissHNSWIndex(core::Dimension dimension,
                                int ef_construction, int ef_search)
     : FaissIndexBase(CreateHNSWIndex(dimension, metric, M, ef_construction),
                      metric),
-      M_(M),
-      ef_construction_(ef_construction),
       ef_search_(ef_search) {
   SetEfSearch(ef_search);
 }

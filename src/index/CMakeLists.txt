@@ -1,108 +1,73 @@
-# Index module - Vector indexing with Faiss
-
-# Create index library
-add_library(gvdb_index
-  faiss_base.cpp
-  faiss_flat.cpp
-  faiss_hnsw.cpp
-  faiss_ivf.cpp
-  index_factory.cpp
-  index_manager.cpp
-  turboquant/turboquant_codec.cpp
-  turboquant/turboquant_index.cpp
-  turboquant/ivf_turboquant_index.cpp
-  bm25_index.cpp
-  sparse_index.cpp
+# Index module: FAISS, TurboQuant, BM25 and sparse indexes, plus the optional
+# CUDA and Metal backends.
+gvdb_add_library(index
+  SOURCES
+    faiss_base.cpp
+    faiss_flat.cpp
+    faiss_hnsw.cpp
+    faiss_ivf.cpp
+    index_factory.cpp
+    index_manager.cpp
+    turboquant/turboquant_codec.cpp
+    turboquant/turboquant_index.cpp
+    turboquant/ivf_turboquant_index.cpp
+    bm25_index.cpp
+    sparse_index.cpp
+  PUBLIC_DEPS
+    gvdb::core
+    # faiss/impl/HNSW.h includes <omp.h>, and the tests include the FAISS
+    # wrappers in this folder.
+    OpenMP::OpenMP_CXX
 )
 
-# Metal GPU acceleration (macOS only)
-if(APPLE AND GVDB_WITH_METAL)
-  target_sources(gvdb_index PRIVATE
-    metal/metal_compute.mm
-    metal/metal_flat_index.mm
-  )
-  target_include_directories(gvdb_index PRIVATE
-    ${metal-cpp_SOURCE_DIR}
-  )
-  target_link_libraries(gvdb_index PRIVATE
-    "-framework Metal"
-    "-framework Foundation"
-  )
-  # Copy kernel source to build dir at build time
-  add_custom_command(TARGET gvdb_index POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      ${CMAKE_CURRENT_SOURCE_DIR}/metal/kernels/distance.metal
-      ${CMAKE_BINARY_DIR}/kernels/distance.metal
-  )
-endif()
-
-# NVIDIA CUDA GPU acceleration (via faiss-gpu)
-if(GVDB_WITH_CUDA)
-  target_sources(gvdb_index PRIVATE
-    cuda/cuda_compute.cpp
-  )
-  target_link_libraries(gvdb_index PRIVATE CUDA::cudart CUDA::cublas)
-endif()
-
-# Set target properties
-set_target_properties(gvdb_index PROPERTIES
-  CXX_STANDARD 20
-  CXX_STANDARD_REQUIRED ON
-  CXX_EXTENSIONS OFF
-  POSITION_INDEPENDENT_CODE ON
-)
-
-# Include directories
+# Module-private headers (faiss_*.h, turboquant/, metal/, cuda/) live next to
+# the sources.
 target_include_directories(gvdb_index
-  PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../include
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/turboquant
-    /opt/homebrew/opt/libomp/include
 )
 
-# Link dependencies.
-#
-# DO NOT simplify the LINK_GROUP / WHOLE_ARCHIVE expression below — it
-# papers over two real linker quirks in upstream faiss v1.8.0:
-#
-#   1. libfaiss_gpu.a contains code that calls back into CPU symbols
-#      (faiss::ParameterSpace, faiss::IndexShardsIVF, ...). The natural
-#      transitive order is `faiss faiss_gpu`, but ld processes archives in
-#      one pass: by the time faiss_gpu's references appear, faiss has
-#      already been scanned and discarded. LINK_GROUP RESCAN emits
-#      -Wl,--start-group / --end-group so ld multi-passes the group.
-#
-#   2. Upstream faiss attaches faiss_gpu via $<LINK_LIBRARY:WHOLE_ARCHIVE,...>
-#      on its own interface. If we mention faiss_gpu inside the group
-#      WITHOUT the same feature, CMake errors out with
-#      "specified with the feature 'WHOLE_ARCHIVE', has already occurred
-#      without any feature". Matching the WHOLE_ARCHIVE wrapping is what
-#      lets dedup keep both the group placement and the upstream attachment.
 if(GVDB_WITH_CUDA)
+  target_sources(gvdb_index PRIVATE cuda/cuda_compute.cpp)
+  target_compile_definitions(gvdb_index PUBLIC GVDB_HAS_CUDA=1)
+  # DO NOT simplify the LINK_GROUP / WHOLE_ARCHIVE expression. It works
+  # around two linker quirks in upstream faiss v1.8.0:
+  #
+  #   1. libfaiss_gpu.a calls back into CPU symbols (faiss::ParameterSpace,
+  #      faiss::IndexShardsIVF, ...). In the natural order `faiss faiss_gpu`
+  #      the linker has already discarded faiss when faiss_gpu's references
+  #      appear. LINK_GROUP RESCAN emits --start-group/--end-group so the
+  #      linker scans the group again.
+  #
+  #   2. Upstream faiss attaches faiss_gpu with $<LINK_LIBRARY:WHOLE_ARCHIVE,...>
+  #      on its own interface. Naming faiss_gpu in the group without the same
+  #      feature makes CMake fail ("specified with the feature
+  #      'WHOLE_ARCHIVE', has already occurred without any feature").
   target_link_libraries(gvdb_index
     PUBLIC
-      gvdb_core
       "$<LINK_GROUP:RESCAN,faiss,$<LINK_LIBRARY:WHOLE_ARCHIVE,faiss_gpu>>"
+    PRIVATE
+      CUDA::cudart
+      CUDA::cublas
   )
 else()
-  target_link_libraries(gvdb_index
-    PUBLIC
-      gvdb_core
-      faiss
-  )
+  target_link_libraries(gvdb_index PUBLIC faiss)
 endif()
 
-# Compiler warnings
-target_compile_options(gvdb_index PRIVATE
-  $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic>
-  $<$<CXX_COMPILER_ID:MSVC>:/W4>
-)
-
-# Export library
-install(TARGETS gvdb_index
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin
-)
+if(GVDB_WITH_METAL)
+  target_sources(gvdb_index
+    PRIVATE
+      metal/metal_compute.mm
+      metal/metal_flat_index.mm
+  )
+  target_compile_definitions(gvdb_index PUBLIC GVDB_HAS_METAL=1)
+  target_link_libraries(gvdb_index PRIVATE gvdb::metal_cpp)
+  # The Metal backend compiles its kernel source at run time from
+  # <build>/kernels.
+  add_custom_command(TARGET gvdb_index POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      ${CMAKE_CURRENT_SOURCE_DIR}/metal/kernels/distance.metal
+      ${PROJECT_BINARY_DIR}/kernels/distance.metal
+  )
+endif()

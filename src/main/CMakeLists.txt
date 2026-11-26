@@ -1,105 +1,74 @@
-# Main binaries
+# Server programs, one per role.
 
-# Single-node binary (single-node deployment)
-add_executable(gvdb-single-node
-  single_node_main.cpp
-)
-
-target_link_libraries(gvdb-single-node
-  PRIVATE
-    gvdb_consensus
-    gvdb_cluster
-    gvdb_network
-    gvdb_compute
-    gvdb_storage
-    gvdb_index
-    gvdb_utils
-    gvdb_core
-    proto_lib
+gvdb_add_executable(gvdb-single-node
+  SOURCES single_node_main.cpp
+  DEPS
+    gvdb::consensus
+    gvdb::cluster
+    gvdb::network
+    gvdb::compute
+    gvdb::storage
+    gvdb::index
+    gvdb::utils
+    gvdb::core
+    gvdb::proto
     absl::strings
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
 )
 
-# Coordinator binary (metadata management and Raft consensus)
-add_executable(gvdb-coordinator
-  coordinator_main.cpp
-)
-
-target_link_libraries(gvdb-coordinator
-  PRIVATE
-    gvdb_consensus
-    gvdb_cluster
-    gvdb_utils
-    gvdb_core
+gvdb_add_executable(gvdb-coordinator
+  SOURCES coordinator_main.cpp
+  DEPS
+    gvdb::consensus
+    gvdb::cluster
+    gvdb::network
+    gvdb::compute
+    gvdb::storage
+    gvdb::index
+    gvdb::utils
+    gvdb::core
     absl::strings
     absl::str_format
 )
 
-# Data Node binary (storage and indexing)
-add_executable(gvdb-data-node
-  data_node_main.cpp
-)
-
-target_link_libraries(gvdb-data-node
-  PRIVATE
-    gvdb_cluster
-    gvdb_network
-    gvdb_compute
-    gvdb_storage
-    gvdb_index
-    gvdb_utils
-    gvdb_core
-    proto_lib
+gvdb_add_executable(gvdb-data-node
+  SOURCES data_node_main.cpp
+  DEPS
+    gvdb::cluster
+    gvdb::network
+    gvdb::compute
+    gvdb::storage
+    gvdb::index
+    gvdb::utils
+    gvdb::core
+    gvdb::proto
     absl::strings
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
 )
 
-# Query Node binary (segment caching and query execution)
-add_executable(gvdb-query-node
-  query_node_main.cpp
-)
-
-target_link_libraries(gvdb-query-node
-  PRIVATE
-    gvdb_cluster
-    gvdb_network
-    gvdb_compute
-    gvdb_storage
-    gvdb_index
-    gvdb_utils
-    gvdb_core
-    proto_lib
+gvdb_add_executable(gvdb-query-node
+  SOURCES query_node_main.cpp
+  DEPS
+    gvdb::cluster
+    gvdb::network
+    gvdb::compute
+    gvdb::storage
+    gvdb::index
+    gvdb::utils
+    gvdb::core
+    gvdb::proto
     absl::strings
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
 )
 
-# Proxy binary (lightweight request routing)
-add_executable(gvdb-proxy
-  proxy_main.cpp
-)
-
-target_link_libraries(gvdb-proxy
-  PRIVATE
-    gvdb_network           # ProxyService and VectorDBService
-    proto_lib         # Proto definitions
-    gvdb_cluster      # LoadBalancer
-    gvdb_utils        # Logging, metrics
-    gvdb_core         # Types, status
+gvdb_add_executable(gvdb-proxy
+  SOURCES proxy_main.cpp
+  DEPS
+    gvdb::network
+    gvdb::cluster
+    gvdb::utils
+    gvdb::core
+    gvdb::proto
     absl::strings
-    ${_GRPC_GRPCPP}   # gRPC for forwarding
-    ${_PROTOBUF_LIBPROTOBUF}
 )
 
-# Set output directory for binaries
-set_target_properties(gvdb-single-node gvdb-coordinator gvdb-data-node gvdb-query-node gvdb-proxy
-  PROPERTIES
-  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
-)
-
-# Install targets
 install(TARGETS gvdb-single-node gvdb-coordinator gvdb-data-node gvdb-query-node gvdb-proxy
-  DESTINATION bin
+  RUNTIME DESTINATION bin
 )

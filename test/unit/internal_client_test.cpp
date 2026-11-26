@@ -18,8 +18,8 @@ class MockInternalService : public proto::internal::InternalService::Service {
   bool should_fail{false};
 
   grpc::Status CreateSegment(
-      grpc::ServerContext* context,
-      const proto::internal::CreateSegmentRequest* request,
+      grpc::ServerContext* /*context*/,
+      const proto::internal::CreateSegmentRequest* /*request*/,
       proto::internal::CreateSegmentResponse* response) override {
     create_segment_calls++;
 
@@ -33,8 +33,8 @@ class MockInternalService : public proto::internal::InternalService::Service {
   }
 
   grpc::Status DeleteSegment(
-      grpc::ServerContext* context,
-      const proto::internal::DeleteSegmentRequest* request,
+      grpc::ServerContext* /*context*/,
+      const proto::internal::DeleteSegmentRequest* /*request*/,
       proto::internal::DeleteSegmentResponse* response) override {
     delete_segment_calls++;
 

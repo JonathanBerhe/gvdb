@@ -351,7 +351,8 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentReadsAndWrites") {
     threads.emplace_back([this, &stop]() {
       while (!stop.load()) {
         for (int i = 1; i <= 250; ++i) {
-          cache_->GetByName("collection_" + std::to_string(i));
+          // Only exercises concurrent reads; the result can be a miss.
+          (void)cache_->GetByName("collection_" + std::to_string(i));
         }
         std::this_thread::sleep_for(std::chrono::microseconds(10));
       }

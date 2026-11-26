@@ -5,7 +5,10 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-SERVER_BIN="$PROJECT_ROOT/build/bin/gvdb-single-node"
+# `make test-e2e` passes the binary of the active preset; rbac.go reads the
+# same variable.
+export GVDB_SERVER_BIN="${GVDB_SERVER_BIN:-$PROJECT_ROOT/build/dev/bin/gvdb-single-node}"
+SERVER_BIN="$GVDB_SERVER_BIN"
 SERVER_PORT=50051
 SERVER_DATA_DIR="/tmp/gvdb-integration-test"
 SERVER_PID=""

@@ -1,52 +1,20 @@
-# Benchmark binaries
+# GPU benchmarks. They run by hand (make bench-metal, make bench-cuda), not
+# under CTest.
 
-if(APPLE AND GVDB_WITH_METAL)
-  add_executable(gvdb-metal-bench
-    metal_bench.cpp
-  )
-
-  target_include_directories(gvdb-metal-bench PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/index
-    ${metal-cpp_SOURCE_DIR}
-  )
-
-  target_link_libraries(gvdb-metal-bench
-    PRIVATE
-      gvdb_index
-      gvdb_core
-      faiss
-      "-framework Metal"
-      "-framework Foundation"
-  )
-
-  set_target_properties(gvdb-metal-bench PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+if(GVDB_WITH_METAL)
+  gvdb_add_executable(gvdb-metal-bench
+    SOURCES metal_bench.cpp
+    DEPS gvdb::index gvdb::core gvdb::metal_cpp faiss
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/src/index
   )
 endif()
 
 if(GVDB_WITH_CUDA)
-  add_executable(gvdb-cuda-bench
-    cuda_bench.cpp
-  )
-
-  target_include_directories(gvdb-cuda-bench PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/index
-  )
-
-  # The bench uses faiss-gpu headers directly (GpuCloner / StandardGpuResources),
-  # which pull in cublas_v2.h — so it needs the CUDA toolkit include dirs the
-  # imported targets carry, same as gvdb_index. CUDAToolkit is found at the
-  # root scope under GVDB_WITH_CUDA.
-  target_link_libraries(gvdb-cuda-bench
-    PRIVATE
-      gvdb_index
-      gvdb_core
-      faiss
-      CUDA::cudart
-      CUDA::cublas
-  )
-
-  set_target_properties(gvdb-cuda-bench PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+  # Uses the faiss-gpu headers directly (GpuCloner, StandardGpuResources),
+  # which include cublas_v2.h.
+  gvdb_add_executable(gvdb-cuda-bench
+    SOURCES cuda_bench.cpp
+    DEPS gvdb::index gvdb::core faiss CUDA::cudart CUDA::cublas
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/src/index
   )
 endif()

@@ -177,8 +177,8 @@ class NullInternalServiceClientFactory : public IInternalServiceClientFactory {
   NullInternalServiceClientFactory() = default;
 
   std::unique_ptr<IInternalServiceClient> CreateClient(
-      core::NodeId node_id,
-      const std::string& address) override {
+      core::NodeId /*node_id*/,
+      const std::string& /*address*/) override {
     return nullptr;  // No clients created in tests
   }
 };

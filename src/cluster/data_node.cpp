@@ -148,7 +148,7 @@ absl::Status DataNode::CompactSegments(const std::vector<core::SegmentId>& segme
   }
 
   // Validate all segments exist and are SEALED
-  core::CollectionId collection_id;
+  core::CollectionId collection_id = core::kInvalidCollectionId;
   core::Dimension dimension = 0;
   core::MetricType metric = core::MetricType::L2;
   core::IndexType index_type = core::IndexType::FLAT;

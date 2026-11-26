@@ -101,7 +101,7 @@ class ICollectionResolver {
   }
 
   // Get number of shards for a collection
-  virtual size_t GetNumShards(const std::string& name) { return 1; }
+  virtual size_t GetNumShards(const std::string& /*name*/) { return 1; }
 
   // Get gRPC stub for segment replication (only CachedCoordinatorResolver has one)
   virtual proto::internal::InternalService::Stub* GetCoordinatorStub() { return nullptr; }
@@ -109,7 +109,7 @@ class ICollectionResolver {
   // Get shard targets for distributed search (calls RouteQuery on coordinator)
   // Returns empty if not a distributed resolver
   virtual absl::StatusOr<std::vector<ShardTarget>> GetShardTargets(
-      const std::string& collection_name) {
+      const std::string& /*collection_name*/) {
     return absl::UnimplementedError("Not a distributed resolver");
   }
 };

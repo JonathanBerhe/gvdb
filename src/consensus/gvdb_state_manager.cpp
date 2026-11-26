@@ -47,7 +47,7 @@ GvdbStateManager::GvdbStateManager(int32_t server_id, const std::string& endpoin
 
   // Try to load existing state from disk
   bool loaded_config = load_config_from_db();
-  bool loaded_state = load_state_from_db();
+  load_state_from_db();
 
   if (!loaded_config) {
     // First initialization - create single-server cluster

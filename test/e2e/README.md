@@ -25,7 +25,7 @@ Comprehensive integration test suite for GVDB written in Go. No external depende
 
 - **Go 1.21+** ([install](https://golang.org/dl/))
 - **protoc** (Protocol Buffers compiler)
-- **GVDB** built successfully (`build/bin/gvdb-all-in-one`)
+- **GVDB** built successfully (`build/dev/bin/gvdb-all-in-one`)
 - **Port 50051** available
 
 ###Run All Tests (Automated)
@@ -76,7 +76,7 @@ go build -o fuzzy_test fuzzy_test.go
 
 ```bash
 # From project root
-./build/bin/gvdb-all-in-one --port 50051 --data-dir /tmp/gvdb-test
+./build/dev/bin/gvdb-all-in-one --port 50051 --data-dir /tmp/gvdb-test
 ```
 
 ### Run Individual Tests
@@ -259,7 +259,7 @@ lsof -i :50051
 pkill gvdb-all-in-one
 
 # Verify binary exists
-ls -la ../../build/bin/gvdb-all-in-one
+ls -la ../../build/dev/bin/gvdb-all-in-one
 
 # Check server logs
 tail -f /tmp/gvdb-integration-test/server.log
@@ -350,7 +350,7 @@ jobs:
       - name: Build GVDB
         run: |
           cmake -S . -B build
-          cmake --build build --target gvdb-all-in-one -j$(nproc)
+          cmake --build --preset dev --target gvdb-all-in-one
       - name: Run Integration Tests
         run: |
           cd test/integration
@@ -372,7 +372,7 @@ WORKDIR /gvdb
 
 # Build GVDB
 RUN cmake -S . -B build && \
-    cmake --build build --target gvdb-all-in-one
+    cmake --build --preset dev --target gvdb-all-in-one
 
 # Run tests
 CMD ["test/integration/run_all_tests.sh"]
@@ -489,7 +489,7 @@ build_test "My Test" "my_test.go" || exit 1
 
 For issues or questions:
 - Check server logs: `/tmp/gvdb-integration-test/server.log`
-- Run unit tests: `ctest --test-dir build --output-on-failure`
+- Run unit tests: `ctest --preset dev`
 - Verify protoc version: `protoc --version` (need 3.0+)
 - Check Go version: `go version` (need 1.21+)
 - Review build output for specific error messages

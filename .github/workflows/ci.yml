@@ -19,8 +19,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Every job pins ubuntu-24.04: CI must build and run with the toolchain of
+  # deploy/Dockerfile (Ubuntu 24.04, GCC 13). The ubuntu-latest label moved to
+  # a newer release with GCC 15, where the AWS SDK's s2n-tls fails to compile.
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
 
     steps:
@@ -38,7 +41,10 @@ jobs:
               - 'proto/**'
               - 'test/**'
               - 'CMakeLists.txt'
+              - 'CMakePresets.json'
+              - 'cmake/**'
               - 'Makefile'
+              - '.github/workflows/ci.yml'
               # The python SDK integration tests download this job's
               # gvdb-server artifact, so SDK-only changes also need the
               # server built here.
@@ -48,12 +54,13 @@ jobs:
         if: steps.filter.outputs.cpp == 'true'
         run: |
           sudo apt-get update
-          # Remove pre-installed libssl-dev — its OpenSSL 3.x headers
+          # Remove pre-installed libssl-dev: its OpenSSL 3.x headers
           # conflict with the AWS SDK's bundled aws-lc/s2n-tls build.
           sudo apt-get remove -y libssl-dev 2>/dev/null || true
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             cmake \
+            ninja-build \
             ccache \
             libasio-dev \
             libomp-dev \
@@ -66,7 +73,7 @@ jobs:
         if: steps.filter.outputs.cpp == 'true'
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ccache-gcc-${{ hashFiles('CMakeLists.txt') }}
+          key: ccache-gcc-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**') }}
           restore-keys: |
             ccache-gcc-
 
@@ -76,35 +83,37 @@ jobs:
         id: fc-cache
         with:
           path: |
-            build/_deps/*-src
-            build/_deps/*-subbuild
-          key: fetchcontent-${{ hashFiles('CMakeLists.txt') }}
+            build/ci/_deps/*-src
+            build/ci/_deps/*-subbuild
+          key: fetchcontent-ci-${{ hashFiles('cmake/GvdbDependencies.cmake') }}
           restore-keys: |
-            fetchcontent-
+            fetchcontent-ci-
+
+      - name: Configure
+        if: steps.filter.outputs.cpp == 'true'
+        run: >
+          cmake --preset ci
+          ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}
 
       - name: Build
         if: steps.filter.outputs.cpp == 'true'
-        run: >
-          make build
-          BUILD_TYPE=Release
-          CMAKE_EXTRA="-DBUILD_TESTING=ON -DGVDB_WITH_S3=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}"
+        run: cmake --build --preset ci
 
       - name: Test
         if: steps.filter.outputs.cpp == 'true'
-        run: make test
+        run: ctest --preset ci
 
       - name: Upload server binary
         if: steps.filter.outputs.cpp == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: gvdb-server
-          path: build/bin/gvdb-single-node
+          path: build/ci/bin/gvdb-single-node
           retention-days: 1
 
       - name: Skip notice
         if: steps.filter.outputs.cpp == 'false'
-        run: echo "No C++ changes detected — skipping build and test"
+        run: echo "No C++ changes detected, skipping build and test"
 
   # ==========================================================================
   # GCS backend build lane
@@ -118,7 +127,7 @@ jobs:
   # at executable link time. Gated to GCS-relevant changes so the heavy
   # vcpkg build does not run on every PR.
   gcs-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     needs: build-and-test
 
@@ -138,6 +147,8 @@ jobs:
               - 'include/storage/object_store_factory.h'
               - 'src/storage/CMakeLists.txt'
               - 'CMakeLists.txt'
+              - 'CMakePresets.json'
+              - 'cmake/**'
               - 'test/e2e/gcs_storage.go'
               - '.github/workflows/ci.yml'
 
@@ -148,6 +159,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             cmake \
+            ninja-build \
             ccache \
             curl zip unzip tar \
             pkg-config \
@@ -163,7 +175,7 @@ jobs:
         if: steps.filter.outputs.gcs == 'true'
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ccache-gcs-${{ hashFiles('CMakeLists.txt') }}
+          key: ccache-gcs-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**') }}
           restore-keys: |
             ccache-gcs-
             ccache-gcc-
@@ -199,47 +211,42 @@ jobs:
         id: fc-cache
         with:
           path: |
-            build/_deps/*-src
-            build/_deps/*-subbuild
-          key: fetchcontent-${{ hashFiles('CMakeLists.txt') }}
+            build/gcs/_deps/*-src
+            build/gcs/_deps/*-subbuild
+          key: fetchcontent-gcs-${{ hashFiles('cmake/GvdbDependencies.cmake') }}
           restore-keys: |
-            fetchcontent-
+            fetchcontent-gcs-
 
+      # The gcs preset takes the vcpkg toolchain file from $VCPKG_ROOT.
       - name: Configure (GVDB_WITH_GCS=ON)
         if: steps.filter.outputs.gcs == 'true'
         run: >
-          cmake -S . -B build
-          -DCMAKE_BUILD_TYPE=Release
-          -DBUILD_TESTING=ON
-          -DGVDB_WITH_GCS=ON
-          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-          -DCMAKE_C_COMPILER_LAUNCHER=ccache
-          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --preset gcs
           ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}
 
-      # Stage 1 — compile-check: builds gvdb_storage (a static lib), which
+      # Stage 1, compile-check: builds gvdb_storage (a static lib), which
       # compiles gcs_object_store.cpp against the real google-cloud-cpp
       # headers. Validates the SDK API usage without touching the link-time
       # abseil diamond. This is the primary signal.
       - name: Build gvdb_storage (GCS compile-check)
         if: steps.filter.outputs.gcs == 'true'
-        run: cmake --build build --target gvdb_storage -j"$(nproc)"
+        run: cmake --build --preset gcs --target gvdb_storage
 
-      # Stage 2 — link-check: links gvdb-single-node, which pulls both
+      # Stage 2, link-check: links gvdb-single-node, which pulls both
       # google-cloud-cpp (+ its abseil) and gRPC (+ the FetchContent abseil)
       # into one executable. A duplicate-symbol / ODR failure here is the
       # abseil diamond and tells us the find_package integration needs
       # dependency convergence.
       - name: Build gvdb-single-node (GCS link-check)
         if: steps.filter.outputs.gcs == 'true'
-        run: cmake --build build --target gvdb-single-node -j"$(nproc)"
+        run: cmake --build --preset gcs --target gvdb-single-node
 
       - name: Skip notice
         if: steps.filter.outputs.gcs == 'false'
-        run: echo "No GCS-relevant changes — skipping GCS build lane"
+        run: echo "No GCS-relevant changes, skipping GCS build lane"
 
   test-python-sdk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: build-and-test
 
@@ -265,11 +272,11 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: gvdb-server
-          path: build/bin
+          path: build/ci/bin
 
       - name: Make server executable
         if: steps.filter.outputs.python == 'true'
-        run: chmod +x build/bin/gvdb-single-node
+        run: chmod +x build/ci/bin/gvdb-single-node
 
       - name: Install runtime deps
         if: steps.filter.outputs.python == 'true'
@@ -288,14 +295,14 @@ jobs:
 
       - name: Run Python SDK tests
         if: steps.filter.outputs.python == 'true'
-        run: make test-sdk
+        run: make test-sdk PRESET=ci
 
       - name: Skip notice
         if: steps.filter.outputs.python == 'false'
-        run: echo "No Python SDK changes — skipping"
+        run: echo "No Python SDK changes, skipping"
 
   test-java-connectors:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs: build-and-test
 
@@ -329,10 +336,10 @@ jobs:
 
       - name: Skip notice
         if: steps.filter.outputs.java == 'false'
-        run: echo "No Java connector changes — skipping"
+        run: echo "No Java connector changes, skipping"
 
   test-operator:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: build-and-test
 
@@ -626,4 +633,4 @@ jobs:
 
       - name: Skip notice
         if: steps.filter.outputs.operator == 'false' && steps.filter.outputs.gvdb-chart == 'false'
-        run: echo "No operator or gvdb chart changes — skipping"
+        run: echo "No operator or gvdb chart changes, skipping"

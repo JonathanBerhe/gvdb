@@ -16,7 +16,7 @@ Get a GVDB server running and execute your first search in under 5 minutes.
 === "From source"
 
     ```bash
-    ./build/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb
+    ./build/dev/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb
     ```
 
 ## 2. Install the Python SDK

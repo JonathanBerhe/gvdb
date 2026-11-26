@@ -1,811 +1,222 @@
-# Unit tests
+# Unit tests. Each file builds into one doctest executable that CTest runs
+# under the same name.
+
+# core
+gvdb_add_test(core_tests
+  SOURCES core_test.cpp
+  DEPS gvdb::core
+  TIMEOUT 60 LABELS unit)
+
+# index
+gvdb_add_test(index_tests
+  SOURCES index_test.cpp
+  DEPS gvdb::index gvdb::core
+  # Checks that adaptive parameters reach the FAISS wrappers
+  # (FaissHNSWIndex::GetEfSearch and others), which are private to the module.
+  INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/src/index
+  TIMEOUT 120 LABELS unit)
+
+gvdb_add_test(sparse_index_tests
+  SOURCES sparse_index_test.cpp
+  DEPS gvdb::index gvdb::core
+  TIMEOUT 60 LABELS unit)
+
+gvdb_add_test(turboquant_tests
+  SOURCES turboquant_test.cpp
+  DEPS gvdb::index gvdb::core
+  TIMEOUT 120 LABELS unit)
 
-# Core module tests
-add_executable(core_tests
-  core_test.cpp
-)
-
-target_link_libraries(core_tests
-  PRIVATE
-    gvdb_core
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME CoreTests COMMAND core_tests)
-
-# Set test properties
-set_tests_properties(CoreTests PROPERTIES
-  TIMEOUT 60
-)
-
-# Index module tests
-add_executable(index_tests
-  index_test.cpp
-)
-
-# Expose src/index headers so tests can verify adaptive parameters reach
-# the concrete Faiss wrappers (FaissHNSWIndex::GetEfSearch, etc.).
-target_include_directories(index_tests
-  PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/index
-)
-
-target_link_libraries(index_tests
-  PRIVATE
-    gvdb_index
-    gvdb_core
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME IndexTests COMMAND index_tests)
-
-# Set test properties
-set_tests_properties(IndexTests PROPERTIES
-  TIMEOUT 120
-)
-
-# Sparse index tests
-add_executable(sparse_index_tests
-  sparse_index_test.cpp
-)
-
-target_link_libraries(sparse_index_tests
-  PRIVATE
-    gvdb_index
-    gvdb_core
-    doctest::doctest_with_main
-)
-
-add_test(NAME SparseIndexTests COMMAND sparse_index_tests)
-
-set_tests_properties(SparseIndexTests PROPERTIES
-  TIMEOUT 60
-)
-
-# TurboQuant index tests
-add_executable(turboquant_tests
-  turboquant_test.cpp
-)
-
-target_link_libraries(turboquant_tests
-  PRIVATE
-    gvdb_index
-    gvdb_core
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME TurboQuantTests COMMAND turboquant_tests)
-
-# Set test properties
-set_tests_properties(TurboQuantTests PROPERTIES
-  TIMEOUT 120
-)
-
-# Storage module tests
-add_executable(storage_tests
-  storage_test.cpp
-)
-
-target_link_libraries(storage_tests
-  PRIVATE
-    gvdb_storage
-    gvdb_index
-    gvdb_core
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME StorageTests COMMAND storage_tests)
-
-# Set test properties
-set_tests_properties(StorageTests PROPERTIES
-  TIMEOUT 120
-)
-
-# Object store tests
-add_executable(object_store_tests object_store_test.cpp)
-target_link_libraries(object_store_tests PRIVATE gvdb_storage gvdb_core doctest::doctest_with_main)
-add_test(NAME ObjectStoreTests COMMAND object_store_tests)
-set_tests_properties(ObjectStoreTests PROPERTIES TIMEOUT 30)
-
-# Segment cache tests
-add_executable(segment_cache_tests segment_cache_test.cpp)
-target_link_libraries(segment_cache_tests PRIVATE gvdb_storage gvdb_core doctest::doctest_with_main)
-add_test(NAME SegmentCacheTests COMMAND segment_cache_tests)
-set_tests_properties(SegmentCacheTests PROPERTIES TIMEOUT 30)
-
-# Tiered segment manager tests
-add_executable(tiered_segment_manager_tests tiered_segment_manager_test.cpp)
-target_link_libraries(tiered_segment_manager_tests PRIVATE gvdb_storage gvdb_index gvdb_core gvdb_utils doctest::doctest_with_main)
-add_test(NAME TieredSegmentManagerTests COMMAND tiered_segment_manager_tests)
-set_tests_properties(TieredSegmentManagerTests PROPERTIES TIMEOUT 60)
-
-# Segment manifest tests
-add_executable(segment_manifest_tests segment_manifest_test.cpp)
-target_link_libraries(segment_manifest_tests PRIVATE gvdb_storage gvdb_core doctest::doctest_with_main)
-add_test(NAME SegmentManifestTests COMMAND segment_manifest_tests)
-set_tests_properties(SegmentManifestTests PROPERTIES TIMEOUT 30)
-
-# Utils module tests
-add_executable(utils_tests
-  utils_test.cpp
-)
-
-target_link_libraries(utils_tests
-  PRIVATE
-    gvdb_utils
-    gvdb_core
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME UtilsTests COMMAND utils_tests)
-
-# Set test properties
-set_tests_properties(UtilsTests PROPERTIES
-  TIMEOUT 60
-)
-
-# Checksum (xxHash64) tests
-add_executable(checksum_tests
-  checksum_test.cpp
-)
-
-target_link_libraries(checksum_tests
-  PRIVATE
-    gvdb_utils
-    gvdb_core
-    doctest::doctest_with_main
-)
-
-add_test(NAME ChecksumTests COMMAND checksum_tests)
-
-set_tests_properties(ChecksumTests PROPERTIES
-  TIMEOUT 30
-)
-
-# Compute module tests
-add_executable(compute_tests
-  compute_test.cpp
-)
-
-target_link_libraries(compute_tests
-  PRIVATE
-    gvdb_compute
-    gvdb_storage
-    gvdb_index
-    gvdb_utils
-    gvdb_core
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME ComputeTests COMMAND compute_tests)
-
-# Set test properties
-set_tests_properties(ComputeTests PROPERTIES
-  TIMEOUT 120
-)
-
-# Network module tests
-add_executable(network_tests
-  network_test.cpp
-)
-
-target_link_libraries(network_tests
-  PRIVATE
-    gvdb_network
-    gvdb_compute
-    gvdb_storage
-    gvdb_index
-    gvdb_utils
-    gvdb_core
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME NetworkTests COMMAND network_tests)
-
-# Set test properties
-set_tests_properties(NetworkTests PROPERTIES
-  TIMEOUT 120
-)
-
-# Collection metadata cache tests
-add_executable(metadata_cache_tests
-  collection_metadata_cache_test.cpp
-)
-
-target_link_libraries(metadata_cache_tests
-  PRIVATE
-    gvdb_network
-    gvdb_core
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME MetadataCacheTests COMMAND metadata_cache_tests)
-
-# Set test properties
-set_tests_properties(MetadataCacheTests PROPERTIES
-  TIMEOUT 60
-)
-
-# InternalService metadata RPC tests
-add_executable(internal_service_metadata_tests
-  internal_service_metadata_test.cpp
-)
-
-target_link_libraries(internal_service_metadata_tests
-  PRIVATE
-    gvdb_network
-    gvdb_cluster
-    gvdb_consensus
-    gvdb_core
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME InternalServiceMetadataTests COMMAND internal_service_metadata_tests)
-
-# Set test properties
-set_tests_properties(InternalServiceMetadataTests PROPERTIES
-  TIMEOUT 60
-)
-
-# InternalService RPC tests (comprehensive)
-add_executable(internal_service_rpc_tests
-  internal_service_rpc_test.cpp
-)
-
-target_link_libraries(internal_service_rpc_tests
-  PRIVATE
-    gvdb_network
-    gvdb_cluster
-    gvdb_consensus
-    gvdb_storage
-    gvdb_index
-    gvdb_core
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME InternalServiceRpcTests COMMAND internal_service_rpc_tests)
-
-# Set test properties
-set_tests_properties(InternalServiceRpcTests PROPERTIES
-  TIMEOUT 120
-)
-
-# Cluster module tests (simplified - no storage/compute dependencies)
-add_executable(cluster_tests
-  cluster_simple_test.cpp
-)
-
-target_link_libraries(cluster_tests
-  PRIVATE
-    gvdb_cluster
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME ClusterTests COMMAND cluster_tests)
-
-# Set test properties
-set_tests_properties(ClusterTests PROPERTIES
-  TIMEOUT 120
-)
-
-# Consensus module tests
-add_executable(consensus_tests
-  consensus_test.cpp
-)
-
-target_link_libraries(consensus_tests
-  PRIVATE
-    gvdb_consensus
-    gvdb_cluster
-    gvdb_core
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME ConsensusTests COMMAND consensus_tests)
-
-# Set test properties
-set_tests_properties(ConsensusTests PROPERTIES
-  TIMEOUT 120
-)
-
-# Consensus persistence tests
-add_executable(consensus_persistence_tests
-  consensus_persistence_test.cpp
-)
-
-target_link_libraries(consensus_persistence_tests
-  PRIVATE
-    gvdb_consensus
-    gvdb_cluster
-    gvdb_core
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME ConsensusPersistenceTests COMMAND consensus_persistence_tests)
-
-# Set test properties
-set_tests_properties(ConsensusPersistenceTests PROPERTIES
-  TIMEOUT 180
-)
-
-# Proxy service tests
-add_executable(proxy_service_tests
-  proxy_service_test.cpp
-)
-
-target_link_libraries(proxy_service_tests
-  PRIVATE
-    gvdb_network
-    gvdb_cluster
-    gvdb_core
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME ProxyServiceTests COMMAND proxy_service_tests)
-
-# Set test properties
-set_tests_properties(ProxyServiceTests PROPERTIES
-  TIMEOUT 120
-)
-
-# DNS channel args tests (roadmap 1.7)
-add_executable(dns_channel_args_tests
-  dns_channel_args_test.cpp
-)
-
-target_link_libraries(dns_channel_args_tests
-  PRIVATE
-    gvdb_network
-    ${_GRPC_GRPCPP}
-    doctest::doctest_with_main
-)
-
-add_test(NAME DnsChannelArgsTests COMMAND dns_channel_args_tests)
-set_tests_properties(DnsChannelArgsTests PROPERTIES TIMEOUT 30)
-
-# Replica-fallback helper tests
-add_executable(replica_fallback_tests
-  replica_fallback_test.cpp
-)
-
-target_link_libraries(replica_fallback_tests
-  PRIVATE
-    gvdb_network
-    ${_GRPC_GRPCPP}
-    doctest::doctest_with_main
-)
-
-add_test(NAME ReplicaFallbackTests COMMAND replica_fallback_tests)
-set_tests_properties(ReplicaFallbackTests PROPERTIES TIMEOUT 30)
-
-# PrimaryTermTracker unit tests
-add_executable(primary_term_tracker_tests
-  primary_term_tracker_test.cpp
-)
-
-target_link_libraries(primary_term_tracker_tests
-  PRIVATE
-    gvdb_cluster
-    doctest::doctest_with_main
-)
-
-add_test(NAME PrimaryTermTrackerTests COMMAND primary_term_tracker_tests)
-set_tests_properties(PrimaryTermTrackerTests PROPERTIES TIMEOUT 10)
-
-# VectorDBService DISTRIBUTED mode tests
-add_executable(vectordb_service_distributed_tests
-  vectordb_service_distributed_test.cpp
-)
-
-target_link_libraries(vectordb_service_distributed_tests
-  PRIVATE
-    gvdb_network
-    gvdb_storage
-    gvdb_compute
-    gvdb_index
-    gvdb_core
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME VectorDBServiceDistributedTests COMMAND vectordb_service_distributed_tests)
-
-# Set test properties
-set_tests_properties(VectorDBServiceDistributedTests PROPERTIES
-  TIMEOUT 120
-)
-
-# VectorDBService COORDINATOR mode tests
-add_executable(vectordb_service_coordinator_tests
-  vectordb_service_coordinator_test.cpp
-)
-
-target_link_libraries(vectordb_service_coordinator_tests
-  PRIVATE
-    gvdb_network
-    gvdb_cluster
-    gvdb_storage
-    gvdb_compute
-    gvdb_index
-    gvdb_core
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME VectorDBServiceCoordinatorTests COMMAND vectordb_service_coordinator_tests)
-
-# Set test properties
-set_tests_properties(VectorDBServiceCoordinatorTests PROPERTIES
-  TIMEOUT 120
-)
-
-# InternalClient tests
-add_executable(internal_client_tests
-  internal_client_test.cpp
-)
-
-target_link_libraries(internal_client_tests
-  PRIVATE
-    gvdb_cluster
-    gvdb_core
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME InternalClientTests COMMAND internal_client_tests)
-
-# Set test properties
-set_tests_properties(InternalClientTests PROPERTIES
-  TIMEOUT 120
-)
-
-# Auth processor tests
-add_executable(auth_processor_tests
-  auth_processor_test.cpp
-)
-
-target_link_libraries(auth_processor_tests
-  PRIVATE
-    gvdb_network
-    gvdb_auth
-    gvdb_compute
-    gvdb_storage
-    gvdb_index
-    gvdb_utils
-    gvdb_core
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-add_test(NAME AuthProcessorTests COMMAND auth_processor_tests)
-
-set_tests_properties(AuthProcessorTests PROPERTIES
-  TIMEOUT 60
-)
-
-# Audit interceptor tests
-add_executable(audit_interceptor_tests
-  audit_interceptor_test.cpp
-)
-
-target_link_libraries(audit_interceptor_tests
-  PRIVATE
-    gvdb_network
-    gvdb_auth
-    gvdb_compute
-    gvdb_storage
-    gvdb_index
-    gvdb_utils
-    gvdb_core
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
-
-add_test(NAME AuditInterceptorTests COMMAND audit_interceptor_tests)
-
-set_tests_properties(AuditInterceptorTests PROPERTIES
-  TIMEOUT 60
-)
-
-# CUDA GPU smoke test (Linux + NVIDIA, skip elsewhere)
 if(GVDB_WITH_CUDA)
-  add_executable(cuda_smoke_tests
-    cuda_smoke_test.cpp
-  )
-
-  target_include_directories(cuda_smoke_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/index
-  )
-
-  target_link_libraries(cuda_smoke_tests
-    PRIVATE
-      gvdb_index
-      gvdb_core
-      faiss
-      doctest::doctest_with_main
-  )
-
-  add_test(NAME CudaSmokeTests COMMAND cuda_smoke_tests)
-
-  set_tests_properties(CudaSmokeTests PROPERTIES
-    TIMEOUT 120
-    LABELS "cuda"
-  )
+  gvdb_add_test(cuda_smoke_tests
+    SOURCES cuda_smoke_test.cpp
+    DEPS gvdb::index gvdb::core faiss
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/src/index
+    TIMEOUT 120 LABELS unit gpu cuda)
 endif()
 
-# Metal GPU distance tests (macOS only, skip on Linux)
-if(APPLE AND GVDB_WITH_METAL)
-  add_executable(metal_distance_tests
-    metal_distance_test.cpp
-  )
-
-  target_include_directories(metal_distance_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/index
-    ${CMAKE_SOURCE_DIR}/src/index/metal
-    ${metal-cpp_SOURCE_DIR}
-  )
-
-  target_link_libraries(metal_distance_tests
-    PRIVATE
-      gvdb_index
-      gvdb_core
-      faiss
-      "-framework Metal"
-      "-framework Foundation"
-      doctest::doctest_with_main
-  )
-
-  add_test(NAME MetalDistanceTests COMMAND metal_distance_tests)
-
-  set_tests_properties(MetalDistanceTests PROPERTIES
-    TIMEOUT 120
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-  )
+if(GVDB_WITH_METAL)
+  gvdb_add_test(metal_distance_tests
+    SOURCES metal_distance_test.cpp
+    DEPS gvdb::index gvdb::core gvdb::metal_cpp faiss
+    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/src/index ${PROJECT_SOURCE_DIR}/src/index/metal
+    # Loads the kernel source from <build>/kernels.
+    WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+    TIMEOUT 120 LABELS unit gpu metal)
 endif()
 
-# RBAC unit tests
-add_executable(rbac_tests
-  rbac_test.cpp
-)
+# storage
+gvdb_add_test(storage_tests
+  SOURCES storage_test.cpp
+  DEPS gvdb::storage gvdb::index gvdb::core
+  TIMEOUT 120 LABELS unit)
 
-target_link_libraries(rbac_tests
-  PRIVATE
-    gvdb_auth
-    gvdb_utils
-    gvdb_core
-    doctest::doctest_with_main
-)
+gvdb_add_test(object_store_tests
+  SOURCES object_store_test.cpp
+  DEPS gvdb::storage gvdb::core
+  TIMEOUT 30 LABELS unit)
 
-add_test(NAME RbacTests COMMAND rbac_tests)
+gvdb_add_test(segment_cache_tests
+  SOURCES segment_cache_test.cpp
+  DEPS gvdb::storage gvdb::core
+  TIMEOUT 30 LABELS unit)
 
-set_tests_properties(RbacTests PROPERTIES
-  TIMEOUT 60
-)
+gvdb_add_test(tiered_segment_manager_tests
+  SOURCES tiered_segment_manager_test.cpp
+  DEPS gvdb::storage gvdb::index gvdb::core gvdb::utils
+  TIMEOUT 60 LABELS unit)
 
-# DataNode tests
-add_executable(data_node_tests
-  data_node_test.cpp
-)
+gvdb_add_test(segment_manifest_tests
+  SOURCES segment_manifest_test.cpp
+  DEPS gvdb::storage gvdb::core
+  TIMEOUT 30 LABELS unit)
 
-target_link_libraries(data_node_tests
-  PRIVATE
-    gvdb_cluster
-    doctest::doctest_with_main
-)
+gvdb_add_test(bulk_import_tests
+  SOURCES bulk_import_test.cpp
+  DEPS gvdb::storage gvdb::index gvdb::utils gvdb::core
+  TIMEOUT 120 LABELS unit)
 
-# Add test to CTest
-add_test(NAME DataNodeTests COMMAND data_node_tests)
+gvdb_add_test(backup_manifest_tests
+  SOURCES backup_manifest_test.cpp
+  DEPS gvdb::storage gvdb::core
+  TIMEOUT 30 LABELS unit)
 
-# Set test properties
-set_tests_properties(DataNodeTests PROPERTIES
-  TIMEOUT 60
-)
+gvdb_add_test(backup_manager_tests
+  SOURCES backup_manager_test.cpp
+  DEPS gvdb::storage gvdb::index gvdb::utils gvdb::core
+  TIMEOUT 60 LABELS unit)
 
-# Collection resolver tests
-add_executable(collection_resolver_tests
-  collection_resolver_test.cpp
-)
+# utils
+gvdb_add_test(utils_tests
+  SOURCES utils_test.cpp
+  DEPS gvdb::utils gvdb::core
+  TIMEOUT 60 LABELS unit)
 
-target_link_libraries(collection_resolver_tests
-  PRIVATE
-    gvdb_network
-    gvdb_cluster
-    gvdb_storage
-    gvdb_index
-    gvdb_utils
-    gvdb_core
-    proto_lib
-    ${_GRPC_GRPCPP}
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
+gvdb_add_test(checksum_tests
+  SOURCES checksum_test.cpp
+  DEPS gvdb::utils gvdb::core
+  TIMEOUT 30 LABELS unit)
 
-# Add test to CTest
-add_test(NAME CollectionResolverTests COMMAND collection_resolver_tests)
+# auth
+gvdb_add_test(rbac_tests
+  SOURCES rbac_test.cpp
+  DEPS gvdb::auth gvdb::utils gvdb::core
+  TIMEOUT 60 LABELS unit)
 
-# Set test properties
-set_tests_properties(CollectionResolverTests PROPERTIES
-  TIMEOUT 120
-)
+# compute
+gvdb_add_test(compute_tests
+  SOURCES compute_test.cpp
+  DEPS gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core
+  TIMEOUT 120 LABELS unit)
 
-# Node registry tests
-add_executable(node_registry_tests
-  node_registry_test.cpp
-)
+# cluster
+gvdb_add_test(cluster_tests
+  SOURCES cluster_simple_test.cpp
+  DEPS gvdb::cluster
+  TIMEOUT 120 LABELS unit)
 
-target_link_libraries(node_registry_tests
-  PRIVATE
-    gvdb_cluster
-    proto_lib
-    ${_PROTOBUF_LIBPROTOBUF}
-    doctest::doctest_with_main
-)
+gvdb_add_test(primary_term_tracker_tests
+  SOURCES primary_term_tracker_test.cpp
+  DEPS gvdb::cluster
+  TIMEOUT 10 LABELS unit)
 
-# Add test to CTest
-add_test(NAME NodeRegistryTests COMMAND node_registry_tests)
+gvdb_add_test(internal_client_tests
+  SOURCES internal_client_test.cpp
+  DEPS gvdb::cluster gvdb::core gvdb::proto
+  TIMEOUT 120 LABELS unit)
 
-# Set test properties
-set_tests_properties(NodeRegistryTests PROPERTIES
-  TIMEOUT 60
-)
+gvdb_add_test(data_node_tests
+  SOURCES data_node_test.cpp
+  DEPS gvdb::cluster
+  TIMEOUT 60 LABELS unit)
 
-# Bulk import tests
-add_executable(bulk_import_tests
-  bulk_import_test.cpp
-)
+gvdb_add_test(node_registry_tests
+  SOURCES node_registry_test.cpp
+  DEPS gvdb::cluster gvdb::proto
+  TIMEOUT 60 LABELS unit)
 
-target_link_libraries(bulk_import_tests
-  PRIVATE
-    gvdb_storage
-    gvdb_index
-    gvdb_utils
-    gvdb_core
-    doctest::doctest_with_main
-)
+gvdb_add_test(shard_write_gate_tests
+  SOURCES shard_write_gate_test.cpp
+  DEPS gvdb::cluster gvdb::core
+  TIMEOUT 30 LABELS unit)
 
-add_test(NAME BulkImportTests COMMAND bulk_import_tests)
+gvdb_add_test(coordinator_backup_tests
+  SOURCES coordinator_backup_test.cpp
+  DEPS gvdb::cluster gvdb::storage gvdb::network gvdb::consensus gvdb::core gvdb::proto
+  TIMEOUT 60 LABELS unit)
 
-set_tests_properties(BulkImportTests PROPERTIES
-  TIMEOUT 120
-)
+gvdb_add_test(query_node_tests
+  SOURCES query_node_test.cpp
+  DEPS gvdb::cluster gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core
+  TIMEOUT 120 LABELS unit)
 
-# Backup manifest tests (pure JSON round-trip)
-add_executable(backup_manifest_tests
-  backup_manifest_test.cpp
-)
+# consensus
+gvdb_add_test(consensus_tests
+  SOURCES consensus_test.cpp
+  DEPS gvdb::consensus gvdb::cluster gvdb::core
+  TIMEOUT 120 LABELS unit)
 
-target_link_libraries(backup_manifest_tests
-  PRIVATE
-    gvdb_storage
-    gvdb_core
-    doctest::doctest_with_main
-)
+gvdb_add_test(consensus_persistence_tests
+  SOURCES consensus_persistence_test.cpp
+  DEPS gvdb::consensus gvdb::cluster gvdb::core
+  TIMEOUT 180 LABELS unit)
 
-add_test(NAME BackupManifestTests COMMAND backup_manifest_tests)
+# network
+gvdb_add_test(network_tests
+  SOURCES network_test.cpp
+  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  TIMEOUT 120 LABELS unit)
 
-set_tests_properties(BackupManifestTests PROPERTIES
-  TIMEOUT 30
-)
+gvdb_add_test(metadata_cache_tests
+  SOURCES collection_metadata_cache_test.cpp
+  DEPS gvdb::network gvdb::core
+  TIMEOUT 60 LABELS unit)
 
-# Backup / restore manager tests (single-shard async job, InMemoryObjectStore)
-add_executable(backup_manager_tests
-  backup_manager_test.cpp
-)
+gvdb_add_test(internal_service_metadata_tests
+  SOURCES internal_service_metadata_test.cpp
+  DEPS gvdb::network gvdb::cluster gvdb::consensus gvdb::core gvdb::proto
+  TIMEOUT 60 LABELS unit)
 
-target_link_libraries(backup_manager_tests
-  PRIVATE
-    gvdb_storage
-    gvdb_index
-    gvdb_utils
-    gvdb_core
-    doctest::doctest_with_main
-)
+gvdb_add_test(internal_service_rpc_tests
+  SOURCES internal_service_rpc_test.cpp
+  DEPS gvdb::network gvdb::cluster gvdb::consensus gvdb::storage gvdb::index gvdb::core gvdb::proto
+  TIMEOUT 120 LABELS unit)
 
-add_test(NAME BackupManagerTests COMMAND backup_manager_tests)
+gvdb_add_test(proxy_service_tests
+  SOURCES proxy_service_test.cpp
+  DEPS gvdb::network gvdb::cluster gvdb::core gvdb::proto
+  TIMEOUT 120 LABELS unit)
 
-set_tests_properties(BackupManagerTests PROPERTIES
-  TIMEOUT 60
-)
+gvdb_add_test(dns_channel_args_tests
+  SOURCES dns_channel_args_test.cpp
+  DEPS gvdb::network
+  TIMEOUT 30 LABELS unit)
 
-# ShardWriteGate tests — per-shard backup freeze fence
-add_executable(shard_write_gate_tests
-  shard_write_gate_test.cpp
-)
+gvdb_add_test(replica_fallback_tests
+  SOURCES replica_fallback_test.cpp
+  DEPS gvdb::network
+  TIMEOUT 30 LABELS unit)
 
-target_link_libraries(shard_write_gate_tests
-  PRIVATE
-    gvdb_cluster
-    gvdb_core
-    doctest::doctest_with_main
-)
+gvdb_add_test(vectordb_service_distributed_tests
+  SOURCES vectordb_service_distributed_test.cpp
+  DEPS gvdb::network gvdb::storage gvdb::compute gvdb::index gvdb::core gvdb::proto
+  TIMEOUT 120 LABELS unit)
 
-add_test(NAME ShardWriteGateTests COMMAND shard_write_gate_tests)
+gvdb_add_test(vectordb_service_coordinator_tests
+  SOURCES vectordb_service_coordinator_test.cpp
+  DEPS gvdb::network gvdb::cluster gvdb::storage gvdb::compute gvdb::index gvdb::core gvdb::proto
+  TIMEOUT 120 LABELS unit)
 
-set_tests_properties(ShardWriteGateTests PROPERTIES
-  TIMEOUT 30
-)
+gvdb_add_test(collection_resolver_tests
+  SOURCES collection_resolver_test.cpp
+  DEPS gvdb::network gvdb::cluster gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  TIMEOUT 120 LABELS unit)
 
-# Coordinator-orchestrated backup/restore tests
-add_executable(coordinator_backup_tests
-  coordinator_backup_test.cpp
-)
+gvdb_add_test(auth_processor_tests
+  SOURCES auth_processor_test.cpp
+  DEPS gvdb::network gvdb::auth gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  TIMEOUT 60 LABELS unit)
 
-target_link_libraries(coordinator_backup_tests
-  PRIVATE
-    gvdb_cluster
-    gvdb_storage
-    gvdb_network
-    gvdb_consensus
-    gvdb_core
-    proto_lib
-    doctest::doctest_with_main
-)
-
-add_test(NAME CoordinatorBackupTests COMMAND coordinator_backup_tests)
-
-set_tests_properties(CoordinatorBackupTests PROPERTIES
-  TIMEOUT 60
-)
-
-# QueryNode tests
-add_executable(query_node_tests
-  query_node_test.cpp
-)
-
-target_link_libraries(query_node_tests
-  PRIVATE
-    gvdb_cluster
-    gvdb_compute
-    gvdb_storage
-    gvdb_index
-    gvdb_utils
-    gvdb_core
-    doctest::doctest_with_main
-)
-
-# Add test to CTest
-add_test(NAME QueryNodeTests COMMAND query_node_tests)
-
-# Set test properties
-set_tests_properties(QueryNodeTests PROPERTIES
-  TIMEOUT 120
-)
+gvdb_add_test(audit_interceptor_tests
+  SOURCES audit_interceptor_test.cpp
+  DEPS gvdb::network gvdb::auth gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  TIMEOUT 60 LABELS unit)

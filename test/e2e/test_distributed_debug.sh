@@ -34,7 +34,7 @@ mkdir -p /tmp/gvdb-distributed-test/{coordinator,data_node,query_node,proxy}
 
 # Start coordinator
 echo -e "${YELLOW}Starting coordinator...${NC}"
-../../build/bin/gvdb-coordinator \
+../../build/dev/bin/gvdb-coordinator \
   --node-id 1 \
   --bind-address 0.0.0.0:50051 \
   --raft-address 0.0.0.0:8300 \
@@ -55,7 +55,7 @@ fi
 
 # Start data node
 echo -e "${YELLOW}Starting data node...${NC}"
-../../build/bin/gvdb-data-node \
+../../build/dev/bin/gvdb-data-node \
   --node-id 101 \
   --bind-address 0.0.0.0:50060 \
   --data-dir /tmp/gvdb-distributed-test/data_node \
@@ -75,7 +75,7 @@ fi
 
 # Start query node
 echo -e "${YELLOW}Starting query node...${NC}"
-../../build/bin/gvdb-query-node \
+../../build/dev/bin/gvdb-query-node \
   --node-id 201 \
   --bind-address 0.0.0.0:50070 \
   --data-dir /tmp/gvdb-distributed-test/query_node \
@@ -95,7 +95,7 @@ fi
 
 # Start proxy
 echo -e "${YELLOW}Starting proxy...${NC}"
-../../build/bin/gvdb-proxy \
+../../build/dev/bin/gvdb-proxy \
   --node-id 1 \
   --bind-address 0.0.0.0:50050 \
   --data-dir /tmp/gvdb-distributed-test/proxy \

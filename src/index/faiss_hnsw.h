@@ -32,8 +32,6 @@ class FaissHNSWIndex : public FaissIndexBase {
       core::Dimension dimension, core::MetricType metric, int M,
       int ef_construction);
 
-  int M_;
-  int ef_construction_;
   int ef_search_;
 };
 

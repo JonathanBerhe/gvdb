@@ -180,9 +180,8 @@ int main(int argc, char** argv) {
     query_executor->SetCache(std::make_shared<utils::QueryCache>(10000));
 
     // Wire auto-seal: when a segment fills up, seal it inline
-    auto* index_factory_ptr = index_factory.get();
     segment_store->SetSealCallback(
-        [segment_store, index_factory_ptr](core::SegmentId sid, core::IndexType idx_type) {
+        [segment_store](core::SegmentId sid, core::IndexType idx_type) {
           auto* seg = segment_store->GetSegment(sid);
           if (!seg) return;
           auto config = core::ResolveAutoIndexConfig(

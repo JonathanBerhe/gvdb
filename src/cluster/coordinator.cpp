@@ -24,7 +24,6 @@ namespace cluster {
 
 namespace {
 constexpr uint64_t kHealthCheckIntervalMs = 5000;  // 5 seconds
-constexpr uint64_t kNodeTimeoutMs = 30000;         // 30 seconds
 
 // Convert proto::internal::NodeInfo to Coordinator::NodeInfo
 NodeInfo ConvertProtoNodeInfo(const proto::internal::NodeInfo& proto_info) {
@@ -166,7 +165,7 @@ Coordinator::Coordinator(
 }
 
 Coordinator::~Coordinator() {
-  Shutdown();
+  Shutdown().IgnoreError();
 }
 
 absl::Status Coordinator::Start(const std::string& bind_address) {
@@ -278,7 +277,7 @@ absl::Status Coordinator::UnregisterNode(core::NodeId node_id) {
   node_registry_->RemoveNode(core::ToUInt32(node_id));
 
   // Unregister from shard manager
-  shard_manager_->UnregisterNode(node_id, false);
+  shard_manager_->UnregisterNode(node_id, false).IgnoreError();
 
   utils::Logger::Instance().Info("Unregistered node {}", core::ToUInt32(node_id));
 
@@ -305,7 +304,7 @@ absl::Status Coordinator::UpdateNodeStatus(core::NodeId node_id, NodeStatus stat
   return absl::OkStatus();
 }
 
-absl::Status Coordinator::ProcessHeartbeat(core::NodeId node_id, const NodeInfo& node_info) {
+absl::Status Coordinator::ProcessHeartbeat(core::NodeId /*node_id*/, const NodeInfo& node_info) {
   // Delegate to NodeRegistry — UpdateNode refreshes the heartbeat timestamp
   node_registry_->UpdateNode(ToProtoNodeInfo(node_info));
   return absl::OkStatus();
@@ -730,13 +729,8 @@ float Coordinator::GetClusterLoad() const {
     return 0.0f;
   }
 
+  // NodeInfo carries no CPU usage, so every node contributes 0.
   float total_cpu = 0.0f;
-  for (const auto& reg_node : all_nodes) {
-    // cpu_usage_percent is not in proto, so this will be 0
-    // TODO: Add CPU usage to proto if needed
-    total_cpu += 0.0f;
-  }
-
   return total_cpu / all_nodes.size();
 }
 
@@ -1279,7 +1273,7 @@ void Coordinator::HandleFailedNode(core::NodeId failed_node_id) {
   }
 
   // Remove failed node from shard manager
-  shard_manager_->UnregisterNode(failed_node_id, false);
+  shard_manager_->UnregisterNode(failed_node_id, false).IgnoreError();
   {
     // Same pruning as the drain path: allow a future rejoin to be detected
     // as a scale-up event (0b.2).
@@ -1649,7 +1643,7 @@ absl::Status Coordinator::ExecuteSingleMove(
     utils::Logger::Instance().Error(
         "Rebalance: replication failed for shard {}: {}",
         shard_key, rep_status.message());
-    shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE);
+    shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE).IgnoreError();
     return rep_status;
   }
 
@@ -1664,11 +1658,11 @@ absl::Status Coordinator::ExecuteSingleMove(
       utils::Logger::Instance().Warn(
           "Rebalance: primary swap failed for shard {}: {} (will retry next cycle)",
           core::ToUInt16(move.shard_id), xfer_status.message());
-      shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE);
+      shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE).IgnoreError();
       return xfer_status;
     }
   } else {
-    shard_manager_->AddReplica(move.shard_id, move.target_node);
+    shard_manager_->AddReplica(move.shard_id, move.target_node).IgnoreError();
   }
 
   // 6. Delete segment from source (best-effort)
@@ -1692,11 +1686,11 @@ absl::Status Coordinator::ExecuteSingleMove(
   // 7. Remove source from shard mapping (only for replica moves —
   //    for primary moves, SetPrimaryNode already replaced the old primary)
   if (!move.is_primary) {
-    shard_manager_->RemoveReplica(move.shard_id, move.source_node);
+    shard_manager_->RemoveReplica(move.shard_id, move.source_node).IgnoreError();
   }
 
   // 8. Set shard back to ACTIVE
-  shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE);
+  shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE).IgnoreError();
 
   utils::Logger::Instance().Info(
       "Rebalance: shard {} migration complete", shard_key);
@@ -1714,7 +1708,7 @@ void Coordinator::RecoverMigratingShards() {
       utils::Logger::Instance().Warn(
           "Recovering shard {} from MIGRATING state (crash recovery)",
           core::ToUInt16(shard.shard_id));
-      shard_manager_->SetShardState(shard.shard_id, ShardState::ACTIVE);
+      shard_manager_->SetShardState(shard.shard_id, ShardState::ACTIVE).IgnoreError();
     }
   }
 }

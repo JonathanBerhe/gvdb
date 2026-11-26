@@ -111,7 +111,7 @@ struct BackupFixture {
     ids.reserve(n);
     for (size_t i = 0; i < n; ++i) {
       std::vector<float> v(dimension);
-      for (size_t d = 0; d < dimension; ++d) {
+      for (size_t d = 0; d < static_cast<size_t>(dimension); ++d) {
         v[d] = static_cast<float>(i * 10 + d);
       }
       vectors.emplace_back(std::move(v));

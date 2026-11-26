@@ -36,9 +36,13 @@ def _wait_for_server(address: str, timeout: float = 15.0) -> None:
 
 
 def _find_server_binary() -> str:
+    """GVDB_SERVER_BIN (set by `make test-sdk`), else the dev preset's build."""
+    configured = os.environ.get("GVDB_SERVER_BIN")
+    if configured:
+        return configured
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
-    return os.path.join(project_root, "build", "bin", "gvdb-single-node")
+    return os.path.join(project_root, "build", "dev", "bin", "gvdb-single-node")
 
 
 @pytest.fixture(scope="session")

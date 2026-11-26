@@ -1,16 +1,20 @@
 # Tests
 
 ```bash
-# All tests
-ctest --test-dir build --output-on-failure
+# All tests of the dev build
+ctest --preset dev
 
-# Single suite
-ctest --test-dir build -R StorageTests
+# One kind of test
+ctest --preset dev -L unit
+ctest --preset dev -L integration
+
+# Single suite (CTest names equal the executable names)
+ctest --preset dev -R storage_tests
 ```
 
 ## Unit (`unit/`)
 
-C++ / Google Test. One file per module.
+C++ / doctest. One file per module.
 
 | File | Covers |
 |------|--------|
@@ -33,7 +37,7 @@ C++ / Google Test. One file per module.
 
 ## Integration (`integration/`)
 
-C++ / Google Test. Spin up in-process gRPC servers to test multi-component flows.
+C++ / doctest. Spin up in-process gRPC servers to test multi-component flows.
 
 | File | Covers |
 |------|--------|
@@ -56,6 +60,6 @@ Go tests against a running `gvdb-single-node` on `localhost:50051`.
 | `distributed_query.go` | Multi-node search |
 
 ```bash
-./build/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb-test &
+./build/dev/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb-test &
 cd test/e2e && go run e2e.go
 ```

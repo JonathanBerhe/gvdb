@@ -1,8 +1,8 @@
-.PHONY: build build-release test test-e2e test-e2e-kind clean \
+.PHONY: build build-release test test-e2e test-e2e-kind test-s3 coverage clean \
        docker-build kind-create kind-load deploy apply \
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
        undeploy clean-kind port-forward status \
-       build-ui run-ui \
+       build-ui docker-build-ui run-ui \
        lint-sdk test-sdk test-sdk-kind generate-python-stubs \
        bench-metal bench-cuda \
        build-connectors test-connectors \
@@ -14,8 +14,10 @@
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-BUILD_DIR       ?= build
-BUILD_TYPE      ?= Debug
+# PRESET names a configure preset in CMakePresets.json. Each preset builds
+# into build/<preset>.
+PRESET          ?= dev
+BUILD_DIR        = build/$(PRESET)
 CLUSTER_NAME    ?= gvdb
 IMAGE_NAME      ?= ghcr.io/jonathanberhe/gvdb:latest
 HELM_CHART       = deploy/helm/gvdb
@@ -23,7 +25,8 @@ HELM_RELEASE    ?= gvdb
 HELM_NAMESPACE  ?= gvdb
 HELM_REGISTRY   ?= oci://ghcr.io/jonathanberhe/charts
 K8S_DIR          = deploy/k8s
-CMAKE_JOBS      ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+# Extra cache settings for the configure step, for example
+# CMAKE_EXTRA="-DGVDB_WITH_S3=ON".
 CMAKE_EXTRA     ?=
 E2E_DIR          = test/e2e
 PYTHON_SDK_DIR   = clients/python
@@ -34,25 +37,35 @@ GVDB_SERVER_ADDR ?= localhost:50051
 # Local development
 # ---------------------------------------------------------------------------
 build:
-	@cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) $(CMAKE_EXTRA)
-	@cmake --build $(BUILD_DIR) -j$(CMAKE_JOBS)
+	@cmake --preset $(PRESET) $(CMAKE_EXTRA)
+	@cmake --build --preset $(PRESET)
 
 build-release:
-	@$(MAKE) build BUILD_TYPE=Release
+	@$(MAKE) build PRESET=release
 
+# The Metal benchmark loads its kernel source from <build>/kernels.
 bench-metal:
-	@$(MAKE) build CMAKE_EXTRA="-DGVDB_WITH_METAL=ON"
-	@cd $(BUILD_DIR) && ./bin/gvdb-metal-bench
+	@cmake --preset metal
+	@cmake --build --preset metal --target gvdb-metal-bench
+	@cd build/metal && ./bin/gvdb-metal-bench
 
 bench-cuda:
-	@$(MAKE) build BUILD_TYPE=Release CMAKE_EXTRA="-DGVDB_WITH_CUDA=ON"
-	@cd $(BUILD_DIR) && ./bin/gvdb-cuda-bench
+	@cmake --preset cuda
+	@cmake --build --preset cuda --target gvdb-cuda-bench
+	@./build/cuda/bin/gvdb-cuda-bench
 
 test:
-	@ctest --test-dir $(BUILD_DIR) --output-on-failure
+	@ctest --preset $(PRESET)
+
+# Line coverage of src/ and include/ per file, from the unit and integration
+# tests. The report lands in build/coverage/coverage.
+coverage:
+	@cmake --preset coverage
+	@cmake --build --preset coverage
+	@tools/coverage.sh build/coverage
 
 test-e2e:
-	@cd $(E2E_DIR) && GVDB_SERVER_ADDR=$(GVDB_SERVER_ADDR) ./run_all_tests.sh
+	@cd $(E2E_DIR) && GVDB_SERVER_BIN=$(CURDIR)/$(BUILD_DIR)/bin/gvdb-single-node GVDB_SERVER_ADDR=$(GVDB_SERVER_ADDR) ./run_all_tests.sh
 
 # Kind clusters are typically resource-constrained; default GVDB_E2E_SCALE to
 # 0.2 so the load test doesn't OOM the proxy. Any value set in the caller's
@@ -62,19 +75,25 @@ test-e2e-kind:
 
 test-s3:
 	@echo "Starting MinIO..."
-	@docker compose -f test/integration/docker-compose.minio.yml up -d --wait
+	@docker compose -f $(CURDIR)/test/integration/docker-compose.minio.yml up -d --wait
 	@echo "Running C++ S3 integration tests..."
-	@cd $(BUILD_DIR) && ctest -R S3 --output-on-failure || true
-	@echo "Running Go S3 e2e test..."
-	@cd $(E2E_DIR) && GVDB_S3_ENDPOINT=http://localhost:9000 GVDB_SERVER_ADDR=$(GVDB_SERVER_ADDR) ./run_all_tests.sh || true
-	@echo "Stopping MinIO..."
-	@docker compose -f test/integration/docker-compose.minio.yml down
+	@ctest --preset $(PRESET) -R s3_integration; status=$$?; \
+	if [ $$status -eq 0 ]; then \
+		echo "Running Go S3 e2e test..."; \
+		(cd $(E2E_DIR) && GVDB_S3_ENDPOINT=http://localhost:9000 GVDB_SERVER_BIN=$(CURDIR)/$(BUILD_DIR)/bin/gvdb-single-node \
+			GVDB_SERVER_ADDR=$(GVDB_SERVER_ADDR) ./run_all_tests.sh); \
+		status=$$?; \
+	fi; \
+	echo "Stopping MinIO..."; \
+	docker compose -f $(CURDIR)/test/integration/docker-compose.minio.yml down; \
+	exit $$status
 
 lint-sdk:
 	@cd $(PYTHON_SDK_DIR) && uv run ruff check . && uv run ruff format --check .
 
+# The SDK tests start the gvdb-single-node built by $(PRESET).
 test-sdk: lint-sdk
-	@cd $(PYTHON_SDK_DIR) && uv run python3 -m pytest tests/ -v
+	@cd $(PYTHON_SDK_DIR) && GVDB_SERVER_BIN=$(CURDIR)/$(BUILD_DIR)/bin/gvdb-single-node uv run python3 -m pytest tests/ -v
 
 test-sdk-kind:
 	@cd $(PYTHON_SDK_DIR) && GVDB_SERVER_ADDR=localhost:50050 uv run python3 -m pytest tests/test_sdk.py -v
@@ -83,7 +102,7 @@ generate-python-stubs:
 	@cd $(PYTHON_SDK_DIR) && bash generate_proto.sh
 
 clean:
-	@rm -rf $(BUILD_DIR)
+	@rm -rf build
 
 # ---------------------------------------------------------------------------
 # Java Connectors (Spark / Flink)
@@ -127,7 +146,7 @@ helm-uninstall-operator:
 # Regenerate the Go protobuf stubs used by both test/e2e and the operator
 # so they never drift from proto/*.proto. Covers vectordb.proto (public
 # VectorDBService) and internal.proto (InternalService for operator's
-# GetLeaderInfo + GetClusterHealth calls — roadmap 0b.6.C/D/E).
+# GetLeaderInfo + GetClusterHealth calls).
 generate-operator-pb:
 	@echo "Regenerating Go protobuf stubs for the operator..."
 	@mkdir -p /tmp/gvdb-pbgen
@@ -221,7 +240,7 @@ status:
 	kubectl get pods -n $(HELM_NAMESPACE) -o wide
 
 # ---------------------------------------------------------------------------
-# Documentation (Zensical — https://zensical.org)
+# Documentation (Zensical, https://zensical.org)
 # ---------------------------------------------------------------------------
 DOCS_VENV = .venv-docs
 
