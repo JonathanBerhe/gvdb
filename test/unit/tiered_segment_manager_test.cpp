@@ -397,9 +397,11 @@ TEST_CASE_FIXTURE(TieredTest, "FailedUploadRetriesAndRecovers") {
   CHECK(saw_failure);
 
   // The background retry thread eventually re-drives the upload to success.
+  // The manifest is written after the segment files, so wait for it too.
   bool recovered = false;
   for (int i = 0; i < 300; ++i) {
-    if (tiered->GetFailedUploads().empty() && store->ObjectCount() > 0) {
+    if (tiered->GetFailedUploads().empty() &&
+        store->GetObject("test-prefix/manifest.json").ok()) {
       recovered = true;
       break;
     }
