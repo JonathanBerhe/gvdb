@@ -243,10 +243,9 @@ TEST_SUITE("BulkImporter") {
       REQUIRE(seg_result.ok());
 
       // Wire seal callback (inline seal like single-node)
-      auto* ifp = index_factory.get();
       auto store = segment_store;
       segment_store->SetSealCallback(
-          [store, ifp](gvdb::core::SegmentId sid, gvdb::core::IndexType idx_type) {
+          [store](gvdb::core::SegmentId sid, gvdb::core::IndexType idx_type) {
             auto* seg = store->GetSegment(sid);
             if (!seg) return;
             auto config = gvdb::core::ResolveAutoIndexConfig(

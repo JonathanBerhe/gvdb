@@ -50,7 +50,7 @@ InternalService::~InternalService() {
 // =============================================================================
 
 grpc::Status InternalService::AssignShard(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::AssignShardRequest* request,
     proto::internal::AssignShardResponse* response) {
   total_requests_++;
@@ -92,7 +92,7 @@ grpc::Status InternalService::AssignShard(
 }
 
 grpc::Status InternalService::GetShardAssignments(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::GetShardAssignmentsRequest* request,
     proto::internal::GetShardAssignmentsResponse* response) {
   total_requests_++;
@@ -124,7 +124,7 @@ grpc::Status InternalService::GetShardAssignments(
 }
 
 grpc::Status InternalService::RebalanceShards(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::RebalanceShardsRequest* request,
     proto::internal::RebalanceShardsResponse* response) {
   total_requests_++;
@@ -163,7 +163,7 @@ grpc::Status InternalService::RebalanceShards(
 // =============================================================================
 
 grpc::Status InternalService::ReplicateSegment(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::ReplicateSegmentRequest* request,
     proto::internal::ReplicateSegmentResponse* response) {
   total_requests_++;
@@ -226,7 +226,7 @@ grpc::Status InternalService::ReplicateSegment(
 }
 
 grpc::Status InternalService::GetSegment(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::GetSegmentRequest* request,
     proto::internal::GetSegmentResponse* response) {
   total_requests_++;
@@ -285,7 +285,7 @@ grpc::Status InternalService::GetSegment(
 }
 
 grpc::Status InternalService::ListSegments(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::ListSegmentsRequest* request,
     proto::internal::ListSegmentsResponse* response) {
   total_requests_++;
@@ -332,7 +332,7 @@ grpc::Status InternalService::ListSegments(
 }
 
 grpc::Status InternalService::DeleteSegment(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::DeleteSegmentRequest* request,
     proto::internal::DeleteSegmentResponse* response) {
   total_requests_++;
@@ -389,7 +389,7 @@ grpc::Status InternalService::DeleteSegment(
 }
 
 grpc::Status InternalService::CreateSegment(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::CreateSegmentRequest* request,
     proto::internal::CreateSegmentResponse* response) {
   total_requests_++;
@@ -476,7 +476,7 @@ grpc::Status InternalService::CreateSegment(
 // =============================================================================
 
 grpc::Status InternalService::SyncMetadata(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::SyncMetadataRequest* request,
     proto::internal::SyncMetadataResponse* response) {
   total_requests_++;
@@ -502,7 +502,7 @@ grpc::Status InternalService::SyncMetadata(
 }
 
 grpc::Status InternalService::GetCollectionMetadata(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::GetCollectionMetadataRequest* request,
     proto::internal::GetCollectionMetadataResponse* response) {
   total_requests_++;
@@ -590,7 +590,7 @@ grpc::Status InternalService::GetCollectionMetadata(
 // =============================================================================
 
 grpc::Status InternalService::RouteQuery(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::RouteQueryRequest* request,
     proto::internal::RouteQueryResponse* response) {
   total_requests_++;
@@ -739,7 +739,7 @@ grpc::Status InternalService::RouteQuery(
 }
 
 grpc::Status InternalService::ExecuteShardQuery(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::ExecuteShardQueryRequest* request,
     proto::internal::ExecuteShardQueryResponse* response) {
   total_requests_++;
@@ -822,7 +822,7 @@ grpc::Status InternalService::ExecuteShardQuery(
 // =============================================================================
 
 grpc::Status InternalService::TransferData(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::TransferDataRequest* request,
     proto::internal::TransferDataResponse* response) {
   total_requests_++;
@@ -869,7 +869,7 @@ grpc::Status InternalService::TransferData(
 // =============================================================================
 
 grpc::Status InternalService::Heartbeat(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::HeartbeatRequest* request,
     proto::internal::HeartbeatResponse* response) {
   total_requests_++;
@@ -927,8 +927,8 @@ grpc::Status InternalService::Heartbeat(
 }
 
 grpc::Status InternalService::GetClusterHealth(
-    grpc::ServerContext* context,
-    const proto::internal::GetClusterHealthRequest* request,
+    grpc::ServerContext* /*context*/,
+    const proto::internal::GetClusterHealthRequest* /*request*/,
     proto::internal::GetClusterHealthResponse* response) {
   total_requests_++;
 
@@ -1186,7 +1186,7 @@ grpc::Status InternalService::TransferLeadership(
 // RPC is surfaced to the caller.
 
 grpc::Status InternalService::PausePrimary(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::PausePrimaryRequest* request,
     proto::internal::PausePrimaryResponse* response) {
   total_requests_++;
@@ -1237,7 +1237,7 @@ grpc::Status InternalService::PausePrimary(
 }
 
 grpc::Status InternalService::PreparePromote(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::PreparePromoteRequest* request,
     proto::internal::PreparePromoteResponse* response) {
   total_requests_++;
@@ -1445,7 +1445,7 @@ grpc::Status InternalService::UnfreezeWrites(
 // =============================================================================
 
 grpc::Status InternalService::GetTimestamp(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::internal::GetTimestampRequest* request,
     proto::internal::GetTimestampResponse* response) {
   total_requests_++;

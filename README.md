@@ -10,7 +10,7 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 
 - **Vector Search**: FLAT, HNSW, IVF_FLAT, IVF_PQ, IVF_SQ, TurboQuant, IVF_TURBOQUANT index types + AUTO selection
 - **Sparse Vectors**: Inverted posting-list index for learned sparse retrieval (SPLADE, etc.)
-- **TurboQuant**: Data-oblivious online quantization (ICLR 2026) — 1/2/4/8-bit compression with near-optimal distortion. IVF_TURBOQUANT combines IVF partitioning with TurboQuant for sub-linear search at extreme compression (7.5x at 4-bit on 768D)
+- **TurboQuant**: Data-oblivious online quantization (ICLR 2026): 1/2/4/8-bit compression with near-optimal distortion. IVF_TURBOQUANT combines IVF partitioning with TurboQuant for sub-linear search at extreme compression (7.5x at 4-bit on 768D)
 - **Three-Way Hybrid Search**: Dense vectors + sparse vectors + BM25 text with Reciprocal Rank Fusion (RRF)
 - **Per-Vector TTL**: Time-to-live with background sweep and query-time expiry filtering. Atomic insert+TTL, serialization-safe, Python SDK support
 - **Distributed Mode**: Coordinator, data nodes, query nodes, proxy with full sharding and replication
@@ -23,8 +23,8 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 - **GPU Acceleration**: Apple Metal FLAT kernels on Apple Silicon; NVIDIA CUDA FLAT/IVF via faiss-gpu (opt-in, build with `-DGVDB_WITH_CUDA=ON`). See [GPU Performance](#gpu-performance) for head-to-head numbers.
 - **Backup and Restore**: Point-in-time backup of a collection to S3/MinIO or a local PVC with `BackupCollection` / `RestoreCollection` gRPC and the operator's `GVDBBackup` / `GVDBRestore` CRDs
 - **gRPC API**: Protobuf-based client/server with TLS and API key authentication
-- **Python SDK**: `pip install gvdb` — full API with hybrid search, streaming inserts, metadata, TTL
-- **Web UI**: Collection browser, search playground, metrics dashboard — single binary (`gvdb-ui`)
+- **Python SDK**: `pip install gvdb`, full API with hybrid search, streaming inserts, metadata, TTL
+- **Web UI**: Collection browser, search playground, metrics dashboard, single binary (`gvdb-ui`)
 - **Raft Consensus**: Metadata operations replicated via NuRaft
 
 ## Architecture
@@ -114,12 +114,12 @@ against each platform's own single-query faiss CPU baseline.
 
 Notes:
 
-- **Speedups are vs each platform's own faiss CPU** — the M1 Pro (NEON) and the
+- **Speedups are vs each platform's own faiss CPU**: the M1 Pro (NEON) and the
   A10G host (AVX) are very different CPUs, so the multiples across the two
   columns are not directly comparable. At 1M×768 the CPU baselines were 2665 ms
   (M1 Pro) and 372 ms (A10G host).
 - **Raw GPU latency is comparable** (identical workload): the A10G runs FLAT
-  ~13× faster than the M1 Pro's integrated GPU (17.3 ms vs 231.7 ms at 2M×768) —
+  ~13× faster than the M1 Pro's integrated GPU (17.3 ms vs 231.7 ms at 2M×768),
   the expected gap between a datacenter GPU and a laptop iGPU.
 - Reproduce: `make bench-metal` on Apple Silicon;
   `uv run --project tools/modal modal run tools/modal/gpu_bench.py` for CUDA on
@@ -152,10 +152,12 @@ make status   # check pods
 ### Build from source
 
 ```bash
-make build          # Debug build
-make build-release  # Release build
-make test           # Run all C++ tests (37 suites)
+make build          # Debug build with tests (preset dev, output in build/dev)
+make build-release  # Release build as shipped (preset release, output in build/release)
+make test           # Run all C++ tests of the dev build
 ```
+
+`make` drives the presets in `CMakePresets.json`. You can also call CMake directly, for example `cmake --preset dev && cmake --build --preset dev && ctest --preset dev`.
 
 ### Web UI
 
@@ -176,26 +178,26 @@ make build-ui
 ### Run (single-node)
 
 ```bash
-./build/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb
+./build/dev/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb
 ```
 
 ### Run (distributed, bare metal)
 
 ```bash
 # Coordinator
-./build/bin/gvdb-coordinator --node-id 1 --bind-address 0.0.0.0:50051
+./build/dev/bin/gvdb-coordinator --node-id 1 --bind-address 0.0.0.0:50051
 
 # Data node (use --advertise-address in containers)
-./build/bin/gvdb-data-node --node-id 101 --bind-address 0.0.0.0:50060 \
+./build/dev/bin/gvdb-data-node --node-id 101 --bind-address 0.0.0.0:50060 \
   --coordinator localhost:50051
 
 # Query node
-./build/bin/gvdb-query-node --node-id 201 --bind-address 0.0.0.0:50070 \
+./build/dev/bin/gvdb-query-node --node-id 201 --bind-address 0.0.0.0:50070 \
   --coordinator localhost:50051
 
 # Proxy (data-node routing goes through the coordinator's RouteQuery RPC,
 # so the proxy only needs to know coordinators + query nodes)
-./build/bin/gvdb-proxy --coordinators localhost:50051 \
+./build/dev/bin/gvdb-proxy --coordinators localhost:50051 \
   --query-nodes localhost:50070
 ```
 
@@ -253,14 +255,16 @@ All binaries support environment variables (`GVDB_BIND_ADDRESS`, `GVDB_ADVERTISE
 
 ## Build Requirements
 
-- C++20 compiler (GCC 11+, Clang 14+)
-- CMake 3.15+
+- C++20 compiler (CI and the container image use GCC 13; macOS uses Apple clang)
+- CMake 3.28+ and Ninja
+- On macOS: Homebrew `libomp` and `zlib`
 - Dependencies fetched automatically via CMake FetchContent
 
 ## Tests
 
 ```bash
-make test             # C++ unit + integration tests (37 suites)
+make test             # C++ unit + integration tests
+make coverage         # Same tests with line coverage per module
 make test-e2e         # Go e2e tests against local server
 make test-e2e-kind    # Go e2e tests against kind cluster
 ```

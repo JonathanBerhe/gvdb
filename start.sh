@@ -11,14 +11,13 @@ echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}GVDB Complete Startup Script${NC}"
 echo -e "${GREEN}========================================${NC}"
 
-# Step 1: Build GVDB
-echo -e "\n${YELLOW}[1/5] Building GVDB...${NC}"
-if [ ! -d "build" ]; then
-    echo "Creating build directory..."
-    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-fi
+# Configure preset from CMakePresets.json; it builds into build/$PRESET.
+PRESET=${PRESET:-dev}
 
-cmake --build build -j4
+# Step 1: Build GVDB
+echo -e "\n${YELLOW}[1/5] Building GVDB (preset $PRESET)...${NC}"
+cmake --preset "$PRESET"
+cmake --build --preset "$PRESET"
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Build successful${NC}"
 else
@@ -28,7 +27,7 @@ fi
 
 # Step 2: Run tests
 echo -e "\n${YELLOW}[2/5] Running tests...${NC}"
-ctest --test-dir build --output-on-failure
+ctest --preset "$PRESET"
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ All tests passed${NC}"
 else
@@ -65,7 +64,7 @@ pkill -f gvdb-single-node || true
 sleep 1
 
 # Start GVDB in background
-nohup ./build/bin/gvdb-single-node \
+nohup "./build/$PRESET/bin/gvdb-single-node" \
     --port 50051 \
     --data-dir /tmp/gvdb \
     --node-id 1 \

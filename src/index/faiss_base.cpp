@@ -139,7 +139,7 @@ core::Status FaissIndexBase::AddBatch(
       "AddBatch");
 }
 
-core::Status FaissIndexBase::Remove(core::VectorId id) {
+core::Status FaissIndexBase::Remove(core::VectorId /*id*/) {
   std::unique_lock lock(mutex_);
 
   // Faiss doesn't support direct removal in all index types

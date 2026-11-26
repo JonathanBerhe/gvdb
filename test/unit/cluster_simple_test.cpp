@@ -534,8 +534,6 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodePromotesReplica") {
 
   // Manually set up a shard with primary=node1 and replica=node2
   // to test failover behavior
-  core::ShardId shard_id = metadata->shard_ids[0];
-
   // Access the shared shard_manager through creating a new coordinator is not
   // possible, but we registered both nodes. Manually add replica to shard.
   auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);

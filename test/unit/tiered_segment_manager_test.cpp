@@ -247,8 +247,8 @@ TEST_CASE_FIXTURE(TieredTest, "SearchCollection") {
 
 TEST_CASE_FIXTURE(TieredTest, "GetAllSegmentIds") {
   auto tiered = MakeTiered();
-  auto seg1 = *tiered->CreateSegment(collection_id_, dimension_, metric_);
-  auto seg2 = *tiered->CreateSegment(collection_id_, dimension_, metric_);
+  REQUIRE(tiered->CreateSegment(collection_id_, dimension_, metric_).ok());
+  REQUIRE(tiered->CreateSegment(collection_id_, dimension_, metric_).ok());
 
   auto all_ids = tiered->GetAllSegmentIds();
   CHECK_EQ(all_ids.size(), 2);
@@ -257,15 +257,15 @@ TEST_CASE_FIXTURE(TieredTest, "GetAllSegmentIds") {
 TEST_CASE_FIXTURE(TieredTest, "GetSegmentCount") {
   auto tiered = MakeTiered();
   CHECK_EQ(tiered->GetSegmentCount(), 0);
-  tiered->CreateSegment(collection_id_, dimension_, metric_);
+  REQUIRE(tiered->CreateSegment(collection_id_, dimension_, metric_).ok());
   CHECK_EQ(tiered->GetSegmentCount(), 1);
 }
 
 TEST_CASE_FIXTURE(TieredTest, "GetCollectionSegments") {
   auto tiered = MakeTiered();
-  auto seg1 = *tiered->CreateSegment(collection_id_, dimension_, metric_);
+  REQUIRE(tiered->CreateSegment(collection_id_, dimension_, metric_).ok());
   auto col2 = core::CollectionId(2);
-  auto seg2 = *tiered->CreateSegment(col2, dimension_, metric_);
+  REQUIRE(tiered->CreateSegment(col2, dimension_, metric_).ok());
 
   auto col1_segs = tiered->GetCollectionSegments(collection_id_);
   CHECK_EQ(col1_segs.size(), 1);
@@ -276,7 +276,7 @@ TEST_CASE_FIXTURE(TieredTest, "GetCollectionSegments") {
 
 TEST_CASE_FIXTURE(TieredTest, "Clear") {
   auto tiered = MakeTiered();
-  tiered->CreateSegment(collection_id_, dimension_, metric_);
+  REQUIRE(tiered->CreateSegment(collection_id_, dimension_, metric_).ok());
   CHECK_EQ(tiered->GetSegmentCount(), 1);
   tiered->Clear();
   CHECK_EQ(tiered->GetSegmentCount(), 0);
@@ -397,9 +397,11 @@ TEST_CASE_FIXTURE(TieredTest, "FailedUploadRetriesAndRecovers") {
   CHECK(saw_failure);
 
   // The background retry thread eventually re-drives the upload to success.
+  // The manifest is written after the segment files, so wait for it too.
   bool recovered = false;
   for (int i = 0; i < 300; ++i) {
-    if (tiered->GetFailedUploads().empty() && store->ObjectCount() > 0) {
+    if (tiered->GetFailedUploads().empty() &&
+        store->GetObject("test-prefix/manifest.json").ok()) {
       recovered = true;
       break;
     }

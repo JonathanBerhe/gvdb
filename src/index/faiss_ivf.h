@@ -36,7 +36,6 @@ class FaissIVFIndex : public FaissIndexBase {
       core::Dimension dimension, core::MetricType metric, int nlist,
       IVFQuantizationType quantization, int pq_m, int pq_nbits);
 
-  int nlist_;
   int nprobe_;
   IVFQuantizationType quantization_;
 };

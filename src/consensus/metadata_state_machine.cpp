@@ -106,9 +106,9 @@ bool MetadataStateMachine::apply_snapshot(nuraft::snapshot& s) {
 }
 
 int MetadataStateMachine::read_logical_snp_obj(
-    nuraft::snapshot& s,
-    void*& user_snp_ctx,
-    ulong obj_id,
+    nuraft::snapshot& /*s*/,
+    void*& /*user_snp_ctx*/,
+    ulong /*obj_id*/,
     nuraft::ptr<nuraft::buffer>& data_out,
     bool& is_last_obj) {
 
@@ -120,11 +120,11 @@ int MetadataStateMachine::read_logical_snp_obj(
 }
 
 void MetadataStateMachine::save_logical_snp_obj(
-    nuraft::snapshot& s,
-    ulong& obj_id,
-    nuraft::buffer& data,
-    bool is_first_obj,
-    bool is_last_obj) {
+    nuraft::snapshot& /*s*/,
+    ulong& /*obj_id*/,
+    nuraft::buffer& /*data*/,
+    bool /*is_first_obj*/,
+    bool /*is_last_obj*/) {
 
   // For now, we don't support logical snapshots
   // In production, this would deserialize and restore metadata state

@@ -36,7 +36,7 @@ mkdir -p /tmp/gvdb-crash-test/{coordinator,data_node}
 
 # Start coordinator
 echo -e "${YELLOW}Starting coordinator...${NC}"
-../../build/bin/gvdb-coordinator \
+../../build/dev/bin/gvdb-coordinator \
   --node-id 1 \
   --bind-address 0.0.0.0:50051 \
   --raft-address 0.0.0.0:8300 \
@@ -57,7 +57,7 @@ fi
 
 # Start data node
 echo -e "${YELLOW}Starting data node...${NC}"
-../../build/bin/gvdb-data-node \
+../../build/dev/bin/gvdb-data-node \
   --node-id 101 \
   --bind-address 0.0.0.0:50060 \
   --data-dir /tmp/gvdb-crash-test/data_node \

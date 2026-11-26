@@ -524,7 +524,7 @@ grpc::Status VectorDBService::SearchDistributed(
 // ============================================================================
 
 grpc::Status VectorDBService::CreateCollection(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::CreateCollectionRequest* request,
     proto::CreateCollectionResponse* response) {
   auto perm = CheckPermission(auth::Permission::CREATE_COLLECTION, request->collection_name());
@@ -572,7 +572,7 @@ grpc::Status VectorDBService::CreateCollection(
 }
 
 grpc::Status VectorDBService::DropCollection(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::DropCollectionRequest* request,
     proto::DropCollectionResponse* response) {
   auto perm = CheckPermission(auth::Permission::DROP_COLLECTION, request->collection_name());
@@ -600,8 +600,8 @@ grpc::Status VectorDBService::DropCollection(
 }
 
 grpc::Status VectorDBService::ListCollections(
-    grpc::ServerContext* context,
-    const proto::ListCollectionsRequest* request,
+    grpc::ServerContext* /*context*/,
+    const proto::ListCollectionsRequest* /*request*/,
     proto::ListCollectionsResponse* response) {
   auto perm = CheckPermission(auth::Permission::LIST_COLLECTIONS, "");
   if (!perm.ok()) return perm;
@@ -645,9 +645,8 @@ grpc::Status VectorDBService::Insert(
       request->collection_name());
 
   constexpr size_t MAX_BATCH_SIZE = 50000;
-  constexpr uint32_t MAX_DIMENSION = 8192;
 
-  if (request->vectors().size() > MAX_BATCH_SIZE) {
+  if (static_cast<size_t>(request->vectors().size()) > MAX_BATCH_SIZE) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
         absl::StrCat("Batch size exceeds maximum (", MAX_BATCH_SIZE,
                      " vectors). Current batch: ", request->vectors().size()));
@@ -739,7 +738,7 @@ grpc::Status VectorDBService::Insert(
   // Validate dimension
   for (const auto& batch : shard_batches) {
     for (const auto& vec : batch.vectors) {
-      if (vec.dimension() != dimension) {
+      if (static_cast<uint32_t>(vec.dimension()) != dimension) {
         return toGrpcStatus(absl::InvalidArgumentError(
             absl::StrFormat("Vector dimension mismatch: expected %d, got %d",
                             dimension, vec.dimension())));
@@ -878,7 +877,7 @@ grpc::Status VectorDBService::Insert(
 }
 
 grpc::Status VectorDBService::StreamInsert(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     grpc::ServerReader<proto::InsertRequest>* reader,
     proto::InsertResponse* response) {
 
@@ -952,7 +951,7 @@ grpc::Status VectorDBService::StreamInsert(
 
     for (const auto& batch : shard_batches) {
       for (const auto& vec : batch.vectors) {
-        if (vec.dimension() != dimension) {
+        if (static_cast<uint32_t>(vec.dimension()) != dimension) {
           return toGrpcStatus(absl::InvalidArgumentError(
               absl::StrFormat("Vector dimension mismatch: expected %d, got %d",
                               dimension, vec.dimension())));
@@ -1107,7 +1106,7 @@ grpc::Status VectorDBService::Upsert(
 // ============================================================================
 
 grpc::Status VectorDBService::RangeSearch(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::RangeSearchRequest* request,
     proto::RangeSearchResponse* response) {
   auto perm = CheckPermission(auth::Permission::RANGE_SEARCH, request->collection_name());
@@ -1331,7 +1330,7 @@ grpc::Status VectorDBService::RangeSearchDistributed(
 }
 
 grpc::Status VectorDBService::Search(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::SearchRequest* request,
     proto::SearchResponse* response) {
   auto perm = CheckPermission(auth::Permission::SEARCH, request->collection_name());
@@ -1441,7 +1440,7 @@ grpc::Status VectorDBService::Search(
 }
 
 grpc::Status VectorDBService::HybridSearch(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::HybridSearchRequest* request,
     proto::HybridSearchResponse* response) {
   auto perm = CheckPermission(auth::Permission::HYBRID_SEARCH, request->collection_name());
@@ -1507,12 +1506,12 @@ grpc::Status VectorDBService::HybridSearch(
 
     // Build text index from metadata if not already built
     auto bm25 = std::make_unique<index::BM25Index>();
-    segment->BuildTextIndex(std::move(bm25), text_field);
+    segment->BuildTextIndex(std::move(bm25), text_field).IgnoreError();
 
     // Build sparse index from stored sparse vectors if query needs it
     if (has_sparse) {
       auto sparse_idx = std::make_unique<index::SparseIndex>();
-      segment->BuildSparseIndex(std::move(sparse_idx));
+      segment->BuildSparseIndex(std::move(sparse_idx)).IgnoreError();
     }
   }
 
@@ -1577,7 +1576,7 @@ grpc::Status VectorDBService::HybridSearch(
 }
 
 grpc::Status VectorDBService::Get(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::GetRequest* request,
     proto::GetResponse* response) {
   auto perm = CheckPermission(auth::Permission::GET, request->collection_name());
@@ -1602,7 +1601,7 @@ grpc::Status VectorDBService::Get(
   }
 
   constexpr size_t MAX_GET_BATCH_SIZE = 10000;
-  if (request->ids().size() > MAX_GET_BATCH_SIZE) {
+  if (static_cast<size_t>(request->ids().size()) > MAX_GET_BATCH_SIZE) {
     utils::MetricsRegistry::Instance().RecordGet(
         request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
@@ -1660,7 +1659,7 @@ grpc::Status VectorDBService::Get(
 }
 
 grpc::Status VectorDBService::ListVectors(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::ListVectorsRequest* request,
     proto::ListVectorsResponse* response) {
   auto perm = CheckPermission(auth::Permission::LIST_VECTORS, request->collection_name());
@@ -1741,7 +1740,7 @@ grpc::Status VectorDBService::Delete(
   }
 
   constexpr size_t MAX_DELETE_BATCH_SIZE = 10000;
-  if (request->ids().size() > MAX_DELETE_BATCH_SIZE) {
+  if (static_cast<size_t>(request->ids().size()) > MAX_DELETE_BATCH_SIZE) {
     utils::MetricsRegistry::Instance().RecordDelete(
         request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
@@ -1953,8 +1952,8 @@ grpc::Status VectorDBService::UpdateMetadata(
 // ============================================================================
 
 grpc::Status VectorDBService::HealthCheck(
-    grpc::ServerContext* context,
-    const proto::HealthCheckRequest* request,
+    grpc::ServerContext* /*context*/,
+    const proto::HealthCheckRequest* /*request*/,
     proto::HealthCheckResponse* response) {
 
   response->set_status(proto::HealthCheckResponse::SERVING);
@@ -1963,8 +1962,8 @@ grpc::Status VectorDBService::HealthCheck(
 }
 
 grpc::Status VectorDBService::GetStats(
-    grpc::ServerContext* context,
-    const proto::GetStatsRequest* request,
+    grpc::ServerContext* /*context*/,
+    const proto::GetStatsRequest* /*request*/,
     proto::GetStatsResponse* response) {
 
   auto collections = resolver_->ListCollections();

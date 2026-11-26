@@ -1,42 +1,26 @@
-# Consensus module - Raft-based distributed consensus
-
-add_library(gvdb_consensus STATIC
-  timestamp_oracle.cpp
-  metadata_store.cpp
-  metadata_state_machine.cpp
-  gvdb_log_store.cpp
-  gvdb_state_manager.cpp
-  raft_node.cpp
-)
-
-target_include_directories(gvdb_consensus
-  PUBLIC
-    ${PROJECT_SOURCE_DIR}/include
-)
-
-target_link_libraries(gvdb_consensus
-  PUBLIC
-    gvdb_core
-    gvdb_cluster
+# Consensus module: Raft (NuRaft) with a RocksDB log store, and the
+# timestamp oracle.
+gvdb_add_library(consensus
+  SOURCES
+    timestamp_oracle.cpp
+    metadata_store.cpp
+    metadata_state_machine.cpp
+    gvdb_log_store.cpp
+    gvdb_state_manager.cpp
+    raft_node.cpp
+  PUBLIC_DEPS
+    gvdb::core
+    gvdb::cluster
     absl::status
     absl::statusor
     absl::strings
     absl::synchronization
     NuRaft::static_lib
     rocksdb
-  PRIVATE
-    gvdb_utils
-    # gRPC + proto for the 1.7b startup peer-probe / AnnounceJoinToCluster
-    # calls (see ProbePeersForLeader in raft_node.cpp).
-    proto_lib
-    ${_GRPC_GRPCPP}
-)
-
-# C++ standard
-target_compile_features(gvdb_consensus PUBLIC cxx_std_17)
-
-# Warnings
-target_compile_options(gvdb_consensus PRIVATE
-  $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra>
-  $<$<CXX_COMPILER_ID:MSVC>:/W4>
+  PRIVATE_DEPS
+    gvdb::utils
+    # The startup peer probe and AnnounceJoinToCluster call the internal
+    # gRPC API (raft_node.cpp).
+    gvdb::proto
+    grpc++
 )

@@ -23,8 +23,8 @@ class MockCoordinatorService : public proto::VectorDBService::Service {
   std::atomic<int> get_stats_calls{0};
 
   grpc::Status CreateCollection(
-      grpc::ServerContext* context,
-      const proto::CreateCollectionRequest* request,
+      grpc::ServerContext* /*context*/,
+      const proto::CreateCollectionRequest* /*request*/,
       proto::CreateCollectionResponse* response) override {
     create_collection_calls++;
     response->set_collection_id(42);
@@ -33,8 +33,8 @@ class MockCoordinatorService : public proto::VectorDBService::Service {
   }
 
   grpc::Status DropCollection(
-      grpc::ServerContext* context,
-      const proto::DropCollectionRequest* request,
+      grpc::ServerContext* /*context*/,
+      const proto::DropCollectionRequest* /*request*/,
       proto::DropCollectionResponse* response) override {
     drop_collection_calls++;
     response->set_message("Collection dropped");
@@ -42,8 +42,8 @@ class MockCoordinatorService : public proto::VectorDBService::Service {
   }
 
   grpc::Status ListCollections(
-      grpc::ServerContext* context,
-      const proto::ListCollectionsRequest* request,
+      grpc::ServerContext* /*context*/,
+      const proto::ListCollectionsRequest* /*request*/,
       proto::ListCollectionsResponse* response) override {
     list_collections_calls++;
     auto* collection = response->add_collections();
@@ -55,8 +55,8 @@ class MockCoordinatorService : public proto::VectorDBService::Service {
   }
 
   grpc::Status GetStats(
-      grpc::ServerContext* context,
-      const proto::GetStatsRequest* request,
+      grpc::ServerContext* /*context*/,
+      const proto::GetStatsRequest* /*request*/,
       proto::GetStatsResponse* response) override {
     get_stats_calls++;
     response->set_total_collections(1);
@@ -77,8 +77,8 @@ class MockCoordinatorInternalService : public proto::internal::InternalService::
   std::string data_node_address;
 
   grpc::Status RouteQuery(
-      grpc::ServerContext* context,
-      const proto::internal::RouteQueryRequest* request,
+      grpc::ServerContext* /*context*/,
+      const proto::internal::RouteQueryRequest* /*request*/,
       proto::internal::RouteQueryResponse* response) override {
     route_query_calls++;
     response->add_target_node_addresses(data_node_address);
@@ -95,8 +95,8 @@ class MockQueryNodeService : public proto::VectorDBService::Service {
   explicit MockQueryNodeService(int id) : node_id(id) {}
 
   grpc::Status Search(
-      grpc::ServerContext* context,
-      const proto::SearchRequest* request,
+      grpc::ServerContext* /*context*/,
+      const proto::SearchRequest* /*request*/,
       proto::SearchResponse* response) override {
     search_calls++;
 
@@ -118,7 +118,7 @@ class MockDataNodeService : public proto::VectorDBService::Service {
   std::atomic<int> update_metadata_calls{0};
 
   grpc::Status Insert(
-      grpc::ServerContext* context,
+      grpc::ServerContext* /*context*/,
       const proto::InsertRequest* request,
       proto::InsertResponse* response) override {
     insert_calls++;
@@ -127,8 +127,8 @@ class MockDataNodeService : public proto::VectorDBService::Service {
   }
 
   grpc::Status Get(
-      grpc::ServerContext* context,
-      const proto::GetRequest* request,
+      grpc::ServerContext* /*context*/,
+      const proto::GetRequest* /*request*/,
       proto::GetResponse* response) override {
     get_calls++;
     auto* vec = response->add_vectors();
@@ -138,7 +138,7 @@ class MockDataNodeService : public proto::VectorDBService::Service {
   }
 
   grpc::Status Delete(
-      grpc::ServerContext* context,
+      grpc::ServerContext* /*context*/,
       const proto::DeleteRequest* request,
       proto::DeleteResponse* response) override {
     delete_calls++;
@@ -147,8 +147,8 @@ class MockDataNodeService : public proto::VectorDBService::Service {
   }
 
   grpc::Status UpdateMetadata(
-      grpc::ServerContext* context,
-      const proto::UpdateMetadataRequest* request,
+      grpc::ServerContext* /*context*/,
+      const proto::UpdateMetadataRequest* /*request*/,
       proto::UpdateMetadataResponse* response) override {
     update_metadata_calls++;
     response->set_message("Metadata updated");

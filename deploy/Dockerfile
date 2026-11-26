@@ -8,6 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
+    ninja-build \
     git \
     libomp-dev \
     libcurl4-gnutls-dev \
@@ -28,13 +29,12 @@ COPY . .
 # cmake's incremental compilation works. Dependencies (gRPC, RocksDB,
 # Faiss, AWS SDK) compile once; source-only changes rebuild in ~30s.
 # Binaries are copied to /out/ since the cache mount is not part of the layer.
+# Four parallel jobs keep the compiler within the memory of a default
+# Docker Desktop VM.
 RUN --mount=type=cache,target=/src/build \
-    cmake -S . -B build \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_TESTING=OFF \
-    -DGVDB_WITH_S3=ON \
-    && cmake --build build -j4 \
-    && mkdir -p /out && cp build/bin/gvdb-* /out/ && strip /out/gvdb-*
+    cmake --preset release \
+    && cmake --build --preset release --parallel 4 \
+    && mkdir -p /out && cp build/release/bin/gvdb-* /out/ && strip /out/gvdb-*
 
 # Stage 2: Minimal runtime image
 FROM ubuntu:24.04

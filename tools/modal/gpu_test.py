@@ -102,7 +102,7 @@ def run_tests(jobs: int = 8) -> None:
             BUILD_DIR,
             "-DCMAKE_BUILD_TYPE=Release",
             "-DGVDB_WITH_CUDA=ON",
-            "-DBUILD_TESTING=ON",
+            "-DGVDB_BUILD_TESTS=ON",
             "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
             "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache",
             "-DCMAKE_CUDA_COMPILER_LAUNCHER=ccache",

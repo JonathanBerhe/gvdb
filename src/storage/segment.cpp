@@ -815,7 +815,7 @@ core::StatusOr<core::SearchResult> Segment::SearchHybrid(
     int k,
     float vector_weight,
     float text_weight,
-    const std::string& text_field,
+    const std::string& /*text_field*/,
     const core::SparseVector* sparse_query,
     float sparse_weight) const {
   std::shared_lock lock(mutex_);

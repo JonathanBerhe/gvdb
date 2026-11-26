@@ -27,7 +27,7 @@ sleep 2
 
 # Start coordinator on port 50051
 echo -e "${YELLOW}Starting coordinator on localhost:50051...${NC}"
-./build/bin/gvdb-coordinator \
+./build/dev/bin/gvdb-coordinator \
   --node-id 1 \
   --bind-address localhost:50051 \
   --data-dir /tmp/gvdb-e2e-coordinator \
@@ -52,7 +52,7 @@ echo ""
 
 # Start data node on port 50052
 echo -e "${YELLOW}Starting data node on localhost:50052...${NC}"
-./build/bin/gvdb-data-node \
+./build/dev/bin/gvdb-data-node \
   --node-id 2 \
   --bind-address localhost:50052 \
   --coordinator localhost:50051 \

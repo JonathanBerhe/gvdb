@@ -32,7 +32,7 @@ mkdir -p /tmp/gvdb-metadata-sync-test/data_node
 echo ""
 echo "Step 1: Starting Coordinator..."
 echo "========================================"
-./build/bin/gvdb-coordinator \
+./build/dev/bin/gvdb-coordinator \
     --node-id 1 \
     --bind-address 0.0.0.0:50051 \
     --data-dir /tmp/gvdb-metadata-sync-test/coordinator \
@@ -79,7 +79,7 @@ echo ""
 echo "Step 3: Starting Data Node (with coordinator connection)..."
 echo "========================================"
 
-./build/bin/gvdb-data-node \
+./build/dev/bin/gvdb-data-node \
     --node-id 101 \
     --bind-address 0.0.0.0:50060 \
     --data-dir /tmp/gvdb-metadata-sync-test/data_node \

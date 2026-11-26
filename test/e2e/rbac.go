@@ -125,7 +125,7 @@ index:
 
 	serverBin := os.Getenv("GVDB_SERVER_BIN")
 	if serverBin == "" {
-		serverBin = "../../build/bin/gvdb-single-node"
+		serverBin = "../../build/dev/bin/gvdb-single-node"
 	}
 
 	os.RemoveAll("/tmp/gvdb-rbac-test")

@@ -1,0 +1,129 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "GVDB_BUILD_TESTS": "ON",
+        "GVDB_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "homebrew",
+      "hidden": true,
+      "description": "Search paths for Homebrew's keg-only libomp and zlib on macOS. They have no effect on Linux.",
+      "cacheVariables": {
+        "OpenMP_ROOT": "/opt/homebrew/opt/libomp",
+        "ZLIB_ROOT": "/opt/homebrew/opt/zlib"
+      }
+    },
+    {
+      "name": "dev",
+      "displayName": "Debug build with tests",
+      "inherits": ["base", "homebrew"],
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "release",
+      "displayName": "Release build as shipped in the container image (S3 on, no tests)",
+      "inherits": ["base", "homebrew"],
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "GVDB_BUILD_TESTS": "OFF",
+        "GVDB_WITH_S3": "ON"
+      }
+    },
+    {
+      "name": "ci",
+      "displayName": "CI build: release with tests, S3 on, ccache",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "GVDB_WITH_S3": "ON",
+        "CMAKE_C_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache"
+      }
+    },
+    {
+      "name": "gcs",
+      "displayName": "CI build with Google Cloud Storage (google-cloud-cpp from vcpkg)",
+      "inherits": "base",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "GVDB_WITH_GCS": "ON",
+        "CMAKE_C_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache"
+      }
+    },
+    {
+      "name": "coverage",
+      "displayName": "Debug build with Clang source-based coverage",
+      "inherits": ["base", "homebrew"],
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "GVDB_COVERAGE": "ON"
+      }
+    },
+    {
+      "name": "asan-ubsan",
+      "displayName": "Debug build with AddressSanitizer and UndefinedBehaviorSanitizer",
+      "inherits": ["base", "homebrew"],
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "GVDB_SANITIZERS": "address,undefined"
+      }
+    },
+    {
+      "name": "metal",
+      "displayName": "Release build with Apple Metal acceleration",
+      "inherits": ["base", "homebrew"],
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "GVDB_WITH_METAL": "ON"
+      }
+    },
+    {
+      "name": "cuda",
+      "displayName": "Release build with NVIDIA CUDA acceleration",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "GVDB_WITH_CUDA": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "dev", "configurePreset": "dev" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "ci", "configurePreset": "ci" },
+    { "name": "gcs", "configurePreset": "gcs" },
+    { "name": "coverage", "configurePreset": "coverage" },
+    { "name": "asan-ubsan", "configurePreset": "asan-ubsan" },
+    { "name": "metal", "configurePreset": "metal" },
+    { "name": "cuda", "configurePreset": "cuda" }
+  ],
+  "testPresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    { "name": "dev", "inherits": "base", "configurePreset": "dev" },
+    { "name": "ci", "inherits": "base", "configurePreset": "ci" },
+    { "name": "coverage", "inherits": "base", "configurePreset": "coverage" },
+    { "name": "asan-ubsan", "inherits": "base", "configurePreset": "asan-ubsan" },
+    { "name": "metal", "inherits": "base", "configurePreset": "metal" },
+    {
+      "name": "cuda",
+      "inherits": "base",
+      "configurePreset": "cuda",
+      "filter": { "include": { "label": "cuda" } }
+    }
+  ]
+}

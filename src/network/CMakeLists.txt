@@ -1,37 +1,30 @@
-# Network Module - gRPC communication layer
-
-add_library(gvdb_network
-  vectordb_service.cpp
-  proto_conversions.cpp
-  internal_service.cpp
-  proxy_service.cpp
-  collection_metadata_cache.cpp
-  collection_resolver.cpp
-  auth_processor.cpp
-  audit_interceptor.cpp
-  audit_context.cpp
-  dns_channel_args.cpp
-  primary_term_header.cpp
-  replica_fallback.cpp
-)
-
-target_link_libraries(gvdb_network
-  PUBLIC
-    gvdb_core
-    gvdb_utils
-    gvdb_auth
-    proto_lib
-  PRIVATE
-    gvdb_storage
-    gvdb_compute
-    gvdb_cluster
-    gvdb_consensus
+# Network module: the gRPC services (client API, internal API, proxy), their
+# interceptors and the collection resolvers.
+gvdb_add_library(network
+  SOURCES
+    vectordb_service.cpp
+    proto_conversions.cpp
+    internal_service.cpp
+    proxy_service.cpp
+    collection_metadata_cache.cpp
+    collection_resolver.cpp
+    auth_processor.cpp
+    audit_interceptor.cpp
+    audit_context.cpp
+    dns_channel_args.cpp
+    primary_term_header.cpp
+    replica_fallback.cpp
+  PUBLIC_DEPS
+    gvdb::core
+    gvdb::utils
+    gvdb::auth
+    gvdb::proto
+  PRIVATE_DEPS
+    gvdb::storage
+    gvdb::compute
+    gvdb::cluster
+    gvdb::consensus
     absl::status
     absl::statusor
     absl::strings
-)
-
-target_include_directories(gvdb_network
-  PUBLIC
-    ${CMAKE_SOURCE_DIR}/include
 )
