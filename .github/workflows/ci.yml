@@ -19,8 +19,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Every job pins ubuntu-24.04: CI must build and run with the toolchain of
+  # deploy/Dockerfile (Ubuntu 24.04, GCC 13). The ubuntu-latest label moved to
+  # a newer release with GCC 15, where the AWS SDK's s2n-tls fails to compile.
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
 
     steps:
@@ -124,7 +127,7 @@ jobs:
   # at executable link time. Gated to GCS-relevant changes so the heavy
   # vcpkg build does not run on every PR.
   gcs-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     needs: build-and-test
 
@@ -243,7 +246,7 @@ jobs:
         run: echo "No GCS-relevant changes, skipping GCS build lane"
 
   test-python-sdk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     needs: build-and-test
 
@@ -299,7 +302,7 @@ jobs:
         run: echo "No Python SDK changes, skipping"
 
   test-java-connectors:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs: build-and-test
 
@@ -336,7 +339,7 @@ jobs:
         run: echo "No Java connector changes, skipping"
 
   test-operator:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: build-and-test
 
