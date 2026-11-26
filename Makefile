@@ -1,5 +1,6 @@
 .PHONY: build build-release test test-s3 coverage clean \
-       docker-build kind-create kind-load deploy apply \
+       run stop monitoring-up monitoring-down \
+       docker-build kind-create kind-load deploy \
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
        undeploy clean-kind port-forward status \
        build-ui docker-build-ui run-ui \
@@ -24,7 +25,6 @@ HELM_CHART       = deploy/helm/gvdb
 HELM_RELEASE    ?= gvdb
 HELM_NAMESPACE  ?= gvdb
 HELM_REGISTRY   ?= oci://ghcr.io/jonathanberhe/charts
-K8S_DIR          = deploy/k8s
 # Extra cache settings for the configure step, for example
 # CMAKE_EXTRA="-DGVDB_WITH_S3=ON".
 CMAKE_EXTRA     ?=
@@ -72,6 +72,33 @@ coverage:
 	@cmake --preset coverage
 	@cmake --build --preset coverage
 	@tools/coverage.sh build/coverage
+
+# Single-node server of $(PRESET) in the background. Data, log and pid file
+# live in $(BUILD_DIR)/run. Prometheus metrics: http://localhost:9090/metrics.
+RUN_DIR = $(BUILD_DIR)/run
+
+run: build
+	@mkdir -p $(RUN_DIR)/data
+	@if [ -f $(RUN_DIR)/gvdb.pid ] && kill -0 $$(cat $(RUN_DIR)/gvdb.pid) 2>/dev/null; then \
+		echo "gvdb-single-node already runs (pid $$(cat $(RUN_DIR)/gvdb.pid)). Run 'make stop' first."; exit 1; \
+	fi
+	@nohup $(BUILD_DIR)/bin/gvdb-single-node --port 50051 --data-dir $(RUN_DIR)/data --node-id 1 \
+		> $(RUN_DIR)/gvdb.log 2>&1 & echo $$! > $(RUN_DIR)/gvdb.pid
+	@echo "gvdb-single-node started on localhost:50051 (pid $$(cat $(RUN_DIR)/gvdb.pid), log $(RUN_DIR)/gvdb.log)"
+
+stop:
+	@if [ -f $(RUN_DIR)/gvdb.pid ] && kill $$(cat $(RUN_DIR)/gvdb.pid) 2>/dev/null; then \
+		echo "gvdb-single-node stopped"; else echo "gvdb-single-node does not run"; fi
+	@rm -f $(RUN_DIR)/gvdb.pid
+
+# Prometheus on http://localhost:9091 and Grafana on http://localhost:3000
+# (admin/admin) with the GVDB dashboard. Prometheus scrapes the server that
+# `make run` starts on this host.
+monitoring-up:
+	@docker compose -f deploy/monitoring/docker-compose.yml up -d
+
+monitoring-down:
+	@docker compose -f deploy/monitoring/docker-compose.yml down
 
 # S3 tests against the S3-compatible endpoint from
 # test/integration/docker-compose.s3.yml. Needs a build with S3: run
@@ -205,25 +232,6 @@ kind-load:
 
 # Full pipeline: build image + create kind cluster + load + helm install
 deploy: docker-build kind-create kind-load helm-install
-
-# Raw manifests (alternative to Helm, for quick testing)
-apply:
-	kubectl apply -f $(K8S_DIR)/namespace.yaml
-	kubectl apply -f $(K8S_DIR)/configmap.yaml
-	kubectl apply -f $(K8S_DIR)/services.yaml
-	kubectl apply -f $(K8S_DIR)/coordinator.yaml
-	@echo "Waiting for coordinator to be ready..."
-	kubectl -n gvdb rollout status statefulset/gvdb-coordinator --timeout=120s
-	kubectl apply -f $(K8S_DIR)/data-node.yaml
-	kubectl apply -f $(K8S_DIR)/query-node.yaml
-	@echo "Waiting for data and query nodes..."
-	kubectl -n gvdb rollout status statefulset/gvdb-data-node --timeout=180s
-	kubectl -n gvdb rollout status statefulset/gvdb-query-node --timeout=180s
-	kubectl apply -f $(K8S_DIR)/proxy.yaml
-	kubectl -n gvdb rollout status deployment/gvdb-proxy --timeout=60s
-	@echo ""
-	@echo "GVDB cluster deployed successfully!"
-	@echo "  Run 'make port-forward' to access the proxy at localhost:50050"
 
 undeploy:
 	-helm uninstall $(HELM_RELEASE) -n $(HELM_NAMESPACE) 2>/dev/null

@@ -178,6 +178,14 @@ make build-ui
 ### Run (single-node)
 
 ```bash
+make run             # build, then start gvdb-single-node on localhost:50051 in the background
+make monitoring-up   # Prometheus on localhost:9091, Grafana with the GVDB dashboard on localhost:3000
+make stop            # stop the server (make monitoring-down stops the monitoring stack)
+```
+
+The server keeps its data, log and pid file in `build/dev/run`. To run the binary in the foreground instead:
+
+```bash
 ./build/dev/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb
 ```
 
