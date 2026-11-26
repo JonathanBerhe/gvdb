@@ -4,12 +4,11 @@
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
        undeploy clean-kind port-forward status \
        build-ui docker-build-ui run-ui \
-       lint-sdk test-sdk test-sdk-kind generate-python-stubs \
+       lint-sdk test-sdk test-sdk-kind proto \
        bench-search bench-metal bench-cuda \
        build-connectors test-connectors \
        build-operator test-operator docker-build-operator \
        helm-install-operator helm-uninstall-operator \
-       generate-operator-pb \
        docs-install docs-serve docs-build
 
 # ---------------------------------------------------------------------------
@@ -122,9 +121,6 @@ test-sdk: lint-sdk
 test-sdk-kind:
 	@cd $(PYTHON_SDK_DIR) && GVDB_SERVER_ADDR=localhost:50050 uv run python3 -m pytest tests/test_sdk.py -v
 
-generate-python-stubs:
-	@cd $(PYTHON_SDK_DIR) && bash generate_proto.sh
-
 clean:
 	@rm -rf build
 
@@ -167,32 +163,11 @@ helm-install-operator:
 helm-uninstall-operator:
 	helm uninstall $(HELM_OPERATOR_RELEASE) -n $(HELM_OPERATOR_NAMESPACE)
 
-# Regenerate the operator's Go protobuf stubs so they never drift from
-# proto/*.proto. Covers vectordb.proto (public
-# VectorDBService) and internal.proto (InternalService for operator's
-# GetLeaderInfo + GetClusterHealth calls).
-generate-operator-pb:
-	@echo "Regenerating Go protobuf stubs for the operator..."
-	@mkdir -p /tmp/gvdb-pbgen
-	@cd proto && protoc \
-		--go_out=/tmp/gvdb-pbgen --go_opt=paths=source_relative \
-		--go-grpc_out=/tmp/gvdb-pbgen --go-grpc_opt=paths=source_relative \
-		--go_opt=Minternal.proto=gvdb/operator/internal/gvdbpb \
-		--go_opt=Mvectordb.proto=gvdb/operator/internal/gvdbpb \
-		--go-grpc_opt=Minternal.proto=gvdb/operator/internal/gvdbpb \
-		--go-grpc_opt=Mvectordb.proto=gvdb/operator/internal/gvdbpb \
-		vectordb.proto internal.proto
-	@cp /tmp/gvdb-pbgen/vectordb.pb.go $(OPERATOR_DIR)/internal/gvdbpb/vectordb.pb.go
-	@cp /tmp/gvdb-pbgen/vectordb_grpc.pb.go $(OPERATOR_DIR)/internal/gvdbpb/vectordb_grpc.pb.go
-	@cp /tmp/gvdb-pbgen/internal.pb.go $(OPERATOR_DIR)/internal/gvdbpb/internal.pb.go
-	@cp /tmp/gvdb-pbgen/internal_grpc.pb.go $(OPERATOR_DIR)/internal/gvdbpb/internal_grpc.pb.go
-	@sed -i.bak 's|^package pb$$|package gvdbpb|' \
-		$(OPERATOR_DIR)/internal/gvdbpb/vectordb.pb.go \
-		$(OPERATOR_DIR)/internal/gvdbpb/vectordb_grpc.pb.go \
-		$(OPERATOR_DIR)/internal/gvdbpb/internal.pb.go \
-		$(OPERATOR_DIR)/internal/gvdbpb/internal_grpc.pb.go
-	@rm $(OPERATOR_DIR)/internal/gvdbpb/*.bak
-	@rm -rf /tmp/gvdb-pbgen
+# Regenerate the checked-in protobuf stubs (Python SDK, operator, UI gateway)
+# from proto/*.proto with the generators pinned in tools/proto/versions.env.
+# CI fails when a stub differs from what this target generates.
+proto:
+	@tools/proto/generate.sh
 
 # ---------------------------------------------------------------------------
 # Docker

@@ -5,7 +5,8 @@ syntax = "proto3";
 
 package gvdb.proto;
 
-option go_package = "gvdb/integration-tests/pb";
+// Go code generators override this with -M flags (tools/proto/generate.sh).
+option go_package = "github.com/JonathanBerhe/gvdb/proto/gvdbpb;gvdbpb";
 
 option java_package = "io.gvdb.proto";
 option java_multiple_files = true;
@@ -344,8 +345,8 @@ message S3Target {
   // Bucket the data-node uploads to. Credentials come from the data-node's
   // configured object-store credentials (typically IRSA / Workload Identity).
   string bucket = 1;
-  // Optional prefix under the bucket. Final key layout is
-  //   <prefix>/backups/<backup_id>/...
+  // Optional prefix under the bucket. The final key layout is
+  // <prefix>/backups/<backup_id>/...
   string prefix = 2;
 }
 
@@ -409,9 +410,9 @@ message GetBackupStatusResponse {
   uint64 bytes_uploaded = 5;
   string error_message = 6;
   float elapsed_seconds = 7;
-  // Canonical URI of the top-level backup manifest, e.g.
-  //   "s3://bucket/prefix/backups/<id>/backup.manifest.json"
-  // Empty until the backup reaches BACKUP_COMPLETED.
+  // Canonical URI of the top-level backup manifest, for example
+  // "s3://bucket/prefix/backups/<id>/backup.manifest.json". Empty until the
+  // backup reaches BACKUP_COMPLETED.
   string manifest_uri = 8;
 }
 

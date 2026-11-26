@@ -3119,9 +3119,9 @@ func (x *BackupShardResponse) GetBytesUploaded() uint64 {
 
 type RestoreShardRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Identifier of the backup to restore from. The data-node derives the
+	// Identifier of the backup to restore from. The data node derives the
 	// shard manifest key as
-	//   <prefix>/backups/<backup_id>/shards/<shard_id>/shard.manifest.json.
+	// <prefix>/backups/<backup_id>/shards/<shard_id>/shard.manifest.json.
 	BackupId           string        `protobuf:"bytes,1,opt,name=backup_id,json=backupId,proto3" json:"backup_id,omitempty"`
 	TargetCollectionId uint32        `protobuf:"varint,2,opt,name=target_collection_id,json=targetCollectionId,proto3" json:"target_collection_id,omitempty"`
 	ShardId            uint32        `protobuf:"varint,3,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty"`
@@ -3751,7 +3751,7 @@ const file_internal_proto_rawDesc = "" +
 	"\vBackupShard\x12'.gvdb.proto.internal.BackupShardRequest\x1a(.gvdb.proto.internal.BackupShardResponse\x12c\n" +
 	"\fRestoreShard\x12(.gvdb.proto.internal.RestoreShardRequest\x1a).gvdb.proto.internal.RestoreShardResponse\x12c\n" +
 	"\fFreezeWrites\x12(.gvdb.proto.internal.FreezeWritesRequest\x1a).gvdb.proto.internal.FreezeWritesResponse\x12i\n" +
-	"\x0eUnfreezeWrites\x12*.gvdb.proto.internal.UnfreezeWritesRequest\x1a+.gvdb.proto.internal.UnfreezeWritesResponseB\x12Z\x10gvdb/internal/pbb\x06proto3"
+	"\x0eUnfreezeWrites\x12*.gvdb.proto.internal.UnfreezeWritesRequest\x1a+.gvdb.proto.internal.UnfreezeWritesResponseB3Z1github.com/JonathanBerhe/gvdb/proto/gvdbpb;gvdbpbb\x06proto3"
 
 var (
 	file_internal_proto_rawDescOnce sync.Once

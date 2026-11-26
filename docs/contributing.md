@@ -71,6 +71,7 @@ See the [changelog](changelog.md) for the version-bump rules.
 - Update the relevant [module CLAUDE.md](https://github.com/JonathanBerhe/gvdb/blob/main/CLAUDE.md) if you change architecture.
 - Add tests for new features and bug fixes (TDD welcome).
 - Tests must be isolated, because CI runs the test binaries in parallel. Use the helpers in `test/support` for temp folders, gRPC servers on free ports and bounded waits. Do not use a fixed path, a fixed port or a fixed sleep.
+- After a change to a file in `proto/`, run `make proto` and commit the regenerated stubs. CI fails when a stub differs from `proto/`.
 
 ## Coding conventions
 

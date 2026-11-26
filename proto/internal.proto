@@ -5,7 +5,8 @@ syntax = "proto3";
 
 package gvdb.proto.internal;
 
-option go_package = "gvdb/internal/pb";
+// Go code generators override this with -M flags (tools/proto/generate.sh).
+option go_package = "github.com/JonathanBerhe/gvdb/proto/gvdbpb;gvdbpb";
 
 import "vectordb.proto";
 
@@ -534,9 +535,9 @@ message BackupShardResponse {
 }
 
 message RestoreShardRequest {
-  // Identifier of the backup to restore from. The data-node derives the
+  // Identifier of the backup to restore from. The data node derives the
   // shard manifest key as
-  //   <prefix>/backups/<backup_id>/shards/<shard_id>/shard.manifest.json.
+  // <prefix>/backups/<backup_id>/shards/<shard_id>/shard.manifest.json.
   string backup_id = 1;
   uint32 target_collection_id = 2;
   uint32 shard_id = 3;

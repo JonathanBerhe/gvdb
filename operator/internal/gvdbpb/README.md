@@ -10,12 +10,13 @@ step.
 
 ## Regenerating
 
-Regenerate the stubs from `proto/vectordb.proto` and `proto/internal.proto`
-with:
+Do not edit these files. After a change to `proto/`, run this command from the
+repository root:
 
 ```
-make generate-operator-pb
+make proto
 ```
 
-Run it after every change to the files in `proto/`, so that the stubs do not
-drift from the server.
+It regenerates these stubs, the Python SDK stubs and the UI gateway stubs with
+the generator versions in `tools/proto/versions.env`. CI fails when a checked-in
+stub differs from the generated one.
