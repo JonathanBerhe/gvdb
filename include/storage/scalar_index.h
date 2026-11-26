@@ -53,12 +53,6 @@ class ScalarIndex {
   // Lookup: prefix match for strings (LIKE 'prefix%')
   VectorIdSet LookupPrefix(const std::string& prefix) const;
 
-  // Get total number of indexed entries
-  size_t Size() const { return total_entries_; }
-
-  // Get approximate memory usage
-  size_t GetMemoryUsage() const;
-
  private:
   // Hash index: value -> set of vector IDs (for equality, IN)
   std::unordered_map<std::string, VectorIdSet> hash_index_;
@@ -66,8 +60,6 @@ class ScalarIndex {
   // Sorted index: string key -> set of vector IDs (for range, prefix)
   // Key is a sortable string representation of the value
   std::map<std::string, VectorIdSet> sorted_index_;
-
-  size_t total_entries_ = 0;
 
   // Convert MetadataValue to a hashable string key
   static std::string ValueToKey(const core::MetadataValue& value);
@@ -98,9 +90,6 @@ class ScalarIndexSet {
 
   // Check if any indexes exist
   bool HasIndexes() const { return !field_indexes_.empty(); }
-
-  // Get approximate memory usage
-  size_t GetMemoryUsage() const;
 
  private:
   // Per-field scalar indexes

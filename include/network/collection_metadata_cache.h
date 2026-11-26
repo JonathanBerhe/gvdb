@@ -28,22 +28,8 @@ class CollectionMetadataCache {
   // Get collection metadata by name
   absl::StatusOr<CollectionMetadata> GetByName(const std::string& collection_name) const;
 
-  // Get collection metadata by ID
-  absl::StatusOr<CollectionMetadata> GetById(core::CollectionId collection_id) const;
-
   // Add or update collection metadata in cache
   void Put(const CollectionMetadata& metadata);
-
-  // Remove collection from cache
-  void Remove(const std::string& collection_name);
-  void Remove(core::CollectionId collection_id);
-
-  // Check if collection exists in cache
-  bool Contains(const std::string& collection_name) const;
-  bool Contains(core::CollectionId collection_id) const;
-
-  // Clear all cached metadata
-  void Clear();
 
   // Get number of cached collections
   size_t Size() const;

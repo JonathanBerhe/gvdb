@@ -23,9 +23,6 @@ class BM25Index : public ITextIndex {
   [[nodiscard]] core::StatusOr<core::SearchResult> Search(
       const std::string& query, int k) override;
 
-  [[nodiscard]] size_t GetDocumentCount() const override;
-  [[nodiscard]] size_t GetMemoryUsage() const override;
-
  private:
   struct Posting {
     core::VectorId id;

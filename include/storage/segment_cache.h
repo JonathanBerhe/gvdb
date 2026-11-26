@@ -51,9 +51,6 @@ class SegmentCache {
   // Get number of cached segments
   [[nodiscard]] size_t GetCachedCount() const;
 
-  // Get the cache directory path
-  [[nodiscard]] const std::string& GetCacheDir() const { return cache_dir_; }
-
   // Get the max cache size
   [[nodiscard]] size_t GetMaxCacheBytes() const { return max_cache_bytes_; }
 

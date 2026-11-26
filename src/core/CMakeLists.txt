@@ -3,7 +3,6 @@
 gvdb_add_library(core
   SOURCES
     vector.cpp
-    status.cpp
     metadata.cpp
     filter.cpp
     sparse_vector.cpp

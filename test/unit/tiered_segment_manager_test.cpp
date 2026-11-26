@@ -173,7 +173,9 @@ TEST_CASE_FIXTURE(TieredTest, "WriteAndReadVectors") {
   auto ids = MakeIds(10);
   REQUIRE(tiered->WriteVectors(seg_id, vectors, ids).ok());
 
-  auto read_result = tiered->ReadVectors(seg_id, {ids[0]});
+  auto* segment = tiered->GetSegment(seg_id);
+  REQUIRE(segment != nullptr);
+  auto read_result = segment->ReadVectors({ids[0]});
   REQUIRE(read_result.ok());
   CHECK_EQ(read_result->size(), 1);
 }
@@ -221,7 +223,9 @@ TEST_CASE_FIXTURE(TieredTest, "SealAndSearch") {
   config.metric_type = metric_;
   REQUIRE(tiered->SealSegment(seg_id, config).ok());
 
-  auto search_result = tiered->SearchSegment(seg_id, vectors[0], 5);
+  auto* segment = tiered->GetSegment(seg_id);
+  REQUIRE(segment != nullptr);
+  auto search_result = segment->Search(vectors[0], 5);
   REQUIRE(search_result.ok());
   CHECK(search_result->entries.size() > 0);
 }
@@ -243,15 +247,6 @@ TEST_CASE_FIXTURE(TieredTest, "SearchCollection") {
   auto result = tiered->SearchCollection(collection_id_, vectors[0], 5);
   REQUIRE(result.ok());
   CHECK(result->entries.size() > 0);
-}
-
-TEST_CASE_FIXTURE(TieredTest, "GetAllSegmentIds") {
-  auto tiered = MakeTiered();
-  REQUIRE(tiered->CreateSegment(collection_id_, dimension_, metric_).ok());
-  REQUIRE(tiered->CreateSegment(collection_id_, dimension_, metric_).ok());
-
-  auto all_ids = tiered->GetAllSegmentIds();
-  CHECK_EQ(all_ids.size(), 2);
 }
 
 TEST_CASE_FIXTURE(TieredTest, "GetSegmentCount") {
@@ -280,11 +275,6 @@ TEST_CASE_FIXTURE(TieredTest, "Clear") {
   CHECK_EQ(tiered->GetSegmentCount(), 1);
   tiered->Clear();
   CHECK_EQ(tiered->GetSegmentCount(), 0);
-}
-
-TEST_CASE_FIXTURE(TieredTest, "RemoteSegmentCountInitiallyZero") {
-  auto tiered = MakeTiered();
-  CHECK_EQ(tiered->GetRemoteSegmentCount(), 0);
 }
 
 TEST_CASE_FIXTURE(TieredTest, "ManifestDiscovery") {
@@ -336,18 +326,6 @@ TEST_CASE_FIXTURE(TieredTest, "SetSealCallback") {
   // GetWritableSegment with a segment that's full should trigger callback
   // This test just verifies the callback is wired through
   CHECK_FALSE(callback_called);
-}
-
-TEST_CASE_FIXTURE(TieredTest, "GetTotalMemoryUsage") {
-  auto tiered = MakeTiered();
-  CHECK_EQ(tiered->GetTotalMemoryUsage(), 0);
-
-  auto seg_id = *tiered->CreateSegment(collection_id_, dimension_, metric_);
-  auto vectors = MakeVectors(100);
-  auto ids = MakeIds(100);
-  REQUIRE(tiered->WriteVectors(seg_id, vectors, ids).ok());
-
-  CHECK(tiered->GetTotalMemoryUsage() > 0);
 }
 
 TEST_CASE_FIXTURE(TieredTest, "LoadAllSegmentsLocal") {

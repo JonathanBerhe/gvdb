@@ -125,7 +125,9 @@ TEST_CASE_FIXTURE(S3IntegrationTest, "FullSegmentLifecycle") {
   REQUIRE(mgr->SealSegment(seg_id, config).ok());
 
   // Verify search works before flush
-  auto result = mgr->SearchSegment(seg_id, vecs[0], 5);
+  auto* segment = mgr->GetSegment(seg_id);
+  REQUIRE(segment != nullptr);
+  auto result = segment->Search(vecs[0], 5);
   REQUIRE(result.ok());
   CHECK(result->entries.size() > 0);
 

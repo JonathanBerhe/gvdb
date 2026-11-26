@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <sstream>
 #include <string_view>
 
 #include "absl/strings/ascii.h"
@@ -51,37 +50,6 @@ bool ComparisonNode::evaluate(const Metadata& metadata) const {
   return compare_metadata_values(it->second, op_, value_);
 }
 
-std::string ComparisonNode::to_string() const {
-  std::stringstream ss;
-  ss << field_ << " ";
-
-  switch (op_) {
-    case ComparisonOp::EQUAL: ss << "="; break;
-    case ComparisonOp::NOT_EQUAL: ss << "!="; break;
-    case ComparisonOp::LESS_THAN: ss << "<"; break;
-    case ComparisonOp::LESS_EQUAL: ss << "<="; break;
-    case ComparisonOp::GREATER_THAN: ss << ">"; break;
-    case ComparisonOp::GREATER_EQUAL: ss << ">="; break;
-    case ComparisonOp::LIKE: ss << "LIKE"; break;
-    case ComparisonOp::NOT_LIKE: ss << "NOT LIKE"; break;
-    default: ss << "?"; break;
-  }
-
-  ss << " ";
-
-  if (std::holds_alternative<int64_t>(value_)) {
-    ss << std::get<int64_t>(value_);
-  } else if (std::holds_alternative<double>(value_)) {
-    ss << std::get<double>(value_);
-  } else if (std::holds_alternative<std::string>(value_)) {
-    ss << "'" << std::get<std::string>(value_) << "'";
-  } else if (std::holds_alternative<bool>(value_)) {
-    ss << (std::get<bool>(value_) ? "true" : "false");
-  }
-
-  return ss.str();
-}
-
 // ============================================================================
 // InNode Implementation
 // ============================================================================
@@ -97,29 +65,6 @@ bool InNode::evaluate(const Metadata& metadata) const {
   }
 
   return compare_metadata_value_in_list(it->second, negate_, values_);
-}
-
-std::string InNode::to_string() const {
-  std::stringstream ss;
-  ss << field_ << (negate_ ? " NOT IN (" : " IN (");
-
-  for (size_t i = 0; i < values_.size(); ++i) {
-    if (i > 0) ss << ", ";
-
-    const auto& val = values_[i];
-    if (std::holds_alternative<int64_t>(val)) {
-      ss << std::get<int64_t>(val);
-    } else if (std::holds_alternative<double>(val)) {
-      ss << std::get<double>(val);
-    } else if (std::holds_alternative<std::string>(val)) {
-      ss << "'" << std::get<std::string>(val) << "'";
-    } else if (std::holds_alternative<bool>(val)) {
-      ss << (std::get<bool>(val) ? "true" : "false");
-    }
-  }
-
-  ss << ")";
-  return ss.str();
 }
 
 // ============================================================================
@@ -140,24 +85,6 @@ bool LogicalNode::evaluate(const Metadata& metadata) const {
       return !left_->evaluate(metadata);
   }
   return false;
-}
-
-std::string LogicalNode::to_string() const {
-  std::stringstream ss;
-
-  switch (op_) {
-    case LogicalOp::AND:
-      ss << "(" << left_->to_string() << " AND " << right_->to_string() << ")";
-      break;
-    case LogicalOp::OR:
-      ss << "(" << left_->to_string() << " OR " << right_->to_string() << ")";
-      break;
-    case LogicalOp::NOT:
-      ss << "NOT (" << left_->to_string() << ")";
-      break;
-  }
-
-  return ss.str();
 }
 
 // ============================================================================
@@ -577,28 +504,6 @@ absl::Status FilterParser::enter_nesting() {
     return absl::InvalidArgumentError(
         absl::StrCat("Filter nesting exceeds the maximum depth of ",
                      kMaxNestingDepth, " at position ", pos_));
-  }
-  return absl::OkStatus();
-}
-
-// ============================================================================
-// Filter Utilities
-// ============================================================================
-
-absl::StatusOr<bool> evaluate_filter(const std::string& filter_expr,
-                                      const Metadata& metadata) {
-  auto filter = FilterParser::parse(filter_expr);
-  if (!filter.ok()) {
-    return filter.status();
-  }
-
-  return (*filter)->evaluate(metadata);
-}
-
-absl::Status validate_filter(const std::string& filter_expr) {
-  auto filter = FilterParser::parse(filter_expr);
-  if (!filter.ok()) {
-    return filter.status();
   }
   return absl::OkStatus();
 }

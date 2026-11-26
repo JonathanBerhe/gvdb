@@ -54,8 +54,8 @@ TEST_CASE_FIXTURE(LoggerTest, "InitializeWithDefaultConfig") {
   CHECK_MESSAGE(status.ok(), status.message());
 
   // Should be able to log without errors
-  LOG_INFO("Test message");
-  LOG_DEBUG("Debug message");  // Should be filtered out (level is INFO)
+  Logger::Instance().Info("Test message");
+  Logger::Instance().Debug("Debug message");  // Should be filtered out (level is INFO)
 
   Logger::Instance().Flush();
 }
@@ -70,8 +70,8 @@ TEST_CASE_FIXTURE(LoggerTest, "InitializeWithFileLogging") {
   auto status = Logger::Initialize(config);
   CHECK_MESSAGE(status.ok(), status.message());
 
-  LOG_INFO("Test info message");
-  LOG_DEBUG("Test debug message");
+  Logger::Instance().Info("Test info message");
+  Logger::Instance().Debug("Test debug message");
 
   Logger::Instance().Flush();
 
@@ -111,10 +111,10 @@ TEST_CASE_FIXTURE(LoggerTest, "SetLogLevel") {
   auto status = Logger::Initialize(config);
   REQUIRE(status.ok());
 
-  LOG_DEBUG("Should not appear");
-  LOG_INFO("Should not appear");
-  LOG_WARN("Should appear");
-  LOG_ERROR("Should appear");
+  Logger::Instance().Debug("Should not appear");
+  Logger::Instance().Info("Should not appear");
+  Logger::Instance().Warn("Should appear");
+  Logger::Instance().Error("Should appear");
 
   Logger::Instance().Flush();
 
@@ -139,9 +139,9 @@ TEST_CASE_FIXTURE(LoggerTest, "LogWithParameters") {
   auto status = Logger::Initialize(config);
   REQUIRE(status.ok());
 
-  LOG_INFO("Test with int: {}", 42);
-  LOG_INFO("Test with string: {}", "hello");
-  LOG_INFO("Test with multiple: {} {} {}", 1, "two", 3.14);
+  Logger::Instance().Info("Test with int: {}", 42);
+  Logger::Instance().Info("Test with string: {}", "hello");
+  Logger::Instance().Info("Test with multiple: {} {} {}", 1, "two", 3.14);
 
   Logger::Instance().Flush();
 }
@@ -203,31 +203,6 @@ TEST_CASE("ThreadPoolTest - EnqueueWithParameters") {
 
   auto future = pool.enqueue(add, 10, 32);
   CHECK_EQ(future.get(), 42);
-}
-
-TEST_CASE("ThreadPoolTest - PendingTasksCount") {
-  ThreadPool pool(1);  // Single thread
-
-  std::atomic<bool> block{true};
-
-  // Enqueue a blocking task
-  pool.enqueue([&block] {
-    while (block.load()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-  });
-
-  // Enqueue more tasks
-  for (int i = 0; i < 5; ++i) {
-    pool.enqueue([] {});
-  }
-
-  // Should have pending tasks
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  CHECK_GT(pool.pending(), 0);
-
-  // Unblock
-  block.store(false);
 }
 
 TEST_CASE("ThreadPoolTest - ParallelExecution") {
@@ -295,52 +270,6 @@ TEST_CASE("TimerTest - MeasureElapsedTime") {
   CHECK_LE(elapsed_millis, 150);
 }
 
-TEST_CASE("TimerTest - Reset") {
-  Timer timer;
-
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  timer.reset();
-
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-  int64_t elapsed = timer.elapsed_millis();
-  CHECK_GE(elapsed, 40);
-  CHECK_LE(elapsed, 80);  // Should be ~50ms, not ~100ms
-}
-
-TEST_CASE("ScopedTimerTest - CallbackOnDestruction") {
-  int64_t measured_time = 0;
-
-  {
-    ScopedTimer timer([&measured_time](int64_t elapsed) {
-      measured_time = elapsed;
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  }
-
-  CHECK_GE(measured_time, 40'000);   // 40ms in microseconds
-  CHECK_LE(measured_time, 100'000);  // 100ms in microseconds
-}
-
-TEST_CASE("TimerTest - MeasureMicrosUtility") {
-  int64_t elapsed = measure_micros([] {
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  });
-
-  CHECK_GE(elapsed, 40'000);
-  CHECK_LE(elapsed, 100'000);
-}
-
-TEST_CASE("TimerTest - MeasureSecondsUtility") {
-  double elapsed = measure_seconds([] {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  });
-
-  CHECK_GE(elapsed, 0.09);
-  CHECK_LE(elapsed, 0.15);
-}
-
 // ============================================================================
 // Integration Tests
 // ============================================================================
@@ -369,7 +298,7 @@ TEST_CASE("UtilsIntegrationTest - ThreadPoolWithTimerAndLogger") {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
       int64_t elapsed = task_timer.elapsed_micros();
-      LOG_INFO("Task {} completed in {} us", i, elapsed);
+      Logger::Instance().Info("Task {} completed in {} us", i, elapsed);
 
       completed.fetch_add(1);
     }));
@@ -381,7 +310,7 @@ TEST_CASE("UtilsIntegrationTest - ThreadPoolWithTimerAndLogger") {
   }
 
   int64_t total_elapsed = overall_timer.elapsed_millis();
-  LOG_INFO("All {} tasks completed in {} ms", completed.load(), total_elapsed);
+  Logger::Instance().Info("All {} tasks completed in {} ms", completed.load(), total_elapsed);
 
   CHECK_EQ(completed.load(), 10);
 

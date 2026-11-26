@@ -66,10 +66,5 @@ ThreadPool::~ThreadPool() {
   }
 }
 
-size_t ThreadPool::pending() const {
-  std::unique_lock<std::mutex> lock(queue_mutex_);
-  return tasks_.size();
-}
-
 }  // namespace utils
 }  // namespace gvdb

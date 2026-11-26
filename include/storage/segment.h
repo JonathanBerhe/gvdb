@@ -134,9 +134,6 @@ class Segment {
 
   // ========== State Management ==========
 
-  // Set the text index for hybrid search (call after seal with metadata text field)
-  void SetTextIndex(std::unique_ptr<index::ITextIndex> text_index);
-
   // Build a BM25 text index from a metadata field across all vectors in this segment
   core::Status BuildTextIndex(std::unique_ptr<index::ITextIndex> text_index,
                                const std::string& text_field = "text");
@@ -218,9 +215,6 @@ class Segment {
 
   // Check if a specific batch of additional_bytes would fit
   [[nodiscard]] bool CanFit(size_t additional_bytes) const;
-
-  // This segment's configured size cap (immutable after construction)
-  [[nodiscard]] size_t GetMaxSegmentSize() const { return max_segment_size_; }
 
   // Get maximum segment size (512 MB default)
   static constexpr size_t kMaxSegmentSize = 512 * 1024 * 1024;  // 512 MB

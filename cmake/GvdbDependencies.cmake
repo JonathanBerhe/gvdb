@@ -34,7 +34,7 @@ function(gvdb_fetch name)
   set(BUILD_SHARED_LIBS OFF)
   set(CMAKE_SKIP_INSTALL_RULES ON)
   # Lets CMake 4 configure dependencies that still declare
-  # cmake_minimum_required() below 3.5 (doctest, yaml-cpp, xxHash).
+  # cmake_minimum_required() below 3.5 (doctest, yaml-cpp).
   set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
   foreach(option IN LISTS arg_OPTIONS)
@@ -91,18 +91,6 @@ if(GVDB_BUILD_TESTS)
       DOCTEST_NO_INSTALL=ON
   )
 endif()
-
-# ----------------------------------------------------------------------------
-# xxHash (backup manifest checksums), built from its cmake_unofficial folder
-# ----------------------------------------------------------------------------
-gvdb_fetch(xxhash
-  GIT_REPOSITORY https://github.com/Cyan4973/xxHash.git
-  GIT_TAG        v0.8.2
-  SOURCE_SUBDIR  cmake_unofficial
-  OPTIONS
-    XXHASH_BUILD_XXHSUM=OFF
-    XXHASH_BUILD_ENABLE_INLINE_API=ON
-)
 
 # ----------------------------------------------------------------------------
 # CUDA toolchain for faiss-gpu. enable_language() must run at file scope.

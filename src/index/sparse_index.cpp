@@ -67,17 +67,5 @@ core::StatusOr<core::SearchResult> SparseIndex::Search(
   return result;
 }
 
-size_t SparseIndex::GetDocumentCount() const {
-  return doc_count_;
-}
-
-size_t SparseIndex::GetMemoryUsage() const {
-  size_t usage = sizeof(*this);
-  for (const auto& [dim, postings] : posting_lists_) {
-    usage += sizeof(dim) + postings.size() * sizeof(Posting);
-  }
-  return usage;
-}
-
 }  // namespace index
 }  // namespace gvdb

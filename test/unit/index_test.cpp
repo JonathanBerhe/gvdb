@@ -6,7 +6,6 @@
 #include "core/config.h"
 #include "core/vector.h"
 #include "index/index_factory.h"
-#include "index/index_manager.h"
 #include "index/bm25_index.h"
 
 // Internal headers — test target adds src/index to its include path so we can
@@ -365,108 +364,6 @@ TEST_CASE("IVFPQIndexTest - BuildAndSearch") {
 }
 
 // ============================================================================
-// IndexManager Tests
-// ============================================================================
-
-TEST_CASE("IndexManagerTest - CreateAndGetIndex") {
-  IndexManager manager;
-
-  core::IndexConfig config;
-  config.index_type = core::IndexType::FLAT;
-  config.dimension = 64;
-  config.metric_type = core::MetricType::L2;
-
-  auto segment_id = core::MakeSegmentId(1);
-  REQUIRE(manager.CreateIndex(segment_id, config).ok());
-
-  CHECK(manager.HasIndex(segment_id));
-  CHECK_EQ(manager.GetIndexCount(), 1);
-
-  auto index_result = manager.GetIndex(segment_id);
-  REQUIRE(index_result.ok());
-
-  auto* index = index_result.value();
-  CHECK_NE(index, nullptr);
-  CHECK_EQ(index->GetDimension(), 64);
-}
-
-TEST_CASE("IndexManagerTest - RemoveIndex") {
-  IndexManager manager;
-
-  core::IndexConfig config;
-  config.index_type = core::IndexType::FLAT;
-  config.dimension = 32;
-
-  auto segment_id = core::MakeSegmentId(42);
-  REQUIRE(manager.CreateIndex(segment_id, config).ok());
-  CHECK(manager.HasIndex(segment_id));
-
-  REQUIRE(manager.RemoveIndex(segment_id).ok());
-  CHECK_FALSE(manager.HasIndex(segment_id));
-  CHECK_EQ(manager.GetIndexCount(), 0);
-}
-
-TEST_CASE("IndexManagerTest - MultipleIndexes") {
-  IndexManager manager;
-
-  core::IndexConfig config;
-  config.index_type = core::IndexType::FLAT;
-  config.dimension = 16;
-
-  for (uint32_t i = 1; i <= 5; ++i) {
-    auto segment_id = core::MakeSegmentId(i);
-    REQUIRE(manager.CreateIndex(segment_id, config).ok());
-  }
-
-  CHECK_EQ(manager.GetIndexCount(), 5);
-
-  for (uint32_t i = 1; i <= 5; ++i) {
-    CHECK(manager.HasIndex(core::MakeSegmentId(i)));
-  }
-}
-
-TEST_CASE("IndexManagerTest - DuplicateSegmentId") {
-  IndexManager manager;
-
-  core::IndexConfig config;
-  config.index_type = core::IndexType::FLAT;
-  config.dimension = 8;
-
-  auto segment_id = core::MakeSegmentId(1);
-  REQUIRE(manager.CreateIndex(segment_id, config).ok());
-
-  // Try to create again
-  auto status = manager.CreateIndex(segment_id, config);
-  CHECK_FALSE(status.ok());
-  CHECK(absl::IsAlreadyExists(status));
-}
-
-TEST_CASE("IndexManagerTest - GetNonexistentIndex") {
-  IndexManager manager;
-
-  auto result = manager.GetIndex(core::MakeSegmentId(999));
-  CHECK_FALSE(result.ok());
-  CHECK(absl::IsNotFound(result.status()));
-}
-
-TEST_CASE("IndexManagerTest - Clear") {
-  IndexManager manager;
-
-  core::IndexConfig config;
-  config.index_type = core::IndexType::FLAT;
-  config.dimension = 4;
-
-  for (uint32_t i = 1; i <= 3; ++i) {
-    REQUIRE(manager.CreateIndex(core::MakeSegmentId(i), config).ok());
-  }
-
-  CHECK_EQ(manager.GetIndexCount(), 3);
-
-  manager.Clear();
-  CHECK_EQ(manager.GetIndexCount(), 0);
-}
-
-// ============================================================================
 // BM25 Index Tests
 // ============================================================================
 
@@ -526,22 +423,6 @@ TEST_CASE("BM25Index: CaseInsensitive") {
   REQUIRE(result.ok());
   REQUIRE(result->entries.size() == 1);
   CHECK(result->entries[0].id == core::MakeVectorId(1));
-}
-
-TEST_CASE("BM25Index: DocumentCount") {
-  BM25Index idx;
-  CHECK(idx.GetDocumentCount() == 0);
-  REQUIRE(idx.AddDocument(core::MakeVectorId(1), "first document").ok());
-  CHECK(idx.GetDocumentCount() == 1);
-  REQUIRE(idx.AddDocument(core::MakeVectorId(2), "second document").ok());
-  CHECK(idx.GetDocumentCount() == 2);
-}
-
-TEST_CASE("BM25Index: MemoryUsage") {
-  BM25Index idx;
-  CHECK(idx.GetMemoryUsage() == 0);
-  REQUIRE(idx.AddDocument(core::MakeVectorId(1), "some text with several words to index").ok());
-  CHECK(idx.GetMemoryUsage() > 0);
 }
 
 TEST_CASE("BM25Index: TopKLimit") {

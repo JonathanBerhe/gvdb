@@ -227,8 +227,6 @@ void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata) {
 }
 
 // ============================================================================
-// Status Conversions
-// ============================================================================
 // Sparse Vector Conversions
 // ============================================================================
 
@@ -249,13 +247,6 @@ absl::StatusOr<core::SparseVector> fromProto(const proto::SparseVector& proto_sp
   if (!status.ok()) return status;
 
   return sparse;
-}
-
-void toProto(const core::SparseVector& sparse, proto::SparseVector* proto_sparse) {
-  for (const auto& [idx, val] : sparse.entries()) {
-    proto_sparse->add_indices(idx);
-    proto_sparse->add_values(val);
-  }
 }
 
 // ============================================================================

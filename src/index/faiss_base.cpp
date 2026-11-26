@@ -38,19 +38,6 @@ FaissIndexBase::FaissIndexBase(std::unique_ptr<faiss::Index> index,
 
 FaissIndexBase::~FaissIndexBase() = default;
 
-void FaissIndexBase::DisableGpu() {
-  std::unique_lock lock(mutex_);
-#ifdef GVDB_HAS_CUDA
-  // Guard against accidental use after the GPU clone already happened —
-  // toggling the flag after Build() ran would silently keep the GPU index
-  // alive while callers think they have a CPU baseline.
-  if (gpu_resident_) {
-    return;
-  }
-#endif
-  disable_gpu_ = true;
-}
-
 core::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
                                     const std::vector<core::VectorId>& ids) {
   if (vectors.empty()) {
@@ -333,7 +320,7 @@ core::Status FaissIndexBase::Deserialize(const std::string& path) {
 
 void FaissIndexBase::MaybeCloneToGpu() {
 #ifdef GVDB_HAS_CUDA
-  if (disable_gpu_ || gpu_resident_ || !SupportsGpu() || !cuda::IsAvailable()) {
+  if (gpu_resident_ || !SupportsGpu() || !cuda::IsAvailable()) {
     return;
   }
   gpu_res_ = std::make_unique<faiss::gpu::StandardGpuResources>();

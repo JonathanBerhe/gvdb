@@ -24,7 +24,7 @@ C++ / doctest. One file per module.
 | `compute_test.cpp` | Parallel query execution |
 | `utils_test.cpp` | Logger, thread pool, timer |
 | `network_test.cpp` | Proto conversions, VectorDBService CRUD |
-| `cluster_simple_test.cpp` | ShardManager, Coordinator, LoadBalancer |
+| `cluster_simple_test.cpp` | ShardManager, Coordinator |
 | `consensus_test.cpp` | Raft node, multi-node consensus |
 | `consensus_persistence_test.cpp` | RocksDB log store |
 | `proxy_service_test.cpp` | Proxy routing |

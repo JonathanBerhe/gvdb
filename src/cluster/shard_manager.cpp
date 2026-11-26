@@ -5,9 +5,7 @@
 #include "utils/logger.h"
 #include "absl/strings/str_cat.h"
 #include <algorithm>
-#include <cmath>
 #include <mutex>
-#include <numeric>
 
 namespace gvdb {
 namespace cluster {
@@ -118,15 +116,6 @@ core::ShardId ShardManager::AssignShard(const std::string& key) const {
     default:
       return core::MakeShardId(static_cast<uint16_t>(HashKey(key)));
   }
-}
-
-absl::StatusOr<ShardInfo> ShardManager::GetShardInfo(core::ShardId shard_id) const {
-  std::shared_lock lock(shard_mutex_);
-  auto it = shards_.find(shard_id);
-  if (it == shards_.end()) {
-    return absl::NotFoundError(absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
-  }
-  return it->second;
 }
 
 std::vector<ShardInfo> ShardManager::GetAllShards() const {
@@ -327,7 +316,7 @@ absl::Status ShardManager::UnregisterNode(core::NodeId node_id, bool graceful) {
     // Caller is responsible for having migrated this node's shards off
     // before reaching here — see Coordinator::HandleDrainingNode which
     // promotes replicas / drops replica entries and only then calls this
-    // with graceful=true (roadmap 0b.3).
+    // with graceful=true.
     utils::Logger::Instance().Info("Gracefully unregistering node {}",
                                    core::ToUInt32(node_id));
   } else {
@@ -496,45 +485,6 @@ std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() 
   return moves;
 }
 
-absl::Status ShardManager::ExecuteRebalanceMove(const RebalanceMove& move) {
-  // Set shard to MIGRATING. Actual data transfer is done by
-  // Coordinator::ExecuteSingleMove() which owns the gRPC clients.
-  auto status = SetShardState(move.shard_id, ShardState::MIGRATING);
-  if (!status.ok()) return status;
-
-  utils::Logger::Instance().Info(
-      "Rebalance move: shard {} from node {} to node {} (primary={})",
-      core::ToUInt16(move.shard_id), core::ToUInt32(move.source_node),
-      core::ToUInt32(move.target_node), move.is_primary);
-
-  return absl::OkStatus();
-}
-
-float ShardManager::CalculateImbalance() const {
-  auto nodes = GetAllNodes();
-  if (nodes.size() < 2) {
-    return 0.0f;
-  }
-
-  std::vector<size_t> loads;
-  loads.reserve(nodes.size());
-  for (const auto& node : nodes) {
-    loads.push_back(GetNodeLoad(node));
-  }
-
-  // Calculate standard deviation
-  float avg = static_cast<float>(std::accumulate(loads.begin(), loads.end(), 0UL)) / loads.size();
-
-  float variance = 0.0f;
-  for (size_t load : loads) {
-    float diff = static_cast<float>(load) - avg;
-    variance += diff * diff;
-  }
-  variance /= loads.size();
-
-  return std::sqrt(variance);
-}
-
 absl::Status ShardManager::UpdateShardMetrics(core::ShardId shard_id,
                                                size_t data_size,
                                                size_t vector_count,
@@ -550,42 +500,6 @@ absl::Status ShardManager::UpdateShardMetrics(core::ShardId shard_id,
   it->second.query_count = query_count;
 
   return absl::OkStatus();
-}
-
-std::vector<core::NodeId> ShardManager::GetLeastLoadedNodes(size_t count) const {
-  auto nodes = GetAllNodes();
-
-  std::sort(nodes.begin(), nodes.end(), [this](core::NodeId a, core::NodeId b) {
-    return GetNodeLoad(a) < GetNodeLoad(b);
-  });
-
-  if (nodes.size() <= count) {
-    return nodes;
-  }
-
-  return std::vector<core::NodeId>(nodes.begin(), nodes.begin() + count);
-}
-
-size_t ShardManager::GetNodeLoad(core::NodeId node_id) const {
-  std::shared_lock lock(shard_mutex_);
-  size_t total_load = 0;
-
-  for (const auto& [shard_id, info] : shards_) {
-    if (info.primary_node == node_id) {
-      // Primary shards have full weight
-      total_load += info.data_size_bytes;
-    } else {
-      // Replicas have partial weight (query load)
-      for (const auto& replica : info.replica_nodes) {
-        if (replica == node_id) {
-          total_load += info.data_size_bytes / 2;  // Half weight for replicas
-          break;
-        }
-      }
-    }
-  }
-
-  return total_load;
 }
 
 }  // namespace cluster

@@ -139,14 +139,6 @@ bool MetalCompute::CompileKernels() {
   return true;
 }
 
-MTL::Buffer* MetalCompute::CreateBuffer(const void* data, size_t bytes) {
-  return device_->newBuffer(data, bytes, MTL::ResourceStorageModeShared);
-}
-
-MTL::Buffer* MetalCompute::CreateBuffer(size_t bytes) {
-  return device_->newBuffer(bytes, MTL::ResourceStorageModeShared);
-}
-
 void MetalCompute::ComputeDistances(const std::string& kernel_name,
                                      const float* queries, size_t nq,
                                      MTL::Buffer* vec_buf, size_t nb,

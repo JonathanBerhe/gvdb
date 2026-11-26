@@ -529,4 +529,3 @@ TEST_SUITE("BulkImporter") {
     }
   }
 }
-// Parquet tests removed — Arrow dependency deferred to a follow-up PR.

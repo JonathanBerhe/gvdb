@@ -66,7 +66,7 @@ class DistributedDataNodeTest {
     // Create coordinator's InternalService (serves GetCollectionMetadata)
     coord_internal_service_ = std::make_unique<network::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
-        node_registry_, nullptr, coordinator_);
+        node_registry_, coordinator_);
 
     // Create coordinator's VectorDBService
     auto coord_resolver = network::MakeCoordinatorResolver(coordinator_);
@@ -89,7 +89,7 @@ class DistributedDataNodeTest {
         shard_manager_, node_registry_, client_factory);
     coord_internal_service_ = std::make_unique<network::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
-        node_registry_, nullptr, coordinator_);
+        node_registry_, coordinator_);
     auto coord_resolver2 = network::MakeCoordinatorResolver(coordinator_);
     coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
         coord_segment_store_, coord_query_executor_, std::move(coord_resolver2));

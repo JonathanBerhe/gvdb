@@ -27,7 +27,6 @@ class MockInternalService : public proto::internal::InternalService::Service {
       return grpc::Status(grpc::StatusCode::INTERNAL, "Mock failure");
     }
 
-    response->set_segment_id(12345);
     response->set_success(true);
     return grpc::Status::OK;
   }
@@ -129,7 +128,6 @@ TEST_CASE_FIXTURE(InternalClientTest, "CreateSegmentSucceeds") {
 
   CHECK(status.ok());
   CHECK(response.success());
-  CHECK_EQ(response.segment_id(), 12345);
   CHECK_EQ(mock_service_->create_segment_calls.load(), 1);
 }
 

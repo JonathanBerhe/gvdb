@@ -30,12 +30,11 @@ class InternalServiceMetadataTest {
     // InternalService needs these, but they can be null for metadata tests
     segment_store_ = nullptr;
     query_executor_ = nullptr;
-    timestamp_oracle_ = nullptr;
 
     // Create InternalService with coordinator (node_registry_ is already created above)
     internal_service_ = std::make_unique<InternalService>(
         shard_manager_, segment_store_, query_executor_,
-        node_registry_, timestamp_oracle_, coordinator_);
+        node_registry_, coordinator_);
   }
 
   std::shared_ptr<ShardManager> shard_manager_;
@@ -43,7 +42,6 @@ class InternalServiceMetadataTest {
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::shared_ptr<NodeRegistry> node_registry_;
-  std::shared_ptr<consensus::TimestampOracle> timestamp_oracle_;
   std::unique_ptr<InternalService> internal_service_;
 };
 
@@ -129,7 +127,7 @@ TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetMetadataWithoutCoordinator") 
   // Create InternalService without coordinator
   auto service_without_coordinator = std::make_unique<InternalService>(
       shard_manager_, segment_store_, query_executor_,
-      node_registry_, timestamp_oracle_, nullptr);
+      node_registry_, nullptr);
 
   grpc::ServerContext context;
   proto::internal::GetCollectionMetadataRequest request;

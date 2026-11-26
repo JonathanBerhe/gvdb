@@ -140,18 +140,5 @@ core::StatusOr<core::SearchResult> BM25Index::Search(
   return result;
 }
 
-size_t BM25Index::GetDocumentCount() const {
-  return total_docs_;
-}
-
-size_t BM25Index::GetMemoryUsage() const {
-  size_t usage = 0;
-  for (const auto& [term, postings] : inverted_index_) {
-    usage += term.capacity() + postings.capacity() * sizeof(Posting);
-  }
-  usage += doc_lengths_.size() * (sizeof(uint64_t) + sizeof(uint32_t));
-  return usage;
-}
-
 }  // namespace index
 }  // namespace gvdb

@@ -20,12 +20,6 @@ class ITextIndex {
   // Search for documents matching the query. Returns scored results.
   [[nodiscard]] virtual core::StatusOr<core::SearchResult> Search(
       const std::string& query, int k) = 0;
-
-  // Number of indexed documents
-  [[nodiscard]] virtual size_t GetDocumentCount() const = 0;
-
-  // Approximate memory usage in bytes
-  [[nodiscard]] virtual size_t GetMemoryUsage() const = 0;
 };
 
 }  // namespace index

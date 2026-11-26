@@ -371,15 +371,6 @@ core::Status BulkImporter::ImportNpy(
   return core::OkStatus();
 }
 
-core::Status BulkImporter::ImportParquet(
-    std::shared_ptr<ImportJob> /*job*/,
-    const std::string& /*local_path*/,
-    core::CollectionId /*collection_id*/,
-    core::Dimension /*expected_dim*/) {
-  return core::UnimplementedError(
-      "Parquet import is not yet available. Use NUMPY format.");
-}
-
 // ============================================================================
 // Helpers
 // ============================================================================

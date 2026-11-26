@@ -82,26 +82,13 @@ class ICollectionResolver {
   // Get the total number of collections (for metrics)
   virtual size_t CollectionCount() = 0;
 
-  // Get the segment ID for a collection (needed by data operations)
-  // Single-node: returns the allocated segment ID
-  // Distributed: returns SegmentId(collection_id) (Phase 5 simplification)
-  // Coordinator: returns error (data ops not supported)
-  virtual absl::StatusOr<core::SegmentId> GetSegmentId(
-      const std::string& name) = 0;
-
   // Whether this resolver supports data operations (Insert/Search/Get/Delete)
   virtual bool SupportsDataOps() const = 0;
 
   // Get all segment IDs for a collection (for multi-shard search)
+  // Coordinator: returns error (data ops not supported)
   virtual absl::StatusOr<std::vector<core::SegmentId>> GetSegmentIds(
-      const std::string& name) {
-    auto seg = GetSegmentId(name);
-    if (!seg.ok()) return seg.status();
-    return std::vector<core::SegmentId>{*seg};
-  }
-
-  // Get number of shards for a collection
-  virtual size_t GetNumShards(const std::string& /*name*/) { return 1; }
+      const std::string& name) = 0;
 
   // Get gRPC stub for segment replication (only CachedCoordinatorResolver has one)
   virtual proto::internal::InternalService::Stub* GetCoordinatorStub() { return nullptr; }

@@ -148,15 +148,6 @@ class LocalCollectionResolver : public ICollectionResolver {
     return entries_.size();
   }
 
-  absl::StatusOr<core::SegmentId> GetSegmentId(const std::string& name) override {
-    std::shared_lock lock(mutex_);
-    auto it = entries_.find(name);
-    if (it == entries_.end()) {
-      return absl::NotFoundError("Collection not found: " + name);
-    }
-    return it->second.segment_ids[0];  // First shard for backward compat
-  }
-
   absl::StatusOr<std::vector<core::SegmentId>> GetSegmentIds(
       const std::string& name) override {
     std::shared_lock lock(mutex_);
@@ -165,13 +156,6 @@ class LocalCollectionResolver : public ICollectionResolver {
       return absl::NotFoundError("Collection not found: " + name);
     }
     return it->second.segment_ids;
-  }
-
-  size_t GetNumShards(const std::string& name) override {
-    std::shared_lock lock(mutex_);
-    auto it = entries_.find(name);
-    if (it == entries_.end()) return 1;
-    return it->second.num_shards;
   }
 
   bool SupportsDataOps() const override { return true; }
@@ -348,7 +332,8 @@ class CoordinatorCollectionResolver : public ICollectionResolver {
     return coordinator_->ListCollections().size();
   }
 
-  absl::StatusOr<core::SegmentId> GetSegmentId(const std::string&) override {
+  absl::StatusOr<std::vector<core::SegmentId>> GetSegmentIds(
+      const std::string&) override {
     return absl::UnimplementedError(
         "Data operations not supported on coordinator nodes");
   }
@@ -405,12 +390,6 @@ class CachedCoordinatorResolver : public ICollectionResolver {
 
   size_t CollectionCount() override { return cache_->Size(); }
 
-  absl::StatusOr<core::SegmentId> GetSegmentId(const std::string& name) override {
-    auto id_result = GetCollectionId(name);
-    if (!id_result.ok()) return id_result.status();
-    return cluster::ShardSegmentId(*id_result, 0);
-  }
-
   absl::StatusOr<std::vector<core::SegmentId>> GetSegmentIds(
       const std::string& name) override {
     auto id_result = GetCollectionId(name);
@@ -423,14 +402,6 @@ class CachedCoordinatorResolver : public ICollectionResolver {
       ids.push_back(cluster::ShardSegmentId(*id_result, i));
     }
     return ids;
-  }
-
-  size_t GetNumShards(const std::string& name) override {
-    auto cached = cache_->GetByName(name);
-    if (cached.ok()) {
-      return cached->num_shards > 0 ? cached->num_shards : 1;
-    }
-    return 1;
   }
 
   bool SupportsDataOps() const override { return true; }
@@ -475,11 +446,7 @@ class CachedCoordinatorResolver : public ICollectionResolver {
       t.node_address = i < response.target_node_addresses_size()
                            ? response.target_node_addresses(i) : "";
 
-      // Populate the fallback options list. If the coordinator predates
-      // the per_shard_options field (back-compat) the targets vector
-      // still holds the legacy primary-only entry — synthesize an
-      // options[0] from it so downstream callers always have a list to
-      // iterate.
+      // Populate the fallback options list.
       auto it = by_shard.find(t.shard_id);
       if (it != by_shard.end()) {
         const auto& opts = *it->second;
@@ -488,10 +455,6 @@ class CachedCoordinatorResolver : public ICollectionResolver {
           t.options.push_back(ShardNodeOption{
               o.node_id(), o.node_address(), o.is_primary()});
         }
-      } else if (!t.node_address.empty()) {
-        t.options.push_back(ShardNodeOption{
-            i < response.target_node_ids_size() ? response.target_node_ids(i) : 0,
-            t.node_address, true});
       }
       targets.push_back(std::move(t));
     }
@@ -499,6 +462,14 @@ class CachedCoordinatorResolver : public ICollectionResolver {
   }
 
  private:
+  size_t GetNumShards(const std::string& name) {
+    auto cached = cache_->GetByName(name);
+    if (cached.ok()) {
+      return cached->num_shards > 0 ? cached->num_shards : 1;
+    }
+    return 1;
+  }
+
   absl::StatusOr<core::CollectionId> FetchFromCoordinator(const std::string& name) {
     grpc::ClientContext context;
     proto::internal::GetCollectionMetadataRequest request;

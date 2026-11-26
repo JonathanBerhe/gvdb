@@ -46,7 +46,6 @@ class MetadataSyncIntegrationTest {
         nullptr,  // segment_manager not needed for metadata tests
         nullptr,  // query_executor not needed
         nullptr,  // node_registry not needed
-        nullptr,  // timestamp_oracle not needed
         coordinator_);
 
     // Start gRPC server

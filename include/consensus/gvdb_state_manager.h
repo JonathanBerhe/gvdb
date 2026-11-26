@@ -22,22 +22,12 @@ namespace consensus {
  * - Server state (current term, voted for)
  * - Log store instance
  *
- * Supports both in-memory and persistent (RocksDB-backed) modes:
- * - **In-Memory**: Suitable for development/testing (data lost on restart)
- * - **Persistent**: Production-ready with crash recovery
+ * State is persisted in RocksDB, with crash recovery.
  *
  * Thread-safe: All operations are protected by mutex.
  */
 class GvdbStateManager : public nuraft::state_mgr {
  public:
-  /**
-   * Create an in-memory state manager (for testing).
-   *
-   * @param server_id This server's ID
-   * @param endpoint This server's endpoint (e.g., "localhost:9000")
-   */
-  GvdbStateManager(int32_t server_id, const std::string& endpoint);
-
   /**
    * Create a persistent state manager backed by RocksDB.
    *
@@ -125,8 +115,7 @@ class GvdbStateManager : public nuraft::state_mgr {
   // Mutex protecting all data structures
   mutable std::mutex mutex_;
 
-  // Persistent mode flag
-  bool persistent_mode_{false};
+  // State RocksDB directory
   std::string state_db_path_;
 
   // Server ID

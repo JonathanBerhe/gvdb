@@ -27,7 +27,7 @@ struct BuildTask {
   }
 };
 
-// Data node handles index building and compaction
+// Data node handles index building
 class DataNode {
  public:
   DataNode(std::unique_ptr<index::IndexFactory> index_factory,
@@ -50,9 +50,6 @@ class DataNode {
   // Task queue management
   size_t GetPendingTaskCount() const;
   bool HasPendingTasks() const;
-
-  // Compaction: merge multiple sealed segments into one
-  absl::Status CompactSegments(const std::vector<core::SegmentId>& segments);
 
  private:
   std::unique_ptr<index::IndexFactory> index_factory_;

@@ -36,36 +36,9 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "PutAndGetByName") {
   CHECK_EQ(result->index_type, core::IndexType::HNSW);
 }
 
-// Test basic put and get by ID
-TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "PutAndGetById") {
-  CollectionMetadata metadata(
-      static_cast<core::CollectionId>(42),
-      "my_collection",
-      256,
-      core::MetricType::INNER_PRODUCT,
-      core::IndexType::IVF_FLAT);
-
-  cache_->Put(metadata);
-
-  auto result = cache_->GetById(static_cast<core::CollectionId>(42));
-  REQUIRE(result.ok());
-  CHECK_EQ(result->collection_id, static_cast<core::CollectionId>(42));
-  CHECK_EQ(result->collection_name, "my_collection");
-  CHECK_EQ(result->dimension, 256);
-  CHECK_EQ(result->metric_type, core::MetricType::INNER_PRODUCT);
-  CHECK_EQ(result->index_type, core::IndexType::IVF_FLAT);
-}
-
 // Test get non-existent collection by name
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "GetNonExistentByName") {
   auto result = cache_->GetByName("nonexistent");
-  CHECK_FALSE(result.ok());
-  CHECK_EQ(result.status().code(), absl::StatusCode::kNotFound);
-}
-
-// Test get non-existent collection by ID
-TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "GetNonExistentById") {
-  auto result = cache_->GetById(static_cast<core::CollectionId>(999));
   CHECK_FALSE(result.ok());
   CHECK_EQ(result.status().code(), absl::StatusCode::kNotFound);
 }
@@ -98,101 +71,6 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "UpdateCollection") {
   CHECK_EQ(result->index_type, core::IndexType::HNSW);
 }
 
-// Test remove by name
-TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "RemoveByName") {
-  CollectionMetadata metadata(
-      static_cast<core::CollectionId>(1),
-      "test_collection",
-      128,
-      core::MetricType::L2,
-      core::IndexType::FLAT);
-
-  cache_->Put(metadata);
-  CHECK(cache_->Contains("test_collection"));
-
-  cache_->Remove("test_collection");
-  CHECK_FALSE(cache_->Contains("test_collection"));
-
-  // Should not be findable by ID either
-  auto result = cache_->GetById(static_cast<core::CollectionId>(1));
-  CHECK_FALSE(result.ok());
-}
-
-// Test remove by ID
-TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "RemoveById") {
-  CollectionMetadata metadata(
-      static_cast<core::CollectionId>(1),
-      "test_collection",
-      128,
-      core::MetricType::L2,
-      core::IndexType::FLAT);
-
-  cache_->Put(metadata);
-  CHECK(cache_->Contains(static_cast<core::CollectionId>(1)));
-
-  cache_->Remove(static_cast<core::CollectionId>(1));
-  CHECK_FALSE(cache_->Contains(static_cast<core::CollectionId>(1)));
-
-  // Should not be findable by name either
-  auto result = cache_->GetByName("test_collection");
-  CHECK_FALSE(result.ok());
-}
-
-// Test contains by name
-TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ContainsByName") {
-  CHECK_FALSE(cache_->Contains("test_collection"));
-
-  CollectionMetadata metadata(
-      static_cast<core::CollectionId>(1),
-      "test_collection",
-      128,
-      core::MetricType::L2,
-      core::IndexType::FLAT);
-
-  cache_->Put(metadata);
-  CHECK(cache_->Contains("test_collection"));
-  CHECK_FALSE(cache_->Contains("other_collection"));
-}
-
-// Test contains by ID
-TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ContainsById") {
-  CHECK_FALSE(cache_->Contains(static_cast<core::CollectionId>(1)));
-
-  CollectionMetadata metadata(
-      static_cast<core::CollectionId>(1),
-      "test_collection",
-      128,
-      core::MetricType::L2,
-      core::IndexType::FLAT);
-
-  cache_->Put(metadata);
-  CHECK(cache_->Contains(static_cast<core::CollectionId>(1)));
-  CHECK_FALSE(cache_->Contains(static_cast<core::CollectionId>(2)));
-}
-
-// Test clear
-TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "Clear") {
-  // Add multiple collections
-  for (int i = 1; i <= 5; ++i) {
-    CollectionMetadata metadata(
-        static_cast<core::CollectionId>(i),
-        "collection_" + std::to_string(i),
-        128,
-        core::MetricType::L2,
-        core::IndexType::FLAT);
-    cache_->Put(metadata);
-  }
-
-  CHECK_EQ(cache_->Size(), 5);
-
-  cache_->Clear();
-  CHECK_EQ(cache_->Size(), 0);
-
-  for (int i = 1; i <= 5; ++i) {
-    CHECK_FALSE(cache_->Contains(static_cast<core::CollectionId>(i)));
-  }
-}
-
 // Test size
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "Size") {
   CHECK_EQ(cache_->Size(), 0);
@@ -214,12 +92,6 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "Size") {
       core::IndexType::HNSW);
   cache_->Put(metadata2);
   CHECK_EQ(cache_->Size(), 2);
-
-  cache_->Remove("collection1");
-  CHECK_EQ(cache_->Size(), 1);
-
-  cache_->Clear();
-  CHECK_EQ(cache_->Size(), 0);
 }
 
 // Test multiple collections
@@ -241,14 +113,8 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "MultipleCollections") {
   for (int i = 1; i <= 10; ++i) {
     auto result = cache_->GetByName("collection_" + std::to_string(i));
     REQUIRE(result.ok());
+    CHECK_EQ(result->collection_id, static_cast<core::CollectionId>(i));
     CHECK_EQ(result->dimension, 128 * i);
-  }
-
-  // Verify all collections can be retrieved by ID
-  for (int i = 1; i <= 10; ++i) {
-    auto result = cache_->GetById(static_cast<core::CollectionId>(i));
-    REQUIRE(result.ok());
-    CHECK_EQ(result->collection_name, "collection_" + std::to_string(i));
   }
 }
 
@@ -317,7 +183,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentWrites") {
 
   // Verify all can be retrieved
   for (int i = 1; i <= 100; ++i) {
-    auto result = cache_->GetById(static_cast<core::CollectionId>(i));
+    auto result = cache_->GetByName("collection_" + std::to_string(i));
     CHECK(result.ok());
   }
 }

@@ -190,14 +190,6 @@ class Config {
    */
   static absl::Status validate(const GVDBConfig& config);
 
-  /**
-   * @brief Save configuration to YAML file
-   * @param config Configuration to save
-   * @param config_path Path to write YAML file
-   * @return OK status on success
-   */
-  static absl::Status save_to_file(const GVDBConfig& config, const std::string& config_path);
-
  private:
   static ServerConfig parse_server_config(const YAML::Node& node);
   static StorageConfig parse_storage_config(const YAML::Node& node);

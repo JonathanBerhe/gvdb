@@ -56,12 +56,6 @@ MetricsRegistry::MetricsRegistry()
                                          .Help("Total number of update metadata requests")
                                          .Register(*registry_);
 
-  // gRPC error counter: labels = {error_code}
-  grpc_errors_total_ = &prometheus::BuildCounter()
-                            .Name("gvdb_grpc_errors_total")
-                            .Help("Total number of gRPC errors")
-                            .Register(*registry_);
-
   // Insert latency histogram: labels = {collection}
   // Buckets: 1ms, 5ms, 10ms, 50ms, 100ms, 500ms, 1s, 5s, 10s
   insert_duration_seconds_ =
@@ -118,12 +112,6 @@ MetricsRegistry::MetricsRegistry()
                            .Help("Current number of collections")
                            .Register(*registry_);
 
-  // Memory usage gauge
-  memory_usage_bytes_ = &prometheus::BuildGauge()
-                             .Name("gvdb_memory_usage_bytes")
-                             .Help("Current memory usage in bytes")
-                             .Register(*registry_);
-
   // Pending failed tiered-upload gauge. Non-zero means sealed segments are
   // stranded on local disk and have not reached object storage.
   tiered_upload_failed_pending_ =
@@ -132,7 +120,7 @@ MetricsRegistry::MetricsRegistry()
            .Help("Tiered-storage uploads that failed and are awaiting retry")
            .Register(*registry_);
 
-  // Auto-rebalance counters (roadmap 0b.2). No labels — there is a single
+  // Auto-rebalance counters. No labels: there is a single
   // coordinator process and a single rebalance subsystem.
   auto_rebalance_triggered_ = &prometheus::BuildCounter()
                                    .Name("gvdb_auto_rebalance_triggered_total")
@@ -328,16 +316,12 @@ void MetricsRegistry::SetCollectionCount(uint64_t count) {
   collection_count_->Add({}).Set(static_cast<double>(count));
 }
 
-void MetricsRegistry::SetMemoryUsage(uint64_t bytes) {
-  memory_usage_bytes_->Add({}).Set(static_cast<double>(bytes));
-}
-
 void MetricsRegistry::SetPendingFailedUploads(uint64_t count) {
   tiered_upload_failed_pending_->Add({}).Set(static_cast<double>(count));
 }
 
 // ============================================================================
-// Auto-Rebalance Metrics (roadmap 0b.2)
+// Auto-Rebalance Metrics
 // ============================================================================
 
 void MetricsRegistry::IncAutoRebalanceTriggered() {

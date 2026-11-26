@@ -57,10 +57,11 @@ func (r ShardOrphanResult) RF1Blocked() bool {
 //
 // Semantics per shard:
 //
-//  1. The effective replica set is {primary_node_id} ∪ node_ids[] — the
-//     two fields are disjoint (see src/network/internal_service.cpp:108-111
-//     where primary_node_id is populated from shard_info.primary_node and
-//     node_ids[] from replica_nodes). Either may be zero-valued when absent.
+//  1. The effective replica set is {primary_node_id} ∪ node_ids[]. The
+//     two fields are disjoint (InternalService::GetShardAssignments in
+//     src/network/internal_service.cpp fills primary_node_id from
+//     shard_info.primary_node and node_ids[] from replica_nodes). Either may
+//     be zero-valued when absent.
 //
 //  2. A member is a "healthy failover" iff it is present in clusterHealth
 //     with Ready=true AND IsDataNode=true — HandleDrainingNode in
