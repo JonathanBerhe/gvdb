@@ -25,9 +25,9 @@ class NuRaftLoggerAdapter : public nuraft::logger {
   NuRaftLoggerAdapter() = default;
 
   void put_details(int level,
-                   const char* source_file,
-                   const char* func_name,
-                   size_t line_number,
+                   const char* /*source_file*/,
+                   const char* /*func_name*/,
+                   size_t /*line_number*/,
                    const std::string& msg) override {
     // Map NuRaft log levels to our logger
     if (level <= 2) {  // ERROR, FATAL
@@ -148,7 +148,7 @@ RaftNode::RaftNode(const RaftConfig& config)
 
 RaftNode::~RaftNode() {
   if (running_.load(std::memory_order_acquire)) {
-    Shutdown();
+    Shutdown().IgnoreError();
   }
 }
 

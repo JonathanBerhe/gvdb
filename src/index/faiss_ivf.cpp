@@ -18,7 +18,6 @@ FaissIVFIndex::FaissIVFIndex(core::Dimension dimension, core::MetricType metric,
     : FaissIndexBase(CreateIVFIndex(dimension, metric, nlist, quantization, pq_m,
                                     pq_nbits),
                      metric),
-      nlist_(nlist),
       nprobe_(nprobe),
       quantization_(quantization) {
   SetNProbe(nprobe);

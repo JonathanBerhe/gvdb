@@ -76,7 +76,7 @@ core::StatusOr<core::CollectionId> MetadataStore::CreateCollection(
 }
 
 core::Status MetadataStore::DropCollection(core::CollectionId collection_id,
-                                             core::Timestamp ts) {
+                                             core::Timestamp /*ts*/) {
   std::unique_lock lock(mutex_);
 
   auto it = collections_.find(collection_id);
@@ -167,7 +167,7 @@ core::Status MetadataStore::RegisterNode(const cluster::NodeInfo& node_info,
   return core::OkStatus();
 }
 
-core::Status MetadataStore::UnregisterNode(core::NodeId node_id, core::Timestamp ts) {
+core::Status MetadataStore::UnregisterNode(core::NodeId node_id, core::Timestamp /*ts*/) {
   std::unique_lock lock(mutex_);
 
   if (nodes_.erase(node_id) == 0) {

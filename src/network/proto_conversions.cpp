@@ -164,7 +164,7 @@ absl::StatusOr<core::IndexType> indexTypeFromString(const std::string& index_str
 
 void toProto(const core::Vector& vector, proto::Vector* proto_vector) {
   proto_vector->set_dimension(vector.dimension());
-  for (size_t i = 0; i < vector.dimension(); ++i) {
+  for (size_t i = 0; i < static_cast<size_t>(vector.dimension()); ++i) {
     proto_vector->add_values(vector.data()[i]);
   }
 }

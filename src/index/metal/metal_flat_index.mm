@@ -129,7 +129,7 @@ core::Status MetalFlatIndex::AddBatch(
   return core::OkStatus();
 }
 
-core::Status MetalFlatIndex::Remove(core::VectorId id) {
+core::Status MetalFlatIndex::Remove(core::VectorId /*id*/) {
   return core::UnimplementedError("Remove not supported for MetalFlatIndex");
 }
 

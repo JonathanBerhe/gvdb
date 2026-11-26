@@ -41,13 +41,13 @@ class MetadataStateMachine : public nuraft::state_machine {
 
   // Pre-commit hook (optional, we don't use it)
   nuraft::ptr<nuraft::buffer> pre_commit(
-      const ulong log_idx,
-      nuraft::buffer& data) override {
+      const ulong /*log_idx*/,
+      nuraft::buffer& /*data*/) override {
     return nullptr;  // Not used
   }
 
   // Rollback a pre-committed entry (not used since we don't use pre_commit)
-  void rollback(const ulong log_idx, nuraft::buffer& data) override {
+  void rollback(const ulong /*log_idx*/, nuraft::buffer& /*data*/) override {
     // Not used
   }
 
@@ -91,7 +91,7 @@ class MetadataStateMachine : public nuraft::state_machine {
       bool is_last_obj) override;
 
   // Free user snapshot context
-  void free_user_snp_ctx(void*& user_snp_ctx) override {
+  void free_user_snp_ctx(void*& /*user_snp_ctx*/) override {
     // Not used - we handle cleanup automatically
   }
 

@@ -145,8 +145,8 @@ proto::VectorDBService::Stub* ProxyService::GetOrCreateDataClient(
 }
 
 grpc::Status ProxyService::HealthCheck(
-    grpc::ServerContext* context,
-    const proto::HealthCheckRequest* request,
+    grpc::ServerContext* /*context*/,
+    const proto::HealthCheckRequest* /*request*/,
     proto::HealthCheckResponse* response) {
 
   response->set_status(proto::HealthCheckResponse::SERVING);
@@ -155,7 +155,7 @@ grpc::Status ProxyService::HealthCheck(
 }
 
 grpc::Status ProxyService::CreateCollection(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::CreateCollectionRequest* request,
     proto::CreateCollectionResponse* response) {
   AuditContext::SetCollection(request->collection_name());
@@ -177,7 +177,7 @@ grpc::Status ProxyService::CreateCollection(
 }
 
 grpc::Status ProxyService::DropCollection(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::DropCollectionRequest* request,
     proto::DropCollectionResponse* response) {
   AuditContext::SetCollection(request->collection_name());
@@ -193,7 +193,7 @@ grpc::Status ProxyService::DropCollection(
 }
 
 grpc::Status ProxyService::ListCollections(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::ListCollectionsRequest* request,
     proto::ListCollectionsResponse* response) {
 
@@ -208,7 +208,7 @@ grpc::Status ProxyService::ListCollections(
 }
 
 grpc::Status ProxyService::Insert(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::InsertRequest* request,
     proto::InsertResponse* response) {
   AuditContext::SetCollection(request->collection_name());
@@ -376,7 +376,7 @@ grpc::Status ProxyService::Insert(
 }
 
 grpc::Status ProxyService::StreamInsert(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     grpc::ServerReader<proto::InsertRequest>* reader,
     proto::InsertResponse* response) {
 
@@ -420,7 +420,7 @@ grpc::Status ProxyService::StreamInsert(
 }
 
 grpc::Status ProxyService::Get(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::GetRequest* request,
     proto::GetResponse* response) {
   AuditContext::SetCollection(request->collection_name());
@@ -440,7 +440,7 @@ grpc::Status ProxyService::Get(
 }
 
 grpc::Status ProxyService::Delete(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::DeleteRequest* request,
     proto::DeleteResponse* response) {
   AuditContext::SetCollection(request->collection_name());
@@ -460,7 +460,7 @@ grpc::Status ProxyService::Delete(
 }
 
 grpc::Status ProxyService::UpdateMetadata(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::UpdateMetadataRequest* request,
     proto::UpdateMetadataResponse* response) {
   AuditContext::SetCollection(request->collection_name());
@@ -476,7 +476,7 @@ grpc::Status ProxyService::UpdateMetadata(
 }
 
 grpc::Status ProxyService::Upsert(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::UpsertRequest* request,
     proto::UpsertResponse* response) {
   AuditContext::SetCollection(request->collection_name());
@@ -493,7 +493,7 @@ grpc::Status ProxyService::Upsert(
 }
 
 grpc::Status ProxyService::ListVectors(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::ListVectorsRequest* request,
     proto::ListVectorsResponse* response) {
 
@@ -509,7 +509,7 @@ grpc::Status ProxyService::ListVectors(
 }
 
 grpc::Status ProxyService::HybridSearch(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::HybridSearchRequest* request,
     proto::HybridSearchResponse* response) {
   AuditContext::SetCollection(request->collection_name());
@@ -526,7 +526,7 @@ grpc::Status ProxyService::HybridSearch(
 }
 
 grpc::Status ProxyService::Search(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::SearchRequest* request,
     proto::SearchResponse* response) {
 
@@ -543,7 +543,7 @@ grpc::Status ProxyService::Search(
 }
 
 grpc::Status ProxyService::RangeSearch(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::RangeSearchRequest* request,
     proto::RangeSearchResponse* response) {
 
@@ -559,7 +559,7 @@ grpc::Status ProxyService::RangeSearch(
 }
 
 grpc::Status ProxyService::GetStats(
-    grpc::ServerContext* context,
+    grpc::ServerContext* /*context*/,
     const proto::GetStatsRequest* request,
     proto::GetStatsResponse* response) {
 

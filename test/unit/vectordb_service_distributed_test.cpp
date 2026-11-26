@@ -23,7 +23,7 @@ class MockCoordinatorInternalService : public proto::internal::InternalService::
   bool should_fail{false};
 
   grpc::Status GetCollectionMetadata(
-      grpc::ServerContext* context,
+      grpc::ServerContext* /*context*/,
       const proto::internal::GetCollectionMetadataRequest* request,
       proto::internal::GetCollectionMetadataResponse* response) override {
     get_collection_metadata_calls++;
@@ -371,7 +371,7 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "GetVectors") {
 
   auto* segment = segment_store_->GetSegment(segment_id);
   REQUIRE_NE(segment, nullptr);
-  segment->AddVectors(vectors, ids);
+  REQUIRE(segment->AddVectors(vectors, ids).ok());
 
   grpc::ServerContext context;
   proto::GetRequest request;
@@ -409,7 +409,7 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "DeleteVectors") {
 
   auto* segment = segment_store_->GetSegment(segment_id);
   REQUIRE_NE(segment, nullptr);
-  segment->AddVectors(vectors, ids);
+  REQUIRE(segment->AddVectors(vectors, ids).ok());
 
   grpc::ServerContext context;
   proto::DeleteRequest request;

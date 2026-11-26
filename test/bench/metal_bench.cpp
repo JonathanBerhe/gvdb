@@ -6,7 +6,9 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <random>
+#include <string>
 #include <vector>
 
 #include "core/types.h"
@@ -46,11 +48,22 @@ std::vector<core::VectorId> SequentialIds(size_t n) {
   return ids;
 }
 
+// Builds the index, or stops the benchmark: timings of an index that failed
+// to build would be meaningless.
+void BuildOrExit(core::IVectorIndex& idx, const std::vector<core::Vector>& vectors,
+                 const std::vector<core::VectorId>& ids) {
+  auto status = idx.Build(vectors, ids);
+  if (!status.ok()) {
+    std::fprintf(stderr, "Index build failed: %s\n", std::string(status.message()).c_str());
+    std::exit(1);
+  }
+}
+
 // Returns median of N runs in milliseconds
 double BenchSearch(core::IVectorIndex* idx, const core::Vector& query,
                    int k, int runs) {
   // Warm up
-  for (int i = 0; i < 3; ++i) idx->Search(query, k);
+  for (int i = 0; i < 3; ++i) (void)idx->Search(query, k);
 
   std::vector<double> times;
   times.reserve(runs);
@@ -110,12 +123,12 @@ int main() {
 
       // CPU
       index::FaissFlatIndex cpu_idx(DIM, core::MetricType::L2);
-      cpu_idx.Build(vectors, ids);
+      BuildOrExit(cpu_idx, vectors, ids);
       double cpu_ms = BenchSearch(&cpu_idx, query, K, RUNS);
 
       // Metal
       index::metal::MetalFlatIndex metal_idx(DIM, core::MetricType::L2);
-      metal_idx.Build(vectors, ids);
+      BuildOrExit(metal_idx, vectors, ids);
       double metal_ms = BenchSearch(&metal_idx, query, K, RUNS);
 
       char label[32];
@@ -141,11 +154,11 @@ int main() {
       auto query = RandomVectors(1, dim, 99)[0];
 
       index::FaissFlatIndex cpu_idx(dim, core::MetricType::L2);
-      cpu_idx.Build(vectors, ids);
+      BuildOrExit(cpu_idx, vectors, ids);
       double cpu_ms = BenchSearch(&cpu_idx, query, K, RUNS);
 
       index::metal::MetalFlatIndex metal_idx(dim, core::MetricType::L2);
-      metal_idx.Build(vectors, ids);
+      BuildOrExit(metal_idx, vectors, ids);
       double metal_ms = BenchSearch(&metal_idx, query, K, RUNS);
 
       char label[32];

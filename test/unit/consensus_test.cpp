@@ -124,9 +124,9 @@ TEST_CASE_FIXTURE(MetadataStoreTest, "DropCollection") {
 }
 
 TEST_CASE_FIXTURE(MetadataStoreTest, "ListCollections") {
-  store_->CreateCollection("coll1", 64, core::MetricType::L2, core::IndexType::FLAT, 1, 1000);
-  store_->CreateCollection("coll2", 128, core::MetricType::COSINE, core::IndexType::HNSW, 1, 2000);
-  store_->CreateCollection("coll3", 256, core::MetricType::INNER_PRODUCT, core::IndexType::IVF_FLAT, 1, 3000);
+  REQUIRE(store_->CreateCollection("coll1", 64, core::MetricType::L2, core::IndexType::FLAT, 1, 1000).ok());
+  REQUIRE(store_->CreateCollection("coll2", 128, core::MetricType::COSINE, core::IndexType::HNSW, 1, 2000).ok());
+  REQUIRE(store_->CreateCollection("coll3", 256, core::MetricType::INNER_PRODUCT, core::IndexType::IVF_FLAT, 1, 3000).ok());
 
   auto collections = store_->ListCollections();
   CHECK_EQ(collections.size(), 3);
@@ -155,7 +155,7 @@ TEST_CASE_FIXTURE(MetadataStoreTest, "UnregisterNode") {
   node.status = cluster::NodeStatus::HEALTHY;
   node.address = "localhost:50052";
 
-  store_->RegisterNode(node, 1000);
+  REQUIRE(store_->RegisterNode(node, 1000).ok());
 
   auto status = store_->UnregisterNode(node.node_id, 2000);
   CHECK(status.ok());
@@ -169,11 +169,11 @@ TEST_CASE_FIXTURE(MetadataStoreTest, "VersionTracking") {
   size_t v0 = store_->GetVersion();
   CHECK_EQ(v0, 0);
 
-  store_->CreateCollection("test1", 64, core::MetricType::L2, core::IndexType::FLAT, 1, 1000);
+  REQUIRE(store_->CreateCollection("test1", 64, core::MetricType::L2, core::IndexType::FLAT, 1, 1000).ok());
   size_t v1 = store_->GetVersion();
   CHECK_EQ(v1, 1);
 
-  store_->CreateCollection("test2", 128, core::MetricType::COSINE, core::IndexType::HNSW, 1, 2000);
+  REQUIRE(store_->CreateCollection("test2", 128, core::MetricType::COSINE, core::IndexType::HNSW, 1, 2000).ok());
   size_t v2 = store_->GetVersion();
   CHECK_EQ(v2, 2);
 }
@@ -321,7 +321,7 @@ class RaftNodeTest {
 
   ~RaftNodeTest() {
     if (node_ && node_->IsRunning()) {
-      node_->Shutdown();
+      node_->Shutdown().IgnoreError();
     }
   }
 
@@ -341,7 +341,7 @@ TEST_CASE_FIXTURE(RaftNodeTest, "StartShutdown") {
 }
 
 TEST_CASE_FIXTURE(RaftNodeTest, "LeadershipSingleNode") {
-  node_->Start();
+  REQUIRE(node_->Start().ok());
 
   // In single-node mode, should immediately be leader
   CHECK(node_->IsLeader());
@@ -349,7 +349,7 @@ TEST_CASE_FIXTURE(RaftNodeTest, "LeadershipSingleNode") {
 }
 
 TEST_CASE_FIXTURE(RaftNodeTest, "CreateCollectionThroughRaft") {
-  node_->Start();
+  REQUIRE(node_->Start().ok());
 
   auto result = node_->CreateCollection(
       "test", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
@@ -364,7 +364,7 @@ TEST_CASE_FIXTURE(RaftNodeTest, "CreateCollectionThroughRaft") {
 }
 
 TEST_CASE_FIXTURE(RaftNodeTest, "DropCollectionThroughRaft") {
-  node_->Start();
+  REQUIRE(node_->Start().ok());
 
   auto create_result = node_->CreateCollection(
       "test", 64, core::MetricType::L2, core::IndexType::FLAT, 1);
@@ -388,7 +388,7 @@ TEST_CASE_FIXTURE(RaftNodeTest, "OperationsFailWhenNotLeader") {
 }
 
 TEST_CASE_FIXTURE(RaftNodeTest, "TimestampOracleAccess") {
-  node_->Start();
+  REQUIRE(node_->Start().ok());
 
   auto* tso = node_->GetTimestampOracle();
   REQUIRE_NE(tso, nullptr);
@@ -400,7 +400,7 @@ TEST_CASE_FIXTURE(RaftNodeTest, "TimestampOracleAccess") {
 }
 
 TEST_CASE_FIXTURE(RaftNodeTest, "NodeRegistration") {
-  node_->Start();
+  REQUIRE(node_->Start().ok());
 
   cluster::NodeInfo node_info;
   node_info.node_id = core::MakeNodeId(2);
@@ -417,13 +417,13 @@ TEST_CASE_FIXTURE(RaftNodeTest, "NodeRegistration") {
 }
 
 TEST_CASE_FIXTURE(RaftNodeTest, "CommittedOpCounter") {
-  node_->Start();
+  REQUIRE(node_->Start().ok());
 
   size_t initial = node_->GetCommittedOpCount();
 
-  node_->CreateCollection("test1", 64, core::MetricType::L2, core::IndexType::FLAT, 1);
+  REQUIRE(node_->CreateCollection("test1", 64, core::MetricType::L2, core::IndexType::FLAT, 1).ok());
   CHECK_EQ(node_->GetCommittedOpCount(), initial + 1);
 
-  node_->CreateCollection("test2", 128, core::MetricType::COSINE, core::IndexType::HNSW, 1);
+  REQUIRE(node_->CreateCollection("test2", 128, core::MetricType::COSINE, core::IndexType::HNSW, 1).ok());
   CHECK_EQ(node_->GetCommittedOpCount(), initial + 2);
 }
