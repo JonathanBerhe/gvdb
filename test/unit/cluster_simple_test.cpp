@@ -4,9 +4,9 @@
 #include "cluster/node_registry.h"
 #include "core/types.h"
 #include "internal.grpc.pb.h"
+#include "support/temp_dir.h"
 #include <algorithm>
 #include <chrono>
-#include <filesystem>
 
 using namespace gvdb;
 using namespace gvdb::cluster;
@@ -840,9 +840,8 @@ TEST_CASE_FIXTURE(CoordinatorTest, "CreateCollectionReplicationFactorExceedsNode
 }
 
 TEST_CASE_FIXTURE(CoordinatorTest, "RegistryPersistsAcrossRestart") {
-  const std::string reg_dir = "/tmp/gvdb_coordinator_registry_test";
-  std::filesystem::remove_all(reg_dir);
-  std::filesystem::create_directories(reg_dir);
+  gvdb::test::ScopedTempDir tmp("gvdb_coordinator_registry_test");
+  const std::string reg_dir = tmp.str();
 
   NodeInfo node_info;
   node_info.node_id = core::MakeNodeId(1);
@@ -901,8 +900,6 @@ TEST_CASE_FIXTURE(CoordinatorTest, "RegistryPersistsAcrossRestart") {
   REQUIRE(id3.ok());
   CHECK_NE(*id3, *id1);
   CHECK_NE(*id3, *id2);
-
-  std::filesystem::remove_all(reg_dir);
 }
 
 // ============================================================================

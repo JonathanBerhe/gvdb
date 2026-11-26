@@ -2,9 +2,13 @@
 #include <grpcpp/grpcpp.h>
 #include <thread>
 #include <atomic>
+#include <initializer_list>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "network/proxy_service.h"
+#include "support/grpc_server.h"
 #include "vectordb.grpc.pb.h"
 #include "internal.grpc.pb.h"
 
@@ -176,28 +180,22 @@ struct ProxyServiceTest {
     mock_query_node_ = std::make_unique<MockQueryNodeService>(1);
     mock_data_node_ = std::make_unique<MockDataNodeService>();
 
+    // Each server listens on a port that the operating system picks, and
+    // accepts connections as soon as it is constructed.
     // Data-node first so we can tell the coordinator where to route.
-    data_node_address_ = "localhost:50061";
-    StartServer(data_node_address_, mock_data_node_.get(), data_node_server_);
+    data_node_server_ = StartServer({mock_data_node_.get()});
+    data_node_address_ = data_node_server_->address();
     mock_coordinator_internal_->data_node_address = data_node_address_;
 
     // Coordinator server registers BOTH the public VectorDBService (for
     // metadata ops) AND the internal InternalService (for RouteQuery).
-    coordinator_address_ = "localhost:50051";
-    {
-      grpc::ServerBuilder builder;
-      builder.AddListeningPort(coordinator_address_, grpc::InsecureServerCredentials());
-      builder.RegisterService(mock_coordinator_.get());
-      builder.RegisterService(mock_coordinator_internal_.get());
-      coordinator_server_ = builder.BuildAndStart();
-    }
+    coordinator_server_ = StartServer(
+        {mock_coordinator_.get(), mock_coordinator_internal_.get()});
+    coordinator_address_ = coordinator_server_->address();
 
     // Query node
-    query_node_address_ = "localhost:50071";
-    StartServer(query_node_address_, mock_query_node_.get(), query_node_server_);
-
-    // Give servers time to start
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    query_node_server_ = StartServer({mock_query_node_.get()});
+    query_node_address_ = query_node_server_->address();
 
     proxy_service_ = std::make_unique<network::ProxyService>(
         std::vector<std::string>{coordinator_address_},
@@ -207,10 +205,7 @@ struct ProxyServiceTest {
   ~ProxyServiceTest() {
     proxy_service_.reset();
 
-    if (coordinator_server_) coordinator_server_->Shutdown();
-    if (query_node_server_) query_node_server_->Shutdown();
-    if (data_node_server_) data_node_server_->Shutdown();
-
+    // TestGrpcServer shuts the server down in its destructor.
     coordinator_server_.reset();
     query_node_server_.reset();
     data_node_server_.reset();
@@ -220,13 +215,11 @@ struct ProxyServiceTest {
     mock_data_node_.reset();
   }
 
-  void StartServer(const std::string& address,
-                  grpc::Service* service,
-                  std::unique_ptr<grpc::Server>& server) {
-    grpc::ServerBuilder builder;
-    builder.AddListeningPort(address, grpc::InsecureServerCredentials());
-    builder.RegisterService(service);
-    server = builder.BuildAndStart();
+  static std::unique_ptr<test::TestGrpcServer> StartServer(
+      std::initializer_list<grpc::Service*> services) {
+    auto server = std::make_unique<test::TestGrpcServer>(services);
+    REQUIRE(server->ok());
+    return server;
   }
 
   // Mock services
@@ -236,9 +229,9 @@ struct ProxyServiceTest {
   std::unique_ptr<MockDataNodeService> mock_data_node_;
 
   // Servers
-  std::unique_ptr<grpc::Server> coordinator_server_;
-  std::unique_ptr<grpc::Server> query_node_server_;
-  std::unique_ptr<grpc::Server> data_node_server_;
+  std::unique_ptr<test::TestGrpcServer> coordinator_server_;
+  std::unique_ptr<test::TestGrpcServer> query_node_server_;
+  std::unique_ptr<test::TestGrpcServer> data_node_server_;
 
   // Addresses
   std::string coordinator_address_;
@@ -431,16 +424,16 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "UpdateMetadataRoutesToDataNode") {
 // ============================================================================
 
 TEST_CASE_FIXTURE(ProxyServiceTest, "NoCoordinatorAvailable") {
-  // Shutdown coordinator
+  // Stop the coordinator. Shutdown returns after the listening socket is
+  // closed. The port came from the operating system, so the proxy below
+  // finds nothing listening on coordinator_address_, unless another process
+  // binds that exact port in the moment between.
   coordinator_server_->Shutdown();
   coordinator_server_.reset();
 
-  // Wait for shutdown
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-  // Create new proxy with invalid coordinator address
+  // Create new proxy whose coordinator address has nothing listening
   auto proxy = std::make_unique<network::ProxyService>(
-      std::vector<std::string>{"localhost:9999"},  // Invalid address
+      std::vector<std::string>{coordinator_address_},
       query_node_address_);
 
   grpc::ServerContext context;

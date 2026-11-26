@@ -18,7 +18,9 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
-#include <thread>
+#include <set>
+#include <string>
+#include <vector>
 
 #include "cluster/coordinator.h"
 #include "cluster/internal_client.h"
@@ -34,6 +36,8 @@
 #include "storage/backup_manager.h"
 #include "storage/object_store.h"
 #include "storage/segment_manager.h"
+#include "support/temp_dir.h"
+#include "support/wait.h"
 #include "vectordb.grpc.pb.h"
 
 namespace gvdb {
@@ -41,51 +45,46 @@ namespace test {
 
 namespace {
 
-constexpr const char* kTestDir = "/tmp/gvdb-backup-restore-integration-test";
-
-// Wait for a backup or restore job to reach a terminal state. Returns
-// the final phase or BACKUP_RUNNING on timeout.
+// Polls a backup job until it reaches a terminal state. Returns that
+// state, BACKUP_FAILED when the status RPC fails, or the last state seen
+// when the job has not finished within WaitFor's timeout.
 proto::BackupState WaitForBackup(
-    proto::VectorDBService::Stub* client, const std::string& backup_id,
-    int timeout_ms = 10'000) {
-  auto deadline = std::chrono::steady_clock::now() +
-                  std::chrono::milliseconds(timeout_ms);
-  while (std::chrono::steady_clock::now() < deadline) {
+    proto::VectorDBService::Stub* client, const std::string& backup_id) {
+  proto::BackupState state = proto::BACKUP_RUNNING;
+  WaitFor([&] {
     proto::GetBackupStatusRequest req;
     req.set_backup_id(backup_id);
     proto::GetBackupStatusResponse resp;
     grpc::ClientContext ctx;
-    auto status = client->GetBackupStatus(&ctx, req, &resp);
-    if (!status.ok()) return proto::BACKUP_FAILED;
-    if (resp.state() == proto::BACKUP_COMPLETED ||
-        resp.state() == proto::BACKUP_FAILED ||
-        resp.state() == proto::BACKUP_CANCELLED) {
-      return resp.state();
+    if (!client->GetBackupStatus(&ctx, req, &resp).ok()) {
+      state = proto::BACKUP_FAILED;
+      return true;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  }
-  return proto::BACKUP_RUNNING;
+    state = resp.state();
+    return state == proto::BACKUP_COMPLETED ||
+           state == proto::BACKUP_FAILED ||
+           state == proto::BACKUP_CANCELLED;
+  });
+  return state;
 }
 
+// The same for a restore job.
 proto::BackupState WaitForRestore(
-    proto::VectorDBService::Stub* client, const std::string& restore_id,
-    int timeout_ms = 10'000) {
-  auto deadline = std::chrono::steady_clock::now() +
-                  std::chrono::milliseconds(timeout_ms);
-  while (std::chrono::steady_clock::now() < deadline) {
+    proto::VectorDBService::Stub* client, const std::string& restore_id) {
+  proto::BackupState state = proto::BACKUP_RUNNING;
+  WaitFor([&] {
     proto::GetRestoreStatusRequest req;
     req.set_restore_id(restore_id);
     proto::GetRestoreStatusResponse resp;
     grpc::ClientContext ctx;
-    auto status = client->GetRestoreStatus(&ctx, req, &resp);
-    if (!status.ok()) return proto::BACKUP_FAILED;
-    if (resp.state() == proto::BACKUP_COMPLETED ||
-        resp.state() == proto::BACKUP_FAILED) {
-      return resp.state();
+    if (!client->GetRestoreStatus(&ctx, req, &resp).ok()) {
+      state = proto::BACKUP_FAILED;
+      return true;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  }
-  return proto::BACKUP_RUNNING;
+    state = resp.state();
+    return state == proto::BACKUP_COMPLETED || state == proto::BACKUP_FAILED;
+  });
+  return state;
 }
 
 }  // namespace
@@ -93,11 +92,8 @@ proto::BackupState WaitForRestore(
 class BackupRestoreIntegrationTest {
  public:
   BackupRestoreIntegrationTest() {
-    std::filesystem::remove_all(kTestDir);
-    std::filesystem::create_directories(
-        std::string(kTestDir) + "/coordinator/segments");
-    std::filesystem::create_directories(
-        std::string(kTestDir) + "/data_node/segments");
+    std::filesystem::create_directories(dir_ / "coordinator" / "segments");
+    std::filesystem::create_directories(dir_ / "data_node" / "segments");
 
     index_factory_ = std::make_unique<index::IndexFactory>();
     shared_object_store_ = std::make_unique<storage::InMemoryObjectStore>();
@@ -113,8 +109,7 @@ class BackupRestoreIntegrationTest {
         shard_manager_, node_registry_, client_factory);
 
     coord_segment_store_ = std::make_shared<storage::SegmentManager>(
-        std::string(kTestDir) + "/coordinator/segments",
-        index_factory_.get());
+        (dir_ / "coordinator" / "segments").string(), index_factory_.get());
     coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
         coord_segment_store_.get());
 
@@ -124,7 +119,7 @@ class BackupRestoreIntegrationTest {
       storage::BackupManagerOptions opts;
       opts.default_object_store = shared_object_store_.get();
       opts.s3_bucket = "test-bucket";
-      opts.tmp_dir = std::string(kTestDir) + "/coordinator/tmp";
+      opts.tmp_dir = (dir_ / "coordinator" / "tmp").string();
       opts.gvdb_version = "integration";
       opts.node_id = 1;
       coord_backup_mgr_ =
@@ -134,7 +129,7 @@ class BackupRestoreIntegrationTest {
       storage::RestoreManagerOptions opts;
       opts.default_object_store = shared_object_store_.get();
       opts.s3_bucket = "test-bucket";
-      opts.staging_dir = std::string(kTestDir) + "/coordinator/restore";
+      opts.staging_dir = (dir_ / "coordinator" / "restore").string();
       coord_restore_mgr_ =
           std::make_shared<storage::RestoreManager>(std::move(opts));
     }
@@ -164,8 +159,7 @@ class BackupRestoreIntegrationTest {
 
     // --- Data node ---
     dn_segment_store_ = std::make_shared<storage::SegmentManager>(
-        std::string(kTestDir) + "/data_node/segments",
-        index_factory_.get());
+        (dir_ / "data_node" / "segments").string(), index_factory_.get());
     dn_query_executor_ = std::make_shared<compute::QueryExecutor>(
         dn_segment_store_.get());
     auto dn_shard_manager = std::make_shared<cluster::ShardManager>(
@@ -180,9 +174,8 @@ class BackupRestoreIntegrationTest {
       storage::BackupManagerOptions opts;
       opts.default_object_store = shared_object_store_.get();
       opts.s3_bucket = "test-bucket";
-      opts.flushed_segments_root =
-          std::string(kTestDir) + "/data_node/segments";
-      opts.tmp_dir = std::string(kTestDir) + "/data_node/tmp/backup";
+      opts.flushed_segments_root = (dir_ / "data_node" / "segments").string();
+      opts.tmp_dir = (dir_ / "data_node" / "tmp" / "backup").string();
       opts.gvdb_version = "integration";
       opts.node_id = 100;
       dn_backup_mgr_ =
@@ -192,7 +185,7 @@ class BackupRestoreIntegrationTest {
       storage::RestoreManagerOptions opts;
       opts.default_object_store = shared_object_store_.get();
       opts.s3_bucket = "test-bucket";
-      opts.staging_dir = std::string(kTestDir) + "/data_node/tmp/restore";
+      opts.staging_dir = (dir_ / "data_node" / "tmp" / "restore").string();
       dn_restore_mgr_ =
           std::make_shared<storage::RestoreManager>(std::move(opts));
     }
@@ -248,16 +241,31 @@ class BackupRestoreIntegrationTest {
   }
 
   ~BackupRestoreIntegrationTest() {
+    // Close every client channel before the server that it dials. A
+    // graceful server shutdown waits until each open client connection
+    // answers the server's GOAWAY, and on macOS an idle in-process channel
+    // answers only at gRPC's next client backup poll (every 5 s).
     client_.reset();
-    if (proxy_server_) { proxy_server_->Shutdown(); proxy_server_->Wait(); }
-    if (dn_server_)    { dn_server_->Shutdown();    dn_server_->Wait();    }
-    if (coord_server_) { coord_server_->Shutdown(); coord_server_->Wait(); }
+    proxy_server_->Shutdown();
+    proxy_server_.reset();
+    proxy_service_.reset();  // Its channels dial the coordinator and the data node.
 
-    proxy_service_.reset();
-    dn_vectordb_service_.reset();
-    dn_internal_service_.reset();
+    // The coordinator and the data node dial each other: the coordinator's
+    // clients dial the data node, and the data node's resolver dials the
+    // coordinator. A deadline that has passed makes the coordinator close
+    // its connections at once instead of waiting for the data node's
+    // channel. The tests wait for every backup and restore job to finish,
+    // so no call is expected to run here; one that still runs is cancelled.
+    coord_server_->Shutdown(std::chrono::system_clock::now());
+    coord_server_.reset();
     coord_vectordb_service_.reset();
     coord_internal_service_.reset();
+    coordinator_.reset();  // Its clients dial the data node.
+    dn_server_->Shutdown();
+    dn_server_.reset();
+
+    dn_vectordb_service_.reset();
+    dn_internal_service_.reset();
     // Drop managers / gate before the segment stores so background
     // worker threads finish before the stores they reference die.
     coord_backup_mgr_.reset();
@@ -265,9 +273,6 @@ class BackupRestoreIntegrationTest {
     dn_backup_mgr_.reset();
     dn_restore_mgr_.reset();
     shard_write_gate_.reset();
-    coordinator_.reset();
-
-    std::filesystem::remove_all(kTestDir);
   }
 
   // ===========================================================================
@@ -330,6 +335,7 @@ class BackupRestoreIntegrationTest {
   }
 
   // Members (public for in-test introspection).
+  ScopedTempDir dir_{"gvdb_backup_restore"};
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::unique_ptr<storage::InMemoryObjectStore> shared_object_store_;
 
@@ -512,8 +518,7 @@ TEST_CASE_FIXTURE(BackupRestoreIntegrationTest,
   // Durability: restored sealed segments must be flushed to the data node's
   // local disk, not just installed in memory, or a restart loses the
   // restored collection.
-  const std::string dn_segments_dir =
-      std::string(kTestDir) + "/data_node/segments";
+  const std::string dn_segments_dir = (dir_ / "data_node" / "segments").string();
   std::vector<uint32_t> restored_ids;
   for (auto sid : dn_segment_store_->GetAllSegmentIds()) {
     auto key = core::ToUInt32(sid);

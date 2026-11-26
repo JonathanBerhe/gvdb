@@ -2,6 +2,7 @@
 #include "consensus/timestamp_oracle.h"
 #include "consensus/raft_node.h"
 #include "core/types.h"
+#include "support/temp_dir.h"
 
 using namespace gvdb;
 using namespace gvdb::consensus;
@@ -164,7 +165,7 @@ class RaftNodeTest {
     RaftConfig config;
     config.node_id = 1;
     config.single_node_mode = true;
-    config.data_dir = "/tmp/gvdb_test/raft";
+    config.data_dir = (data_dir_ / "raft").string();
 
     node_ = std::make_unique<RaftNode>(config);
   }
@@ -175,6 +176,8 @@ class RaftNodeTest {
     }
   }
 
+  // Declared first, so the folder is removed after the node.
+  test::ScopedTempDir data_dir_{"gvdb_raft_node_test"};
   std::unique_ptr<RaftNode> node_;
 };
 

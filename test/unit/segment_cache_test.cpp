@@ -7,21 +7,18 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <thread>
+
+#include "support/temp_dir.h"
 
 namespace gvdb {
 namespace storage {
 namespace {
 
-const std::string kTestDir = "/tmp/gvdb_segment_cache_test";
-
 struct CacheTest {
-  CacheTest() {
-    std::filesystem::remove_all(kTestDir);
-  }
-  ~CacheTest() {
-    std::filesystem::remove_all(kTestDir);
-  }
+  test::ScopedTempDir temp_dir_{"gvdb_segment_cache_test"};
+  const std::string test_dir_ = temp_dir_.str();
 
   static core::SegmentId MakeId(uint32_t v) {
     return static_cast<core::SegmentId>(v);
@@ -29,7 +26,7 @@ struct CacheTest {
 };
 
 TEST_CASE_FIXTURE(CacheTest, "EmptyCache") {
-  SegmentCache cache(kTestDir, 1024);
+  SegmentCache cache(test_dir_, 1024);
   CHECK_EQ(cache.GetCachedSize(), 0);
   CHECK_EQ(cache.GetCachedCount(), 0);
   CHECK_FALSE(cache.HasSegment(MakeId(1)));
@@ -37,7 +34,7 @@ TEST_CASE_FIXTURE(CacheTest, "EmptyCache") {
 }
 
 TEST_CASE_FIXTURE(CacheTest, "RegisterAndCheck") {
-  SegmentCache cache(kTestDir, 1024);
+  SegmentCache cache(test_dir_, 1024);
   REQUIRE(cache.RegisterSegment(MakeId(1), 100).ok());
   CHECK(cache.HasSegment(MakeId(1)));
   CHECK_FALSE(cache.GetSegmentPath(MakeId(1)).empty());
@@ -46,14 +43,14 @@ TEST_CASE_FIXTURE(CacheTest, "RegisterAndCheck") {
 }
 
 TEST_CASE_FIXTURE(CacheTest, "GetSegmentPath") {
-  SegmentCache cache(kTestDir, 1024);
+  SegmentCache cache(test_dir_, 1024);
   REQUIRE(cache.RegisterSegment(MakeId(5), 50).ok());
   auto path = cache.GetSegmentPath(MakeId(5));
   CHECK_NE(path.find("segment_5"), std::string::npos);
 }
 
 TEST_CASE_FIXTURE(CacheTest, "LRUEviction") {
-  SegmentCache cache(kTestDir, 300);
+  SegmentCache cache(test_dir_, 300);
   REQUIRE(cache.RegisterSegment(MakeId(1), 100).ok());
   REQUIRE(cache.RegisterSegment(MakeId(2), 100).ok());
   REQUIRE(cache.RegisterSegment(MakeId(3), 100).ok());
@@ -70,7 +67,7 @@ TEST_CASE_FIXTURE(CacheTest, "LRUEviction") {
 }
 
 TEST_CASE_FIXTURE(CacheTest, "TouchUpdatesLRU") {
-  SegmentCache cache(kTestDir, 300);
+  SegmentCache cache(test_dir_, 300);
   REQUIRE(cache.RegisterSegment(MakeId(1), 100).ok());
   REQUIRE(cache.RegisterSegment(MakeId(2), 100).ok());
   REQUIRE(cache.RegisterSegment(MakeId(3), 100).ok());
@@ -88,7 +85,7 @@ TEST_CASE_FIXTURE(CacheTest, "TouchUpdatesLRU") {
 }
 
 TEST_CASE_FIXTURE(CacheTest, "EvictAll") {
-  SegmentCache cache(kTestDir, 200);
+  SegmentCache cache(test_dir_, 200);
   REQUIRE(cache.RegisterSegment(MakeId(1), 100).ok());
   REQUIRE(cache.RegisterSegment(MakeId(2), 100).ok());
 
@@ -100,7 +97,7 @@ TEST_CASE_FIXTURE(CacheTest, "EvictAll") {
 }
 
 TEST_CASE_FIXTURE(CacheTest, "RegisterDuplicate") {
-  SegmentCache cache(kTestDir, 1024);
+  SegmentCache cache(test_dir_, 1024);
   REQUIRE(cache.RegisterSegment(MakeId(1), 100).ok());
   REQUIRE(cache.RegisterSegment(MakeId(1), 200).ok());  // update size
   CHECK_EQ(cache.GetCachedSize(), 200);
@@ -108,7 +105,7 @@ TEST_CASE_FIXTURE(CacheTest, "RegisterDuplicate") {
 }
 
 TEST_CASE_FIXTURE(CacheTest, "MultipleRegistrations") {
-  SegmentCache cache(kTestDir, 10000);
+  SegmentCache cache(test_dir_, 10000);
   for (uint32_t i = 0; i < 50; ++i) {
     REQUIRE(cache.RegisterSegment(MakeId(i), 100).ok());
   }
@@ -117,14 +114,14 @@ TEST_CASE_FIXTURE(CacheTest, "MultipleRegistrations") {
 }
 
 TEST_CASE_FIXTURE(CacheTest, "MaxCacheZero") {
-  SegmentCache cache(kTestDir, 0);
+  SegmentCache cache(test_dir_, 0);
   REQUIRE(cache.RegisterSegment(MakeId(1), 100).ok());
   // Cache allows registration but eviction should always trigger
   CHECK_EQ(cache.GetCachedSize(), 100);
 }
 
 TEST_CASE_FIXTURE(CacheTest, "ConcurrentAccess") {
-  SegmentCache cache(kTestDir, 100000);
+  SegmentCache cache(test_dir_, 100000);
   constexpr int kThreads = 4;
   constexpr int kOpsPerThread = 50;
 
@@ -144,10 +141,10 @@ TEST_CASE_FIXTURE(CacheTest, "ConcurrentAccess") {
 }
 
 TEST_CASE_FIXTURE(CacheTest, "EvictDeletesFiles") {
-  SegmentCache cache(kTestDir, 200);
+  SegmentCache cache(test_dir_, 200);
 
   // Create fake segment directory
-  auto seg_dir = kTestDir + "/segment_1";
+  auto seg_dir = test_dir_ + "/segment_1";
   std::filesystem::create_directories(seg_dir);
   std::ofstream(seg_dir + "/test.txt") << "data";
   CHECK(std::filesystem::exists(seg_dir));

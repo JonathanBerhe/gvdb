@@ -29,6 +29,7 @@ K8S_DIR          = deploy/k8s
 # CMAKE_EXTRA="-DGVDB_WITH_S3=ON".
 CMAKE_EXTRA     ?=
 PYTHON_SDK_DIR   = clients/python
+NPROC           := $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 CONNECTORS_DIR   = connectors
 
 # ---------------------------------------------------------------------------
@@ -60,8 +61,10 @@ bench-cuda:
 	@cmake --build --preset cuda --target gvdb-cuda-bench
 	@./build/cuda/bin/gvdb-cuda-bench
 
+# The test binaries are isolated (unique temp folders, free ports), so CTest
+# runs them in parallel, one per CPU.
 test:
-	@ctest --preset $(PRESET)
+	@ctest --preset $(PRESET) --parallel $(NPROC)
 
 # Line coverage of src/ and include/ per file, from the unit and integration
 # tests. The report lands in build/coverage/coverage.

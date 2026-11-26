@@ -1,11 +1,8 @@
 #include <doctest/doctest.h>
 
-#include <filesystem>
 #include <memory>
-#include <random>
 #include <set>
 #include <string>
-#include <system_error>
 #include <vector>
 
 #include "compute/query_executor.h"
@@ -13,6 +10,8 @@
 #include "core/vector.h"
 #include "index/index_factory.h"
 #include "storage/segment_manager.h"
+#include "support/temp_dir.h"
+#include "support/vectors.h"
 
 namespace gvdb {
 namespace compute {
@@ -33,19 +32,8 @@ class ComputeTest {
     index_factory_ = std::make_unique<index::IndexFactory>();
 
     // Create segment manager in a unique scratch folder
-    std::random_device rd;
-    data_dir_ = std::filesystem::temp_directory_path() /
-                ("gvdb_compute_test_" + std::to_string(rd()) + "_" +
-                 std::to_string(rd()));
     segment_manager_ = std::make_unique<storage::SegmentManager>(
-        data_dir_.string(), index_factory_.get());
-  }
-
-  ~ComputeTest() {
-    segment_manager_.reset();
-    index_factory_.reset();
-    std::error_code ec;
-    std::filesystem::remove_all(data_dir_, ec);
+        data_dir_.str(), index_factory_.get());
   }
 
   // Helper: Create test vectors
@@ -66,12 +54,7 @@ class ComputeTest {
 
   // Helper: Create test vector IDs
   std::vector<core::VectorId> CreateTestVectorIds(size_t count, size_t offset = 0) {
-    std::vector<core::VectorId> ids;
-    ids.reserve(count);
-    for (size_t i = 0; i < count; ++i) {
-      ids.push_back(core::MakeVectorId(static_cast<uint64_t>(offset + i + 1)));
-    }
-    return ids;
+    return gvdb::test::SequentialIds(count, static_cast<uint64_t>(offset + 1));
   }
 
   // Helper: Populate segment manager with test data
@@ -97,7 +80,10 @@ class ComputeTest {
     REQUIRE(status.ok());
   }
 
-  std::filesystem::path data_dir_;
+  // Declared first, so the folder is removed after the segment manager is
+  // destroyed. The namespace is spelled out because this file has its own
+  // gvdb::compute::test.
+  gvdb::test::ScopedTempDir data_dir_{"gvdb_compute_test"};
   core::CollectionId collection_id_;
   uint32_t dimension_;
   core::MetricType metric_;

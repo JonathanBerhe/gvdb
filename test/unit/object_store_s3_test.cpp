@@ -19,13 +19,13 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
 
 #include "object_store_contract.h"
 #include "storage/s3_object_store.h"
+#include "support/temp_dir.h"
 
 namespace gvdb {
 namespace storage {
@@ -62,21 +62,16 @@ S3Config ConfigFromEnv() {
 
 struct S3ObjectStoreFixture {
   S3ObjectStoreFixture()
-      : tmp_dir(contract::MakeUniqueTempDir("gvdb_s3_objstore")) {
+      : tmp_dir("gvdb_s3_objstore") {
     auto created = S3ObjectStore::Create(ConfigFromEnv());
     REQUIRE(created.ok());
     store = std::make_unique<contract::PrefixedObjectStore>(
         std::move(*created), contract::PrefixedObjectStore::UniquePrefix());
   }
 
-  ~S3ObjectStoreFixture() {
-    std::error_code ec;
-    std::filesystem::remove_all(tmp_dir, ec);
-  }
-
   IObjectStore& Get() { return *store; }
 
-  std::filesystem::path tmp_dir;
+  test::ScopedTempDir tmp_dir;
   std::unique_ptr<contract::PrefixedObjectStore> store;
 };
 

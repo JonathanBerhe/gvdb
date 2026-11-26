@@ -34,7 +34,8 @@ mkdir -p "$out_dir/profiles"
 # identifies the binary).
 set +e
 LLVM_PROFILE_FILE="$out_dir/profiles/%p-%m.profraw" \
-  ctest --test-dir "$build_dir" --output-on-failure
+  ctest --test-dir "$build_dir" --output-on-failure \
+  --parallel "$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 ctest_status=$?
 set -e
 

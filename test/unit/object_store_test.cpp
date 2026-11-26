@@ -18,13 +18,14 @@
 #include "storage/filesystem_object_store.h"
 #include "storage/object_store.h"
 #include "storage/object_store_factory.h"
+#include "support/temp_dir.h"
 #include "utils/config.h"
 
 namespace gvdb {
 namespace storage {
 namespace {
 
-using contract::MakeUniqueTempDir;
+using test::ScopedTempDir;
 
 // ============================================================================
 // Fixtures
@@ -35,36 +36,26 @@ using contract::MakeUniqueTempDir;
 
 struct InMemoryObjectStoreFixture {
   InMemoryObjectStoreFixture()
-      : tmp_dir(MakeUniqueTempDir("gvdb_inmem_objstore")),
+      : tmp_dir("gvdb_inmem_objstore"),
         store(std::make_unique<InMemoryObjectStore>()) {}
-
-  ~InMemoryObjectStoreFixture() {
-    std::error_code ec;
-    std::filesystem::remove_all(tmp_dir, ec);
-  }
 
   IObjectStore& Get() { return *store; }
 
-  std::filesystem::path tmp_dir;
+  ScopedTempDir tmp_dir;
   std::unique_ptr<InMemoryObjectStore> store;
 };
 
 struct FilesystemObjectStoreFixture {
   FilesystemObjectStoreFixture()
-      : tmp_dir(MakeUniqueTempDir("gvdb_fs_objstore")) {
+      : tmp_dir("gvdb_fs_objstore") {
     auto created = FilesystemObjectStore::Create((tmp_dir / "store").string());
     REQUIRE(created.ok());
     store = std::move(*created);
   }
 
-  ~FilesystemObjectStoreFixture() {
-    std::error_code ec;
-    std::filesystem::remove_all(tmp_dir, ec);
-  }
-
   IObjectStore& Get() { return *store; }
 
-  std::filesystem::path tmp_dir;
+  ScopedTempDir tmp_dir;
   std::unique_ptr<FilesystemObjectStore> store;
 };
 
@@ -101,7 +92,7 @@ TEST_CASE("FilesystemObjectStore: Create fails when root path is empty") {
 }
 
 TEST_CASE("FilesystemObjectStore: Create fails when root exists as a file") {
-  const auto tmp = MakeUniqueTempDir("gvdb_fs_objstore_root_is_file");
+  const ScopedTempDir tmp("gvdb_fs_objstore_root_is_file");
   const auto root_as_file = tmp / "not-a-dir";
   {
     std::ofstream f(root_as_file);
@@ -111,22 +102,16 @@ TEST_CASE("FilesystemObjectStore: Create fails when root exists as a file") {
   auto created = FilesystemObjectStore::Create(root_as_file.string());
   CHECK_FALSE(created.ok());
   CHECK_EQ(created.status().code(), absl::StatusCode::kInvalidArgument);
-
-  std::error_code ec;
-  std::filesystem::remove_all(tmp, ec);
 }
 
 TEST_CASE("FilesystemObjectStore: Create creates the root directory if absent") {
-  const auto tmp = MakeUniqueTempDir("gvdb_fs_objstore_new_root");
+  const ScopedTempDir tmp("gvdb_fs_objstore_new_root");
   const auto root = tmp / "new" / "deep" / "root";
   CHECK_FALSE(std::filesystem::exists(root));
 
   auto created = FilesystemObjectStore::Create(root.string());
   REQUIRE(created.ok());
   CHECK(std::filesystem::is_directory(root));
-
-  std::error_code ec;
-  std::filesystem::remove_all(tmp, ec);
 }
 
 TEST_CASE("FilesystemObjectStore: rejects empty and absolute keys") {
@@ -226,7 +211,7 @@ TEST_CASE(
 // ============================================================================
 
 TEST_CASE("CreateObjectStore: filesystem type builds a store rooted at the bucket") {
-  const auto tmp = MakeUniqueTempDir("gvdb_objstore_factory_fs");
+  const ScopedTempDir tmp("gvdb_objstore_factory_fs");
   utils::StorageConfig config;
   config.object_store_type = "filesystem";
   config.object_store_bucket = (tmp / "cold").string();
@@ -236,9 +221,6 @@ TEST_CASE("CreateObjectStore: filesystem type builds a store rooted at the bucke
   REQUIRE(*store != nullptr);
   REQUIRE((*store)->PutObject("k", "v").ok());
   CHECK(std::filesystem::exists(tmp / "cold" / "k"));
-
-  std::error_code ec;
-  std::filesystem::remove_all(tmp, ec);
 }
 
 TEST_CASE("CreateObjectStore: filesystem type without a bucket is rejected") {

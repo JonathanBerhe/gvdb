@@ -2,8 +2,6 @@
 
 #include <cmath>
 #include <cstdint>
-#include <filesystem>
-#include <random>
 #include <set>
 #include <string>
 #include <vector>
@@ -15,20 +13,11 @@
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "core/vector.h"
+#include "support/temp_dir.h"
 
 using namespace gvdb;
 
 namespace {
-
-// A per-fixture data directory under the system temp dir, unique across
-// processes and fixture instances.
-std::string UniqueTestDir(const std::string& prefix) {
-  std::random_device rd;
-  std::mt19937_64 gen(rd());
-  return (std::filesystem::temp_directory_path() /
-          (prefix + "_" + std::to_string(gen())))
-      .string();
-}
 
 proto::VectorWithId MakeVector(uint64_t id, const std::vector<float>& values) {
   proto::VectorWithId v;
@@ -235,16 +224,12 @@ TEST_CASE_FIXTURE(ProtoConversionTest, "StatusConversion") {
 class VectorDBServiceTest {
  public:
   VectorDBServiceTest() {
-    // Create temporary directory for test data
-    test_dir_ = UniqueTestDir("gvdb_network_test");
-    std::filesystem::create_directories(test_dir_);
-
     // Create index factory
     index_factory_ = std::make_unique<index::IndexFactory>();
 
     // Create segment manager
     segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_, index_factory_.get());
+        test_dir_.str(), index_factory_.get());
 
     // Create query executor
     query_executor_ = std::make_shared<compute::QueryExecutor>(
@@ -261,9 +246,7 @@ class VectorDBServiceTest {
     query_executor_.reset();
     segment_store_.reset();
     index_factory_.reset();
-
-    // Clean up test directory
-    std::filesystem::remove_all(test_dir_);
+    // test_dir_ is the first member, so it removes the folder last.
   }
 
   grpc::Status CreateCollection(
@@ -343,7 +326,7 @@ class VectorDBServiceTest {
     return response.total_count();
   }
 
-  std::string test_dir_;
+  test::ScopedTempDir test_dir_{"gvdb_network_test"};
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
@@ -1500,12 +1483,9 @@ class SmallSegmentServiceTest {
   static constexpr size_t kMaxSegmentBytes = 1200;  // fits 4 vectors of dim 64
 
   SmallSegmentServiceTest() {
-    test_dir_ = UniqueTestDir("gvdb_network_small_segment_test");
-    std::filesystem::create_directories(test_dir_);
-
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_, index_factory_.get(), kMaxSegmentBytes);
+        test_dir_.str(), index_factory_.get(), kMaxSegmentBytes);
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
     auto resolver = network::MakeLocalResolver(segment_store_);
@@ -1518,7 +1498,7 @@ class SmallSegmentServiceTest {
     query_executor_.reset();
     segment_store_.reset();
     index_factory_.reset();
-    std::filesystem::remove_all(test_dir_);
+    // test_dir_ is the first member, so it removes the folder last.
   }
 
  protected:
@@ -1559,7 +1539,7 @@ class SmallSegmentServiceTest {
     CHECK_GT(segment_store_->GetSegmentCount(), 1);
   }
 
-  std::string test_dir_;
+  test::ScopedTempDir test_dir_{"gvdb_network_small_segment_test"};
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::SegmentManager> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;

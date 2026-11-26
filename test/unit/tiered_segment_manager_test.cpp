@@ -4,16 +4,18 @@
 #include "storage/tiered_segment_manager.h"
 #include "storage/object_store.h"
 #include "index/index_factory.h"
+#include "support/temp_dir.h"
+#include "support/vectors.h"
+#include "support/wait.h"
 
 #include <doctest/doctest.h>
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
-#include <random>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace gvdb {
@@ -23,16 +25,6 @@ namespace {
 const std::string kPrefix = "test-prefix";
 const std::string kManifestKey = kPrefix + "/manifest.json";
 
-// A per-fixture directory under the system temp dir, unique across
-// processes and fixture instances.
-std::string UniqueTestDir(const std::string& prefix) {
-  std::random_device rd;
-  std::mt19937_64 gen(rd());
-  return (std::filesystem::temp_directory_path() /
-          (prefix + "_" + std::to_string(gen())))
-      .string();
-}
-
 // Object store that fails the first N Put operations, then behaves like the
 // in-memory store. Models a transient object-store outage (e.g. MinIO
 // XMinioStorageFull) that later recovers. Each failed upload attempt consumes
@@ -41,6 +33,13 @@ class FlakyObjectStore : public InMemoryObjectStore {
  public:
   explicit FlakyObjectStore(int put_failures)
       : remaining_failures_(put_failures) {}
+
+  // Ends the outage: every later Put succeeds.
+  void StopFailing() { remaining_failures_.store(0); }
+
+  // How many Put operations the store has rejected so far. Each rejected
+  // Put is one failed upload attempt.
+  int RejectedPuts() const { return rejected_puts_.load(); }
 
   core::Status PutObject(
       const std::string& key, const std::string& data) override {
@@ -63,12 +62,16 @@ class FlakyObjectStore : public InMemoryObjectStore {
   bool ConsumeFailure() {
     int cur = remaining_failures_.load();
     while (cur > 0) {
-      if (remaining_failures_.compare_exchange_weak(cur, cur - 1)) return true;
+      if (remaining_failures_.compare_exchange_weak(cur, cur - 1)) {
+        rejected_puts_.fetch_add(1);
+        return true;
+      }
     }
     return false;
   }
 
   std::atomic<int> remaining_failures_;
+  std::atomic<int> rejected_puts_{0};
 };
 
 // In-memory object store that rejects every file upload of one segment, so
@@ -96,21 +99,19 @@ class SegmentRejectingObjectStore : public InMemoryObjectStore {
 };
 
 struct TieredTest {
+  // Holds the local and the cache folder, and removes both at the end.
+  test::ScopedTempDir temp_dir_{"gvdb_tiered_test"};
   std::unique_ptr<index::IndexFactory> index_factory_;
   core::Dimension dimension_ = core::Dimension(128);
   core::MetricType metric_ = core::MetricType::L2;
   core::CollectionId collection_id_ = core::CollectionId(1);
-  const std::string test_dir_ = UniqueTestDir("gvdb_tiered_test");
-  const std::string cache_dir_ = test_dir_ + "_cache";
+  const std::string test_dir_ = (temp_dir_ / "local").string();
+  const std::string cache_dir_ = (temp_dir_ / "cache").string();
+  std::uint32_t next_seed_ = 42;
 
   TieredTest() {
     std::filesystem::create_directories(test_dir_);
     index_factory_ = std::make_unique<index::IndexFactory>();
-  }
-
-  ~TieredTest() {
-    std::filesystem::remove_all(test_dir_);
-    std::filesystem::remove_all(cache_dir_);
   }
 
   // A tiered manager on the fixture's dirs, and a non-owning pointer to its
@@ -180,22 +181,14 @@ struct TieredTest {
     return seg_id;
   }
 
+  // Each call uses the next seed, so two calls in one case give different
+  // vectors and every run gives the same ones.
   std::vector<core::Vector> MakeVectors(size_t count) {
-    std::vector<core::Vector> vectors;
-    vectors.reserve(count);
-    for (size_t i = 0; i < count; ++i) {
-      vectors.push_back(core::RandomVector(dimension_));
-    }
-    return vectors;
+    return test::RandomVectors(count, dimension_, next_seed_++);
   }
 
   std::vector<core::VectorId> MakeIds(size_t count, uint64_t start = 1) {
-    std::vector<core::VectorId> ids;
-    ids.reserve(count);
-    for (size_t i = 0; i < count; ++i) {
-      ids.push_back(core::VectorId(start + i));
-    }
-    return ids;
+    return test::SequentialIds(count, start);
   }
 
   // Object-store key prefix of a segment in the fixture's collection.
@@ -205,25 +198,12 @@ struct TieredTest {
            std::to_string(core::ToUInt32(id)) + "/";
   }
 
-  // Calls `done` every 5 ms until it returns true or 10 s pass. Returns
-  // whether `done` returned true.
-  template <typename Predicate>
-  static bool PollUntil(Predicate done) {
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    while (!done()) {
-      if (std::chrono::steady_clock::now() >= deadline) return false;
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    return true;
-  }
-
   // Polls the manifest until it lists `expected` entries. Returns the entries
   // of the last successful read, so a timeout shows up as a size mismatch.
   static std::vector<ManifestEntry> WaitForManifestEntries(
       InMemoryObjectStore& store, size_t expected) {
     std::vector<ManifestEntry> entries;
-    (void)PollUntil([&] {
+    (void)test::WaitFor([&] {
       auto manifest = store.GetObject(kManifestKey);
       if (!manifest.ok()) return false;
       auto parsed = SegmentManifest::Deserialize(*manifest);
@@ -405,7 +385,7 @@ TEST_CASE_FIXTURE(TieredTest, "DropUploadedSegmentRemovesRemoteCopy") {
   // failed marker upload is: with one upload thread, uploads run one at a
   // time in flush order, so once GetFailedUploads() lists the marker, the
   // upload of seg_id has returned, tracking included.
-  bool marker_failed = PollUntil([&] {
+  bool marker_failed = test::WaitFor([&] {
     auto failed = tiered->GetFailedUploads();
     return std::find(failed.begin(), failed.end(), marker_id) != failed.end();
   });
@@ -556,37 +536,33 @@ TEST_CASE_FIXTURE(TieredTest, "LoadAllSegmentsLocal") {
 }
 
 TEST_CASE_FIXTURE(TieredTest, "FailedUploadRetriesAndRecovers") {
-  // Store rejects the first two upload attempts, then succeeds. A short retry
-  // base delay keeps the exponential backoff (25ms, 50ms) inside the test.
+  // The store rejects every upload until the test has seen the failed state
+  // and two rejected attempts (so one retry ran with a doubled backoff),
+  // then succeeds. So the failed state cannot come and go between two polls.
+  // A short retry base delay keeps the exponential backoff inside the test.
   auto [tiered, store] = MakeTieredFlaky(
-      /*put_failures=*/2, std::chrono::milliseconds(25));
+      /*put_failures=*/1000000, std::chrono::milliseconds(25));
   auto seg_id = FlushOneSegment(*tiered, 50);
 
   // The first attempt fails, so the segment must surface as a failed upload.
-  bool saw_failure = false;
-  for (int i = 0; i < 200; ++i) {
-    auto failed = tiered->GetFailedUploads();
-    if (!failed.empty()) {
-      CHECK_EQ(failed.size(), 1);
-      CHECK_EQ(core::ToUInt32(failed[0]), core::ToUInt32(seg_id));
-      saw_failure = true;
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-  }
-  CHECK(saw_failure);
+  std::vector<core::SegmentId> failed;
+  bool saw_failure = test::WaitFor([&] {
+    failed = tiered->GetFailedUploads();
+    return !failed.empty() && store->RejectedPuts() >= 2;
+  });
+  REQUIRE(saw_failure);
+  CHECK_EQ(failed.size(), 1);
+  CHECK_EQ(core::ToUInt32(failed[0]), core::ToUInt32(seg_id));
+
+  // The outage ends.
+  store->StopFailing();
 
   // The background retry thread eventually re-drives the upload to success.
   // The manifest is written after the segment files, so wait for it too.
-  bool recovered = false;
-  for (int i = 0; i < 300; ++i) {
-    if (tiered->GetFailedUploads().empty() &&
-        store->GetObject("test-prefix/manifest.json").ok()) {
-      recovered = true;
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-  }
+  bool recovered = test::WaitFor([&] {
+    return tiered->GetFailedUploads().empty() &&
+           store->GetObject("test-prefix/manifest.json").ok();
+  });
   CHECK(recovered);
   CHECK(tiered->GetFailedUploads().empty());
   CHECK(store->ObjectCount() > 0);
@@ -600,15 +576,11 @@ TEST_CASE_FIXTURE(TieredTest, "DestructorWithPendingFailedUploadShutsDownCleanly
   auto& tiered = parts.tiered;
   FlushOneSegment(*tiered, 20);
 
-  // Wait until the upload has failed and is queued for retry.
-  bool failed = false;
-  for (int i = 0; i < 200; ++i) {
-    if (!tiered->GetFailedUploads().empty()) {
-      failed = true;
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-  }
+  // Wait until the upload has failed often enough to reach the error
+  // threshold of the retry loop (5 attempts), and is queued for retry again.
+  bool failed = test::WaitFor([&] {
+    return parts.store->RejectedPuts() >= 5 && !tiered->GetFailedUploads().empty();
+  });
   CHECK(failed);
 
   // Destroying the manager while a failed upload is pending must not hang or
@@ -624,14 +596,8 @@ TEST_CASE_FIXTURE(TieredTest, "StartupRedrivesUnuploadedSegments") {
     auto parts = MakeTieredFlaky(
         /*put_failures=*/1000000, std::chrono::milliseconds(25));
     FlushOneSegment(*parts.tiered, 20);
-    bool failed = false;
-    for (int i = 0; i < 200; ++i) {
-      if (!parts.tiered->GetFailedUploads().empty()) {
-        failed = true;
-        break;
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
+    bool failed = test::WaitFor(
+        [&] { return !parts.tiered->GetFailedUploads().empty(); });
     CHECK(failed);
   }
 
@@ -641,14 +607,8 @@ TEST_CASE_FIXTURE(TieredTest, "StartupRedrivesUnuploadedSegments") {
   auto [tiered2, store2] = MakeTieredWithStore();
   REQUIRE(tiered2->LoadAllSegments().ok());
 
-  bool uploaded = false;
-  for (int i = 0; i < 300; ++i) {
-    if (store2->GetObject("test-prefix/manifest.json").ok()) {
-      uploaded = true;
-      break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-  }
+  bool uploaded = test::WaitFor(
+      [&] { return store2->GetObject("test-prefix/manifest.json").ok(); });
   CHECK(uploaded);
   CHECK(store2->ObjectCount() > 0);
   CHECK(tiered2->GetFailedUploads().empty());

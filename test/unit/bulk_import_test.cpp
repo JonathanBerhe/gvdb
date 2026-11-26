@@ -3,11 +3,9 @@
 
 #include <doctest/doctest.h>
 
-#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <thread>
 
 #include "core/config.h"
 #include "core/types.h"
@@ -17,8 +15,11 @@
 #include "storage/npy_reader.h"
 #include "storage/object_store.h"
 #include "storage/segment_manager.h"
+#include "support/temp_dir.h"
+#include "support/wait.h"
 
 namespace fs = std::filesystem;
+using gvdb::test::ScopedTempDir;
 
 namespace {
 
@@ -74,11 +75,22 @@ std::string WriteGarbageFile(const std::string& dir) {
   return path;
 }
 
-std::string TestDir() {
-  return "/tmp/gvdb_bulk_import_test_" +
-         std::to_string(std::chrono::steady_clock::now()
-                            .time_since_epoch()
-                            .count());
+constexpr const char* kTempDirPrefix = "gvdb_bulk_import_test";
+
+bool IsTerminal(gvdb::storage::ImportState state) {
+  return state == gvdb::storage::ImportState::COMPLETED ||
+         state == gvdb::storage::ImportState::FAILED ||
+         state == gvdb::storage::ImportState::CANCELLED;
+}
+
+// Waits until the job is COMPLETED, FAILED or CANCELLED. Returns false when
+// the job is unknown or still not done when the wait times out.
+bool WaitForTerminalState(const gvdb::storage::BulkImporter& importer,
+                          const std::string& import_id) {
+  return gvdb::test::WaitFor([&] {
+    auto status = importer.GetStatus(import_id);
+    return status.ok() && IsTerminal(status->state);
+  });
 }
 
 }  // namespace
@@ -89,7 +101,8 @@ std::string TestDir() {
 
 TEST_SUITE("NpyReader") {
   TEST_CASE("ReadHeader parses valid .npy file") {
-    auto dir = TestDir();
+    ScopedTempDir temp(kTempDirPrefix);
+    auto dir = temp.str();
     auto path = WriteTestNpy(dir, 100, 32);
 
     auto result = gvdb::storage::NpyReader::ReadHeader(path);
@@ -97,19 +110,16 @@ TEST_SUITE("NpyReader") {
     CHECK(result->num_vectors == 100);
     CHECK(result->dimension == 32);
     CHECK(result->data_offset > 0);
-
-    fs::remove_all(dir);
   }
 
   TEST_CASE("ReadHeader rejects non-.npy file") {
-    auto dir = TestDir();
+    ScopedTempDir temp(kTempDirPrefix);
+    auto dir = temp.str();
     auto path = WriteGarbageFile(dir);
 
     auto result = gvdb::storage::NpyReader::ReadHeader(path);
     CHECK(!result.ok());
     CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
-
-    fs::remove_all(dir);
   }
 
   TEST_CASE("ReadHeader rejects missing file") {
@@ -119,7 +129,8 @@ TEST_SUITE("NpyReader") {
   }
 
   TEST_CASE("ReadChunk reads vectors correctly") {
-    auto dir = TestDir();
+    ScopedTempDir temp(kTempDirPrefix);
+    auto dir = temp.str();
     size_t dim = 4;
     size_t count = 10;
     auto path = WriteTestNpy(dir, count, dim);
@@ -141,12 +152,11 @@ TEST_SUITE("NpyReader") {
 
     // Verify last vector in chunk (vector index 4)
     CHECK(gvdb::core::ToUInt64(chunk->at(4).first) == 5);
-
-    fs::remove_all(dir);
   }
 
   TEST_CASE("ReadChunk clamps to available rows") {
-    auto dir = TestDir();
+    ScopedTempDir temp(kTempDirPrefix);
+    auto dir = temp.str();
     auto path = WriteTestNpy(dir, 3, 4);
 
     auto header = gvdb::storage::NpyReader::ReadHeader(path);
@@ -156,12 +166,11 @@ TEST_SUITE("NpyReader") {
     auto chunk = gvdb::storage::NpyReader::ReadChunk(path, *header, 0, 100, 1);
     REQUIRE(chunk.ok());
     CHECK(chunk->size() == 3);
-
-    fs::remove_all(dir);
   }
 
   TEST_CASE("ReadChunk returns empty for out-of-range start") {
-    auto dir = TestDir();
+    ScopedTempDir temp(kTempDirPrefix);
+    auto dir = temp.str();
     auto path = WriteTestNpy(dir, 5, 4);
 
     auto header = gvdb::storage::NpyReader::ReadHeader(path);
@@ -170,12 +179,11 @@ TEST_SUITE("NpyReader") {
     auto chunk = gvdb::storage::NpyReader::ReadChunk(path, *header, 100, 5, 1);
     REQUIRE(chunk.ok());
     CHECK(chunk->empty());
-
-    fs::remove_all(dir);
   }
 
   TEST_CASE("ReadHeader rejects 1D array") {
-    auto dir = TestDir();
+    ScopedTempDir temp(kTempDirPrefix);
+    auto dir = temp.str();
     fs::create_directories(dir);
     std::string path = dir + "/1d.npy";
 
@@ -194,8 +202,6 @@ TEST_SUITE("NpyReader") {
 
     auto result = gvdb::storage::NpyReader::ReadHeader(path);
     CHECK(!result.ok());
-
-    fs::remove_all(dir);
   }
 }
 
@@ -207,7 +213,9 @@ TEST_SUITE("BulkImporter") {
 
   // Common test fixture setup
   struct BulkImportFixture {
-    std::string test_dir;
+    // Declared first, so the folder is removed after everything that uses it.
+    ScopedTempDir scoped_dir{kTempDirPrefix};
+    std::string test_dir = scoped_dir.str();
     std::string data_dir;
     std::string temp_dir;
     std::unique_ptr<gvdb::index::IndexFactory> index_factory;
@@ -215,17 +223,12 @@ TEST_SUITE("BulkImporter") {
     std::unique_ptr<gvdb::storage::InMemoryObjectStore> object_store;
 
     BulkImportFixture() {
-      test_dir = TestDir();
       data_dir = test_dir + "/data";
       temp_dir = test_dir + "/tmp";
       index_factory = std::make_unique<gvdb::index::IndexFactory>();
       segment_store = std::make_shared<gvdb::storage::SegmentManager>(
           data_dir + "/segments", index_factory.get());
       object_store = std::make_unique<gvdb::storage::InMemoryObjectStore>();
-    }
-
-    ~BulkImportFixture() {
-      fs::remove_all(test_dir);
     }
 
     // Upload a .npy file to the in-memory object store
@@ -274,18 +277,11 @@ TEST_SUITE("BulkImporter") {
     CHECK(!import_id.empty());
 
     // Wait for completion
-    for (int i = 0; i < 50; ++i) {
-      auto status = importer.GetStatus(import_id);
-      REQUIRE(status.ok());
-      if (status->state == gvdb::storage::ImportState::COMPLETED) break;
-      if (status->state == gvdb::storage::ImportState::FAILED) {
-        FAIL("Import failed: " << status->error_message);
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
+    REQUIRE(WaitForTerminalState(importer, import_id));
 
     auto final_status = importer.GetStatus(import_id);
     REQUIRE(final_status.ok());
+    INFO("Import error: " << final_status->error_message);
     CHECK(final_status->state == gvdb::storage::ImportState::COMPLETED);
     CHECK(final_status->imported_vectors == 50);
     CHECK(final_status->segments_created >= 1);
@@ -332,12 +328,7 @@ TEST_SUITE("BulkImporter") {
     REQUIRE(job_result.ok());
 
     // Wait for failure
-    for (int i = 0; i < 50; ++i) {
-      auto status = importer.GetStatus(*job_result);
-      REQUIRE(status.ok());
-      if (status->state == gvdb::storage::ImportState::FAILED) break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
+    REQUIRE(WaitForTerminalState(importer, *job_result));
 
     auto status = importer.GetStatus(*job_result);
     REQUIRE(status.ok());
@@ -359,12 +350,7 @@ TEST_SUITE("BulkImporter") {
     REQUIRE(job_result.ok());
 
     // Wait for failure
-    for (int i = 0; i < 50; ++i) {
-      auto status = importer.GetStatus(*job_result);
-      REQUIRE(status.ok());
-      if (status->state == gvdb::storage::ImportState::FAILED) break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
+    REQUIRE(WaitForTerminalState(importer, *job_result));
 
     auto status = importer.GetStatus(*job_result);
     REQUIRE(status.ok());
@@ -417,22 +403,18 @@ TEST_SUITE("BulkImporter") {
         gvdb::storage::ImportFormat::NUMPY);
     REQUIRE(job_result.ok());
 
-    // Give it a moment to start
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    // Wait until a worker has picked the job up
+    REQUIRE(gvdb::test::WaitFor([&] {
+      auto status = importer.GetStatus(*job_result);
+      return status.ok() && status->state != gvdb::storage::ImportState::PENDING;
+    }));
 
     // Cancel
     auto cancel = importer.CancelImport(*job_result);
     CHECK(cancel.ok());
 
     // Wait for terminal state
-    for (int i = 0; i < 100; ++i) {
-      auto status = importer.GetStatus(*job_result);
-      if (status.ok() && (status->state == gvdb::storage::ImportState::CANCELLED ||
-                          status->state == gvdb::storage::ImportState::COMPLETED)) {
-        break;
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
+    REQUIRE(WaitForTerminalState(importer, *job_result));
 
     // Should be cancelled (or completed if it was too fast)
     auto status = importer.GetStatus(*job_result);
@@ -468,10 +450,8 @@ TEST_SUITE("BulkImporter") {
         gvdb::storage::ImportFormat::NUMPY);
     REQUIRE(job2.ok());
 
-    // Third should fail with RESOURCE_EXHAUSTED
-    // (Give the first two a moment to start running)
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
+    // Third should fail with RESOURCE_EXHAUSTED. StartImport reserves the
+    // concurrency slot before it returns, so no wait is needed here.
     auto job3 = importer.StartImport("test3", cid, 4, gvdb::core::MetricType::L2,
         gvdb::core::IndexType::FLAT, "s3://bucket/test/c.npy",
         gvdb::storage::ImportFormat::NUMPY);
@@ -482,7 +462,8 @@ TEST_SUITE("BulkImporter") {
   }
 
   TEST_CASE("BulkImporter requires object store") {
-    auto dir = TestDir();
+    ScopedTempDir temp(kTempDirPrefix);
+    auto dir = temp.str();
     auto index_factory = std::make_unique<gvdb::index::IndexFactory>();
     auto segment_store = std::make_shared<gvdb::storage::SegmentManager>(
         dir + "/segments", index_factory.get());
@@ -495,8 +476,6 @@ TEST_SUITE("BulkImporter") {
         "s3://bucket/test.npy", gvdb::storage::ImportFormat::NUMPY);
     CHECK(!result.ok());
     CHECK(result.status().code() == absl::StatusCode::kFailedPrecondition);
-
-    fs::remove_all(dir);
   }
 
   TEST_CASE_FIXTURE(BulkImportFixture, "Import progress tracking") {
@@ -513,19 +492,17 @@ TEST_SUITE("BulkImporter") {
     REQUIRE(job_result.ok());
 
     // Wait for completion and check progress fields
-    for (int i = 0; i < 50; ++i) {
-      auto status = importer.GetStatus(*job_result);
-      REQUIRE(status.ok());
-      if (status->state == gvdb::storage::ImportState::COMPLETED) {
-        CHECK(status->imported_vectors == 100);
-        CHECK(status->total_vectors == 100);
-        CHECK(status->progress_percent == doctest::Approx(100.0f));
-        CHECK(status->elapsed_seconds > 0.0f);
-        CHECK(status->segments_created >= 1);
-        CHECK(status->error_message.empty());
-        break;
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
+    REQUIRE(WaitForTerminalState(importer, *job_result));
+
+    auto status = importer.GetStatus(*job_result);
+    REQUIRE(status.ok());
+    INFO("Import error: " << status->error_message);
+    REQUIRE(status->state == gvdb::storage::ImportState::COMPLETED);
+    CHECK(status->imported_vectors == 100);
+    CHECK(status->total_vectors == 100);
+    CHECK(status->progress_percent == doctest::Approx(100.0f));
+    CHECK(status->elapsed_seconds > 0.0f);
+    CHECK(status->segments_created >= 1);
+    CHECK(status->error_message.empty());
   }
 }

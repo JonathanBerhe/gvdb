@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include <doctest/doctest.h>
-#include <filesystem>
+#include <string>
 #include <vector>
 
 #include "network/collection_resolver.h"
@@ -14,6 +14,7 @@
 #include "cluster/shard_manager.h"
 #include "core/types.h"
 #include "core/vector.h"
+#include "support/temp_dir.h"
 
 using namespace gvdb;
 
@@ -23,9 +24,6 @@ using namespace gvdb;
 
 struct LocalResolverTest {
   LocalResolverTest() {
-    test_dir_ = "/tmp/gvdb_local_resolver_test";
-    std::filesystem::create_directories(test_dir_);
-
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
         test_dir_, index_factory_.get());
@@ -36,10 +34,11 @@ struct LocalResolverTest {
     resolver_.reset();
     segment_store_.reset();
     index_factory_.reset();
-    std::filesystem::remove_all(test_dir_);
   }
 
-  std::string test_dir_;
+  // Removed after the destructor body has reset everything that uses it.
+  test::ScopedTempDir temp_dir_{"gvdb_local_resolver_test"};
+  std::string test_dir_ = temp_dir_.str();
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::unique_ptr<network::ICollectionResolver> resolver_;

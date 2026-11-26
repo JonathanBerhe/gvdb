@@ -7,6 +7,8 @@
 #include <memory>
 #include <string>
 
+#include "support/temp_dir.h"
+
 namespace gvdb {
 namespace consensus {
 namespace {
@@ -26,21 +28,8 @@ ptr<log_entry> create_log_entry(ulong term, const std::string& data) {
 
 class GvdbLogStorePersistenceTest {
  public:
-  GvdbLogStorePersistenceTest() {
-    // Create unique temporary directory for each test
-    test_dir_ = std::filesystem::temp_directory_path() /
-                ("gvdb_log_test_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()));
-    std::filesystem::create_directories(test_dir_);
-  }
-
-  ~GvdbLogStorePersistenceTest() {
-    // Clean up test directory
-    if (std::filesystem::exists(test_dir_)) {
-      std::filesystem::remove_all(test_dir_);
-    }
-  }
-
-  std::filesystem::path test_dir_;
+  // A new folder for each test case, removed when the case ends.
+  test::ScopedTempDir test_dir_{"gvdb_log_test"};
 };
 
 // Test 1: Basic persistence - write and read back
@@ -356,19 +345,8 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "ApplyPackPersistent") {
 // State Manager Persistence Tests
 class GvdbStateManagerPersistenceTest {
  public:
-  GvdbStateManagerPersistenceTest() {
-    test_dir_ = std::filesystem::temp_directory_path() /
-                ("gvdb_state_test_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()));
-    std::filesystem::create_directories(test_dir_);
-  }
-
-  ~GvdbStateManagerPersistenceTest() {
-    if (std::filesystem::exists(test_dir_)) {
-      std::filesystem::remove_all(test_dir_);
-    }
-  }
-
-  std::filesystem::path test_dir_;
+  // A new folder for each test case, removed when the case ends.
+  test::ScopedTempDir test_dir_{"gvdb_state_test"};
 };
 
 // Test 1: State manager persistence

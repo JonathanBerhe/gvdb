@@ -11,18 +11,12 @@
 
 #include <doctest/doctest.h>
 
-#include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
-#include <random>
 #include <string>
-#include <thread>
 #include <vector>
-
-#include <unistd.h>
 
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
@@ -33,6 +27,8 @@
 #include "storage/segment_cache.h"
 #include "storage/segment_manager.h"
 #include "storage/tiered_segment_manager.h"
+#include "support/temp_dir.h"
+#include "support/wait.h"
 
 namespace fs = std::filesystem;
 using namespace gvdb;
@@ -56,15 +52,6 @@ std::vector<float> VectorFor(uint64_t id) {
   std::vector<float> values(kDim);
   for (uint32_t d = 0; d < kDim; ++d) values[d] = VectorValue(id, d);
   return values;
-}
-
-std::string UniqueTestDir() {
-  static std::atomic<uint64_t> counter{0};
-  std::random_device rd;
-  return (fs::temp_directory_path() /
-          ("gvdb_backup_service_test_" + std::to_string(::getpid()) + "_" +
-           std::to_string(counter.fetch_add(1)) + "_" + std::to_string(rd())))
-      .string();
 }
 
 bool IsTerminal(proto::BackupState state) {
@@ -91,8 +78,7 @@ proto::BackupTarget LocalTarget(const std::string& path) {
 class BackupServiceFixtureBase {
  public:
   explicit BackupServiceFixtureBase(bool with_backup_storage) {
-    test_dir_ = UniqueTestDir();
-    data_dir_ = test_dir_ + "/data";
+    data_dir_ = (test_dir_ / "data").string();
     fs::create_directories(data_dir_);
 
     index_factory_ = std::make_unique<index::IndexFactory>();
@@ -100,7 +86,7 @@ class BackupServiceFixtureBase {
         data_dir_ + "/segments", index_factory_.get());
     std::string bucket;
     if (with_backup_storage) {
-      backup_root_ = test_dir_ + "/backups";
+      backup_root_ = (test_dir_ / "backups").string();
       fs::create_directories(backup_root_);
       bucket = kBucket;
 
@@ -153,9 +139,7 @@ class BackupServiceFixtureBase {
     query_executor_.reset();
     segment_store_.reset();
     index_factory_.reset();
-
-    std::error_code ec;
-    fs::remove_all(test_dir_, ec);
+    // test_dir_ is the first member, so it removes the folder last.
   }
 
   void CreateCollection(const std::string& name) {
@@ -225,12 +209,11 @@ class BackupServiceFixtureBase {
     return service_->RestoreCollection(&context, &request, response);
   }
 
-  // Polls GetBackupStatus until the job is terminal or 10 seconds pass.
+  // Polls GetBackupStatus until the job is terminal or the WaitFor timeout
+  // passes.
   proto::GetBackupStatusResponse WaitForBackup(const std::string& backup_id) {
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(10);
     proto::GetBackupStatusResponse response;
-    while (true) {
+    test::WaitFor([&] {
       grpc::ServerContext context;
       proto::GetBackupStatusRequest request;
       request.set_backup_id(backup_id);
@@ -238,24 +221,19 @@ class BackupServiceFixtureBase {
       auto status = service_->GetBackupStatus(&context, &request, &response);
       INFO(status.error_message());
       REQUIRE(status.ok());
-      if (IsTerminal(response.state()) ||
-          std::chrono::steady_clock::now() >= deadline) {
-        break;
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
+      return IsTerminal(response.state());
+    });
     INFO("state=" << proto::BackupState_Name(response.state())
                   << " error=" << response.error_message());
     REQUIRE(IsTerminal(response.state()));
     return response;
   }
 
-  // Polls GetRestoreStatus until the job is terminal or 10 seconds pass.
+  // Polls GetRestoreStatus until the job is terminal or the WaitFor timeout
+  // passes.
   proto::GetRestoreStatusResponse WaitForRestore(const std::string& restore_id) {
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(10);
     proto::GetRestoreStatusResponse response;
-    while (true) {
+    test::WaitFor([&] {
       grpc::ServerContext context;
       proto::GetRestoreStatusRequest request;
       request.set_restore_id(restore_id);
@@ -263,12 +241,8 @@ class BackupServiceFixtureBase {
       auto status = service_->GetRestoreStatus(&context, &request, &response);
       INFO(status.error_message());
       REQUIRE(status.ok());
-      if (IsTerminal(response.state()) ||
-          std::chrono::steady_clock::now() >= deadline) {
-        break;
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
+      return IsTerminal(response.state());
+    });
     INFO("state=" << proto::BackupState_Name(response.state())
                   << " error=" << response.error_message());
     REQUIRE(IsTerminal(response.state()));
@@ -393,7 +367,7 @@ class BackupServiceFixtureBase {
     return backup;
   }
 
-  std::string test_dir_;
+  test::ScopedTempDir test_dir_{"gvdb_backup_service_test"};
   std::string data_dir_;
   std::string backup_root_;  // empty without backup storage
   std::unique_ptr<index::IndexFactory> index_factory_;
@@ -485,10 +459,12 @@ TEST_CASE_FIXTURE(BackupServiceTest,
 TEST_CASE_FIXTURE(BackupServiceTest, "LocalTargetOutsideAllowlistIsRejected") {
   CreatePopulatedSource();
 
+  // Every path is inside this fixture's own temp folder, so no other test
+  // or run can create it, and the copies made below go with the folder.
   const std::vector<std::string> outside = {
-      test_dir_ + "/elsewhere",       // a sibling of the allowlist root
-      backup_root_ + "_evil",         // starts with the root's path as text
-      backup_root_ + "/../escaped",   // climbs out of the root with ..
+      (test_dir_ / "elsewhere").string(),  // a sibling of the allowlist root
+      backup_root_ + "_evil",              // starts with the root's path as text
+      backup_root_ + "/../escaped",        // climbs out of the root with ..
   };
 
   for (const auto& path : outside) {
@@ -528,7 +504,7 @@ TEST_CASE_FIXTURE(BackupServiceTest, "LocalTargetOutsideAllowlistIsRejected") {
 TEST_CASE_FIXTURE(NoBackupStorageServiceTest,
                   "BackupAndRestoreRejectedWithoutBackupStorage") {
   CreatePopulatedSource();
-  const std::string local_path = test_dir_ + "/backups";
+  const std::string local_path = (test_dir_ / "backups").string();
 
   // Only the failure is checked, not the status code: the managers return
   // FailedPrecondition, which toGrpcStatus does not map yet.
