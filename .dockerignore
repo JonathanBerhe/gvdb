@@ -1,11 +1,18 @@
+# The image builds only the C++ server (deploy/Dockerfile): src, include,
+# proto, cmake, the CMake files and config.example.yaml.
 build/
 .git/
-test/
-grafana/
-docs/
-*.md
-!config.example.yaml
-test_compute_data/
 .claude/
 .vscode/
 .idea/
+outputs/
+test/
+docs/
+clients/
+connectors/
+operator/
+ui/
+tools/
+deploy/helm/
+deploy/monitoring/
+*.md
