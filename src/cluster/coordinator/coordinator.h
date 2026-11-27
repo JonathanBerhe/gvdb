@@ -3,25 +3,25 @@
 
 #pragma once
 
+#include <atomic>
+#include <chrono>
+#include <map>
+#include <memory>
+#include <optional>
+#include <set>
+#include <shared_mutex>
+#include <string>
+#include <thread>
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "cluster/coordinator/internal_client.h"
+#include "cluster/coordinator/node_registry.h"
+#include "cluster/shard_manager.h"
 #include "core/types.h"
 #include "meta/collection_metadata.h"
 #include "meta/node_info.h"
-#include "cluster/shard_manager.h"
-#include "cluster/coordinator/node_registry.h"
-#include "cluster/coordinator/internal_client.h"
 #include "storage/backup/backup_manager.h"
 #include "storage/backup/restore_manager.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include <chrono>
-#include <memory>
-#include <string>
-#include <map>
-#include <optional>
-#include <shared_mutex>
-#include <atomic>
-#include <thread>
-#include <set>
 
 namespace gvdb {
 namespace cluster {
@@ -74,20 +74,15 @@ class Coordinator {
 
   // Collection management
   absl::StatusOr<core::CollectionId> CreateCollection(
-      const std::string& name,
-      core::Dimension dimension,
-      core::MetricType metric_type,
-      core::IndexType index_type,
-      size_t replication_factor,
-      size_t num_shards = 1);
+      const std::string& name, core::Dimension dimension, core::MetricType metric_type,
+      core::IndexType index_type, size_t replication_factor, size_t num_shards = 1);
   absl::Status DropCollection(const std::string& name);
   absl::StatusOr<meta::CollectionMetadata> GetCollectionMetadata(const std::string& name) const;
   absl::StatusOr<meta::CollectionMetadata> GetCollectionMetadata(core::CollectionId id) const;
   std::vector<meta::CollectionMetadata> ListCollections() const;
 
   // Shard assignment for collections
-  absl::Status AssignShardsToCollection(core::CollectionId collection_id,
-                                        size_t num_shards,
+  absl::Status AssignShardsToCollection(core::CollectionId collection_id, size_t num_shards,
                                         size_t replication_factor);
 
   // Failure detection and recovery
@@ -99,10 +94,8 @@ class Coordinator {
   size_t GetRepairQueueSize() const;
 
   // Replicate segment data from source node to target node
-  absl::Status ReplicateSegmentData(
-      core::SegmentId segment_id,
-      core::NodeId source_node,
-      core::NodeId target_node);
+  absl::Status ReplicateSegmentData(core::SegmentId segment_id, core::NodeId source_node,
+                                    core::NodeId target_node);
 
   // Handle failed node: reassign shards, promote replicas
   void HandleFailedNode(core::NodeId failed_node_id);
@@ -191,28 +184,26 @@ class Coordinator {
   //   3. UnfreezeWrites on the shard's primary
   // On any per-shard failure the partial backup is cleaned up under the
   // target prefix and the job transitions to FAILED.
-  absl::StatusOr<std::string> StartBackupDistributed(
-      const std::string& collection_name,
-      const storage::BackupTarget& target,
-      const std::string& requested_backup_id = "");
+  absl::StatusOr<std::string> StartBackupDistributed(const std::string& collection_name,
+                                                     const storage::BackupTarget& target,
+                                                     const std::string& requested_backup_id = "");
 
   // Start a distributed restore. If `overwrite` is true and a collection
   // with `target_collection_name` already exists, it is dropped before a
   // fresh collection is created from the backup manifest. If `overwrite`
   // is false and the target name exists, the call fails with
   // ALREADY_EXISTS.
-  absl::StatusOr<std::string> StartRestoreDistributed(
-      const storage::BackupTarget& source,
-      const std::string& backup_id,
-      const std::string& target_collection_name,
-      bool overwrite);
+  absl::StatusOr<std::string> StartRestoreDistributed(const storage::BackupTarget& source,
+                                                      const std::string& backup_id,
+                                                      const std::string& target_collection_name,
+                                                      bool overwrite);
 
   // Status queries: pass through to the underlying BackupManager /
   // RestoreManager. Returns NotFound when the id is unknown.
-  absl::StatusOr<storage::BackupJobStatus>
-      GetDistributedBackupStatus(const std::string& backup_id) const;
-  absl::StatusOr<storage::RestoreJobStatus>
-      GetDistributedRestoreStatus(const std::string& restore_id) const;
+  absl::StatusOr<storage::BackupJobStatus> GetDistributedBackupStatus(
+      const std::string& backup_id) const;
+  absl::StatusOr<storage::RestoreJobStatus> GetDistributedRestoreStatus(
+      const std::string& restore_id) const;
 
  private:
   // Shard manager
@@ -245,8 +236,7 @@ class Coordinator {
   void DetectDrainingNodes();
   void CheckReplication();
   void CheckConsistency();
-  absl::Status RepairSegment(core::SegmentId segment_id,
-                             core::NodeId primary_node,
+  absl::Status RepairSegment(core::SegmentId segment_id, core::NodeId primary_node,
                              core::NodeId stale_replica);
 
   // Repair state
@@ -256,10 +246,8 @@ class Coordinator {
   std::set<core::ShardId> shards_being_repaired_;
 
   // Rebalancing internals
-  absl::Status ExecuteSingleMove(
-      const ShardManager::RebalanceMove& move,
-      core::CollectionId collection_id,
-      uint32_t shard_index);
+  absl::Status ExecuteSingleMove(const ShardManager::RebalanceMove& move,
+                                 core::CollectionId collection_id, uint32_t shard_index);
 
   // Two-phase primary swap orchestrator. Drives the protocol that lets
   // a write-in-flight survive a primary change without losing
@@ -281,8 +269,7 @@ class Coordinator {
   // `old_node` may equal `kInvalidNodeId` when no current primary
   // exists (shard previously unowned, e.g. a cold-promote during
   // recovery). PausePrimary is then skipped.
-  absl::Status TransferPrimary(core::ShardId shard_id,
-                               core::NodeId old_node,
+  absl::Status TransferPrimary(core::ShardId shard_id, core::NodeId old_node,
                                core::NodeId new_node);
   static constexpr size_t kMaxMovesPerCycle = 4;
   mutable std::mutex migration_mutex_;
@@ -302,7 +289,7 @@ class Coordinator {
   // is immutable after construction.
   AutoRebalanceConfig auto_rebalance_config_;
   mutable std::mutex known_nodes_mutex_;
-  std::set<core::NodeId> known_data_nodes_;              // guarded by known_nodes_mutex_
+  std::set<core::NodeId> known_data_nodes_;                         // guarded by known_nodes_mutex_
   std::chrono::steady_clock::time_point last_auto_rebalance_at_{};  // guarded by known_nodes_mutex_
 
   // Serializes access to the detached rebalance worker. Only one rebalance

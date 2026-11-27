@@ -19,12 +19,12 @@ namespace storage {
 //                               -DGVDB_WITH_S3=ON)
 //   otherwise / empty        -> object storage disabled (local disk only)
 struct ObjectStoreConfig {
-  std::string type;          // "s3", "minio", or "gcs"
-  std::string endpoint;      // S3/MinIO endpoint, or a GCS emulator
-  std::string access_key;    // S3/MinIO only
-  std::string secret_key;    // S3/MinIO only
+  std::string type;        // "s3", "minio", or "gcs"
+  std::string endpoint;    // S3/MinIO endpoint, or a GCS emulator
+  std::string access_key;  // S3/MinIO only
+  std::string secret_key;  // S3/MinIO only
   std::string bucket;
-  std::string region;        // S3 only (GCS location is bucket-scoped)
+  std::string region;  // S3 only (GCS location is bucket-scoped)
   std::string prefix;
   // GCS only. project id is usually supplied by ADC; credentials_path points
   // at a service-account JSON for local/dev (equivalently set via the
@@ -32,7 +32,7 @@ struct ObjectStoreConfig {
   // Identity.
   std::string project;
   std::string credentials_path;
-  bool use_ssl = true;       // S3/MinIO only
+  bool use_ssl = true;  // S3/MinIO only
 };
 
 // Construct the object-store backend selected by the runtime config, so the
@@ -58,4 +58,3 @@ struct ObjectStoreConfig {
 
 }  // namespace storage
 }  // namespace gvdb
-

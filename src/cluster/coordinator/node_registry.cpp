@@ -25,8 +25,7 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
 
   uint32_t node_id = node_info.node_id();
   auto now = clock_();
-  const bool is_draining =
-      node_info.status() == proto::internal::NodeStatus::NODE_STATUS_DRAINING;
+  const bool is_draining = node_info.status() == proto::internal::NodeStatus::NODE_STATUS_DRAINING;
 
   auto it = nodes_.find(node_id);
   if (it != nodes_.end()) {
@@ -62,15 +61,13 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
     it->second.total_heartbeats++;
 
     if (is_draining && !was_draining) {
-      common::Logger::Instance().Info(
-          "Node {} entered DRAINING state (type={}, address={})",
-          node_id, static_cast<int>(node_info.node_type()),
-          node_info.grpc_address());
+      common::Logger::Instance().Info("Node {} entered DRAINING state (type={}, address={})",
+                                      node_id, static_cast<int>(node_info.node_type()),
+                                      node_info.grpc_address());
     } else {
-      common::Logger::Instance().Debug(
-          "Updated node {} (type={}, total_heartbeats={})", node_id,
-          static_cast<int>(node_info.node_type()),
-          it->second.total_heartbeats);
+      common::Logger::Instance().Debug("Updated node {} (type={}, total_heartbeats={})", node_id,
+                                       static_cast<int>(node_info.node_type()),
+                                       it->second.total_heartbeats);
     }
   } else {
     // Register new node
@@ -83,10 +80,9 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
 
     nodes_[node_id] = std::move(node);
 
-    common::Logger::Instance().Info(
-        "Registered new node {} (type={}, address={}{})", node_id,
-        static_cast<int>(node_info.node_type()), node_info.grpc_address(),
-        is_draining ? ", DRAINING" : "");
+    common::Logger::Instance().Info("Registered new node {} (type={}, address={}{})", node_id,
+                                    static_cast<int>(node_info.node_type()),
+                                    node_info.grpc_address(), is_draining ? ", DRAINING" : "");
   }
 }
 
@@ -155,8 +151,7 @@ std::vector<RegisteredNode> NodeRegistry::GetRoutableNodesByType(
   const auto now = clock_();
   std::vector<RegisteredNode> result;
   for (const auto& [id, node] : nodes_) {
-    if (node.info.node_type() == type &&
-        node.IsRoutable(heartbeat_timeout_, now)) {
+    if (node.info.node_type() == type && node.IsRoutable(heartbeat_timeout_, now)) {
       result.push_back(node);
     }
   }
@@ -243,15 +238,13 @@ std::vector<uint32_t> NodeRegistry::DetectFailedNodes() {
       node.missed_heartbeats++;
 
       common::Logger::Instance().Warn(
-          "Node {} appears to have failed (last heartbeat {}ms ago, missed={})",
-          id,
-          node.TimeSinceLastHeartbeat(now).count(),
-          node.missed_heartbeats);
+          "Node {} appears to have failed (last heartbeat {}ms ago, missed={})", id,
+          node.TimeSinceLastHeartbeat(now).count(), node.missed_heartbeats);
     }
   }
 
   return failed_node_ids;
 }
 
-} // namespace cluster
-} // namespace gvdb
+}  // namespace cluster
+}  // namespace gvdb

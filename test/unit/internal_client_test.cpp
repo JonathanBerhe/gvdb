@@ -25,10 +25,9 @@ class MockInternalService : public proto::internal::InternalService::Service {
   std::atomic<int> delete_segment_calls{0};
   bool should_fail{false};
 
-  grpc::Status CreateSegment(
-      grpc::ServerContext* /*context*/,
-      const proto::internal::CreateSegmentRequest* /*request*/,
-      proto::internal::CreateSegmentResponse* response) override {
+  grpc::Status CreateSegment(grpc::ServerContext* /*context*/,
+                             const proto::internal::CreateSegmentRequest* /*request*/,
+                             proto::internal::CreateSegmentResponse* response) override {
     create_segment_calls++;
 
     if (should_fail) {
@@ -39,10 +38,9 @@ class MockInternalService : public proto::internal::InternalService::Service {
     return grpc::Status::OK;
   }
 
-  grpc::Status DeleteSegment(
-      grpc::ServerContext* /*context*/,
-      const proto::internal::DeleteSegmentRequest* /*request*/,
-      proto::internal::DeleteSegmentResponse* response) override {
+  grpc::Status DeleteSegment(grpc::ServerContext* /*context*/,
+                             const proto::internal::DeleteSegmentRequest* /*request*/,
+                             proto::internal::DeleteSegmentResponse* response) override {
     delete_segment_calls++;
 
     if (should_fail) {
@@ -290,7 +288,7 @@ TEST_CASE_FIXTURE(InternalClientTest, "ClientHandlesServerUnavailable") {
   CHECK_FALSE(status.ok());
   // Status code should indicate connection failure
   CHECK((status.error_code() == grpc::StatusCode::UNAVAILABLE ||
-              status.error_code() == grpc::StatusCode::DEADLINE_EXCEEDED));
+         status.error_code() == grpc::StatusCode::DEADLINE_EXCEEDED));
 }
 
 TEST_CASE_FIXTURE(InternalClientTest, "ClientReconnectsAfterServerRestart") {

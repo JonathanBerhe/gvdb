@@ -34,13 +34,12 @@ static const float kLM2Boundaries[] = {-0.9816f, 0.0f, 0.9816f};
 static const float kLM2Centroids[] = {-1.510f, -0.4528f, 0.4528f, 1.510f};
 
 // 4-bit (16 levels)
-static const float kLM4Boundaries[] = {
-    -2.4008f, -1.8436f, -1.4371f, -1.0993f, -0.7975f, -0.5224f, -0.2582f,
-    0.0f, 0.2582f, 0.5224f, 0.7975f, 1.0993f, 1.4371f, 1.8436f, 2.4008f};
-static const float kLM4Centroids[] = {
-    -2.7326f, -2.0690f, -1.6180f, -1.2562f, -0.9424f, -0.6568f, -0.3881f,
-    -0.1284f, 0.1284f, 0.3881f, 0.6568f, 0.9424f, 1.2562f, 1.6180f,
-    2.0690f, 2.7326f};
+static const float kLM4Boundaries[] = {-2.4008f, -1.8436f, -1.4371f, -1.0993f, -0.7975f,
+                                       -0.5224f, -0.2582f, 0.0f,     0.2582f,  0.5224f,
+                                       0.7975f,  1.0993f,  1.4371f,  1.8436f,  2.4008f};
+static const float kLM4Centroids[] = {-2.7326f, -2.0690f, -1.6180f, -1.2562f, -0.9424f, -0.6568f,
+                                      -0.3881f, -0.1284f, 0.1284f,  0.3881f,  0.6568f,  0.9424f,
+                                      1.2562f,  1.6180f,  2.0690f,  2.7326f};
 
 // 8-bit (256 levels): uniform quantizer with clip at ±3.5
 // Generated programmatically in CreateLloydMaxTable
@@ -119,8 +118,7 @@ void TurboQuantCodec::ApplyWHT(float* data, int n) {
   }
 }
 
-void TurboQuantCodec::ApplyForwardRWHT(
-    float* data, int n, const std::vector<int8_t>& signs) const {
+void TurboQuantCodec::ApplyForwardRWHT(float* data, int n, const std::vector<int8_t>& signs) const {
   // Forward: random sign flip, then WHT
   for (int i = 0; i < n; i++) {
     data[i] *= signs[i];
@@ -132,15 +130,13 @@ void TurboQuantCodec::ApplyForwardRWHT(
 // Bit packing
 // ============================================================================
 
-void TurboQuantCodec::PackCode(uint8_t value, int index,
-                                uint8_t* packed) const {
+void TurboQuantCodec::PackCode(uint8_t value, int index, uint8_t* packed) const {
   int values_per_byte = 8 / bit_width_;
   int byte_idx = index / values_per_byte;
   int shift = (index % values_per_byte) * bit_width_;
   uint8_t mask = static_cast<uint8_t>((1 << bit_width_) - 1);
   packed[byte_idx] =
-      static_cast<uint8_t>((packed[byte_idx] & ~(mask << shift)) |
-                            ((value & mask) << shift));
+      static_cast<uint8_t>((packed[byte_idx] & ~(mask << shift)) | ((value & mask) << shift));
 }
 
 uint8_t TurboQuantCodec::UnpackCode(int index, const uint8_t* packed) const {
@@ -171,8 +167,8 @@ bool TurboQuantCodec::UnpackBit(int index, const uint8_t* packed) {
 // TurboQuantCodec
 // ============================================================================
 
-TurboQuantCodec::TurboQuantCodec(core::Dimension dimension, int bit_width,
-                                   bool use_qjl, int qjl_dim, uint64_t seed)
+TurboQuantCodec::TurboQuantCodec(core::Dimension dimension, int bit_width, bool use_qjl,
+                                 int qjl_dim, uint64_t seed)
     : dimension_(dimension),
       padded_dim_(NextPowerOf2(dimension)),
       bit_width_(bit_width),
@@ -202,10 +198,8 @@ TurboQuantCodec::TurboQuantCodec(core::Dimension dimension, int bit_width,
 }
 
 void TurboQuantCodec::Encode(const float* data, core::Dimension dim,
-                               std::vector<uint8_t>& codes_out,
-                               float& norm_out,
-                               float& residual_norm_out,
-                               std::vector<uint8_t>& qjl_bits_out) const {
+                             std::vector<uint8_t>& codes_out, float& norm_out,
+                             float& residual_norm_out, std::vector<uint8_t>& qjl_bits_out) const {
   // Step 1: Compute norm
   float norm_sq = 0.0f;
   for (int i = 0; i < dim; i++) {
@@ -256,8 +250,7 @@ void TurboQuantCodec::Encode(const float* data, core::Dimension dim,
   }
 }
 
-PreprocessedQuery TurboQuantCodec::PreprocessQuery(
-    const float* data, core::Dimension dim) const {
+PreprocessedQuery TurboQuantCodec::PreprocessQuery(const float* data, core::Dimension dim) const {
   PreprocessedQuery pq;
 
   // Compute query norm
@@ -288,17 +281,14 @@ PreprocessedQuery TurboQuantCodec::PreprocessQuery(
   // Project for QJL correction (second WHT on rotated query)
   if (use_qjl_) {
     ApplyForwardRWHT(rotated.data(), padded_dim_, qjl_wht_signs_);
-    pq.qjl_projected.assign(rotated.begin(),
-                             rotated.begin() + qjl_dim_);
+    pq.qjl_projected.assign(rotated.begin(), rotated.begin() + qjl_dim_);
   }
 
   return pq;
 }
 
-float TurboQuantCodec::EstimateIP(const PreprocessedQuery& query,
-                                    const uint8_t* codes, float norm,
-                                    float residual_norm,
-                                    const uint8_t* qjl_bits) const {
+float TurboQuantCodec::EstimateIP(const PreprocessedQuery& query, const uint8_t* codes, float norm,
+                                  float residual_norm, const uint8_t* qjl_bits) const {
   // Stage 1: dot(centroid_values, query_scaled) * norm * ||q|| / padded_dim
   float dot = 0.0f;
   for (int i = 0; i < padded_dim_; i++) {
@@ -315,8 +305,8 @@ float TurboQuantCodec::EstimateIP(const PreprocessedQuery& query,
     }
     // Correction: norm * ||q|| * res_norm * sqrt(2*d/π) / m * qjl_dot
     static constexpr float kPi = 3.14159265358979323846f;
-    float factor = std::sqrt(2.0f * static_cast<float>(padded_dim_) / kPi) /
-                   static_cast<float>(qjl_dim_);
+    float factor =
+        std::sqrt(2.0f * static_cast<float>(padded_dim_) / kPi) / static_cast<float>(qjl_dim_);
     ip += norm * query.norm * residual_norm * factor * qjl_dot;
   }
 

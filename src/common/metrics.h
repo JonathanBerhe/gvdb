@@ -186,8 +186,7 @@ class MetricsRegistry {
    *               if a replica was already serving (e.g. drain era) and
    *               itself failed.
    */
-  void IncReadReplicaFallback(const std::string& operation,
-                              const std::string& reason);
+  void IncReadReplicaFallback(const std::string& operation, const std::string& reason);
 
   /**
    * @brief Increment the counter for reads where every candidate node
@@ -262,8 +261,7 @@ class MetricsTimer {
  public:
   enum class OperationType { INSERT, SEARCH, GET, DELETE, UPDATE_METADATA };
 
-  MetricsTimer(MetricsRegistry& registry, OperationType type,
-               const std::string& collection_name);
+  MetricsTimer(MetricsRegistry& registry, OperationType type, const std::string& collection_name);
   ~MetricsTimer();
 
   // Delete copy/move

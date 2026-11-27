@@ -13,8 +13,8 @@
 #include "absl/strings/str_cat.h"
 #include "cluster/coordinator/coordinator.h"
 #include "cluster/coordinator/node_registry.h"
-#include "cluster/shard_manager.h"
 #include "cluster/datanode/shard_write_gate.h"
+#include "cluster/shard_manager.h"
 #include "common/logger.h"
 #include "compute/query_cache.h"
 #include "compute/query_executor.h"
@@ -43,8 +43,7 @@ struct Args {
 absl::Status Run(const Args& args) {
   server::InstallSignalHandlers();
 
-  ASSIGN_OR_RETURN(config::GVDBConfig config,
-                   server::LoadConfig(args.config_file));
+  ASSIGN_OR_RETURN(config::GVDBConfig config, server::LoadConfig(args.config_file));
   if (args.port != -1) config.server.grpc_port = args.port;
   if (!args.data_dir.empty()) config.storage.data_dir = args.data_dir;
   if (args.node_id != -1) config.consensus.node_id = args.node_id;
@@ -62,11 +61,11 @@ absl::Status Run(const Args& args) {
   raft_config.node_id = node_id;
   raft_config.single_node_mode = true;
   raft_config.data_dir = data_dir + "/raft";
-  ASSIGN_OR_RETURN(std::unique_ptr<consensus::RaftNode> raft_node,
-                   server::StartRaft(raft_config));
+  ASSIGN_OR_RETURN(std::unique_ptr<consensus::RaftNode> raft_node, server::StartRaft(raft_config));
 
-  ASSIGN_OR_RETURN(server::SegmentStoreParts storage,
-                   server::BuildSegmentStore(config.storage, data_dir, server::ObjectStoreFailure::kStop));
+  ASSIGN_OR_RETURN(
+      server::SegmentStoreParts storage,
+      server::BuildSegmentStore(config.storage, data_dir, server::ObjectStoreFailure::kStop));
   auto segment_store = storage.segment_store;
   auto query_executor = std::make_shared<compute::QueryExecutor>(
       *segment_store, nullptr, std::make_shared<compute::QueryCache>(10000));
@@ -107,17 +106,19 @@ absl::Status Run(const Args& args) {
 
   const std::string address = absl::StrCat("0.0.0.0:", config.server.grpc_port);
   ASSIGN_OR_RETURN(auto grpc_server,
-                   server::StartGrpcServer(address, {vectordb_service.get()}, server::MakeServerCredentials(config.server.tls), std::move(interceptors)));
+                   server::StartGrpcServer(address, {vectordb_service.get()},
+                                           server::MakeServerCredentials(config.server.tls),
+                                           std::move(interceptors)));
 
   std::thread ttl_sweep_thread(
       [segment_store] { segment_store->RunTTLSweepLoop(server::ShutdownFlag()); });
 
   server::PrintBanner("GVDB All-in-One Server", {
-                                                     "gRPC Service: " + address,
-                                                     "Metrics: http://0.0.0.0:9090/metrics",
-                                                     "Node ID: " + std::to_string(node_id),
-                                                     "Data Directory: " + data_dir,
-                                                 });
+                                                    "gRPC Service: " + address,
+                                                    "Metrics: http://0.0.0.0:9090/metrics",
+                                                    "Node ID: " + std::to_string(node_id),
+                                                    "Data Directory: " + data_dir,
+                                                });
   server::WaitForShutdown();
 
   ttl_sweep_thread.join();

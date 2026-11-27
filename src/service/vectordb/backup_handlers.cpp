@@ -3,14 +3,14 @@
 //
 // Backup and restore: start, status, list and cancel.
 
-#include "service/vectordb/vectordb_service.h"
+#include <grpcpp/grpcpp.h>
+#include "cluster/coordinator/coordinator.h"
 #include "core/status.h"
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
-#include "cluster/coordinator/coordinator.h"
+#include "service/vectordb/vectordb_service.h"
 #include "storage/backup/backup_manager.h"
 #include "storage/backup/restore_manager.h"
-#include <grpcpp/grpcpp.h>
 
 namespace gvdb {
 namespace service {
@@ -23,15 +23,13 @@ namespace service {
 // and restore out to the shards. A service without one runs the
 // single-shard path against its own segment store.
 
-grpc::Status VectorDBService::BackupCollection(
-    grpc::ServerContext* /*context*/,
-    const proto::BackupCollectionRequest* request,
-    proto::BackupCollectionResponse* response) {
+grpc::Status VectorDBService::BackupCollection(grpc::ServerContext* /*context*/,
+                                               const proto::BackupCollectionRequest* request,
+                                               proto::BackupCollectionResponse* response) {
   RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::BACKUP, request->collection_name()));
 
   if (request->collection_name().empty()) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                        "collection_name is required");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "collection_name is required");
   }
 
   auto target = rpc::FromProto(request->target());
@@ -43,8 +41,8 @@ grpc::Status VectorDBService::BackupCollection(
   // (coordinator binary). Falls through to the local single-shard path
   // on a single-node binary.
   if (coordinator_) {
-    auto result = coordinator_->StartBackupDistributed(
-        request->collection_name(), *target, request->backup_id());
+    auto result = coordinator_->StartBackupDistributed(request->collection_name(), *target,
+                                                       request->backup_id());
     if (!result.ok()) return rpc::ToGrpcStatus(result.status());
     response->set_backup_id(*result);
     response->set_message("Backup job started (distributed)");
@@ -52,8 +50,7 @@ grpc::Status VectorDBService::BackupCollection(
   }
 
   if (!backup_manager_) {
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Backup is not configured on this server");
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED, "Backup is not configured on this server");
   }
 
   // Single-shard path: resolve collection metadata for the manifest.
@@ -69,22 +66,15 @@ grpc::Status VectorDBService::BackupCollection(
   }
   if (!coll_info) {
     return grpc::Status(grpc::StatusCode::NOT_FOUND,
-        "Collection not found: " + request->collection_name());
+                        "Collection not found: " + request->collection_name());
   }
 
   auto result = backup_manager_->StartBackupSingleShard(
-      request->collection_name(),
-      coll_info->collection_id,
-      coll_info->dimension,
-      coll_info->metric_type,
-      coll_info->index_type,
+      request->collection_name(), coll_info->collection_id, coll_info->dimension,
+      coll_info->metric_type, coll_info->index_type,
       /*num_shards=*/1,
-      /*replication_factor=*/1,
-      core::MakeShardId(0),
-      /*primary_term=*/0,
-      *target,
-      segment_store_,
-      request->backup_id());
+      /*replication_factor=*/1, core::MakeShardId(0),
+      /*primary_term=*/0, *target, segment_store_, request->backup_id());
   if (!result.ok()) {
     return rpc::ToGrpcStatus(result.status());
   }
@@ -93,15 +83,14 @@ grpc::Status VectorDBService::BackupCollection(
   return grpc::Status::OK;
 }
 
-grpc::Status VectorDBService::RestoreCollection(
-    grpc::ServerContext* /*context*/,
-    const proto::RestoreCollectionRequest* request,
-    proto::RestoreCollectionResponse* response) {
-  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::RESTORE, request->target_collection_name()));
+grpc::Status VectorDBService::RestoreCollection(grpc::ServerContext* /*context*/,
+                                                const proto::RestoreCollectionRequest* request,
+                                                proto::RestoreCollectionResponse* response) {
+  RETURN_IF_ERROR(
+      AuthorizeCollection(auth::Permission::RESTORE, request->target_collection_name()));
 
   if (request->backup_id().empty()) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                        "backup_id is required");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "backup_id is required");
   }
 
   auto source = rpc::FromProto(request->source());
@@ -115,9 +104,7 @@ grpc::Status VectorDBService::RestoreCollection(
   // coordinator to allocate a new id.
   if (coordinator_) {
     auto result = coordinator_->StartRestoreDistributed(
-        *source, request->backup_id(),
-        request->target_collection_name(),
-        request->overwrite());
+        *source, request->backup_id(), request->target_collection_name(), request->overwrite());
     if (!result.ok()) return rpc::ToGrpcStatus(result.status());
     response->set_restore_id(*result);
     response->set_message("Restore job started (distributed)");
@@ -126,7 +113,7 @@ grpc::Status VectorDBService::RestoreCollection(
 
   if (!restore_manager_) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Restore is not configured on this server");
+                        "Restore is not configured on this server");
   }
 
   auto manifest = restore_manager_->ReadManifest(*source, request->backup_id());
@@ -142,35 +129,29 @@ grpc::Status VectorDBService::RestoreCollection(
   // segment-id remap inside RestoreManager::RunShardRestore reconciles
   // ids when the freshly-created collection's id differs from the
   // backup's.
-  const std::string target_name =
-      !request->target_collection_name().empty()
-          ? request->target_collection_name()
-          : manifest->collection.collection_name;
+  const std::string target_name = !request->target_collection_name().empty()
+                                      ? request->target_collection_name()
+                                      : manifest->collection.collection_name;
 
   auto existing = resolver_->GetCollectionId(target_name);
   if (existing.ok()) {
     if (!request->overwrite()) {
       return grpc::Status(grpc::StatusCode::ALREADY_EXISTS,
-          "Target collection '" + target_name +
-          "' already exists; set overwrite=true to drop and recreate");
+                          "Target collection '" + target_name +
+                              "' already exists; set overwrite=true to drop and recreate");
     }
     auto drop_status = resolver_->DropCollection(target_name);
     if (!drop_status.ok()) return rpc::ToGrpcStatus(drop_status);
   }
   auto create_or = resolver_->CreateCollection(
-      target_name,
-      static_cast<core::Dimension>(manifest->collection.dimension),
+      target_name, static_cast<core::Dimension>(manifest->collection.dimension),
       static_cast<core::MetricType>(manifest->collection.metric),
       static_cast<core::IndexType>(manifest->collection.index_type),
       manifest->collection.num_shards);
   if (!create_or.ok()) return rpc::ToGrpcStatus(create_or.status());
 
-  auto result = restore_manager_->StartRestoreSingleShard(
-      *source,
-      request->backup_id(),
-      *create_or,
-      core::MakeShardId(0),
-      segment_store_);
+  auto result = restore_manager_->StartRestoreSingleShard(*source, request->backup_id(), *create_or,
+                                                          core::MakeShardId(0), segment_store_);
   if (!result.ok()) {
     return rpc::ToGrpcStatus(result.status());
   }
@@ -179,23 +160,19 @@ grpc::Status VectorDBService::RestoreCollection(
   return grpc::Status::OK;
 }
 
-grpc::Status VectorDBService::GetBackupStatus(
-    grpc::ServerContext* /*context*/,
-    const proto::GetBackupStatusRequest* request,
-    proto::GetBackupStatusResponse* response) {
+grpc::Status VectorDBService::GetBackupStatus(grpc::ServerContext* /*context*/,
+                                              const proto::GetBackupStatusRequest* request,
+                                              proto::GetBackupStatusResponse* response) {
   if (request->backup_id().empty()) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                        "backup_id is required");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "backup_id is required");
   }
   // Coordinator owns the multi-shard job state; query it when wired.
   // Otherwise consult the local single-shard BackupManager.
   absl::StatusOr<storage::BackupJobStatus> status =
       coordinator_
           ? coordinator_->GetDistributedBackupStatus(request->backup_id())
-          : (backup_manager_
-                 ? backup_manager_->GetStatus(request->backup_id())
-                 : absl::UnimplementedError(
-                       "Backup is not configured on this server"));
+          : (backup_manager_ ? backup_manager_->GetStatus(request->backup_id())
+                             : absl::UnimplementedError("Backup is not configured on this server"));
   if (!status.ok()) {
     return rpc::ToGrpcStatus(status.status());
   }
@@ -210,21 +187,17 @@ grpc::Status VectorDBService::GetBackupStatus(
   return grpc::Status::OK;
 }
 
-grpc::Status VectorDBService::GetRestoreStatus(
-    grpc::ServerContext* /*context*/,
-    const proto::GetRestoreStatusRequest* request,
-    proto::GetRestoreStatusResponse* response) {
+grpc::Status VectorDBService::GetRestoreStatus(grpc::ServerContext* /*context*/,
+                                               const proto::GetRestoreStatusRequest* request,
+                                               proto::GetRestoreStatusResponse* response) {
   if (request->restore_id().empty()) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                        "restore_id is required");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "restore_id is required");
   }
   absl::StatusOr<storage::RestoreJobStatus> status =
-      coordinator_
-          ? coordinator_->GetDistributedRestoreStatus(request->restore_id())
-          : (restore_manager_
-                 ? restore_manager_->GetStatus(request->restore_id())
-                 : absl::UnimplementedError(
-                       "Restore is not configured on this server"));
+      coordinator_ ? coordinator_->GetDistributedRestoreStatus(request->restore_id())
+                   : (restore_manager_
+                          ? restore_manager_->GetStatus(request->restore_id())
+                          : absl::UnimplementedError("Restore is not configured on this server"));
   if (!status.ok()) {
     return rpc::ToGrpcStatus(status.status());
   }
@@ -237,31 +210,27 @@ grpc::Status VectorDBService::GetRestoreStatus(
   return grpc::Status::OK;
 }
 
-grpc::Status VectorDBService::ListBackups(
-    grpc::ServerContext* /*context*/,
-    const proto::ListBackupsRequest* /*request*/,
-    proto::ListBackupsResponse* /*response*/) {
+grpc::Status VectorDBService::ListBackups(grpc::ServerContext* /*context*/,
+                                          const proto::ListBackupsRequest* /*request*/,
+                                          proto::ListBackupsResponse* /*response*/) {
   // Listing every backup at a target requires walking the target's
   // object store and parsing each top-level manifest. That helper lands
   // with the coordinator orchestration; v1 of this RPC therefore
   // returns UNIMPLEMENTED so clients can detect the gap explicitly
   // instead of silently getting an empty list.
   return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-      "ListBackups is not yet implemented; use the operator's "
-      "GVDBBackup CRs as the canonical inventory");
+                      "ListBackups is not yet implemented; use the operator's "
+                      "GVDBBackup CRs as the canonical inventory");
 }
 
-grpc::Status VectorDBService::CancelBackup(
-    grpc::ServerContext* /*context*/,
-    const proto::CancelBackupRequest* request,
-    proto::CancelBackupResponse* response) {
+grpc::Status VectorDBService::CancelBackup(grpc::ServerContext* /*context*/,
+                                           const proto::CancelBackupRequest* request,
+                                           proto::CancelBackupResponse* response) {
   if (request->backup_id().empty()) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                        "backup_id is required");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "backup_id is required");
   }
   if (!backup_manager_) {
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Backup is not configured on this server");
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED, "Backup is not configured on this server");
   }
   // RBAC: the caller must hold BACKUP on the underlying collection. We
   // need to look up which collection by id before we can authorize.

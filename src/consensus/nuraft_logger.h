@@ -18,8 +18,8 @@ class NuRaftLoggerAdapter : public nuraft::logger {
  public:
   NuRaftLoggerAdapter() = default;
 
-  void put_details(int level, const char* source_file, const char* func_name,
-                   size_t line_number, const std::string& msg) override;
+  void put_details(int level, const char* source_file, const char* func_name, size_t line_number,
+                   const std::string& msg) override;
   void set_level(int level) override;
   int get_level() override;
 

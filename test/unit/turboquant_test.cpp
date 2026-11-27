@@ -41,8 +41,7 @@ std::vector<core::VectorId> CreateTestIds(int count) {
 // ============================================================================
 
 TEST_CASE("TurboQuantFactory - CreateIndex") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      128, core::MetricType::INNER_PRODUCT);
+  auto result = IndexFactory::CreateTurboQuantIndex(128, core::MetricType::INNER_PRODUCT);
   REQUIRE(result.ok());
 
   auto index = std::move(result.value());
@@ -69,25 +68,22 @@ TEST_CASE("TurboQuantFactory - CreateFromConfig") {
 }
 
 TEST_CASE("TurboQuantFactory - InvalidDimension") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      0, core::MetricType::L2);
+  auto result = IndexFactory::CreateTurboQuantIndex(0, core::MetricType::L2);
   CHECK_FALSE(result.ok());
   CHECK(absl::IsInvalidArgument(result.status()));
 }
 
 TEST_CASE("TurboQuantFactory - InvalidBitWidth") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      64, core::MetricType::L2, 3);  // 3 is not supported
+  auto result =
+      IndexFactory::CreateTurboQuantIndex(64, core::MetricType::L2, 3);  // 3 is not supported
   CHECK_FALSE(result.ok());
   CHECK(absl::IsInvalidArgument(result.status()));
 }
 
 TEST_CASE("TurboQuantFactory - AllValidBitWidths") {
   for (int bw : {1, 2, 4, 8}) {
-    auto result = IndexFactory::CreateTurboQuantIndex(
-        64, core::MetricType::L2, bw);
-    REQUIRE_MESSAGE(result.ok(),
-                    "bit_width=", bw, " failed: ", result.status().message());
+    auto result = IndexFactory::CreateTurboQuantIndex(64, core::MetricType::L2, bw);
+    REQUIRE_MESSAGE(result.ok(), "bit_width=", bw, " failed: ", result.status().message());
   }
 }
 
@@ -96,8 +92,7 @@ TEST_CASE("TurboQuantFactory - AllValidBitWidths") {
 // ============================================================================
 
 TEST_CASE("TurboQuant - AlwaysTrained") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      32, core::MetricType::L2);
+  auto result = IndexFactory::CreateTurboQuantIndex(32, core::MetricType::L2);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -114,8 +109,7 @@ TEST_CASE("TurboQuant - AlwaysTrained") {
 // ============================================================================
 
 TEST_CASE("TurboQuant - BuildAndSearchL2") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      8, core::MetricType::L2, 4, true);
+  auto result = IndexFactory::CreateTurboQuantIndex(8, core::MetricType::L2, 4, true);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -155,8 +149,7 @@ TEST_CASE("TurboQuant - BuildAndSearchL2") {
 // ============================================================================
 
 TEST_CASE("TurboQuant - BuildAndSearchIP") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      16, core::MetricType::INNER_PRODUCT, 4, true);
+  auto result = IndexFactory::CreateTurboQuantIndex(16, core::MetricType::INNER_PRODUCT, 4, true);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -187,8 +180,7 @@ TEST_CASE("TurboQuant - BuildAndSearchIP") {
 // ============================================================================
 
 TEST_CASE("TurboQuant - BuildAndSearchCosine") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      32, core::MetricType::COSINE, 4, true);
+  auto result = IndexFactory::CreateTurboQuantIndex(32, core::MetricType::COSINE, 4, true);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -215,8 +207,7 @@ TEST_CASE("TurboQuant - BuildAndSearchCosine") {
 // ============================================================================
 
 TEST_CASE("TurboQuant - AddSingle") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      16, core::MetricType::L2, 4, false);
+  auto result = IndexFactory::CreateTurboQuantIndex(16, core::MetricType::L2, 4, false);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -234,8 +225,7 @@ TEST_CASE("TurboQuant - AddSingle") {
 }
 
 TEST_CASE("TurboQuant - AddBatch") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      32, core::MetricType::L2);
+  auto result = IndexFactory::CreateTurboQuantIndex(32, core::MetricType::L2);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -247,8 +237,7 @@ TEST_CASE("TurboQuant - AddBatch") {
 }
 
 TEST_CASE("TurboQuant - DimensionMismatch") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      16, core::MetricType::L2);
+  auto result = IndexFactory::CreateTurboQuantIndex(16, core::MetricType::L2);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -261,8 +250,7 @@ TEST_CASE("TurboQuant - DimensionMismatch") {
 // ============================================================================
 
 TEST_CASE("TurboQuant - Remove") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      8, core::MetricType::L2, 4, false);
+  auto result = IndexFactory::CreateTurboQuantIndex(8, core::MetricType::L2, 4, false);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -284,8 +272,7 @@ TEST_CASE("TurboQuant - Remove") {
 // ============================================================================
 
 TEST_CASE("TurboQuant - SearchEmpty") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      8, core::MetricType::L2);
+  auto result = IndexFactory::CreateTurboQuantIndex(8, core::MetricType::L2);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -300,8 +287,7 @@ TEST_CASE("TurboQuant - SearchEmpty") {
 // ============================================================================
 
 TEST_CASE("TurboQuant - SerializeDeserialize") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      16, core::MetricType::INNER_PRODUCT, 4, true);
+  auto result = IndexFactory::CreateTurboQuantIndex(16, core::MetricType::INNER_PRODUCT, 4, true);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -315,8 +301,7 @@ TEST_CASE("TurboQuant - SerializeDeserialize") {
   REQUIRE(index->Serialize(path).ok());
 
   // Create new index and deserialize
-  auto result2 = IndexFactory::CreateTurboQuantIndex(
-      16, core::MetricType::INNER_PRODUCT, 4, true);
+  auto result2 = IndexFactory::CreateTurboQuantIndex(16, core::MetricType::INNER_PRODUCT, 4, true);
   REQUIRE(result2.ok());
   auto index2 = std::move(result2.value());
   REQUIRE(index2->Deserialize(path).ok());
@@ -335,8 +320,7 @@ TEST_CASE("TurboQuant - SerializeDeserialize") {
 
   // Same top result
   if (r1.value().Size() > 0 && r2.value().Size() > 0) {
-    CHECK_EQ(core::ToUInt64(r1.value().entries[0].id),
-             core::ToUInt64(r2.value().entries[0].id));
+    CHECK_EQ(core::ToUInt64(r1.value().entries[0].id), core::ToUInt64(r2.value().entries[0].id));
   }
 }
 
@@ -345,8 +329,7 @@ TEST_CASE("TurboQuant - SerializeDeserialize") {
 // ============================================================================
 
 TEST_CASE("TurboQuant - BitWidth1") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      32, core::MetricType::L2, 1, false);
+  auto result = IndexFactory::CreateTurboQuantIndex(32, core::MetricType::L2, 1, false);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -360,8 +343,7 @@ TEST_CASE("TurboQuant - BitWidth1") {
 }
 
 TEST_CASE("TurboQuant - BitWidth2") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      32, core::MetricType::L2, 2, false);
+  auto result = IndexFactory::CreateTurboQuantIndex(32, core::MetricType::L2, 2, false);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -375,8 +357,7 @@ TEST_CASE("TurboQuant - BitWidth2") {
 }
 
 TEST_CASE("TurboQuant - BitWidth8") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      32, core::MetricType::L2, 8, false);
+  auto result = IndexFactory::CreateTurboQuantIndex(32, core::MetricType::L2, 8, false);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -401,8 +382,7 @@ TEST_CASE("TurboQuant - BitWidth8") {
 // ============================================================================
 
 TEST_CASE("TurboQuant - WithoutQJL") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      64, core::MetricType::INNER_PRODUCT, 4, false);
+  auto result = IndexFactory::CreateTurboQuantIndex(64, core::MetricType::INNER_PRODUCT, 4, false);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -416,8 +396,7 @@ TEST_CASE("TurboQuant - WithoutQJL") {
 }
 
 TEST_CASE("TurboQuant - WithQJL") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      64, core::MetricType::INNER_PRODUCT, 4, true);
+  auto result = IndexFactory::CreateTurboQuantIndex(64, core::MetricType::INNER_PRODUCT, 4, true);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -435,8 +414,7 @@ TEST_CASE("TurboQuant - WithQJL") {
 // ============================================================================
 
 TEST_CASE("TurboQuant - MemoryUsage") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      128, core::MetricType::L2, 4, true);
+  auto result = IndexFactory::CreateTurboQuantIndex(128, core::MetricType::L2, 4, true);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -460,8 +438,7 @@ TEST_CASE("TurboQuant - MemoryUsage") {
 // ============================================================================
 
 TEST_CASE("TurboQuant - SearchBatch") {
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      32, core::MetricType::L2, 4);
+  auto result = IndexFactory::CreateTurboQuantIndex(32, core::MetricType::L2, 4);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
@@ -487,8 +464,7 @@ TEST_CASE("TurboQuant - SearchBatch") {
 
 TEST_CASE("TurboQuant - HighDimensional") {
   // 768-d simulating a typical transformer embedding
-  auto result = IndexFactory::CreateTurboQuantIndex(
-      768, core::MetricType::INNER_PRODUCT, 4, true);
+  auto result = IndexFactory::CreateTurboQuantIndex(768, core::MetricType::INNER_PRODUCT, 4, true);
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 

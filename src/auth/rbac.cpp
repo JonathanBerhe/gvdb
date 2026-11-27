@@ -54,8 +54,7 @@ bool HasPermission(Role role, Permission permission) {
   }
 }
 
-bool HasCollectionAccess(const ApiKeyRole& key_role,
-                         const std::string& collection) {
+bool HasCollectionAccess(const ApiKeyRole& key_role, const std::string& collection) {
   if (key_role.role == Role::ADMIN) return true;
   if (collection.empty()) return true;
 
@@ -70,13 +69,11 @@ absl::StatusOr<Role> RoleFromString(const std::string& role_str) {
   if (role_str == "readwrite") return Role::READWRITE;
   if (role_str == "readonly") return Role::READONLY;
   if (role_str == "collection_admin") return Role::COLLECTION_ADMIN;
-  return absl::InvalidArgumentError(
-      absl::StrCat("Unknown role: '", role_str,
-                    "'. Must be: admin, readwrite, readonly, collection_admin"));
+  return absl::InvalidArgumentError(absl::StrCat(
+      "Unknown role: '", role_str, "'. Must be: admin, readwrite, readonly, collection_admin"));
 }
 
-absl::StatusOr<std::shared_ptr<RbacStore>> RbacStore::Create(
-    const auth::AuthConfig& config) {
+absl::StatusOr<std::shared_ptr<RbacStore>> RbacStore::Create(const auth::AuthConfig& config) {
   auto store = std::shared_ptr<RbacStore>(new RbacStore());
 
   // Role-based keys
@@ -94,12 +91,12 @@ absl::StatusOr<std::shared_ptr<RbacStore>> RbacStore::Create(
     if (*role_result != Role::ADMIN && r.collections.empty()) {
       return absl::InvalidArgumentError(
           absl::StrCat("Auth key '", r.key, "' with role '", r.role,
-                        "' must specify collections (use [\"*\"] for all)"));
+                       "' must specify collections (use [\"*\"] for all)"));
     }
 
     if (store->keys_.contains(r.key)) {
-      common::Logger::Instance().Warn(
-          "Duplicate auth key '{}' in config — later entry wins", r.key);
+      common::Logger::Instance().Warn("Duplicate auth key '{}' in config — later entry wins",
+                                      r.key);
     }
 
     ApiKeyRole entry;

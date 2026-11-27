@@ -16,17 +16,13 @@ namespace gvdb {
 namespace index {
 namespace turboquant {
 
-IVFTurboQuantIndex::IVFTurboQuantIndex(
-    core::Dimension dimension, core::MetricType metric,
-    int nlist, int nprobe, int bit_width,
-    bool use_qjl, int qjl_dim)
-    : dimension_(dimension),
-      metric_type_(metric),
-      nlist_(nlist),
-      nprobe_(std::min(nprobe, nlist)) {
+IVFTurboQuantIndex::IVFTurboQuantIndex(core::Dimension dimension, core::MetricType metric,
+                                       int nlist, int nprobe, int bit_width, bool use_qjl,
+                                       int qjl_dim)
+    : dimension_(dimension), metric_type_(metric), nlist_(nlist), nprobe_(std::min(nprobe, nlist)) {
   // Create Faiss coarse quantizer
-  faiss::MetricType faiss_metric = (metric == core::MetricType::INNER_PRODUCT)
-      ? faiss::METRIC_INNER_PRODUCT : faiss::METRIC_L2;
+  faiss::MetricType faiss_metric =
+      (metric == core::MetricType::INNER_PRODUCT) ? faiss::METRIC_INNER_PRODUCT : faiss::METRIC_L2;
   coarse_quantizer_ = std::make_unique<faiss::IndexFlat>(dimension, faiss_metric);
 
   // Create TurboQuant codec
@@ -40,8 +36,7 @@ IVFTurboQuantIndex::IVFTurboQuantIndex(
 // Training
 // ============================================================================
 
-absl::Status IVFTurboQuantIndex::Train(
-    const std::vector<core::Vector>& training_data) {
+absl::Status IVFTurboQuantIndex::Train(const std::vector<core::Vector>& training_data) {
   if (training_data.empty()) {
     return absl::InvalidArgumentError("Training data is empty");
   }
@@ -50,8 +45,8 @@ absl::Status IVFTurboQuantIndex::Train(
   size_t n = training_data.size();
   std::vector<float> flat_data(n * dimension_);
   for (size_t i = 0; i < n; ++i) {
-    std::memcpy(flat_data.data() + i * dimension_,
-                training_data[i].data(), dimension_ * sizeof(float));
+    std::memcpy(flat_data.data() + i * dimension_, training_data[i].data(),
+                dimension_ * sizeof(float));
   }
 
   // Train k-means clustering
@@ -62,7 +57,8 @@ absl::Status IVFTurboQuantIndex::Train(
   // Actually, IndexFlat doesn't need training — we need to compute centroids.
   // Use Faiss Clustering directly.
   faiss::MetricType faiss_metric = (metric_type_ == core::MetricType::INNER_PRODUCT)
-      ? faiss::METRIC_INNER_PRODUCT : faiss::METRIC_L2;
+                                       ? faiss::METRIC_INNER_PRODUCT
+                                       : faiss::METRIC_L2;
 
   // Reset and use k-means
   coarse_quantizer_ = std::make_unique<faiss::IndexFlat>(dimension_, faiss_metric);
@@ -81,17 +77,14 @@ absl::Status IVFTurboQuantIndex::Train(
   return absl::OkStatus();
 }
 
-bool IVFTurboQuantIndex::IsTrained() const {
-  return trained_;
-}
+bool IVFTurboQuantIndex::IsTrained() const { return trained_; }
 
 // ============================================================================
 // Build
 // ============================================================================
 
-absl::Status IVFTurboQuantIndex::Build(
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids) {
+absl::Status IVFTurboQuantIndex::Build(const std::vector<core::Vector>& vectors,
+                                       const std::vector<core::VectorId>& ids) {
   if (vectors.size() != ids.size()) {
     return absl::InvalidArgumentError("Vectors and IDs size mismatch");
   }
@@ -154,9 +147,8 @@ absl::Status IVFTurboQuantIndex::Add(const core::Vector& vector, core::VectorId 
   return absl::OkStatus();
 }
 
-absl::Status IVFTurboQuantIndex::AddBatch(
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids) {
+absl::Status IVFTurboQuantIndex::AddBatch(const std::vector<core::Vector>& vectors,
+                                          const std::vector<core::VectorId>& ids) {
   if (vectors.size() != ids.size()) {
     return absl::InvalidArgumentError("Vectors and IDs size mismatch");
   }
@@ -209,16 +201,14 @@ absl::Status IVFTurboQuantIndex::Remove(core::VectorId id) {
     }
   }
 
-  return absl::NotFoundError(
-      absl::StrCat("Vector ID ", core::ToUInt64(id), " not found in index"));
+  return absl::NotFoundError(absl::StrCat("Vector ID ", core::ToUInt64(id), " not found in index"));
 }
 
 // ============================================================================
 // Search
 // ============================================================================
 
-absl::StatusOr<core::SearchResult> IVFTurboQuantIndex::Search(
-    const core::Vector& query, int k) {
+absl::StatusOr<core::SearchResult> IVFTurboQuantIndex::Search(const core::Vector& query, int k) {
   if (!trained_) {
     return absl::FailedPreconditionError("Index not trained");
   }
@@ -253,11 +243,11 @@ absl::StatusOr<core::SearchResult> IVFTurboQuantIndex::Search(
     const auto& cluster = clusters_[cid];
     for (size_t i = 0; i < cluster.num_vectors; ++i) {
       const uint8_t* codes_ptr = cluster.codes.data() + i * code_bytes;
-      const uint8_t* qjl_ptr = codec_->use_qjl()
-          ? cluster.qjl_bits.data() + i * qjl_bytes : nullptr;
+      const uint8_t* qjl_ptr =
+          codec_->use_qjl() ? cluster.qjl_bits.data() + i * qjl_bytes : nullptr;
 
-      float ip = codec_->EstimateIP(pq, codes_ptr, cluster.norms[i],
-                                     cluster.residual_norms[i], qjl_ptr);
+      float ip =
+          codec_->EstimateIP(pq, codes_ptr, cluster.norms[i], cluster.residual_norms[i], qjl_ptr);
       float dist = IPToDistance(ip, cluster.norms[i], pq);
 
       if (static_cast<int>(heap.size()) < k) {
@@ -280,8 +270,8 @@ absl::StatusOr<core::SearchResult> IVFTurboQuantIndex::Search(
   return result;
 }
 
-absl::StatusOr<core::SearchResult> IVFTurboQuantIndex::SearchRange(
-    const core::Vector& query, float radius) {
+absl::StatusOr<core::SearchResult> IVFTurboQuantIndex::SearchRange(const core::Vector& query,
+                                                                   float radius) {
   if (!trained_) {
     return absl::FailedPreconditionError("Index not trained");
   }
@@ -310,11 +300,11 @@ absl::StatusOr<core::SearchResult> IVFTurboQuantIndex::SearchRange(
     const auto& cluster = clusters_[cid];
     for (size_t i = 0; i < cluster.num_vectors; ++i) {
       const uint8_t* codes_ptr = cluster.codes.data() + i * code_bytes;
-      const uint8_t* qjl_ptr = codec_->use_qjl()
-          ? cluster.qjl_bits.data() + i * qjl_bytes : nullptr;
+      const uint8_t* qjl_ptr =
+          codec_->use_qjl() ? cluster.qjl_bits.data() + i * qjl_bytes : nullptr;
 
-      float ip = codec_->EstimateIP(pq, codes_ptr, cluster.norms[i],
-                                     cluster.residual_norms[i], qjl_ptr);
+      float ip =
+          codec_->EstimateIP(pq, codes_ptr, cluster.norms[i], cluster.residual_norms[i], qjl_ptr);
       float dist = IPToDistance(ip, cluster.norms[i], pq);
 
       if (dist <= radius) {
@@ -376,8 +366,7 @@ absl::Status IVFTurboQuantIndex::Serialize(const std::string& path) const {
   // Write centroids
   if (trained_) {
     size_t centroid_bytes = nlist_ * dimension_ * sizeof(float);
-    auto* centroid_data = reinterpret_cast<const char*>(
-        coarse_quantizer_->get_xb());
+    auto* centroid_data = reinterpret_cast<const char*>(coarse_quantizer_->get_xb());
     out.write(centroid_data, centroid_bytes);
   }
 
@@ -445,12 +434,12 @@ absl::Status IVFTurboQuantIndex::Deserialize(const std::string& path) {
   // Read centroids
   if (trained_) {
     faiss::MetricType faiss_metric = (metric_type_ == core::MetricType::INNER_PRODUCT)
-        ? faiss::METRIC_INNER_PRODUCT : faiss::METRIC_L2;
+                                         ? faiss::METRIC_INNER_PRODUCT
+                                         : faiss::METRIC_L2;
     coarse_quantizer_ = std::make_unique<faiss::IndexFlat>(dimension_, faiss_metric);
 
     std::vector<float> centroids(nlist_ * dimension_);
-    in.read(reinterpret_cast<char*>(centroids.data()),
-            centroids.size() * sizeof(float));
+    in.read(reinterpret_cast<char*>(centroids.data()), centroids.size() * sizeof(float));
     coarse_quantizer_->add(nlist_, centroids.data());
   }
 
@@ -502,15 +491,14 @@ absl::Status IVFTurboQuantIndex::Deserialize(const std::string& path) {
 // Helpers
 // ============================================================================
 
-void IVFTurboQuantIndex::EncodeAndStore(
-    ClusterData& cluster, const core::Vector& vector, core::VectorId id) {
+void IVFTurboQuantIndex::EncodeAndStore(ClusterData& cluster, const core::Vector& vector,
+                                        core::VectorId id) {
   std::vector<uint8_t> vec_codes;
   float norm = 0.0f;
   float residual_norm = 0.0f;
   std::vector<uint8_t> vec_qjl;
 
-  codec_->Encode(vector.data(), vector.dimension(),
-                 vec_codes, norm, residual_norm, vec_qjl);
+  codec_->Encode(vector.data(), vector.dimension(), vec_codes, norm, residual_norm, vec_qjl);
 
   cluster.norms.push_back(norm);
   cluster.residual_norms.push_back(residual_norm);
@@ -522,8 +510,8 @@ void IVFTurboQuantIndex::EncodeAndStore(
   cluster.num_vectors++;
 }
 
-float IVFTurboQuantIndex::IPToDistance(
-    float estimated_ip, float x_norm, const PreprocessedQuery& query) const {
+float IVFTurboQuantIndex::IPToDistance(float estimated_ip, float x_norm,
+                                       const PreprocessedQuery& query) const {
   switch (metric_type_) {
     case core::MetricType::L2:
       return x_norm * x_norm + query.norm * query.norm - 2.0f * estimated_ip;

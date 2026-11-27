@@ -33,20 +33,17 @@ absl::Status ExecuteFaissOperation(F&& operation, const std::string& context) {
     operation();
     return absl::OkStatus();
   } catch (const std::exception& e) {
-    return absl::InternalError(
-        absl::StrCat("Faiss error in ", context, ": ", e.what()));
+    return absl::InternalError(absl::StrCat("Faiss error in ", context, ": ", e.what()));
   }
 }
 
 // Helper function to execute Faiss operations that return StatusOr
 template <typename T, typename F>
-absl::StatusOr<T> ExecuteFaissOperationWithReturn(F&& operation,
-                                                   const std::string& context) {
+absl::StatusOr<T> ExecuteFaissOperationWithReturn(F&& operation, const std::string& context) {
   try {
     return operation();
   } catch (const std::exception& e) {
-    return absl::InternalError(
-        absl::StrCat("Faiss error in ", context, ": ", e.what()));
+    return absl::InternalError(absl::StrCat("Faiss error in ", context, ": ", e.what()));
   }
 }
 
@@ -54,8 +51,7 @@ absl::StatusOr<T> ExecuteFaissOperationWithReturn(F&& operation,
 // Provides thread-safe wrapper around Faiss indexes
 class FaissIndexBase : public core::IVectorIndex {
  public:
-  explicit FaissIndexBase(std::unique_ptr<faiss::Index> index,
-                          core::MetricType metric);
+  explicit FaissIndexBase(std::unique_ptr<faiss::Index> index, core::MetricType metric);
   // Out-of-line so unique_ptr<StandardGpuResources>'s deleter sees the
   // complete type only in faiss_base.cpp (which includes the faiss-gpu
   // header under GVDB_HAS_CUDA).
@@ -63,24 +59,21 @@ class FaissIndexBase : public core::IVectorIndex {
 
   // IVectorIndex implementation
 
-  [[nodiscard]] absl::Status Build(
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids) override;
+  [[nodiscard]] absl::Status Build(const std::vector<core::Vector>& vectors,
+                                   const std::vector<core::VectorId>& ids) override;
 
-  [[nodiscard]] absl::Status Add(const core::Vector& vector,
-                                  core::VectorId id) override;
+  [[nodiscard]] absl::Status Add(const core::Vector& vector, core::VectorId id) override;
 
-  [[nodiscard]] absl::Status AddBatch(
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids) override;
+  [[nodiscard]] absl::Status AddBatch(const std::vector<core::Vector>& vectors,
+                                      const std::vector<core::VectorId>& ids) override;
 
   [[nodiscard]] absl::Status Remove(core::VectorId id) override;
 
-  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
-      const core::Vector& query, int k) override;
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(const core::Vector& query,
+                                                          int k) override;
 
-  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRange(
-      const core::Vector& query, float radius) override;
+  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRange(const core::Vector& query,
+                                                               float radius) override;
 
   [[nodiscard]] absl::StatusOr<std::vector<core::SearchResult>> SearchBatch(
       const std::vector<core::Vector>& queries, int k) override;
@@ -90,8 +83,7 @@ class FaissIndexBase : public core::IVectorIndex {
   [[nodiscard]] core::Dimension GetDimension() const override;
   [[nodiscard]] core::MetricType GetMetricType() const override;
 
-  [[nodiscard]] absl::Status Train(
-      const std::vector<core::Vector>& training_data) override;
+  [[nodiscard]] absl::Status Train(const std::vector<core::Vector>& training_data) override;
 
   [[nodiscard]] bool IsTrained() const override;
 
@@ -102,8 +94,7 @@ class FaissIndexBase : public core::IVectorIndex {
 
  protected:
   // Convert Vector to float array for Faiss
-  [[nodiscard]] static std::vector<float> VectorToFloatArray(
-      const core::Vector& vec);
+  [[nodiscard]] static std::vector<float> VectorToFloatArray(const core::Vector& vec);
 
   // Convert multiple vectors to contiguous float array
   [[nodiscard]] static std::vector<float> VectorsToFloatArray(
@@ -149,4 +140,3 @@ class FaissIndexBase : public core::IVectorIndex {
 
 }  // namespace index
 }  // namespace gvdb
-

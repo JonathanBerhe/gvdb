@@ -4,8 +4,6 @@
 // TieredSegmentManager, object store side: upload with retry and
 // backoff, download, discovery and the manifest.
 
-#include "storage/segment/tiered_segment_manager.h"
-#include "core/status.h"
 #include <algorithm>
 #include <array>
 #include <filesystem>
@@ -14,6 +12,8 @@
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 #include "common/metrics.h"
+#include "core/status.h"
+#include "storage/segment/tiered_segment_manager.h"
 
 namespace gvdb {
 namespace storage {
@@ -52,13 +52,11 @@ absl::Status TieredSegmentManager::UploadSegmentToS3(core::SegmentId id) {
   auto seg_key = core::ToUInt32(id);
   auto* seg = local_->GetSegment(id);
   if (seg == nullptr) {
-    return absl::NotFoundError(
-        absl::StrCat("Segment not found for upload: ", seg_key));
+    return absl::NotFoundError(absl::StrCat("Segment not found for upload: ", seg_key));
   }
 
   auto col_id = core::ToUInt32(seg->GetCollectionId());
-  auto seg_path = absl::StrCat(
-      local_->GetBasePath(), "/segment_", seg_key);
+  auto seg_path = absl::StrCat(local_->GetBasePath(), "/segment_", seg_key);
 
   // Upload each file
   for (const auto& filename : kSegmentFiles) {
@@ -93,21 +91,16 @@ absl::Status TieredSegmentManager::UploadSegmentToS3(core::SegmentId id) {
   // Track as remote
   {
     std::unique_lock lock(remote_mutex_);
-    remote_segments_[seg_key] = RemoteSegmentInfo{
-        seg->GetCollectionId(),
-        seg->GetDimension(),
-        seg->GetMetric(),
-        seg->GetIndexType(),
-        seg->GetVectorCount(),
-        entry.size_bytes};
+    remote_segments_[seg_key] =
+        RemoteSegmentInfo{seg->GetCollectionId(), seg->GetDimension(),   seg->GetMetric(),
+                          seg->GetIndexType(),    seg->GetVectorCount(), entry.size_bytes};
   }
 
   // Segment uploaded successfully
   return absl::OkStatus();
 }
 
-void TieredSegmentManager::RunUpload(
-    core::SegmentId id, uint32_t prior_failures) {
+void TieredSegmentManager::RunUpload(core::SegmentId id, uint32_t prior_failures) {
   auto upload_status = UploadSegmentToS3(id);
   auto seg_key = core::ToUInt32(id);
 
@@ -118,7 +111,8 @@ void TieredSegmentManager::RunUpload(
     if (prior_failures > 0) {
       common::Logger::Instance().Info(
           "Object storage upload recovered for segment {} after {} failed "
-          "attempt(s)", seg_key, prior_failures);
+          "attempt(s)",
+          seg_key, prior_failures);
     }
     UpdateFailedUploadsMetricLocked();
     return;
@@ -126,30 +120,27 @@ void TieredSegmentManager::RunUpload(
 
   // Record the failure with a fresh backoff so the retry thread re-drives it.
   uint32_t attempts = prior_failures + 1;
-  failed_uploads_[seg_key] = FailedUploadState{
-      attempts, std::chrono::steady_clock::now() + BackoffDelay(attempts)};
+  failed_uploads_[seg_key] =
+      FailedUploadState{attempts, std::chrono::steady_clock::now() + BackoffDelay(attempts)};
 
   if (attempts >= kUploadErrorThreshold) {
     common::Logger::Instance().Error(
         "Object storage upload still failing for segment {} after {} "
-        "attempts: {}", seg_key, attempts, upload_status.message());
-  } else {
-    common::Logger::Instance().Warn(
-        "Object storage upload failed for segment {} (attempt {}): {}",
+        "attempts: {}",
         seg_key, attempts, upload_status.message());
+  } else {
+    common::Logger::Instance().Warn("Object storage upload failed for segment {} (attempt {}): {}",
+                                    seg_key, attempts, upload_status.message());
   }
 
   UpdateFailedUploadsMetricLocked();
   retry_cv_.notify_one();
 }
 
-std::chrono::steady_clock::duration TieredSegmentManager::BackoffDelay(
-    uint32_t attempts) const {
+std::chrono::steady_clock::duration TieredSegmentManager::BackoffDelay(uint32_t attempts) const {
   // Exponential: base * 2^(attempts-1), capped at kMaxRetryDelay.
-  auto delay = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-      retry_base_delay_);
-  const auto cap = std::chrono::duration_cast<
-      std::chrono::steady_clock::duration>(kMaxRetryDelay);
+  auto delay = std::chrono::duration_cast<std::chrono::steady_clock::duration>(retry_base_delay_);
+  const auto cap = std::chrono::duration_cast<std::chrono::steady_clock::duration>(kMaxRetryDelay);
   for (uint32_t i = 1; i < attempts; ++i) {
     delay *= 2;
     if (delay >= cap) return cap;
@@ -184,8 +175,7 @@ void TieredSegmentManager::RetryLoop() {
         uint32_t attempts = entry.second;
         failed_uploads_.erase(core::ToUInt32(seg_id));
         uploading_.insert(core::ToUInt32(seg_id));
-        upload_pool_->Enqueue(
-            [this, seg_id, attempts]() { RunUpload(seg_id, attempts); });
+        upload_pool_->Enqueue([this, seg_id, attempts]() { RunUpload(seg_id, attempts); });
       }
       UpdateFailedUploadsMetricLocked();
       continue;  // re-evaluate immediately
@@ -218,8 +208,7 @@ void TieredSegmentManager::RedriveUnuploadedSegments() {
       auto* seg = local_->GetSegment(id);
       if (seg == nullptr) continue;
       auto state = seg->GetState();
-      if (state != core::SegmentState::FLUSHED &&
-          state != core::SegmentState::SEALED) {
+      if (state != core::SegmentState::FLUSHED && state != core::SegmentState::SEALED) {
         continue;
       }
       to_upload.push_back(id);
@@ -231,26 +220,24 @@ void TieredSegmentManager::RedriveUnuploadedSegments() {
     {
       std::lock_guard lock(upload_mutex_);
       // Skip if already tracked to avoid enqueuing a segment twice.
-      if (uploading_.count(seg_key) > 0 ||
-          failed_uploads_.count(seg_key) > 0) {
+      if (uploading_.count(seg_key) > 0 || failed_uploads_.count(seg_key) > 0) {
         continue;
       }
       uploading_.insert(seg_key);
     }
     common::Logger::Instance().Info(
         "Re-driving segment {} to object storage (flushed locally but missing "
-        "from remote manifest)", seg_key);
+        "from remote manifest)",
+        seg_key);
     upload_pool_->Enqueue([this, id]() { RunUpload(id, 0); });
   }
 }
 
 void TieredSegmentManager::UpdateFailedUploadsMetricLocked() const {
-  common::MetricsRegistry::Instance().SetPendingFailedUploads(
-      failed_uploads_.size());
+  common::MetricsRegistry::Instance().SetPendingFailedUploads(failed_uploads_.size());
 }
 
-absl::Status TieredSegmentManager::DownloadSegmentFromS3(
-    core::SegmentId id) const {
+absl::Status TieredSegmentManager::DownloadSegmentFromS3(core::SegmentId id) const {
   auto seg_key = core::ToUInt32(id);
 
   RemoteSegmentInfo info;
@@ -258,15 +245,13 @@ absl::Status TieredSegmentManager::DownloadSegmentFromS3(
     std::shared_lock lock(remote_mutex_);
     auto it = remote_segments_.find(seg_key);
     if (it == remote_segments_.end()) {
-      return absl::NotFoundError(
-          absl::StrCat("Segment not in remote index: ", seg_key));
+      return absl::NotFoundError(absl::StrCat("Segment not in remote index: ", seg_key));
     }
     info = it->second;
   }
 
   auto col_id = core::ToUInt32(info.collection_id);
-  auto local_seg_path = absl::StrCat(
-      local_->GetBasePath(), "/segment_", seg_key);
+  auto local_seg_path = absl::StrCat(local_->GetBasePath(), "/segment_", seg_key);
   std::filesystem::create_directories(local_seg_path);
 
   // Download each file
@@ -308,17 +293,16 @@ absl::Status TieredSegmentManager::DiscoverSegmentsFromS3() {
       std::unique_lock lock(remote_mutex_);
       for (const auto& e : *entries) {
         // Skip if already loaded locally
-        if (local_->GetSegment(static_cast<core::SegmentId>(e.segment_id))
-            != nullptr) {
+        if (local_->GetSegment(static_cast<core::SegmentId>(e.segment_id)) != nullptr) {
           continue;
         }
-        remote_segments_[e.segment_id] = RemoteSegmentInfo{
-            static_cast<core::CollectionId>(e.collection_id),
-            static_cast<core::Dimension>(e.dimension),
-            static_cast<core::MetricType>(e.metric),
-            static_cast<core::IndexType>(e.index_type),
-            e.vector_count,
-            e.size_bytes};
+        remote_segments_[e.segment_id] =
+            RemoteSegmentInfo{static_cast<core::CollectionId>(e.collection_id),
+                              static_cast<core::Dimension>(e.dimension),
+                              static_cast<core::MetricType>(e.metric),
+                              static_cast<core::IndexType>(e.index_type),
+                              e.vector_count,
+                              e.size_bytes};
       }
 
       std::lock_guard mlock(manifest_mutex_);
@@ -331,8 +315,7 @@ absl::Status TieredSegmentManager::DiscoverSegmentsFromS3() {
 
   // Fallback: list objects (slower but works if manifest is missing/corrupt)
   // Manifest not found or corrupt: fall back to ListObjects
-  auto list_result = object_store_->ListObjects(
-      absl::StrCat(prefix_, "/collections/"));
+  auto list_result = object_store_->ListObjects(absl::StrCat(prefix_, "/collections/"));
   if (!list_result.ok()) return list_result.status();
 
   // Parse segment IDs from keys like: prefix/collections/1/segments/5/metadata.txt
@@ -342,13 +325,11 @@ absl::Status TieredSegmentManager::DiscoverSegmentsFromS3() {
   return absl::OkStatus();
 }
 
-absl::Status TieredSegmentManager::UpdateManifest(
-    const ManifestEntry& entry, bool remove) {
+absl::Status TieredSegmentManager::UpdateManifest(const ManifestEntry& entry, bool remove) {
   std::lock_guard lock(manifest_mutex_);
 
   if (remove) {
-    manifest_json_ = SegmentManifest::RemoveEntry(
-        manifest_json_, entry.segment_id);
+    manifest_json_ = SegmentManifest::RemoveEntry(manifest_json_, entry.segment_id);
   } else {
     manifest_json_ = SegmentManifest::AddEntry(manifest_json_, entry);
   }
@@ -357,8 +338,7 @@ absl::Status TieredSegmentManager::UpdateManifest(
   return object_store_->PutObject(manifest_key, manifest_json_);
 }
 
-absl::Status TieredSegmentManager::EnsureSegmentLoaded(
-    core::SegmentId id) const {
+absl::Status TieredSegmentManager::EnsureSegmentLoaded(core::SegmentId id) const {
   // Already loaded locally?
   if (local_->GetSegment(id) != nullptr) return absl::OkStatus();
 
@@ -367,8 +347,7 @@ absl::Status TieredSegmentManager::EnsureSegmentLoaded(
   {
     std::shared_lock lock(remote_mutex_);
     if (remote_segments_.count(seg_key) == 0) {
-      return absl::NotFoundError(
-          absl::StrCat("Segment not found locally or remotely: ", seg_key));
+      return absl::NotFoundError(absl::StrCat("Segment not found locally or remotely: ", seg_key));
     }
   }
 
@@ -385,11 +364,10 @@ absl::Status TieredSegmentManager::EnsureSegmentLoaded(
   return local_->LoadSegment(id);
 }
 
-std::string TieredSegmentManager::MakeS3Key(
-    uint32_t collection_id, uint32_t segment_id,
-    const std::string& filename) const {
-  return absl::StrCat(prefix_, "/collections/", collection_id,
-                      "/segments/", segment_id, "/", filename);
+std::string TieredSegmentManager::MakeS3Key(uint32_t collection_id, uint32_t segment_id,
+                                            const std::string& filename) const {
+  return absl::StrCat(prefix_, "/collections/", collection_id, "/segments/", segment_id, "/",
+                      filename);
 }
 
 }  // namespace storage

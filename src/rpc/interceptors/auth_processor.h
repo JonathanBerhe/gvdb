@@ -3,11 +3,11 @@
 
 #pragma once
 
-#include "auth/rbac.h"
 #include <grpcpp/grpcpp.h>
 #include <grpcpp/support/server_interceptor.h>
 #include <memory>
 #include <string>
+#include "auth/rbac.h"
 
 namespace gvdb {
 namespace rpc {
@@ -17,8 +17,7 @@ namespace rpc {
 // Skips auth for HealthCheck and GetStats RPCs.
 class ApiKeyAuthInterceptor : public grpc::experimental::Interceptor {
  public:
-  ApiKeyAuthInterceptor(grpc::experimental::ServerRpcInfo* info,
-                         const auth::RbacStore* rbac_store);
+  ApiKeyAuthInterceptor(grpc::experimental::ServerRpcInfo* info, const auth::RbacStore* rbac_store);
 
   void Intercept(grpc::experimental::InterceptorBatchMethods* methods) override;
 
@@ -29,8 +28,7 @@ class ApiKeyAuthInterceptor : public grpc::experimental::Interceptor {
 };
 
 // Factory that creates ApiKeyAuthInterceptor for each RPC
-class ApiKeyAuthInterceptorFactory
-    : public grpc::experimental::ServerInterceptorFactoryInterface {
+class ApiKeyAuthInterceptorFactory : public grpc::experimental::ServerInterceptorFactoryInterface {
  public:
   explicit ApiKeyAuthInterceptorFactory(std::shared_ptr<auth::RbacStore> rbac_store);
 

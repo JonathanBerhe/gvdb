@@ -6,13 +6,13 @@
 #include <atomic>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
-#include <mutex>
 
-#include "vectordb.grpc.pb.h"
-#include "internal.grpc.pb.h"
 #include <grpcpp/grpcpp.h>
+#include "internal.grpc.pb.h"
+#include "vectordb.grpc.pb.h"
 
 namespace gvdb {
 namespace service {
@@ -32,107 +32,88 @@ namespace service {
 // than fanning out to a random data node).
 class ProxyService final : public proto::VectorDBService::Service {
  public:
-  ProxyService(
-      const std::vector<std::string>& coordinator_addrs,
-      const std::string& query_node_uri);
+  ProxyService(const std::vector<std::string>& coordinator_addrs,
+               const std::string& query_node_uri);
 
   ~ProxyService() override = default;
 
   // Metadata operations → Coordinator
-  grpc::Status HealthCheck(grpc::ServerContext* context,
-                          const proto::HealthCheckRequest* request,
-                          proto::HealthCheckResponse* response) override;
+  grpc::Status HealthCheck(grpc::ServerContext* context, const proto::HealthCheckRequest* request,
+                           proto::HealthCheckResponse* response) override;
 
   grpc::Status CreateCollection(grpc::ServerContext* context,
-                               const proto::CreateCollectionRequest* request,
-                               proto::CreateCollectionResponse* response) override;
+                                const proto::CreateCollectionRequest* request,
+                                proto::CreateCollectionResponse* response) override;
 
   grpc::Status DropCollection(grpc::ServerContext* context,
-                             const proto::DropCollectionRequest* request,
-                             proto::DropCollectionResponse* response) override;
+                              const proto::DropCollectionRequest* request,
+                              proto::DropCollectionResponse* response) override;
 
   grpc::Status ListCollections(grpc::ServerContext* context,
-                              const proto::ListCollectionsRequest* request,
-                              proto::ListCollectionsResponse* response) override;
+                               const proto::ListCollectionsRequest* request,
+                               proto::ListCollectionsResponse* response) override;
 
   // Data operations → Data Nodes (shard-aware)
-  grpc::Status Insert(grpc::ServerContext* context,
-                     const proto::InsertRequest* request,
-                     proto::InsertResponse* response) override;
+  grpc::Status Insert(grpc::ServerContext* context, const proto::InsertRequest* request,
+                      proto::InsertResponse* response) override;
 
   grpc::Status StreamInsert(grpc::ServerContext* context,
-                           grpc::ServerReader<proto::InsertRequest>* reader,
-                           proto::InsertResponse* response) override;
+                            grpc::ServerReader<proto::InsertRequest>* reader,
+                            proto::InsertResponse* response) override;
 
-  grpc::Status Get(grpc::ServerContext* context,
-                  const proto::GetRequest* request,
-                  proto::GetResponse* response) override;
+  grpc::Status Get(grpc::ServerContext* context, const proto::GetRequest* request,
+                   proto::GetResponse* response) override;
 
-  grpc::Status Delete(grpc::ServerContext* context,
-                     const proto::DeleteRequest* request,
-                     proto::DeleteResponse* response) override;
+  grpc::Status Delete(grpc::ServerContext* context, const proto::DeleteRequest* request,
+                      proto::DeleteResponse* response) override;
 
   grpc::Status UpdateMetadata(grpc::ServerContext* context,
-                             const proto::UpdateMetadataRequest* request,
-                             proto::UpdateMetadataResponse* response) override;
+                              const proto::UpdateMetadataRequest* request,
+                              proto::UpdateMetadataResponse* response) override;
 
-  grpc::Status Upsert(grpc::ServerContext* context,
-                     const proto::UpsertRequest* request,
-                     proto::UpsertResponse* response) override;
+  grpc::Status Upsert(grpc::ServerContext* context, const proto::UpsertRequest* request,
+                      proto::UpsertResponse* response) override;
 
-  grpc::Status ListVectors(grpc::ServerContext* context,
-                           const proto::ListVectorsRequest* request,
+  grpc::Status ListVectors(grpc::ServerContext* context, const proto::ListVectorsRequest* request,
                            proto::ListVectorsResponse* response) override;
 
   // Hybrid search → Data Nodes (shard-aware)
-  grpc::Status HybridSearch(grpc::ServerContext* context,
-                            const proto::HybridSearchRequest* request,
+  grpc::Status HybridSearch(grpc::ServerContext* context, const proto::HybridSearchRequest* request,
                             proto::HybridSearchResponse* response) override;
 
   // Query operations → Query Nodes (load balanced)
-  grpc::Status Search(grpc::ServerContext* context,
-                     const proto::SearchRequest* request,
-                     proto::SearchResponse* response) override;
+  grpc::Status Search(grpc::ServerContext* context, const proto::SearchRequest* request,
+                      proto::SearchResponse* response) override;
 
-  grpc::Status RangeSearch(grpc::ServerContext* context,
-                          const proto::RangeSearchRequest* request,
-                          proto::RangeSearchResponse* response) override;
+  grpc::Status RangeSearch(grpc::ServerContext* context, const proto::RangeSearchRequest* request,
+                           proto::RangeSearchResponse* response) override;
 
   // Stats aggregation
-  grpc::Status GetStats(grpc::ServerContext* context,
-                       const proto::GetStatsRequest* request,
-                       proto::GetStatsResponse* response) override;
+  grpc::Status GetStats(grpc::ServerContext* context, const proto::GetStatsRequest* request,
+                        proto::GetStatsResponse* response) override;
 
   // Backup and restore → Coordinator (admin-level, multi-shard fan-out)
-  grpc::Status BackupCollection(
-      grpc::ServerContext* context,
-      const proto::BackupCollectionRequest* request,
-      proto::BackupCollectionResponse* response) override;
+  grpc::Status BackupCollection(grpc::ServerContext* context,
+                                const proto::BackupCollectionRequest* request,
+                                proto::BackupCollectionResponse* response) override;
 
-  grpc::Status RestoreCollection(
-      grpc::ServerContext* context,
-      const proto::RestoreCollectionRequest* request,
-      proto::RestoreCollectionResponse* response) override;
+  grpc::Status RestoreCollection(grpc::ServerContext* context,
+                                 const proto::RestoreCollectionRequest* request,
+                                 proto::RestoreCollectionResponse* response) override;
 
-  grpc::Status GetBackupStatus(
-      grpc::ServerContext* context,
-      const proto::GetBackupStatusRequest* request,
-      proto::GetBackupStatusResponse* response) override;
+  grpc::Status GetBackupStatus(grpc::ServerContext* context,
+                               const proto::GetBackupStatusRequest* request,
+                               proto::GetBackupStatusResponse* response) override;
 
-  grpc::Status GetRestoreStatus(
-      grpc::ServerContext* context,
-      const proto::GetRestoreStatusRequest* request,
-      proto::GetRestoreStatusResponse* response) override;
+  grpc::Status GetRestoreStatus(grpc::ServerContext* context,
+                                const proto::GetRestoreStatusRequest* request,
+                                proto::GetRestoreStatusResponse* response) override;
 
-  grpc::Status ListBackups(
-      grpc::ServerContext* context,
-      const proto::ListBackupsRequest* request,
-      proto::ListBackupsResponse* response) override;
+  grpc::Status ListBackups(grpc::ServerContext* context, const proto::ListBackupsRequest* request,
+                           proto::ListBackupsResponse* response) override;
 
-  grpc::Status CancelBackup(
-      grpc::ServerContext* context,
-      const proto::CancelBackupRequest* request,
-      proto::CancelBackupResponse* response) override;
+  grpc::Status CancelBackup(grpc::ServerContext* context, const proto::CancelBackupRequest* request,
+                            proto::CancelBackupResponse* response) override;
 
  private:
   // Backend targets

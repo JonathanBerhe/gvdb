@@ -33,9 +33,8 @@ namespace turboquant {
 // Search complexity: O(nprobe * cluster_size) vs O(N) for brute-force.
 class IVFTurboQuantIndex : public core::IVectorIndex {
  public:
-  IVFTurboQuantIndex(core::Dimension dimension, core::MetricType metric,
-                     int nlist, int nprobe, int bit_width,
-                     bool use_qjl = true, int qjl_dim = 0);
+  IVFTurboQuantIndex(core::Dimension dimension, core::MetricType metric, int nlist, int nprobe,
+                     int bit_width, bool use_qjl = true, int qjl_dim = 0);
   ~IVFTurboQuantIndex() override = default;
 
   // IVectorIndex interface
@@ -46,10 +45,10 @@ class IVFTurboQuantIndex : public core::IVectorIndex {
                                       const std::vector<core::VectorId>& ids) override;
   [[nodiscard]] absl::Status Remove(core::VectorId id) override;
 
-  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
-      const core::Vector& query, int k) override;
-  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRange(
-      const core::Vector& query, float radius) override;
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(const core::Vector& query,
+                                                          int k) override;
+  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRange(const core::Vector& query,
+                                                               float radius) override;
   [[nodiscard]] absl::StatusOr<std::vector<core::SearchResult>> SearchBatch(
       const std::vector<core::Vector>& queries, int k) override;
 
@@ -63,7 +62,9 @@ class IVFTurboQuantIndex : public core::IVectorIndex {
   [[nodiscard]] size_t GetVectorCount() const override;
   [[nodiscard]] core::Dimension GetDimension() const override { return dimension_; }
   [[nodiscard]] core::MetricType GetMetricType() const override { return metric_type_; }
-  [[nodiscard]] core::IndexType GetIndexType() const override { return core::IndexType::IVF_TURBOQUANT; }
+  [[nodiscard]] core::IndexType GetIndexType() const override {
+    return core::IndexType::IVF_TURBOQUANT;
+  }
 
  private:
   // Per-cluster storage of TurboQuant-encoded vectors
@@ -80,8 +81,7 @@ class IVFTurboQuantIndex : public core::IVectorIndex {
   void EncodeAndStore(ClusterData& cluster, const core::Vector& vector, core::VectorId id);
 
   // Convert estimated inner product to distance metric
-  float IPToDistance(float estimated_ip, float x_norm,
-                    const PreprocessedQuery& query) const;
+  float IPToDistance(float estimated_ip, float x_norm, const PreprocessedQuery& query) const;
 
   core::Dimension dimension_;
   core::MetricType metric_type_;
@@ -105,4 +105,3 @@ class IVFTurboQuantIndex : public core::IVectorIndex {
 }  // namespace turboquant
 }  // namespace index
 }  // namespace gvdb
-

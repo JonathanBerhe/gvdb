@@ -5,15 +5,15 @@
 #include <filesystem>
 #include <string>
 
-#include "service/vectordb/vectordb_service.h"
-#include "service/vectordb/collection_resolver.h"
-#include "storage/segment/segment_manager.h"
-#include "compute/query_executor.h"
 #include "cluster/coordinator/coordinator.h"
 #include "cluster/coordinator/node_registry.h"
 #include "cluster/shard_manager.h"
+#include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "internal.grpc.pb.h"
+#include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
+#include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 
 using namespace gvdb;
@@ -30,20 +30,16 @@ struct VectorDBServiceCoordinatorTest {
 
     // Create index factory and segment manager
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_.str(), index_factory_.get());
-    query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *segment_store_);
+    segment_store_ =
+        std::make_shared<storage::SegmentManager>(test_dir_.str(), index_factory_.get());
+    query_executor_ = std::make_shared<compute::QueryExecutor>(*segment_store_);
 
     // Create cluster components
-    shard_manager_ = std::make_shared<cluster::ShardManager>(
-        16, cluster::ShardingStrategy::HASH);
-    node_registry_ = std::make_shared<cluster::NodeRegistry>(
-        std::chrono::seconds(30));
+    shard_manager_ = std::make_shared<cluster::ShardManager>(16, cluster::ShardingStrategy::HASH);
+    node_registry_ = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
 
     // Create coordinator without a client factory, so it makes no RPC.
-    coordinator_ = std::make_shared<cluster::Coordinator>(
-        shard_manager_, node_registry_);
+    coordinator_ = std::make_shared<cluster::Coordinator>(shard_manager_, node_registry_);
 
     // Register a mock data node directly in node_registry (simulates heartbeat)
     proto::internal::NodeInfo proto_node_info;
@@ -62,8 +58,8 @@ struct VectorDBServiceCoordinatorTest {
 
     // Create VectorDBService in COORDINATOR mode
     auto resolver = service::MakeCoordinatorResolver(coordinator_);
-    service_ = std::make_unique<service::VectorDBService>(
-        segment_store_, query_executor_, std::move(resolver));
+    service_ = std::make_unique<service::VectorDBService>(segment_store_, query_executor_,
+                                                          std::move(resolver));
   }
 
   ~VectorDBServiceCoordinatorTest() {
@@ -95,8 +91,7 @@ struct VectorDBServiceCoordinatorTest {
 // The proxy forwards every client GetStats to the coordinator, so GetStats
 // must be served (not refused like the data operations) and must count the
 // collections the coordinator holds.
-TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest,
-                  "GetStatsCountsCoordinatorCollections") {
+TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "GetStatsCountsCoordinatorCollections") {
   for (const char* name : {"stats_a", "stats_b"}) {
     grpc::ServerContext context;
     proto::CreateCollectionRequest request;
@@ -140,7 +135,8 @@ TEST_CASE_FIXTURE(VectorDBServiceCoordinatorTest, "CreateCollection") {
   if (!status.ok()) {
     std::cerr << "CreateCollection failed: " << status.error_message() << std::endl;
   }
-  INFO("Error: ", status.error_message()); CHECK(status.ok());
+  INFO("Error: ", status.error_message());
+  CHECK(status.ok());
   CHECK_GT(response.collection_id(), 0);
 
   // Verify collection exists in coordinator

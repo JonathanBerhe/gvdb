@@ -13,21 +13,21 @@
 
 #include "cluster/datanode/data_node.h"
 #include "cluster/datanode/primary_term_tracker.h"
-#include "cluster/shard_manager.h"
 #include "cluster/datanode/shard_write_gate.h"
+#include "cluster/shard_manager.h"
 #include "common/logger.h"
 #include "compute/query_cache.h"
 #include "compute/query_executor.h"
 #include "config/config.h"
+#include "core/status.h"
 #include "core/types.h"
 #include "internal.pb.h"
-#include "core/status.h"
 #include "server/bootstrap.h"
 #include "server/builders.h"
 #include "server/cluster_steps.h"
 #include "server/flags.h"
-#include "service/vectordb/collection_resolver.h"
 #include "service/internal/internal_service.h"
+#include "service/vectordb/collection_resolver.h"
 #include "service/vectordb/vectordb_service.h"
 
 namespace gvdb {
@@ -58,7 +58,7 @@ absl::Status Run(const Args& args) {
 
   ASSIGN_OR_RETURN(server::SegmentStoreParts storage,
                    server::BuildSegmentStore(config.storage, args.data_dir,
-                                                 server::ObjectStoreFailure::kLocalOnly));
+                                             server::ObjectStoreFailure::kLocalOnly));
   auto segment_store = storage.segment_store;
   auto bulk_importer = server::MakeBulkImporter(storage, args.data_dir);
   auto data_node =
@@ -94,9 +94,8 @@ absl::Status Run(const Args& args) {
                                       .primary_term_tracker = tracker,
                                       .shard_write_gate = &shard_write_gate});
 
-  auto resolver = in_cluster
-                      ? service::MakeCachedCoordinatorResolver(args.coordinator_addresses[0])
-                      : service::MakeLocalResolver(segment_store, args.data_dir);
+  auto resolver = in_cluster ? service::MakeCachedCoordinatorResolver(args.coordinator_addresses[0])
+                             : service::MakeLocalResolver(segment_store, args.data_dir);
   auto vectordb_service = std::make_unique<service::VectorDBService>(
       segment_store, query_executor, std::move(resolver),
       service::VectorDBServiceOptions{.bulk_importer = bulk_importer,
@@ -107,12 +106,13 @@ absl::Status Run(const Args& args) {
 
   server::InterceptorFactories interceptors;
   server::AddAuditInterceptor(config.logging.audit, interceptors);
-  ASSIGN_OR_RETURN(auto grpc_server,
-                   server::StartGrpcServer(args.bind_address, {internal_service.get(), vectordb_service.get()}, grpc::InsecureServerCredentials(), std::move(interceptors)));
+  ASSIGN_OR_RETURN(
+      auto grpc_server,
+      server::StartGrpcServer(args.bind_address, {internal_service.get(), vectordb_service.get()},
+                              grpc::InsecureServerCredentials(), std::move(interceptors)));
 
   std::thread build_thread([data_node] { data_node->RunBuildLoop(server::ShutdownFlag()); });
-  std::thread ttl_sweep_thread(
-      [data_node] { data_node->RunTTLSweepLoop(server::ShutdownFlag()); });
+  std::thread ttl_sweep_thread([data_node] { data_node->RunTTLSweepLoop(server::ShutdownFlag()); });
 
   server::PrintBanner("GVDB Data Node",
                       {

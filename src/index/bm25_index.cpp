@@ -65,21 +65,17 @@ float BM25Index::ComputeIDF(uint32_t doc_freq) const {
   return std::log(1.0f + (N - df + 0.5f) / (df + 0.5f));
 }
 
-float BM25Index::ComputeTermScore(uint32_t term_freq, uint32_t doc_len,
-                                   float idf) const {
+float BM25Index::ComputeTermScore(uint32_t term_freq, uint32_t doc_len, float idf) const {
   float tf = static_cast<float>(term_freq);
   float dl = static_cast<float>(doc_len);
-  float avgdl = (total_docs_ > 0)
-                    ? static_cast<float>(total_doc_length_) / total_docs_
-                    : 1.0f;
+  float avgdl = (total_docs_ > 0) ? static_cast<float>(total_doc_length_) / total_docs_ : 1.0f;
 
   float numerator = tf * (k1_ + 1.0f);
   float denominator = tf + k1_ * (1.0f - b_ + b_ * dl / avgdl);
   return idf * numerator / denominator;
 }
 
-absl::StatusOr<core::SearchResult> BM25Index::Search(
-    const std::string& query, int k) {
+absl::StatusOr<core::SearchResult> BM25Index::Search(const std::string& query, int k) {
   if (k <= 0) {
     return absl::InvalidArgumentError("k must be positive");
   }
@@ -93,8 +89,7 @@ absl::StatusOr<core::SearchResult> BM25Index::Search(
   }
 
   // Deduplicate query terms
-  std::unordered_set<std::string> unique_terms(query_tokens.begin(),
-                                                query_tokens.end());
+  std::unordered_set<std::string> unique_terms(query_tokens.begin(), query_tokens.end());
 
   // Accumulate BM25 scores per document
   std::unordered_map<uint64_t, float> scores;

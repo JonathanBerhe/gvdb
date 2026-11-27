@@ -38,14 +38,12 @@ AwsSdkGuard& GetSdkGuard() {
 
 }  // namespace
 
-S3ObjectStore::S3ObjectStore(std::shared_ptr<Aws::S3::S3Client> client,
-                             const std::string& bucket)
+S3ObjectStore::S3ObjectStore(std::shared_ptr<Aws::S3::S3Client> client, const std::string& bucket)
     : client_(std::move(client)), bucket_(bucket) {}
 
 S3ObjectStore::~S3ObjectStore() = default;
 
-absl::StatusOr<std::unique_ptr<S3ObjectStore>> S3ObjectStore::Create(
-    const S3Config& config) {
+absl::StatusOr<std::unique_ptr<S3ObjectStore>> S3ObjectStore::Create(const S3Config& config) {
   // Ensure AWS SDK is initialized
   (void)GetSdkGuard();
 
@@ -56,21 +54,17 @@ absl::StatusOr<std::unique_ptr<S3ObjectStore>> S3ObjectStore::Create(
   if (!config.endpoint.empty()) {
     aws_config.endpointOverride = config.endpoint;
   }
-  aws_config.scheme = config.use_ssl ? Aws::Http::Scheme::HTTPS
-                                     : Aws::Http::Scheme::HTTP;
+  aws_config.scheme = config.use_ssl ? Aws::Http::Scheme::HTTPS : Aws::Http::Scheme::HTTP;
   aws_config.useVirtualAddressing = !config.path_style;
 
   Aws::Auth::AWSCredentials credentials(config.access_key, config.secret_key);
 
-  auto client = std::make_shared<Aws::S3::S3Client>(
-      credentials, nullptr, aws_config);
+  auto client = std::make_shared<Aws::S3::S3Client>(credentials, nullptr, aws_config);
 
-  return std::unique_ptr<S3ObjectStore>(
-      new S3ObjectStore(std::move(client), config.bucket));
+  return std::unique_ptr<S3ObjectStore>(new S3ObjectStore(std::move(client), config.bucket));
 }
 
-absl::Status S3ObjectStore::PutObject(
-    const std::string& key, const std::string& data) {
+absl::Status S3ObjectStore::PutObject(const std::string& key, const std::string& data) {
   Aws::S3::Model::PutObjectRequest request;
   request.SetBucket(bucket_);
   request.SetKey(key);
@@ -87,8 +81,7 @@ absl::Status S3ObjectStore::PutObject(
   return absl::OkStatus();
 }
 
-absl::StatusOr<std::string> S3ObjectStore::GetObject(
-    const std::string& key) {
+absl::StatusOr<std::string> S3ObjectStore::GetObject(const std::string& key) {
   Aws::S3::Model::GetObjectRequest request;
   request.SetBucket(bucket_);
   request.SetKey(key);
@@ -121,8 +114,7 @@ absl::Status S3ObjectStore::DeleteObject(const std::string& key) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<std::vector<std::string>> S3ObjectStore::ListObjects(
-    const std::string& prefix) {
+absl::StatusOr<std::vector<std::string>> S3ObjectStore::ListObjects(const std::string& prefix) {
   std::vector<std::string> keys;
 
   Aws::S3::Model::ListObjectsV2Request request;
@@ -159,11 +151,10 @@ absl::StatusOr<bool> S3ObjectStore::ObjectExists(const std::string& key) {
   return outcome.IsSuccess();
 }
 
-absl::Status S3ObjectStore::PutObjectFromFile(
-    const std::string& key, const std::string& local_file_path) {
-  auto input = Aws::MakeShared<Aws::FStream>(
-      "PutObjectFromFile", local_file_path,
-      std::ios_base::in | std::ios_base::binary);
+absl::Status S3ObjectStore::PutObjectFromFile(const std::string& key,
+                                              const std::string& local_file_path) {
+  auto input = Aws::MakeShared<Aws::FStream>("PutObjectFromFile", local_file_path,
+                                             std::ios_base::in | std::ios_base::binary);
 
   if (!input->good()) {
     return absl::NotFoundError("Local file not found: " + local_file_path);
@@ -181,8 +172,8 @@ absl::Status S3ObjectStore::PutObjectFromFile(
   return absl::OkStatus();
 }
 
-absl::Status S3ObjectStore::GetObjectToFile(
-    const std::string& key, const std::string& local_file_path) {
+absl::Status S3ObjectStore::GetObjectToFile(const std::string& key,
+                                            const std::string& local_file_path) {
   Aws::S3::Model::GetObjectRequest request;
   request.SetBucket(bucket_);
   request.SetKey(key);

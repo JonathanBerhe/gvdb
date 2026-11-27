@@ -5,15 +5,15 @@
 // queries, the two-phase primary swap, shard backup and restore, and the
 // backup write fence.
 
-#include "service/internal/internal_service.h"
-#include "core/type_names.h"
-#include "rpc/proto_conversions.h"
 #include "cluster/datanode/primary_term_tracker.h"
 #include "cluster/datanode/shard_write_gate.h"
+#include "common/logger.h"
+#include "core/type_names.h"
+#include "core/types.h"
+#include "rpc/proto_conversions.h"
+#include "service/internal/internal_service.h"
 #include "storage/backup/backup_manager.h"
 #include "storage/backup/restore_manager.h"
-#include "common/logger.h"
-#include "core/types.h"
 
 namespace gvdb {
 namespace service {
@@ -23,8 +23,7 @@ namespace service {
 // =============================================================================
 
 grpc::Status InternalService::ReplicateSegment(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::ReplicateSegmentRequest* request,
+    grpc::ServerContext* /*context*/, const proto::internal::ReplicateSegmentRequest* request,
     proto::internal::ReplicateSegmentResponse* response) {
   try {
     const auto& segment_info = request->segment_info();
@@ -33,8 +32,9 @@ grpc::Status InternalService::ReplicateSegment(
     uint32_t shard_id = segment_info.shard_id();
     const auto& segment_data = request->segment_data();
 
-    common::Logger::Instance().Info("ReplicateSegment: segment={}, collection={}, shard={}, data_size={}",
-                                    segment_id, collection_id, shard_id, segment_data.size());
+    common::Logger::Instance().Info(
+        "ReplicateSegment: segment={}, collection={}, shard={}, data_size={}", segment_id,
+        collection_id, shard_id, segment_data.size());
 
     // Validate segment info
     if (segment_id == 0) {
@@ -53,9 +53,11 @@ grpc::Status InternalService::ReplicateSegment(
     auto segment_result = storage::Segment::DeserializeFromBytes(segment_data);
     if (!segment_result.ok()) {
       response->set_success(false);
-      response->set_message(absl::StrFormat("Failed to deserialize segment: %s",
-                                             std::string(segment_result.status().message()).c_str()));
-      common::Logger::Instance().Error("Deserialization failed: {}", segment_result.status().message());
+      response->set_message(
+          absl::StrFormat("Failed to deserialize segment: %s",
+                          std::string(segment_result.status().message()).c_str()));
+      common::Logger::Instance().Error("Deserialization failed: {}",
+                                       segment_result.status().message());
       return grpc::Status::OK;
     }
 
@@ -63,17 +65,18 @@ grpc::Status InternalService::ReplicateSegment(
     auto add_status = segment_store_->AddReplicatedSegment(std::move(segment_result.value()));
     if (!add_status.ok()) {
       response->set_success(false);
-      response->set_message(absl::StrFormat("Failed to add segment: %s", std::string(add_status.message()).c_str()));
+      response->set_message(
+          absl::StrFormat("Failed to add segment: %s", std::string(add_status.message()).c_str()));
       common::Logger::Instance().Error("AddReplicatedSegment failed: {}", add_status.message());
       return grpc::Status::OK;
     }
 
     response->set_success(true);
     response->set_message(absl::StrFormat("Segment %lu replicated successfully (%lu bytes)",
-                                           segment_id, segment_data.size()));
+                                          segment_id, segment_data.size()));
 
-    common::Logger::Instance().Info("ReplicateSegment completed: segment={}, {} bytes",
-                                    segment_id, segment_data.size());
+    common::Logger::Instance().Info("ReplicateSegment completed: segment={}, {} bytes", segment_id,
+                                    segment_data.size());
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
@@ -82,10 +85,9 @@ grpc::Status InternalService::ReplicateSegment(
   }
 }
 
-grpc::Status InternalService::GetSegment(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::GetSegmentRequest* request,
-    proto::internal::GetSegmentResponse* response) {
+grpc::Status InternalService::GetSegment(grpc::ServerContext* /*context*/,
+                                         const proto::internal::GetSegmentRequest* request,
+                                         proto::internal::GetSegmentResponse* response) {
   try {
     uint64_t segment_id = request->segment_id();
 
@@ -117,9 +119,10 @@ grpc::Status InternalService::GetSegment(
     if (!serialize_result.ok()) {
       common::Logger::Instance().Error("GetSegment: serialization failed: {}",
                                        serialize_result.status().message());
-      return grpc::Status(grpc::StatusCode::INTERNAL,
-                          absl::StrFormat("Failed to serialize segment: %s",
-                                          std::string(serialize_result.status().message()).c_str()));
+      return grpc::Status(
+          grpc::StatusCode::INTERNAL,
+          absl::StrFormat("Failed to serialize segment: %s",
+                          std::string(serialize_result.status().message()).c_str()));
     }
 
     // Set segment data
@@ -136,22 +139,21 @@ grpc::Status InternalService::GetSegment(
   }
 }
 
-grpc::Status InternalService::ListSegments(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::ListSegmentsRequest* request,
-    proto::internal::ListSegmentsResponse* response) {
+grpc::Status InternalService::ListSegments(grpc::ServerContext* /*context*/,
+                                           const proto::internal::ListSegmentsRequest* request,
+                                           proto::internal::ListSegmentsResponse* response) {
   try {
     uint32_t collection_id = request->collection_id();
     uint32_t shard_id = request->shard_id();
 
-    common::Logger::Instance().Debug("ListSegments: collection={}, shard={}", collection_id, shard_id);
+    common::Logger::Instance().Debug("ListSegments: collection={}, shard={}", collection_id,
+                                     shard_id);
 
     // List segments, optionally filtered by collection_id
     std::vector<core::SegmentId> segment_ids;
 
     if (collection_id > 0) {
-      segment_ids = segment_store_->GetCollectionSegments(
-          core::MakeCollectionId(collection_id));
+      segment_ids = segment_store_->GetCollectionSegments(core::MakeCollectionId(collection_id));
     } else {
       // Get all segments by iterating all collections
       // SegmentManager doesn't expose a GetAllSegments, so use GetSegment
@@ -179,10 +181,9 @@ grpc::Status InternalService::ListSegments(
   }
 }
 
-grpc::Status InternalService::DeleteSegment(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::DeleteSegmentRequest* request,
-    proto::internal::DeleteSegmentResponse* response) {
+grpc::Status InternalService::DeleteSegment(grpc::ServerContext* /*context*/,
+                                            const proto::internal::DeleteSegmentRequest* request,
+                                            proto::internal::DeleteSegmentResponse* response) {
   try {
     uint64_t segment_id = request->segment_id();
     bool force = request->force();
@@ -207,22 +208,22 @@ grpc::Status InternalService::DeleteSegment(
 
     // Check segment state before deletion
     auto state = segment->GetState();
-    common::Logger::Instance().Info("DeleteSegment: segment={} state={}",
-                                    segment_id, static_cast<int>(state));
+    common::Logger::Instance().Info("DeleteSegment: segment={} state={}", segment_id,
+                                    static_cast<int>(state));
 
     // Delete segment from memory and disk
     auto drop_status = segment_store_->DropSegment(seg_id, true /* delete_files */);
     if (!drop_status.ok()) {
       response->set_success(false);
-      response->set_message(absl::StrFormat("Failed to delete segment %lu: %s",
-                                             segment_id, std::string(drop_status.message()).c_str()));
+      response->set_message(absl::StrFormat("Failed to delete segment %lu: %s", segment_id,
+                                            std::string(drop_status.message()).c_str()));
       common::Logger::Instance().Error("DeleteSegment failed: {}", drop_status.message());
       return grpc::Status::OK;
     }
 
     response->set_success(true);
-    response->set_message(absl::StrFormat("Segment %lu deleted successfully (removed from memory and disk)",
-                                           segment_id));
+    response->set_message(absl::StrFormat(
+        "Segment %lu deleted successfully (removed from memory and disk)", segment_id));
     common::Logger::Instance().Info("DeleteSegment: successfully deleted segment={}", segment_id);
 
     return grpc::Status::OK;
@@ -233,10 +234,9 @@ grpc::Status InternalService::DeleteSegment(
   }
 }
 
-grpc::Status InternalService::CreateSegment(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::CreateSegmentRequest* request,
-    proto::internal::CreateSegmentResponse* response) {
+grpc::Status InternalService::CreateSegment(grpc::ServerContext* /*context*/,
+                                            const proto::internal::CreateSegmentRequest* request,
+                                            proto::internal::CreateSegmentResponse* response) {
   try {
     uint64_t segment_id = request->segment_id();
     uint32_t collection_id = request->collection_id();
@@ -245,8 +245,8 @@ grpc::Status InternalService::CreateSegment(
     const std::string& index_type_str = request->index_type();
 
     common::Logger::Instance().Info(
-        "CreateSegment: segment={}, collection={}, dimension={}, metric={}, index={}",
-        segment_id, collection_id, dimension, metric_type_str, index_type_str);
+        "CreateSegment: segment={}, collection={}, dimension={}, metric={}, index={}", segment_id,
+        collection_id, dimension, metric_type_str, index_type_str);
 
     // Validate inputs
     if (segment_id == 0) {
@@ -289,13 +289,13 @@ grpc::Status InternalService::CreateSegment(
     core::CollectionId coll_id = core::MakeCollectionId(collection_id);
     core::Dimension dim = static_cast<core::Dimension>(dimension);
 
-    auto create_status = segment_store_->CreateSegmentWithId(
-        seg_id, coll_id, dim, *metric_result, *index_result);
+    auto create_status =
+        segment_store_->CreateSegmentWithId(seg_id, coll_id, dim, *metric_result, *index_result);
 
     if (!create_status.ok()) {
       response->set_success(false);
       response->set_message(absl::StrFormat("Failed to create segment: %s",
-                                             std::string(create_status.message()).c_str()));
+                                            std::string(create_status.message()).c_str()));
       common::Logger::Instance().Error("CreateSegment failed: {}", create_status.message());
       return grpc::Status::OK;
     }
@@ -313,23 +313,22 @@ grpc::Status InternalService::CreateSegment(
 }
 
 grpc::Status InternalService::ExecuteShardQuery(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::ExecuteShardQueryRequest* request,
+    grpc::ServerContext* /*context*/, const proto::internal::ExecuteShardQueryRequest* request,
     proto::internal::ExecuteShardQueryResponse* response) {
   try {
     uint32_t collection_id = request->collection_id();
     uint32_t top_k = request->top_k();
 
-    common::Logger::Instance().Debug("ExecuteShardQuery: collection={}, top_k={}",
-                                     collection_id, top_k);
+    common::Logger::Instance().Debug("ExecuteShardQuery: collection={}, top_k={}", collection_id,
+                                     top_k);
 
     uint32_t shard_id = request->shard_id();
-    core::SegmentId segment_id = core::ShardSegmentId(
-        core::MakeCollectionId(collection_id), shard_id);
+    core::SegmentId segment_id =
+        core::ShardSegmentId(core::MakeCollectionId(collection_id), shard_id);
     auto* segment = segment_store_->GetSegment(segment_id);
     if (!segment) {
       return grpc::Status(grpc::StatusCode::NOT_FOUND,
-          absl::StrCat("Segment not found for collection ", collection_id));
+                          absl::StrCat("Segment not found for collection ", collection_id));
     }
 
     // Convert query vector from proto
@@ -337,15 +336,14 @@ grpc::Status InternalService::ExecuteShardQuery(
       return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Query vector is empty");
     }
 
-    std::vector<float> query_data(request->query_vector().begin(),
-                                   request->query_vector().end());
+    std::vector<float> query_data(request->query_vector().begin(), request->query_vector().end());
     core::Vector query(std::move(query_data));
 
     // Validate dimension
     if (query.dimension() != segment->GetDimension()) {
       return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-          absl::StrCat("Query dimension mismatch: expected ",
-                       segment->GetDimension(), ", got ", query.dimension()));
+                          absl::StrCat("Query dimension mismatch: expected ",
+                                       segment->GetDimension(), ", got ", query.dimension()));
     }
 
     // Execute search
@@ -359,7 +357,7 @@ grpc::Status InternalService::ExecuteShardQuery(
 
     if (!search_result.ok()) {
       return grpc::Status(grpc::StatusCode::INTERNAL,
-          std::string(search_result.status().message()));
+                          std::string(search_result.status().message()));
     }
 
     // Convert results to proto
@@ -406,10 +404,9 @@ grpc::Status InternalService::ExecuteShardQuery(
 // they return FAILED_PRECONDITION rather than crashing so a misrouted
 // RPC is surfaced to the caller.
 
-grpc::Status InternalService::PausePrimary(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::PausePrimaryRequest* request,
-    proto::internal::PausePrimaryResponse* response) {
+grpc::Status InternalService::PausePrimary(grpc::ServerContext* /*context*/,
+                                           const proto::internal::PausePrimaryRequest* request,
+                                           proto::internal::PausePrimaryResponse* response) {
   if (!primary_term_tracker_) {
     response->set_success(false);
     response->set_message("PausePrimary received on a non-data-node host");
@@ -424,8 +421,7 @@ grpc::Status InternalService::PausePrimary(
   if (new_term == 0) {
     response->set_success(false);
     response->set_message("new_term must be > 0");
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                        "PausePrimary: new_term must be > 0");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "PausePrimary: new_term must be > 0");
   }
 
   // last_known_term is the term we're being demoted FROM, i.e. the
@@ -453,10 +449,9 @@ grpc::Status InternalService::PausePrimary(
   return grpc::Status::OK;
 }
 
-grpc::Status InternalService::PreparePromote(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::PreparePromoteRequest* request,
-    proto::internal::PreparePromoteResponse* response) {
+grpc::Status InternalService::PreparePromote(grpc::ServerContext* /*context*/,
+                                             const proto::internal::PreparePromoteRequest* request,
+                                             proto::internal::PreparePromoteResponse* response) {
   if (!primary_term_tracker_) {
     response->set_success(false);
     response->set_message("PreparePromote received on a non-data-node host");
@@ -470,8 +465,7 @@ grpc::Status InternalService::PreparePromote(
   if (new_term == 0) {
     response->set_success(false);
     response->set_message("new_term must be > 0");
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                        "PreparePromote: new_term must be > 0");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "PreparePromote: new_term must be > 0");
   }
 
   const auto snap_before = primary_term_tracker_->Get(shard_id);
@@ -488,15 +482,15 @@ grpc::Status InternalService::PreparePromote(
     response->set_message(
         "term regression: refusing to promote at term <= currently-recorded term");
     common::Logger::Instance().Warn(
-        "PreparePromote rejected: shard={} requested_term={} known_term={} (regression)",
-        shard_id, new_term, snap_before.term);
+        "PreparePromote rejected: shard={} requested_term={} known_term={} (regression)", shard_id,
+        new_term, snap_before.term);
     return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
                         "PreparePromote: term must be strictly greater than known term");
   }
 
   common::Logger::Instance().Info(
-      "PreparePromote: shard={} promoted_to_term={} (was_primary={}, prev_term={})",
-      shard_id, new_term, snap_before.is_primary, snap_before.term);
+      "PreparePromote: shard={} promoted_to_term={} (was_primary={}, prev_term={})", shard_id,
+      new_term, snap_before.is_primary, snap_before.term);
 
   response->set_success(true);
   response->set_message("promoted");
@@ -507,17 +501,15 @@ grpc::Status InternalService::PreparePromote(
 // Backup / Restore Orchestration (Coordinator → Data Node)
 // =============================================================================
 
-grpc::Status InternalService::BackupShard(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::BackupShardRequest* request,
-    proto::internal::BackupShardResponse* response) {
+grpc::Status InternalService::BackupShard(grpc::ServerContext* /*context*/,
+                                          const proto::internal::BackupShardRequest* request,
+                                          proto::internal::BackupShardResponse* response) {
   if (!backup_manager_) {
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Backup is not configured on this server");
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED, "Backup is not configured on this server");
   }
   if (!segment_store_) {
     return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
-        "BackupShard requires a segment store");
+                        "BackupShard requires a segment store");
   }
 
   auto target = rpc::FromProto(request->target());
@@ -526,12 +518,9 @@ grpc::Status InternalService::BackupShard(
   }
 
   auto result = backup_manager_->RunShardBackup(
-      request->backup_id(),
-      core::MakeCollectionId(request->collection_id()),
+      request->backup_id(), core::MakeCollectionId(request->collection_id()),
       core::MakeShardId(static_cast<uint16_t>(request->shard_id())),
-      /*primary_term=*/0,
-      *target,
-      segment_store_);
+      /*primary_term=*/0, *target, segment_store_);
   if (!result.ok()) {
     response->set_success(false);
     response->set_message(std::string(result.status().message()));
@@ -553,17 +542,16 @@ grpc::Status InternalService::BackupShard(
   return grpc::Status::OK;
 }
 
-grpc::Status InternalService::RestoreShard(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::RestoreShardRequest* request,
-    proto::internal::RestoreShardResponse* response) {
+grpc::Status InternalService::RestoreShard(grpc::ServerContext* /*context*/,
+                                           const proto::internal::RestoreShardRequest* request,
+                                           proto::internal::RestoreShardResponse* response) {
   if (!restore_manager_) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Restore is not configured on this server");
+                        "Restore is not configured on this server");
   }
   if (!segment_store_) {
     return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
-        "RestoreShard requires a segment store");
+                        "RestoreShard requires a segment store");
   }
 
   auto source = rpc::FromProto(request->source());
@@ -572,11 +560,8 @@ grpc::Status InternalService::RestoreShard(
   }
 
   auto status = restore_manager_->RunShardRestore(
-      *source,
-      request->backup_id(),
-      core::MakeCollectionId(request->target_collection_id()),
-      core::MakeShardId(static_cast<uint16_t>(request->shard_id())),
-      segment_store_);
+      *source, request->backup_id(), core::MakeCollectionId(request->target_collection_id()),
+      core::MakeShardId(static_cast<uint16_t>(request->shard_id())), segment_store_);
   if (!status.ok()) {
     response->set_success(false);
     response->set_message(std::string(status.message()));
@@ -590,55 +575,44 @@ grpc::Status InternalService::RestoreShard(
   return grpc::Status::OK;
 }
 
-grpc::Status InternalService::FreezeWrites(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::FreezeWritesRequest* request,
-    proto::internal::FreezeWritesResponse* response) {
+grpc::Status InternalService::FreezeWrites(grpc::ServerContext* /*context*/,
+                                           const proto::internal::FreezeWritesRequest* request,
+                                           proto::internal::FreezeWritesResponse* response) {
   if (!shard_write_gate_) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Write fence is not configured on this server");
+                        "Write fence is not configured on this server");
   }
   if (request->fence_token().empty()) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-        "fence_token is required");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "fence_token is required");
   }
   if (request->lease_ms() <= 0) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-        "lease_ms must be positive");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "lease_ms must be positive");
   }
-  const auto shard_id =
-      core::MakeShardId(static_cast<uint16_t>(request->shard_id()));
-  const bool ok = shard_write_gate_->Freeze(
-      shard_id, request->fence_token(), request->lease_ms());
+  const auto shard_id = core::MakeShardId(static_cast<uint16_t>(request->shard_id()));
+  const bool ok = shard_write_gate_->Freeze(shard_id, request->fence_token(), request->lease_ms());
   response->set_success(ok);
   if (!ok) {
-    response->set_message(
-        "Shard already frozen by another backup token");
+    response->set_message("Shard already frozen by another backup token");
     return grpc::Status::OK;
   }
   response->set_message("Writes frozen");
   return grpc::Status::OK;
 }
 
-grpc::Status InternalService::UnfreezeWrites(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::UnfreezeWritesRequest* request,
-    proto::internal::UnfreezeWritesResponse* response) {
+grpc::Status InternalService::UnfreezeWrites(grpc::ServerContext* /*context*/,
+                                             const proto::internal::UnfreezeWritesRequest* request,
+                                             proto::internal::UnfreezeWritesResponse* response) {
   if (!shard_write_gate_) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Write fence is not configured on this server");
+                        "Write fence is not configured on this server");
   }
   if (request->fence_token().empty()) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-        "fence_token is required");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "fence_token is required");
   }
-  const auto shard_id =
-      core::MakeShardId(static_cast<uint16_t>(request->shard_id()));
-  const bool ok = shard_write_gate_->Unfreeze(
-      shard_id, request->fence_token());
+  const auto shard_id = core::MakeShardId(static_cast<uint16_t>(request->shard_id()));
+  const bool ok = shard_write_gate_->Unfreeze(shard_id, request->fence_token());
   response->set_success(ok);
-  response->set_message(ok ? "Writes unfrozen"
-                            : "No matching freeze for token");
+  response->set_message(ok ? "Writes unfrozen" : "No matching freeze for token");
   return grpc::Status::OK;
 }
 

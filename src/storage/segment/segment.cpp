@@ -6,19 +6,18 @@
 // segment_io.cpp the disk and wire formats.
 
 #include "storage/segment/segment.h"
-#include "core/status.h"
 #include <algorithm>
 #include <chrono>
 #include <mutex>
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
+#include "core/status.h"
 
 namespace gvdb {
 namespace storage {
 
-Segment::Segment(core::SegmentId id, core::CollectionId collection_id,
-                 core::Dimension dimension, core::MetricType metric,
-                 size_t max_segment_size)
+Segment::Segment(core::SegmentId id, core::CollectionId collection_id, core::Dimension dimension,
+                 core::MetricType metric, size_t max_segment_size)
     : id_(id),
       collection_id_(collection_id),
       dimension_(dimension),
@@ -31,19 +30,19 @@ Segment::Segment(core::SegmentId id, core::CollectionId collection_id,
 
 int64_t Segment::NowEpochSeconds() {
   return std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
 }
 
 absl::Status Segment::AddVectors(const std::vector<core::Vector>& vectors,
-                                  const std::vector<core::VectorId>& ids,
-                                  const std::unordered_map<uint64_t, int64_t>& expiry_entries) {
+                                 const std::vector<core::VectorId>& ids,
+                                 const std::unordered_map<uint64_t, int64_t>& expiry_entries) {
   std::unique_lock lock(mutex_);
 
   // Validate state
   if (state_ != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot add vectors to segment in state: ",
-                     static_cast<int>(state_)));
+        absl::StrCat("Cannot add vectors to segment in state: ", static_cast<int>(state_)));
   }
 
   // Validate inputs
@@ -56,9 +55,8 @@ absl::Status Segment::AddVectors(const std::vector<core::Vector>& vectors,
   }
 
   if (memory_usage_ + additional_size > max_segment_size_) {
-    return absl::ResourceExhaustedError(
-        absl::StrCat("Segment ", core::ToUInt32(id_),
-                     " would exceed max size ", max_segment_size_));
+    return absl::ResourceExhaustedError(absl::StrCat("Segment ", core::ToUInt32(id_),
+                                                     " would exceed max size ", max_segment_size_));
   }
 
   // Add vectors
@@ -93,17 +91,16 @@ absl::StatusOr<std::vector<core::Vector>> Segment::ReadVectors(
     }
 
     if (!found) {
-      return absl::NotFoundError(
-          absl::StrCat("Vector ID ", core::ToUInt64(query_id),
-                       " not found in segment ", core::ToUInt32(id_)));
+      return absl::NotFoundError(absl::StrCat("Vector ID ", core::ToUInt64(query_id),
+                                              " not found in segment ", core::ToUInt32(id_)));
     }
   }
 
   return result;
 }
 
-Segment::GetVectorsResult Segment::GetVectors(
-    const std::vector<core::VectorId>& ids, bool include_metadata) const {
+Segment::GetVectorsResult Segment::GetVectors(const std::vector<core::VectorId>& ids,
+                                              bool include_metadata) const {
   std::shared_lock lock(mutex_);
 
   GetVectorsResult result;
@@ -159,8 +156,7 @@ absl::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectorsUnlocked(
   // Validate state - can only delete from GROWING segments
   if (state_ != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot delete vectors from segment in state: ",
-                     static_cast<int>(state_)));
+        absl::StrCat("Cannot delete vectors from segment in state: ", static_cast<int>(state_)));
   }
 
   DeleteVectorsResult result;
@@ -188,8 +184,7 @@ absl::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectorsUnlocked(
 
   // Sort indices in descending order to delete from back to front
   // This prevents index invalidation during deletion
-  std::sort(indices_to_delete.begin(), indices_to_delete.end(),
-            std::greater<size_t>());
+  std::sort(indices_to_delete.begin(), indices_to_delete.end(), std::greater<size_t>());
 
   // Delete vectors, IDs, and metadata
   for (size_t idx : indices_to_delete) {
@@ -226,15 +221,14 @@ absl::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectors(
   return DeleteVectorsUnlocked(ids);
 }
 
-absl::Status Segment::UpdateMetadata(
-    core::VectorId id, const core::Metadata& metadata, bool merge) {
+absl::Status Segment::UpdateMetadata(core::VectorId id, const core::Metadata& metadata,
+                                     bool merge) {
   std::unique_lock lock(mutex_);
 
   // Validate state - can only update metadata in GROWING segments
   if (state_ != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot update metadata in segment state: ",
-                     static_cast<int>(state_)));
+        absl::StrCat("Cannot update metadata in segment state: ", static_cast<int>(state_)));
   }
 
   // Find vector with matching ID
@@ -247,9 +241,8 @@ absl::Status Segment::UpdateMetadata(
   }
 
   if (!found) {
-    return absl::NotFoundError(
-        absl::StrCat("Vector ID ", core::ToUInt64(id),
-                     " not found in segment ", core::ToUInt32(id_)));
+    return absl::NotFoundError(absl::StrCat("Vector ID ", core::ToUInt64(id),
+                                            " not found in segment ", core::ToUInt32(id_)));
   }
 
   uint64_t id_uint = core::ToUInt64(id);
@@ -275,8 +268,7 @@ absl::Status Segment::UpdateMetadata(
 }
 
 absl::Status Segment::AddVectorsWithMetadata(
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids,
+    const std::vector<core::Vector>& vectors, const std::vector<core::VectorId>& ids,
     const std::vector<core::Metadata>& metadata,
     const std::unordered_map<uint64_t, int64_t>& expiry_entries) {
   std::unique_lock lock(mutex_);
@@ -284,16 +276,14 @@ absl::Status Segment::AddVectorsWithMetadata(
   // Validate state
   if (state_ != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot add vectors to segment in state: ",
-                     static_cast<int>(state_)));
+        absl::StrCat("Cannot add vectors to segment in state: ", static_cast<int>(state_)));
   }
 
   // Validate inputs
   RETURN_IF_ERROR(ValidateVectors(vectors, ids));
 
   if (metadata.size() != vectors.size()) {
-    return absl::InvalidArgumentError(
-        "Metadata size must match vector count");
+    return absl::InvalidArgumentError("Metadata size must match vector count");
   }
 
   // Validate all metadata
@@ -301,8 +291,7 @@ absl::Status Segment::AddVectorsWithMetadata(
     auto validation = core::ValidateMetadata(metadata[i]);
     if (!validation.ok()) {
       return absl::InvalidArgumentError(
-          absl::StrCat("Invalid metadata at index ", i, ": ",
-                       validation.message()));
+          absl::StrCat("Invalid metadata at index ", i, ": ", validation.message()));
     }
   }
 
@@ -315,9 +304,8 @@ absl::Status Segment::AddVectorsWithMetadata(
   additional_size += metadata.size() * kMetadataBytesEstimate;
 
   if (memory_usage_ + additional_size > max_segment_size_) {
-    return absl::ResourceExhaustedError(
-        absl::StrCat("Segment ", core::ToUInt32(id_),
-                     " would exceed max size ", max_segment_size_));
+    return absl::ResourceExhaustedError(absl::StrCat("Segment ", core::ToUInt32(id_),
+                                                     " would exceed max size ", max_segment_size_));
   }
 
   // Add vectors and metadata
@@ -343,12 +331,10 @@ absl::Status Segment::AddVectorsWithMetadata(
 // ========== Add Vectors with Sparse ==========
 
 absl::Status Segment::AddVectorsWithSparse(
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids,
+    const std::vector<core::Vector>& vectors, const std::vector<core::VectorId>& ids,
     const std::vector<core::Metadata>& metadata,
     const std::unordered_map<uint64_t, core::SparseVector>& sparse,
     const std::unordered_map<uint64_t, int64_t>& expiry_entries) {
-
   // Delegate to AddVectorsWithMetadata for dense + metadata + expiry
   RETURN_IF_ERROR(AddVectorsWithMetadata(vectors, ids, metadata, expiry_entries));
 
@@ -396,16 +382,14 @@ size_t Segment::SweepExpired() {
 // ========== Upsert ==========
 
 absl::StatusOr<Segment::UpsertResult> Segment::UpsertVectors(
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids,
+    const std::vector<core::Vector>& vectors, const std::vector<core::VectorId>& ids,
     const std::vector<core::Metadata>& metadata,
     const std::unordered_map<uint64_t, int64_t>& expiry_entries) {
   std::unique_lock lock(mutex_);
 
   if (state_ != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot upsert in segment state: ",
-                     static_cast<int>(state_)));
+        absl::StrCat("Cannot upsert in segment state: ", static_cast<int>(state_)));
   }
 
   RETURN_IF_ERROR(ValidateVectors(vectors, ids));
@@ -477,9 +461,8 @@ absl::StatusOr<core::Metadata> Segment::GetMetadata(core::VectorId id) const {
 
   auto it = metadata_map_.find(core::ToUInt64(id));
   if (it == metadata_map_.end()) {
-    return absl::NotFoundError(
-        absl::StrCat("Metadata for vector ", core::ToUInt64(id),
-                     " not found in segment ", core::ToUInt32(id_)));
+    return absl::NotFoundError(absl::StrCat("Metadata for vector ", core::ToUInt64(id),
+                                            " not found in segment ", core::ToUInt32(id_)));
   }
 
   return it->second;
@@ -493,8 +476,7 @@ absl::Status Segment::Seal(core::IVectorIndex* index) {
   // Validate state transition
   if (state_ != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot seal segment in state: ",
-                     static_cast<int>(state_)));
+        absl::StrCat("Cannot seal segment in state: ", static_cast<int>(state_)));
   }
 
   if (vectors_.empty()) {
@@ -594,9 +576,8 @@ bool Segment::IsFull() const {
   return memory_usage_ >= max_segment_size_;
 }
 
-absl::Status Segment::ValidateVectors(
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids) const {
+absl::Status Segment::ValidateVectors(const std::vector<core::Vector>& vectors,
+                                      const std::vector<core::VectorId>& ids) const {
   // Must be called with lock held
 
   if (vectors.empty()) {
@@ -605,16 +586,14 @@ absl::Status Segment::ValidateVectors(
 
   if (vectors.size() != ids.size()) {
     return absl::InvalidArgumentError(
-        absl::StrCat("Vector and ID array size mismatch: ", vectors.size(),
-                     " vs ", ids.size()));
+        absl::StrCat("Vector and ID array size mismatch: ", vectors.size(), " vs ", ids.size()));
   }
 
   // Validate dimension
   for (const auto& vec : vectors) {
     if (vec.dimension() != dimension_) {
-      return absl::InvalidArgumentError(
-          absl::StrCat("Vector dimension mismatch: expected ", dimension_,
-                       " got ", vec.dimension()));
+      return absl::InvalidArgumentError(absl::StrCat("Vector dimension mismatch: expected ",
+                                                     dimension_, " got ", vec.dimension()));
     }
   }
 

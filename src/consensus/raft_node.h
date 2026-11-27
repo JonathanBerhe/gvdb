@@ -3,10 +3,6 @@
 
 #pragma once
 
-#include "consensus/raft_config.h"
-#include "consensus/raft_peer_client.h"
-#include "consensus/timestamp_oracle.h"
-#include "core/status.h"
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -14,14 +10,18 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include "consensus/raft_config.h"
+#include "consensus/raft_peer_client.h"
+#include "consensus/timestamp_oracle.h"
+#include "core/status.h"
 
 // Forward declarations for NuRaft
 namespace nuraft {
-  class raft_launcher;
-  class raft_server;
-  class state_machine;
-  class logger;
-}
+class raft_launcher;
+class raft_server;
+class state_machine;
+class logger;
+}  // namespace nuraft
 
 namespace gvdb {
 namespace consensus {
@@ -61,10 +61,9 @@ struct PeerListPlan {
 //     caller should replace the config with these peers. Otherwise trust
 //     the persisted multi-member config and leave it alone so runtime
 //     add_srv / remove_srv changes aren't clobbered on restart.
-absl::StatusOr<PeerListPlan> PrepareRaftPeerList(
-    int self_id,
-    const std::vector<std::string>& declared_peers,
-    size_t persisted_cluster_size);
+absl::StatusOr<PeerListPlan> PrepareRaftPeerList(int self_id,
+                                                 const std::vector<std::string>& declared_peers,
+                                                 size_t persisted_cluster_size);
 
 // Raft node for distributed consensus
 // Supports both single-node mode (for development) and multi-node mode (using NuRaft)
@@ -188,5 +187,5 @@ class RaftNode {
   absl::Status AnnounceJoinToCluster();
 };
 
-} // namespace consensus
-} // namespace gvdb
+}  // namespace consensus
+}  // namespace gvdb

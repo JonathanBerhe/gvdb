@@ -110,12 +110,10 @@ TEST_CASE("PrimaryTermTracker: concurrent readers + writers stay consistent") {
         // some succeed (the largest seen so far) and others fail
         // (regression). Either way, RecordPrimary must not corrupt the
         // table.
-        uint64_t proposed =
-            static_cast<uint64_t>(w) * kIters + static_cast<uint64_t>(i) + 1;
+        uint64_t proposed = static_cast<uint64_t>(w) * kIters + static_cast<uint64_t>(i) + 1;
         if (tracker.RecordPrimary(kShard, proposed)) {
           uint64_t prev = max_seen.load(std::memory_order_relaxed);
-          while (proposed > prev &&
-                 !max_seen.compare_exchange_weak(prev, proposed)) {
+          while (proposed > prev && !max_seen.compare_exchange_weak(prev, proposed)) {
             // CAS retry.
           }
         }

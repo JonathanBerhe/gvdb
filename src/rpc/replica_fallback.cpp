@@ -47,16 +47,13 @@ bool IsTransientReplicaError(grpc::StatusCode code) {
   //     load. Let the caller back off.
   //   - CANCELLED: the upstream caller gave up. We must not initiate
   //     more work on their behalf.
-  return code == grpc::StatusCode::UNAVAILABLE ||
-         code == grpc::StatusCode::DEADLINE_EXCEEDED ||
+  return code == grpc::StatusCode::UNAVAILABLE || code == grpc::StatusCode::DEADLINE_EXCEEDED ||
          code == grpc::StatusCode::ABORTED;
 }
 
 ReplicaFallbackResult CallWithReplicaFallback(
-    const google::protobuf::RepeatedPtrField<
-        proto::internal::RouteQueryNodeOption>& options,
-    std::chrono::milliseconds total_attempt_budget,
-    const std::string& operation_label,
+    const google::protobuf::RepeatedPtrField<proto::internal::RouteQueryNodeOption>& options,
+    std::chrono::milliseconds total_attempt_budget, const std::string& operation_label,
     ReplicaCallFn call_fn) {
   ReplicaFallbackResult result;
 
@@ -64,8 +61,8 @@ ReplicaFallbackResult CallWithReplicaFallback(
     common::Logger::Instance().Warn(
         "replica_fallback[{}]: empty candidate list; surfacing FAILED_PRECONDITION",
         operation_label);
-    result.final_status = grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
-                                        "no routable nodes for shard");
+    result.final_status =
+        grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, "no routable nodes for shard");
     return result;
   }
 
@@ -77,8 +74,7 @@ ReplicaFallbackResult CallWithReplicaFallback(
     per_attempt = kReplicaFallbackMaxPerAttempt;
   }
 
-  grpc::Status last_status =
-      grpc::Status(grpc::StatusCode::UNAVAILABLE, "no attempts made");
+  grpc::Status last_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "no attempts made");
 
   auto& metrics = common::MetricsRegistry::Instance();
 
@@ -89,9 +85,8 @@ ReplicaFallbackResult CallWithReplicaFallback(
     context.set_deadline(std::chrono::system_clock::now() + per_attempt);
 
     common::Logger::Instance().Debug(
-        "replica_fallback[{}]: attempt {}/{} target=node_{} addr={} primary={}",
-        operation_label, result.attempts + 1, options.size(),
-        opt.node_id(), opt.node_address(), opt.is_primary());
+        "replica_fallback[{}]: attempt {}/{} target=node_{} addr={} primary={}", operation_label,
+        result.attempts + 1, options.size(), opt.node_id(), opt.node_address(), opt.is_primary());
 
     grpc::Status status = call_fn(&context, opt.node_address());
     ++result.attempts;
@@ -102,15 +97,13 @@ ReplicaFallbackResult CallWithReplicaFallback(
       result.used_replica_fallback = (i > 0);
       metrics.RecordReadAttempts(operation_label, result.attempts);
       if (result.used_replica_fallback) {
-        const std::string reason = options[0].is_primary()
-                                       ? "primary_unreachable"
-                                       : "replica_unreachable";
+        const std::string reason =
+            options[0].is_primary() ? "primary_unreachable" : "replica_unreachable";
         metrics.IncReadReplicaFallback(operation_label, reason);
         common::Logger::Instance().Info(
             "replica_fallback[{}]: succeeded on candidate {}/{} "
             "(node_{}, reason={}, attempts={})",
-            operation_label, i + 1, options.size(), opt.node_id(),
-            reason, result.attempts);
+            operation_label, i + 1, options.size(), opt.node_id(), reason, result.attempts);
       }
       return result;
     }
@@ -135,8 +128,7 @@ ReplicaFallbackResult CallWithReplicaFallback(
   common::Logger::Instance().Warn(
       "replica_fallback[{}]: exhausted all {} candidate(s); "
       "last status code={} message=\"{}\"",
-      operation_label, options.size(),
-      static_cast<int>(last_status.error_code()),
+      operation_label, options.size(), static_cast<int>(last_status.error_code()),
       last_status.error_message());
   result.final_status = last_status;
   metrics.RecordReadAttempts(operation_label, result.attempts);
@@ -144,16 +136,13 @@ ReplicaFallbackResult CallWithReplicaFallback(
   return result;
 }
 
-grpc::Status RouteReadAndCallWithFallback(
-    proto::internal::InternalService::Stub* internal_client,
-    const std::string& collection_name,
-    const std::string& operation_label,
-    std::chrono::milliseconds total_attempt_budget,
-    DialFn dial_fn,
-    StubCallFn call_fn) {
+grpc::Status RouteReadAndCallWithFallback(proto::internal::InternalService::Stub* internal_client,
+                                          const std::string& collection_name,
+                                          const std::string& operation_label,
+                                          std::chrono::milliseconds total_attempt_budget,
+                                          DialFn dial_fn, StubCallFn call_fn) {
   if (!internal_client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                         "no coordinator client to call RouteQuery");
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "no coordinator client to call RouteQuery");
   }
 
   proto::internal::RouteQueryRequest route_req;
@@ -164,54 +153,43 @@ grpc::Status RouteReadAndCallWithFallback(
   grpc::ClientContext route_ctx;
   // Bounded deadline so a paused / unreachable coordinator can't stall
   // every proxy read indefinitely.
-  route_ctx.set_deadline(std::chrono::system_clock::now() +
-                          kRouteQueryRpcDeadline);
-  auto route_status =
-      internal_client->RouteQuery(&route_ctx, route_req, &route_resp);
+  route_ctx.set_deadline(std::chrono::system_clock::now() + kRouteQueryRpcDeadline);
+  auto route_status = internal_client->RouteQuery(&route_ctx, route_req, &route_resp);
   if (!route_status.ok()) {
-    common::Logger::Instance().Warn(
-        "replica_fallback[{}]: RouteQuery failed: {}", operation_label,
-        route_status.error_message());
+    common::Logger::Instance().Warn("replica_fallback[{}]: RouteQuery failed: {}", operation_label,
+                                    route_status.error_message());
     return route_status;
   }
   if (route_resp.per_shard_options_size() == 0) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                         "RouteQuery returned no shards");
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "RouteQuery returned no shards");
   }
 
   const auto& options = route_resp.per_shard_options(0).options();
 
-  auto adapter = [&](grpc::ClientContext* ctx,
-                      const std::string& addr) -> grpc::Status {
+  auto adapter = [&](grpc::ClientContext* ctx, const std::string& addr) -> grpc::Status {
     proto::VectorDBService::Stub* stub = dial_fn(addr);
     if (!stub) {
-      return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                           "could not dial target");
+      return grpc::Status(grpc::StatusCode::UNAVAILABLE, "could not dial target");
     }
     return call_fn(ctx, stub);
   };
 
-  auto result = CallWithReplicaFallback(options, total_attempt_budget,
-                                         operation_label, adapter);
+  auto result = CallWithReplicaFallback(options, total_attempt_budget, operation_label, adapter);
   return result.final_status;
 }
 
-grpc::Status RouteWriteAndCallWithFallback(
-    proto::internal::InternalService::Stub* internal_client,
-    const std::string& collection_name,
-    const std::string& operation_label,
-    std::chrono::milliseconds per_attempt_deadline,
-    DialFn dial_fn,
-    StubCallFn call_fn) {
+grpc::Status RouteWriteAndCallWithFallback(proto::internal::InternalService::Stub* internal_client,
+                                           const std::string& collection_name,
+                                           const std::string& operation_label,
+                                           std::chrono::milliseconds per_attempt_deadline,
+                                           DialFn dial_fn, StubCallFn call_fn) {
   if (!internal_client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                         "no coordinator client to call RouteQuery");
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "no coordinator client to call RouteQuery");
   }
 
   auto& metrics = common::MetricsRegistry::Instance();
 
-  grpc::Status last_status =
-      grpc::Status(grpc::StatusCode::UNAVAILABLE, "no attempts made");
+  grpc::Status last_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "no attempts made");
 
   // attempt 0 = first try, attempts 1..kRouteWriteMaxReroutes = re-route retries.
   for (int attempt = 0; attempt <= kRouteWriteMaxReroutes; ++attempt) {
@@ -223,15 +201,12 @@ grpc::Status RouteWriteAndCallWithFallback(
 
     proto::internal::RouteQueryResponse route_resp;
     grpc::ClientContext route_ctx;
-    route_ctx.set_deadline(std::chrono::system_clock::now() +
-                            kRouteQueryRpcDeadline);
-    auto route_status =
-        internal_client->RouteQuery(&route_ctx, route_req, &route_resp);
+    route_ctx.set_deadline(std::chrono::system_clock::now() + kRouteQueryRpcDeadline);
+    auto route_status = internal_client->RouteQuery(&route_ctx, route_req, &route_resp);
     if (!route_status.ok()) {
-      common::Logger::Instance().Warn(
-          "write_fallback[{}]: RouteQuery failed on attempt {}/{}: {}",
-          operation_label, attempt + 1, kRouteWriteMaxReroutes + 1,
-          route_status.error_message());
+      common::Logger::Instance().Warn("write_fallback[{}]: RouteQuery failed on attempt {}/{}: {}",
+                                      operation_label, attempt + 1, kRouteWriteMaxReroutes + 1,
+                                      route_status.error_message());
       last_status = route_status;
       // RouteQuery's own error: not retryable here. The coordinator is
       // either down or returning a hard error. Caller can retry the whole
@@ -249,33 +224,29 @@ grpc::Status RouteWriteAndCallWithFallback(
       target_addr = opt.node_address();
       primary_term = opt.primary_term();
     } else {
-      last_status = grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                                  "RouteQuery returned no target");
+      last_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "RouteQuery returned no target");
       return last_status;
     }
 
-      proto::VectorDBService::Stub* stub = dial_fn(target_addr);
+    proto::VectorDBService::Stub* stub = dial_fn(target_addr);
     if (!stub) {
-      last_status = grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                                  "could not dial primary");
+      last_status = grpc::Status(grpc::StatusCode::UNAVAILABLE, "could not dial primary");
       // Dialing failure is a transient routing problem; re-route.
       common::Logger::Instance().Warn(
-          "write_fallback[{}]: dial failed for {}; re-routing (attempt {}/{})",
-          operation_label, target_addr, attempt + 1, kRouteWriteMaxReroutes + 1);
+          "write_fallback[{}]: dial failed for {}; re-routing (attempt {}/{})", operation_label,
+          target_addr, attempt + 1, kRouteWriteMaxReroutes + 1);
       continue;
     }
 
     grpc::ClientContext call_ctx;
-    call_ctx.set_deadline(std::chrono::system_clock::now() +
-                           per_attempt_deadline);
+    call_ctx.set_deadline(std::chrono::system_clock::now() + per_attempt_deadline);
     if (primary_term > 0) {
       StampPrimaryTermHeader(&call_ctx, primary_term);
     }
 
-    common::Logger::Instance().Debug(
-        "write_fallback[{}]: attempt {}/{} target={} term={}",
-        operation_label, attempt + 1, kRouteWriteMaxReroutes + 1,
-        target_addr, primary_term);
+    common::Logger::Instance().Debug("write_fallback[{}]: attempt {}/{} target={} term={}",
+                                     operation_label, attempt + 1, kRouteWriteMaxReroutes + 1,
+                                     target_addr, primary_term);
 
     grpc::Status status = call_fn(&call_ctx, stub);
     last_status = status;
@@ -285,8 +256,8 @@ grpc::Status RouteWriteAndCallWithFallback(
         // Surfaces in metrics so a primary-swap-induced retry is observable.
         metrics.IncReadReplicaFallback(operation_label, "primary_term_swap");
         common::Logger::Instance().Info(
-            "write_fallback[{}]: succeeded after {} re-route(s) (term={})",
-            operation_label, attempt, primary_term);
+            "write_fallback[{}]: succeeded after {} re-route(s) (term={})", operation_label,
+            attempt, primary_term);
       }
       return status;
     }
@@ -301,8 +272,7 @@ grpc::Status RouteWriteAndCallWithFallback(
     // UNAVAILABLE on a write is a real availability issue the caller
     // should surface.
     const grpc::StatusCode code = status.error_code();
-    if (code != grpc::StatusCode::ABORTED &&
-        code != grpc::StatusCode::FAILED_PRECONDITION) {
+    if (code != grpc::StatusCode::ABORTED && code != grpc::StatusCode::FAILED_PRECONDITION) {
       common::Logger::Instance().Debug(
           "write_fallback[{}]: non-retryable status code={} on attempt {}; "
           "short-circuiting",
@@ -320,10 +290,8 @@ grpc::Status RouteWriteAndCallWithFallback(
     common::Logger::Instance().Info(
         "write_fallback[{}]: {} from primary (term={}, msg=\"{}\"); "
         "re-routing via fresh RouteQuery (attempt {}/{})",
-        operation_label,
-        code == grpc::StatusCode::ABORTED ? "ABORTED" : "FAILED_PRECONDITION",
-        primary_term, status.error_message(),
-        attempt + 1, kRouteWriteMaxReroutes + 1);
+        operation_label, code == grpc::StatusCode::ABORTED ? "ABORTED" : "FAILED_PRECONDITION",
+        primary_term, status.error_message(), attempt + 1, kRouteWriteMaxReroutes + 1);
   }
 
   // Exhausted re-routes. Either a multi-swap storm or a primary record
@@ -332,8 +300,7 @@ grpc::Status RouteWriteAndCallWithFallback(
   common::Logger::Instance().Warn(
       "write_fallback[{}]: exhausted {} re-route(s); last status code={} "
       "message=\"{}\"",
-      operation_label, kRouteWriteMaxReroutes,
-      static_cast<int>(last_status.error_code()),
+      operation_label, kRouteWriteMaxReroutes, static_cast<int>(last_status.error_code()),
       last_status.error_message());
   return last_status;
 }

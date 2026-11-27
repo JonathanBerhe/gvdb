@@ -16,8 +16,7 @@ namespace test {
 // Calls `done` until it returns true or `timeout` passes. Returns the last
 // result, so a caller can REQUIRE(WaitFor(...)).
 template <typename Predicate>
-bool WaitFor(Predicate done,
-             std::chrono::milliseconds timeout = std::chrono::seconds(10),
+bool WaitFor(Predicate done, std::chrono::milliseconds timeout = std::chrono::seconds(10),
              std::chrono::milliseconds interval = std::chrono::milliseconds(5)) {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   while (std::chrono::steady_clock::now() < deadline) {

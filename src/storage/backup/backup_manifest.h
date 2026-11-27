@@ -37,8 +37,8 @@ struct BackupCollectionMeta {
   uint32_t collection_id = 0;
   std::string collection_name;
   int32_t dimension = 0;
-  int32_t metric = 0;       // MetricType as int
-  int32_t index_type = 0;   // IndexType as int
+  int32_t metric = 0;      // MetricType as int
+  int32_t index_type = 0;  // IndexType as int
   uint32_t num_shards = 0;
   uint32_t replication_factor = 0;
 };
@@ -97,26 +97,20 @@ struct ShardManifestV1 {
 class BackupManifest {
  public:
   [[nodiscard]] static std::string SerializeTop(const BackupManifestV1& m);
-  [[nodiscard]] static absl::StatusOr<BackupManifestV1> DeserializeTop(
-      const std::string& json);
+  [[nodiscard]] static absl::StatusOr<BackupManifestV1> DeserializeTop(const std::string& json);
 
   [[nodiscard]] static std::string SerializeShard(const ShardManifestV1& m);
-  [[nodiscard]] static absl::StatusOr<ShardManifestV1> DeserializeShard(
-      const std::string& json);
+  [[nodiscard]] static absl::StatusOr<ShardManifestV1> DeserializeShard(const std::string& json);
 
   // Conventional object keys / paths. All keys are slash-delimited and
   // relative to the backup root (which is itself relative to the
   // IObjectStore's namespace, e.g. <S3 prefix>/ or <LocalTarget root>/).
   static std::string TopManifestKey(const std::string& backup_id);
-  static std::string ShardManifestKey(const std::string& backup_id,
-                                      uint32_t shard_id);
-  static std::string SegmentFileKey(const std::string& backup_id,
-                                    uint32_t shard_id,
-                                    uint64_t segment_id,
-                                    const std::string& filename);
+  static std::string ShardManifestKey(const std::string& backup_id, uint32_t shard_id);
+  static std::string SegmentFileKey(const std::string& backup_id, uint32_t shard_id,
+                                    uint64_t segment_id, const std::string& filename);
   static std::string BackupRootPrefix(const std::string& backup_id);
 };
 
 }  // namespace storage
 }  // namespace gvdb
-

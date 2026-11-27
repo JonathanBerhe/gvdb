@@ -9,24 +9,21 @@
 #include <random>
 
 #include "absl/strings/str_cat.h"
-#include "storage/segment/batch_splitter.h"
-#include "storage/import/npy_reader.h"
 #include "common/logger.h"
+#include "storage/import/npy_reader.h"
+#include "storage/segment/batch_splitter.h"
 
 namespace gvdb {
 namespace storage {
 
-BulkImporter::BulkImporter(std::shared_ptr<ISegmentStore> segment_store,
-                           IObjectStore* object_store,
-                           const std::string& temp_dir,
-                           int max_concurrent)
+BulkImporter::BulkImporter(std::shared_ptr<ISegmentStore> segment_store, IObjectStore* object_store,
+                           const std::string& temp_dir, int max_concurrent)
     : segment_store_(std::move(segment_store)),
       object_store_(object_store),
       temp_dir_(temp_dir),
       max_concurrent_(max_concurrent),
       active_imports_(0) {
-  import_pool_ = std::make_unique<common::ThreadPool>(
-      static_cast<size_t>(max_concurrent));
+  import_pool_ = std::make_unique<common::ThreadPool>(static_cast<size_t>(max_concurrent));
   std::filesystem::create_directories(temp_dir_);
 }
 
@@ -35,16 +32,9 @@ BulkImporter::BulkImporter(std::shared_ptr<ISegmentStore> segment_store,
 // ============================================================================
 
 absl::StatusOr<std::string> BulkImporter::StartImport(
-    const std::string& collection_name,
-    core::CollectionId collection_id,
-    core::Dimension dimension,
-    core::MetricType metric,
-    core::IndexType index_type,
-    const std::string& source_uri,
-    ImportFormat format,
-    const std::string& vector_column,
-    const std::string& id_column) {
-
+    const std::string& collection_name, core::CollectionId collection_id, core::Dimension dimension,
+    core::MetricType metric, core::IndexType index_type, const std::string& source_uri,
+    ImportFormat format, const std::string& vector_column, const std::string& id_column) {
   if (!object_store_) {
     return absl::FailedPreconditionError(
         "Bulk import requires object storage (S3/MinIO). "
@@ -80,9 +70,8 @@ absl::StatusOr<std::string> BulkImporter::StartImport(
   int prev = active_imports_.fetch_add(1);
   if (prev >= max_concurrent_) {
     active_imports_.fetch_sub(1);
-    return absl::ResourceExhaustedError(
-        absl::StrCat("Maximum concurrent imports reached (",
-                      max_concurrent_, "). Try again later."));
+    return absl::ResourceExhaustedError(absl::StrCat("Maximum concurrent imports reached (",
+                                                     max_concurrent_, "). Try again later."));
   }
 
   // Validate URI format
@@ -106,26 +95,24 @@ absl::StatusOr<std::string> BulkImporter::StartImport(
   }
 
   common::Logger::Instance().Info(
-      "Bulk import job {} created: collection='{}', uri='{}', format={}",
-      job->id, collection_name, source_uri, static_cast<int>(format));
+      "Bulk import job {} created: collection='{}', uri='{}', format={}", job->id, collection_name,
+      source_uri, static_cast<int>(format));
 
   // Submit to thread pool
-  import_pool_->Enqueue([this, job, collection_id, dimension, metric,
-                         index_type, format, vector_column, id_column]() {
-    ExecuteImport(job, collection_id, dimension, metric, index_type,
-                  format, vector_column, id_column);
+  import_pool_->Enqueue([this, job, collection_id, dimension, metric, index_type, format,
+                         vector_column, id_column]() {
+    ExecuteImport(job, collection_id, dimension, metric, index_type, format, vector_column,
+                  id_column);
   });
 
   return job->id;
 }
 
-absl::StatusOr<ImportJobStatus> BulkImporter::GetStatus(
-    const std::string& import_id) const {
+absl::StatusOr<ImportJobStatus> BulkImporter::GetStatus(const std::string& import_id) const {
   std::lock_guard lock(jobs_mutex_);
   auto it = jobs_.find(import_id);
   if (it == jobs_.end()) {
-    return absl::NotFoundError(
-        absl::StrCat("Import job not found: ", import_id));
+    return absl::NotFoundError(absl::StrCat("Import job not found: ", import_id));
   }
 
   auto& job = it->second;
@@ -134,7 +121,8 @@ absl::StatusOr<ImportJobStatus> BulkImporter::GetStatus(
 
   uint64_t total = job->total_vectors.load();
   uint64_t imported = job->imported_vectors.load();
-  float progress = (total > 0) ? (static_cast<float>(imported) / static_cast<float>(total) * 100.0f) : 0.0f;
+  float progress =
+      (total > 0) ? (static_cast<float>(imported) / static_cast<float>(total) * 100.0f) : 0.0f;
 
   return ImportJobStatus{
       .import_id = job->id,
@@ -153,8 +141,7 @@ absl::Status BulkImporter::CancelImport(const std::string& import_id) {
   std::lock_guard lock(jobs_mutex_);
   auto it = jobs_.find(import_id);
   if (it == jobs_.end()) {
-    return absl::NotFoundError(
-        absl::StrCat("Import job not found: ", import_id));
+    return absl::NotFoundError(absl::StrCat("Import job not found: ", import_id));
   }
 
   auto& job = it->second;
@@ -165,8 +152,7 @@ absl::Status BulkImporter::CancelImport(const std::string& import_id) {
   }
 
   job->cancelled.store(true);
-  common::Logger::Instance().Info("Bulk import job {} cancellation requested",
-                                  import_id);
+  common::Logger::Instance().Info("Bulk import job {} cancellation requested", import_id);
   return absl::OkStatus();
 }
 
@@ -174,16 +160,11 @@ absl::Status BulkImporter::CancelImport(const std::string& import_id) {
 // Internal execution
 // ============================================================================
 
-void BulkImporter::ExecuteImport(
-    std::shared_ptr<ImportJob> job,
-    core::CollectionId collection_id,
-    core::Dimension dimension,
-    core::MetricType /*metric*/,
-    core::IndexType /*index_type*/,
-    ImportFormat format,
-    const std::string& /*vector_column*/,
-    const std::string& /*id_column*/) {
-
+void BulkImporter::ExecuteImport(std::shared_ptr<ImportJob> job, core::CollectionId collection_id,
+                                 core::Dimension dimension, core::MetricType /*metric*/,
+                                 core::IndexType /*index_type*/, ImportFormat format,
+                                 const std::string& /*vector_column*/,
+                                 const std::string& /*id_column*/) {
   // active_imports_ already incremented in StartImport
   job->state.store(ImportState::RUNNING);
 
@@ -222,8 +203,7 @@ void BulkImporter::ExecuteImport(
       status = ImportNpy(job, temp_path, collection_id, dimension);
       break;
     case ImportFormat::PARQUET:
-      status = absl::UnimplementedError(
-          "Parquet import is not yet available. Use NUMPY format.");
+      status = absl::UnimplementedError("Parquet import is not yet available. Use NUMPY format.");
       break;
   }
 
@@ -240,20 +220,17 @@ void BulkImporter::ExecuteImport(
     job->state.store(ImportState::FAILED);
   } else {
     job->state.store(ImportState::COMPLETED);
-    common::Logger::Instance().Info(
-        "Bulk import job {} completed: {} vectors in {} segments",
-        job->id, job->imported_vectors.load(), job->segments_created.load());
+    common::Logger::Instance().Info("Bulk import job {} completed: {} vectors in {} segments",
+                                    job->id, job->imported_vectors.load(),
+                                    job->segments_created.load());
   }
 
   active_imports_.fetch_sub(1);
 }
 
-absl::Status BulkImporter::ImportNpy(
-    std::shared_ptr<ImportJob> job,
-    const std::string& local_path,
-    core::CollectionId collection_id,
-    core::Dimension expected_dim) {
-
+absl::Status BulkImporter::ImportNpy(std::shared_ptr<ImportJob> job, const std::string& local_path,
+                                     core::CollectionId collection_id,
+                                     core::Dimension expected_dim) {
   // Parse header
   auto header_result = NpyReader::ReadHeader(local_path);
   if (!header_result.ok()) {
@@ -263,10 +240,9 @@ absl::Status BulkImporter::ImportNpy(
 
   // Validate dimension
   if (header.dimension != static_cast<size_t>(expected_dim)) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Dimension mismatch: .npy file has dimension ",
-                      header.dimension, " but collection expects ",
-                      expected_dim));
+    return absl::InvalidArgumentError(absl::StrCat("Dimension mismatch: .npy file has dimension ",
+                                                   header.dimension, " but collection expects ",
+                                                   expected_dim));
   }
 
   job->total_vectors.store(header.num_vectors);
@@ -281,12 +257,10 @@ absl::Status BulkImporter::ImportNpy(
       return absl::CancelledError("Import cancelled by user");
     }
 
-    size_t batch_count = std::min(kImportBatchSize,
-                                   header.num_vectors - start_row);
+    size_t batch_count = std::min(kImportBatchSize, header.num_vectors - start_row);
 
     // Read chunk from file
-    auto chunk_result = NpyReader::ReadChunk(
-        local_path, header, start_row, batch_count, next_id);
+    auto chunk_result = NpyReader::ReadChunk(local_path, header, start_row, batch_count, next_id);
     if (!chunk_result.ok()) {
       return chunk_result.status();
     }
@@ -312,8 +286,7 @@ absl::Status BulkImporter::ImportNpy(
     for (const auto& v : vectors) {
       item_costs.push_back(v.byte_size());
     }
-    auto ranges_or =
-        SplitBatchBySize(item_costs, segment_store_->GetMaxSegmentSize());
+    auto ranges_or = SplitBatchBySize(item_costs, segment_store_->GetMaxSegmentSize());
     if (!ranges_or.ok()) {
       return ranges_or.status();
     }
@@ -334,11 +307,9 @@ absl::Status BulkImporter::ImportNpy(
       const auto& range_ids = single_range ? ids : sliced_ids;
 
       // Get writable segment (auto-rotates when full)
-      auto* segment =
-          segment_store_->GetWritableSegment(collection_id, range_bytes);
+      auto* segment = segment_store_->GetWritableSegment(collection_id, range_bytes);
       if (!segment) {
-        return absl::InternalError(
-            "Failed to get writable segment for collection");
+        return absl::InternalError("Failed to get writable segment for collection");
       }
 
       // Track new segments
@@ -351,8 +322,7 @@ absl::Status BulkImporter::ImportNpy(
         // Segment might have filled up concurrently: rotate and retry once
         segment = segment_store_->GetWritableSegment(collection_id, range_bytes);
         if (!segment) {
-          return absl::InternalError(
-              "Failed to get writable segment after rotation");
+          return absl::InternalError("Failed to get writable segment after rotation");
         }
         seg_id = segment->GetId();
         job->AddSegment(seg_id);
@@ -396,16 +366,15 @@ absl::StatusOr<std::string> BulkImporter::ParseS3Uri(const std::string& uri) {
   return path.substr(slash_pos + 1);
 }
 
-absl::StatusOr<std::string> BulkImporter::DownloadToTemp(
-    const std::string& s3_key, const std::string& job_id) {
+absl::StatusOr<std::string> BulkImporter::DownloadToTemp(const std::string& s3_key,
+                                                         const std::string& job_id) {
   // Use job_id for unique temp file path (job IDs are already unique)
   auto temp_path = temp_dir_ + "/import_" + job_id;
 
   auto status = object_store_->GetObjectToFile(s3_key, temp_path);
   if (!status.ok()) {
     return absl::InternalError(
-        absl::StrCat("Failed to download from S3 key '", s3_key,
-                      "': ", status.message()));
+        absl::StrCat("Failed to download from S3 key '", s3_key, "': ", status.message()));
   }
 
   return temp_path;
@@ -422,8 +391,8 @@ std::string BulkImporter::GenerateImportId() {
   return absl::StrCat("imp_", ms, "_", dist(rng));
 }
 
-std::string BulkImporter::ComputeFingerprint(
-    const std::string& source_uri, const std::string& collection_name) {
+std::string BulkImporter::ComputeFingerprint(const std::string& source_uri,
+                                             const std::string& collection_name) {
   // Simple FNV-1a hash of concatenated fields
   uint64_t hash = 14695981039346656037ULL;
   auto hash_bytes = [&hash](const std::string& s) {
@@ -438,8 +407,7 @@ std::string BulkImporter::ComputeFingerprint(
   return std::to_string(hash);
 }
 
-void BulkImporter::CleanupOnFailure(std::shared_ptr<ImportJob> job,
-                                     const std::string& temp_path) {
+void BulkImporter::CleanupOnFailure(std::shared_ptr<ImportJob> job, const std::string& temp_path) {
   // Remove temp file
   if (!temp_path.empty()) {
     std::error_code ec;
@@ -456,16 +424,14 @@ void BulkImporter::CleanupOnFailure(std::shared_ptr<ImportJob> job,
   for (auto seg_id : segments) {
     auto status = segment_store_->DropSegment(seg_id, true);
     if (!status.ok()) {
-      common::Logger::Instance().Warn(
-          "Failed to cleanup segment {} during import failure: {}",
-          core::ToUInt32(seg_id), status.message());
+      common::Logger::Instance().Warn("Failed to cleanup segment {} during import failure: {}",
+                                      core::ToUInt32(seg_id), status.message());
     }
   }
 
   if (!segments.empty()) {
-    common::Logger::Instance().Info(
-        "Cleaned up {} segments for failed import job {}",
-        segments.size(), job->id);
+    common::Logger::Instance().Info("Cleaned up {} segments for failed import job {}",
+                                    segments.size(), job->id);
   }
 }
 

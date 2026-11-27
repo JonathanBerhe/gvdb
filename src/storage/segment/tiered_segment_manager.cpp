@@ -6,29 +6,26 @@
 // store side: upload with retry, download and discovery.
 
 #include "storage/segment/tiered_segment_manager.h"
-#include "core/status.h"
 #include <algorithm>
 #include <array>
 #include <mutex>
 #include <vector>
 #include "absl/container/flat_hash_set.h"
+#include "core/status.h"
 
 namespace gvdb {
 namespace storage {
 
-TieredSegmentManager::TieredSegmentManager(
-    std::unique_ptr<SegmentManager> local,
-    std::unique_ptr<IObjectStore> object_store,
-    std::unique_ptr<SegmentCache> cache,
-    const std::string& prefix,
-    int upload_threads,
-    std::chrono::milliseconds retry_base_delay)
+TieredSegmentManager::TieredSegmentManager(std::unique_ptr<SegmentManager> local,
+                                           std::unique_ptr<IObjectStore> object_store,
+                                           std::unique_ptr<SegmentCache> cache,
+                                           const std::string& prefix, int upload_threads,
+                                           std::chrono::milliseconds retry_base_delay)
     : local_(std::move(local)),
       object_store_(std::move(object_store)),
       cache_(std::move(cache)),
       prefix_(prefix),
-      upload_pool_(std::make_unique<common::ThreadPool>(
-          std::max(1, upload_threads))),
+      upload_pool_(std::make_unique<common::ThreadPool>(std::max(1, upload_threads))),
       retry_base_delay_(retry_base_delay) {
   retry_thread_ = std::thread([this]() { RetryLoop(); });
 }
@@ -51,20 +48,16 @@ TieredSegmentManager::~TieredSegmentManager() {
 // ============================================================================
 
 absl::StatusOr<core::SegmentId> TieredSegmentManager::CreateSegment(
-    core::CollectionId collection_id,
-    core::Dimension dimension,
-    core::MetricType metric) {
+    core::CollectionId collection_id, core::Dimension dimension, core::MetricType metric) {
   return local_->CreateSegment(collection_id, dimension, metric);
 }
 
-absl::Status TieredSegmentManager::CreateSegmentWithId(
-    core::SegmentId segment_id,
-    core::CollectionId collection_id,
-    core::Dimension dimension,
-    core::MetricType metric,
-    core::IndexType index_type) {
-  return local_->CreateSegmentWithId(
-      segment_id, collection_id, dimension, metric, index_type);
+absl::Status TieredSegmentManager::CreateSegmentWithId(core::SegmentId segment_id,
+                                                       core::CollectionId collection_id,
+                                                       core::Dimension dimension,
+                                                       core::MetricType metric,
+                                                       core::IndexType index_type) {
+  return local_->CreateSegmentWithId(segment_id, collection_id, dimension, metric, index_type);
 }
 
 Segment* TieredSegmentManager::GetSegment(core::SegmentId id) {
@@ -89,8 +82,8 @@ const Segment* TieredSegmentManager::GetSegment(core::SegmentId id) const {
   return local_->GetSegment(id);
 }
 
-absl::Status TieredSegmentManager::SealSegment(
-    core::SegmentId id, const core::IndexConfig& index_config) {
+absl::Status TieredSegmentManager::SealSegment(core::SegmentId id,
+                                               const core::IndexConfig& index_config) {
   return local_->SealSegment(id, index_config);
 }
 
@@ -111,8 +104,7 @@ absl::Status TieredSegmentManager::FlushSegment(core::SegmentId id) {
   return absl::OkStatus();
 }
 
-absl::Status TieredSegmentManager::DropSegment(
-    core::SegmentId id, bool delete_files) {
+absl::Status TieredSegmentManager::DropSegment(core::SegmentId id, bool delete_files) {
   auto status = local_->DropSegment(id, delete_files);
 
   // Copy remote info under lock, then do S3 I/O without holding the lock
@@ -152,8 +144,7 @@ absl::Status TieredSegmentManager::DropSegment(
   return status;
 }
 
-absl::Status TieredSegmentManager::AddReplicatedSegment(
-    std::unique_ptr<Segment> segment) {
+absl::Status TieredSegmentManager::AddReplicatedSegment(std::unique_ptr<Segment> segment) {
   return local_->AddReplicatedSegment(std::move(segment));
 }
 
@@ -161,16 +152,14 @@ absl::Status TieredSegmentManager::AddReplicatedSegment(
 // Data Operations: delegate with lazy load fallback
 // ============================================================================
 
-absl::Status TieredSegmentManager::WriteVectors(
-    core::SegmentId segment_id,
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids) {
+absl::Status TieredSegmentManager::WriteVectors(core::SegmentId segment_id,
+                                                const std::vector<core::Vector>& vectors,
+                                                const std::vector<core::VectorId>& ids) {
   return local_->WriteVectors(segment_id, vectors, ids);
 }
 
 absl::StatusOr<core::SearchResult> TieredSegmentManager::SearchCollection(
-    core::CollectionId collection_id,
-    const core::Vector& query, int k) const {
+    core::CollectionId collection_id, const core::Vector& query, int k) const {
   // Collect remote segment IDs under lock, then load outside the lock
   // to avoid recursive shared_mutex acquisition (UB per C++ standard).
   std::vector<core::SegmentId> to_load;
@@ -200,8 +189,8 @@ void TieredSegmentManager::SetSealCallback(SealCallback callback) {
   local_->SetSealCallback(std::move(callback));
 }
 
-Segment* TieredSegmentManager::GetWritableSegment(
-    core::CollectionId collection_id, size_t required_bytes) {
+Segment* TieredSegmentManager::GetWritableSegment(core::CollectionId collection_id,
+                                                  size_t required_bytes) {
   return local_->GetWritableSegment(collection_id, required_bytes);
 }
 

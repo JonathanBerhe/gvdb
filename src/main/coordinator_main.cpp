@@ -20,14 +20,14 @@
 #include "config/config.h"
 #include "consensus/raft_config.h"
 #include "consensus/raft_node.h"
-#include "index/index_factory.h"
 #include "core/status.h"
+#include "index/index_factory.h"
 #include "server/bootstrap.h"
 #include "server/builders.h"
 #include "server/cluster_steps.h"
 #include "server/flags.h"
-#include "service/vectordb/collection_resolver.h"
 #include "service/internal/internal_service.h"
+#include "service/vectordb/collection_resolver.h"
 #include "service/vectordb/vectordb_service.h"
 #include "storage/objstore/object_store_factory.h"
 #include "storage/segment/segment_manager.h"
@@ -71,8 +71,7 @@ absl::Status Run(const Args& args) {
   raft_config.peers = args.raft_peers;
   raft_config.coordinator_grpc_peers = args.coordinator_grpc_peers;
   raft_config.data_dir = args.data_dir + "/raft";
-  ASSIGN_OR_RETURN(std::unique_ptr<consensus::RaftNode> raft_node,
-                   server::StartRaft(raft_config));
+  ASSIGN_OR_RETURN(std::unique_ptr<consensus::RaftNode> raft_node, server::StartRaft(raft_config));
   if (!args.single_node_mode) {
     server::WaitForLeaderElection(*raft_node, std::chrono::seconds(60));
   }
@@ -145,7 +144,9 @@ absl::Status Run(const Args& args) {
       "Coordinator backup/restore served via distributed shard orchestration");
 
   ASSIGN_OR_RETURN(auto grpc_server,
-                   server::StartGrpcServer(args.bind_address, {internal_service.get(), vectordb_service.get()}, server::MakeServerCredentials(config.server.tls), std::move(interceptors)));
+                   server::StartGrpcServer(
+                       args.bind_address, {internal_service.get(), vectordb_service.get()},
+                       server::MakeServerCredentials(config.server.tls), std::move(interceptors)));
 
   server::PrintBanner(
       "GVDB Coordinator Node",

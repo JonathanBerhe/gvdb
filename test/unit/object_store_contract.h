@@ -58,8 +58,7 @@ class PrefixedObjectStore final : public IObjectStore {
   static std::string UniquePrefix() {
     static std::atomic<std::uint64_t> seq{0};
     const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
-    return "gvdb-contract/" + std::to_string(::getpid()) + "-" +
-           std::to_string(now) + "-" +
+    return "gvdb-contract/" + std::to_string(::getpid()) + "-" + std::to_string(now) + "-" +
            std::to_string(seq.fetch_add(1, std::memory_order_relaxed)) + "/";
   }
 
@@ -101,8 +100,8 @@ class PrefixedObjectStore final : public IObjectStore {
 // Contract: basic CRUD
 // ============================================================================
 
-TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: Put then Get returns the value",
-                          Fixture, put_then_get) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: Put then Get returns the value", Fixture,
+                          put_then_get) {
   Fixture f;
   auto& store = f.Get();
 
@@ -112,16 +111,16 @@ TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: Put then Get returns the value"
   CHECK_EQ(*result, "value1");
 }
 
-TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: Get on missing key returns NotFound",
-                          Fixture, get_missing) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: Get on missing key returns NotFound", Fixture,
+                          get_missing) {
   Fixture f;
   auto result = f.Get().GetObject("missing");
   CHECK_FALSE(result.ok());
   CHECK(absl::IsNotFound(result.status()));
 }
 
-TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: Delete removes the object",
-                          Fixture, delete_removes) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: Delete removes the object", Fixture,
+                          delete_removes) {
   Fixture f;
   auto& store = f.Get();
 
@@ -130,14 +129,14 @@ TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: Delete removes the object",
   CHECK_FALSE(store.GetObject("key1").ok());
 }
 
-TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: Delete on missing key is idempotent",
-                          Fixture, delete_missing) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: Delete on missing key is idempotent", Fixture,
+                          delete_missing) {
   Fixture f;
   CHECK(f.Get().DeleteObject("missing").ok());
 }
 
-TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: overwrite replaces prior value",
-                          Fixture, overwrite) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: overwrite replaces prior value", Fixture,
+                          overwrite) {
   Fixture f;
   auto& store = f.Get();
 
@@ -148,8 +147,7 @@ TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: overwrite replaces prior value"
   CHECK_EQ(*result, "v2");
 }
 
-TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: empty payload is valid",
-                          Fixture, empty_payload) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: empty payload is valid", Fixture, empty_payload) {
   Fixture f;
   auto& store = f.Get();
 
@@ -163,8 +161,8 @@ TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: empty payload is valid",
 // Contract: listing and existence
 // ============================================================================
 
-TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: ListObjects filters by prefix and sorts",
-                          Fixture, list_by_prefix) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: ListObjects filters by prefix and sorts", Fixture,
+                          list_by_prefix) {
   Fixture f;
   auto& store = f.Get();
 
@@ -179,16 +177,16 @@ TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: ListObjects filters by prefix a
   CHECK_EQ((*result)[1], "prefix/b");
 }
 
-TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: ListObjects returns empty on no match",
-                          Fixture, list_no_match) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: ListObjects returns empty on no match", Fixture,
+                          list_no_match) {
   Fixture f;
   auto result = f.Get().ListObjects("does-not-exist/");
   REQUIRE(result.ok());
   CHECK(result->empty());
 }
 
-TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: ObjectExists reports true / false",
-                          Fixture, object_exists) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: ObjectExists reports true / false", Fixture,
+                          object_exists) {
   Fixture f;
   auto& store = f.Get();
 
@@ -207,8 +205,8 @@ TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: ObjectExists reports true / fal
 // Contract: file-streaming variants
 // ============================================================================
 
-TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: PutObjectFromFile uploads file bytes",
-                          Fixture, put_from_file) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: PutObjectFromFile uploads file bytes", Fixture,
+                          put_from_file) {
   Fixture f;
   auto& store = f.Get();
 
@@ -225,17 +223,16 @@ TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: PutObjectFromFile uploads file 
 }
 
 TEST_CASE_TEMPLATE_DEFINE(
-    "ObjectStore contract: PutObjectFromFile on missing file returns NotFound",
-    Fixture, put_from_missing_file) {
+    "ObjectStore contract: PutObjectFromFile on missing file returns NotFound", Fixture,
+    put_from_missing_file) {
   Fixture f;
-  auto status = f.Get().PutObjectFromFile(
-      "key", (f.tmp_dir / "does-not-exist.bin").string());
+  auto status = f.Get().PutObjectFromFile("key", (f.tmp_dir / "does-not-exist.bin").string());
   CHECK_FALSE(status.ok());
   CHECK(absl::IsNotFound(status));
 }
 
-TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: GetObjectToFile materializes bytes",
-                          Fixture, get_to_file) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: GetObjectToFile materializes bytes", Fixture,
+                          get_to_file) {
   Fixture f;
   auto& store = f.Get();
 
@@ -244,17 +241,14 @@ TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: GetObjectToFile materializes by
   REQUIRE(store.GetObjectToFile("key1", dest.string()).ok());
 
   std::ifstream in(dest, std::ios::binary);
-  std::string contents((std::istreambuf_iterator<char>(in)),
-                       std::istreambuf_iterator<char>());
+  std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   CHECK_EQ(contents, "download me");
 }
 
-TEST_CASE_TEMPLATE_DEFINE(
-    "ObjectStore contract: GetObjectToFile on missing key returns NotFound",
-    Fixture, get_missing_to_file) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: GetObjectToFile on missing key returns NotFound",
+                          Fixture, get_missing_to_file) {
   Fixture f;
-  auto status = f.Get().GetObjectToFile(
-      "missing", (f.tmp_dir / "out.bin").string());
+  auto status = f.Get().GetObjectToFile("missing", (f.tmp_dir / "out.bin").string());
   CHECK_FALSE(status.ok());
   CHECK(absl::IsNotFound(status));
 }
@@ -263,8 +257,8 @@ TEST_CASE_TEMPLATE_DEFINE(
 // Contract: size and concurrency
 // ============================================================================
 
-TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: large (1 MiB) object round-trips",
-                          Fixture, large_object) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: large (1 MiB) object round-trips", Fixture,
+                          large_object) {
   Fixture f;
   auto& store = f.Get();
 
@@ -276,9 +270,8 @@ TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: large (1 MiB) object round-trip
   CHECK_EQ(*result, large);
 }
 
-TEST_CASE_TEMPLATE_DEFINE(
-    "ObjectStore contract: concurrent Puts from many threads all persist",
-    Fixture, concurrent_puts) {
+TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: concurrent Puts from many threads all persist",
+                          Fixture, concurrent_puts) {
   Fixture f;
   auto& store = f.Get();
 
@@ -293,8 +286,7 @@ TEST_CASE_TEMPLATE_DEFINE(
   for (int t = 0; t < kThreads; ++t) {
     threads.emplace_back([&store, &failed_puts, t]() {
       for (int i = 0; i < kOpsPerThread; ++i) {
-        const std::string key =
-            "t" + std::to_string(t) + "/" + std::to_string(i);
+        const std::string key = "t" + std::to_string(t) + "/" + std::to_string(i);
         if (!store.PutObject(key, "data").ok()) failed_puts.fetch_add(1);
       }
     });
@@ -306,8 +298,7 @@ TEST_CASE_TEMPLATE_DEFINE(
   // in-memory map updates drop writes.
   for (int t = 0; t < kThreads; ++t) {
     for (int i = 0; i < kOpsPerThread; ++i) {
-      const std::string key =
-          "t" + std::to_string(t) + "/" + std::to_string(i);
+      const std::string key = "t" + std::to_string(t) + "/" + std::to_string(i);
       auto got = store.GetObject(key);
       REQUIRE_MESSAGE(got.ok(), "missing after concurrent put: ", key);
       CHECK_EQ(*got, "data");
@@ -347,8 +338,7 @@ TEST_CASE_TEMPLATE_DEFINE(
   for (int t = 0; t < kThreads; ++t) {
     threads.emplace_back([&store, &kKey, &failed_puts, t]() {
       for (int i = 0; i < kOpsPerThread; ++i) {
-        const std::string payload =
-            "t" + std::to_string(t) + "-" + std::to_string(i);
+        const std::string payload = "t" + std::to_string(t) + "-" + std::to_string(i);
         if (!store.PutObject(kKey, payload).ok()) failed_puts.fetch_add(1);
       }
     });
@@ -359,8 +349,8 @@ TEST_CASE_TEMPLATE_DEFINE(
   auto final_value = store.GetObject(kKey);
   REQUIRE(final_value.ok());
   const auto match = std::find(all_payloads.begin(), all_payloads.end(), *final_value);
-  CHECK_MESSAGE(match != all_payloads.end(),
-                "final value not one of the written payloads: '", *final_value, "'");
+  CHECK_MESSAGE(match != all_payloads.end(), "final value not one of the written payloads: '",
+                *final_value, "'");
 }
 
 }  // namespace contract
@@ -376,25 +366,24 @@ TEST_CASE_TEMPLATE_DEFINE(
 // The static_assert at the end takes the semicolon after the macro call.
 #define GVDB_OBJECT_STORE_CONTRACT_INVOKE(id, ...) \
   namespace invoke_##id {                          \
-  TEST_CASE_TEMPLATE_INVOKE(id, __VA_ARGS__);      \
+    TEST_CASE_TEMPLATE_INVOKE(id, __VA_ARGS__);    \
   }
 
-#define GVDB_OBJECT_STORE_CONTRACT(...)                                     \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(put_then_get, __VA_ARGS__)              \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(get_missing, __VA_ARGS__)               \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(delete_removes, __VA_ARGS__)            \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(delete_missing, __VA_ARGS__)            \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(overwrite, __VA_ARGS__)                 \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(empty_payload, __VA_ARGS__)             \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(list_by_prefix, __VA_ARGS__)            \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(list_no_match, __VA_ARGS__)             \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(object_exists, __VA_ARGS__)             \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(put_from_file, __VA_ARGS__)             \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(put_from_missing_file, __VA_ARGS__)     \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(get_to_file, __VA_ARGS__)               \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(get_missing_to_file, __VA_ARGS__)       \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(large_object, __VA_ARGS__)              \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(concurrent_puts, __VA_ARGS__)           \
-  GVDB_OBJECT_STORE_CONTRACT_INVOKE(concurrent_overwrites, __VA_ARGS__)     \
+#define GVDB_OBJECT_STORE_CONTRACT(...)                                 \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(put_then_get, __VA_ARGS__)          \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(get_missing, __VA_ARGS__)           \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(delete_removes, __VA_ARGS__)        \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(delete_missing, __VA_ARGS__)        \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(overwrite, __VA_ARGS__)             \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(empty_payload, __VA_ARGS__)         \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(list_by_prefix, __VA_ARGS__)        \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(list_no_match, __VA_ARGS__)         \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(object_exists, __VA_ARGS__)         \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(put_from_file, __VA_ARGS__)         \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(put_from_missing_file, __VA_ARGS__) \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(get_to_file, __VA_ARGS__)           \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(get_missing_to_file, __VA_ARGS__)   \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(large_object, __VA_ARGS__)          \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(concurrent_puts, __VA_ARGS__)       \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(concurrent_overwrites, __VA_ARGS__) \
   static_assert(true, "object store contract")
-

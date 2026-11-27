@@ -44,15 +44,14 @@ absl::StatusOr<std::string> ReadEntireFile(const stdfs::path& path) {
   std::ifstream in(path, std::ios::binary);
   if (!in.is_open()) {
     return absl::InternalError(
-        absl::StrCat("FilesystemObjectStore: failed to open for read: ",
-                     path.string()));
+        absl::StrCat("FilesystemObjectStore: failed to open for read: ", path.string()));
   }
 
   in.seekg(0, std::ios::end);
   const std::streampos end_pos = in.tellg();
   if (end_pos < 0) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: tellg failed: ", path.string()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: tellg failed: ", path.string()));
   }
   in.seekg(0, std::ios::beg);
 
@@ -93,30 +92,29 @@ stdfs::path UniqueTempPath(const stdfs::path& root) {
 // cannot produce a zero-byte or partial object on the filesystem.
 absl::Status SyncFileAtPath(const stdfs::path& path) {
 #ifdef _WIN32
-  HANDLE h = CreateFileW(path.wstring().c_str(), GENERIC_WRITE,
-                          FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                          OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  HANDLE h = CreateFileW(path.wstring().c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
   if (h == INVALID_HANDLE_VALUE) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: failed to open for sync: ", path.string()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: failed to open for sync: ", path.string()));
   }
   const BOOL ok = FlushFileBuffers(h);
   CloseHandle(h);
   if (!ok) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: FlushFileBuffers failed: ", path.string()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: FlushFileBuffers failed: ", path.string()));
   }
 #else
   const int fd = ::open(path.c_str(), O_WRONLY);
   if (fd < 0) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: failed to open for sync: ", path.string()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: failed to open for sync: ", path.string()));
   }
   const int rc = ::fsync(fd);
   ::close(fd);
   if (rc != 0) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: fsync failed: ", path.string()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: fsync failed: ", path.string()));
   }
 #endif
   return absl::OkStatus();
@@ -133,14 +131,14 @@ absl::Status SyncDir(const stdfs::path& dir) {
 #else
   const int fd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY);
   if (fd < 0) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: failed to open dir for sync: ", dir.string()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: failed to open dir for sync: ", dir.string()));
   }
   const int rc = ::fsync(fd);
   ::close(fd);
   if (rc != 0) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: fsync(dir) failed: ", dir.string()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: fsync(dir) failed: ", dir.string()));
   }
   return absl::OkStatus();
 #endif
@@ -154,30 +152,29 @@ absl::Status AtomicWrite(const stdfs::path& root, const stdfs::path& dest,
   std::error_code ec;
   stdfs::create_directories(dest.parent_path(), ec);
   if (ec) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: failed to create parent dir for ",
-        dest.string(), ": ", ec.message()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: failed to create parent dir for ", dest.string(), ": ",
+                     ec.message()));
   }
   stdfs::create_directories(root / ".gvdb-tmp", ec);
   if (ec) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: failed to create reserved temp dir: ",
-        ec.message()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: failed to create reserved temp dir: ", ec.message()));
   }
 
   const stdfs::path tmp = UniqueTempPath(root);
   {
     std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
     if (!out.is_open()) {
-      return absl::InternalError(absl::StrCat(
-          "FilesystemObjectStore: failed to open temp file: ", tmp.string()));
+      return absl::InternalError(
+          absl::StrCat("FilesystemObjectStore: failed to open temp file: ", tmp.string()));
     }
     if (!data.empty()) {
       out.write(data.data(), static_cast<std::streamsize>(data.size()));
       if (!out.good()) {
         stdfs::remove(tmp, ec);  // best-effort cleanup; ignore ec
-        return absl::InternalError(absl::StrCat(
-            "FilesystemObjectStore: write failed: ", tmp.string()));
+        return absl::InternalError(
+            absl::StrCat("FilesystemObjectStore: write failed: ", tmp.string()));
       }
     }
   }  // ofstream closes here, flushing the user-space buffer to the OS.
@@ -192,8 +189,8 @@ absl::Status AtomicWrite(const stdfs::path& root, const stdfs::path& dest,
   stdfs::rename(tmp, dest, ec);
   if (ec) {
     stdfs::remove(tmp, ec);  // best-effort cleanup
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: rename failed: ", dest.string()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: rename failed: ", dest.string()));
   }
 
   // fsync the parent directory so the new directory entry survives a crash.
@@ -211,11 +208,10 @@ absl::Status AtomicWrite(const stdfs::path& root, const stdfs::path& dest,
 // Construction
 // ============================================================================
 
-absl::StatusOr<std::unique_ptr<FilesystemObjectStore>>
-FilesystemObjectStore::Create(const std::string& root) {
+absl::StatusOr<std::unique_ptr<FilesystemObjectStore>> FilesystemObjectStore::Create(
+    const std::string& root) {
   if (root.empty()) {
-    return absl::InvalidArgumentError(
-        "FilesystemObjectStore: root path must not be empty");
+    return absl::InvalidArgumentError("FilesystemObjectStore: root path must not be empty");
   }
 
   const stdfs::path root_path(root);
@@ -223,19 +219,18 @@ FilesystemObjectStore::Create(const std::string& root) {
 
   if (stdfs::exists(root_path, ec)) {
     if (ec) {
-      return absl::InternalError(absl::StrCat(
-          "FilesystemObjectStore: stat failed on root: ", ec.message()));
+      return absl::InternalError(
+          absl::StrCat("FilesystemObjectStore: stat failed on root: ", ec.message()));
     }
     if (!stdfs::is_directory(root_path, ec)) {
-      return absl::InvalidArgumentError(absl::StrCat(
-          "FilesystemObjectStore: root exists but is not a directory: ",
-          root));
+      return absl::InvalidArgumentError(
+          absl::StrCat("FilesystemObjectStore: root exists but is not a directory: ", root));
     }
   } else {
     stdfs::create_directories(root_path, ec);
     if (ec) {
-      return absl::InternalError(absl::StrCat(
-          "FilesystemObjectStore: failed to create root: ", ec.message()));
+      return absl::InternalError(
+          absl::StrCat("FilesystemObjectStore: failed to create root: ", ec.message()));
     }
   }
 
@@ -245,42 +240,36 @@ FilesystemObjectStore::Create(const std::string& root) {
   std::error_code abs_ec;
   auto abs_root = stdfs::absolute(root_path, abs_ec);
   if (abs_ec) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: failed to resolve root to absolute path: ",
-        root, ": ", abs_ec.message()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: failed to resolve root to absolute path: ", root, ": ",
+                     abs_ec.message()));
   }
 
   // Cannot use std::make_unique here because the constructor is private.
-  return std::unique_ptr<FilesystemObjectStore>(
-      new FilesystemObjectStore(std::move(abs_root)));
+  return std::unique_ptr<FilesystemObjectStore>(new FilesystemObjectStore(std::move(abs_root)));
 }
 
-FilesystemObjectStore::FilesystemObjectStore(stdfs::path root)
-    : root_(std::move(root)) {}
+FilesystemObjectStore::FilesystemObjectStore(stdfs::path root) : root_(std::move(root)) {}
 
 // ============================================================================
 // Key validation
 // ============================================================================
 
-absl::StatusOr<stdfs::path> FilesystemObjectStore::KeyToPath(
-    const std::string& key) const {
+absl::StatusOr<stdfs::path> FilesystemObjectStore::KeyToPath(const std::string& key) const {
   if (key.empty()) {
-    return absl::InvalidArgumentError(
-        "FilesystemObjectStore: key must not be empty");
+    return absl::InvalidArgumentError("FilesystemObjectStore: key must not be empty");
   }
   // Absolute keys would escape the root; reject outright.
   if (key.front() == '/' || key.front() == '\\') {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "FilesystemObjectStore: key must be relative: ", key));
+    return absl::InvalidArgumentError(
+        absl::StrCat("FilesystemObjectStore: key must be relative: ", key));
   }
   // Reserve the .gvdb-tmp/ subtree for in-flight atomic-write temp files.
   // Users cannot place objects there or they would be invisible to
   // ListObjects and race with ongoing writes.
-  if (key.compare(0, std::strlen(kReservedTempPrefix),
-                   kReservedTempPrefix) == 0) {
+  if (key.compare(0, std::strlen(kReservedTempPrefix), kReservedTempPrefix) == 0) {
     return absl::InvalidArgumentError(absl::StrCat(
-        "FilesystemObjectStore: key uses reserved prefix '",
-        kReservedTempPrefix, "': ", key));
+        "FilesystemObjectStore: key uses reserved prefix '", kReservedTempPrefix, "': ", key));
   }
 
   const stdfs::path candidate = root_ / stdfs::path(key);
@@ -301,10 +290,9 @@ absl::StatusOr<stdfs::path> FilesystemObjectStore::KeyToPath(
   // match "/root" as a prefix.
   const std::string root_prefix =
       root_str.empty() || root_str.back() == '/' ? root_str : root_str + "/";
-  if (norm_str != root_str && norm_str.compare(0, root_prefix.size(),
-                                                root_prefix) != 0) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "FilesystemObjectStore: key escapes root: ", key));
+  if (norm_str != root_str && norm_str.compare(0, root_prefix.size(), root_prefix) != 0) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("FilesystemObjectStore: key escapes root: ", key));
   }
 
   return normalised;
@@ -314,8 +302,7 @@ absl::StatusOr<stdfs::path> FilesystemObjectStore::KeyToPath(
 // Object API
 // ============================================================================
 
-absl::Status FilesystemObjectStore::PutObject(const std::string& key,
-                                              const std::string& data) {
+absl::Status FilesystemObjectStore::PutObject(const std::string& key, const std::string& data) {
   auto path = KeyToPath(key);
   if (!path.ok()) {
     return path.status();
@@ -323,8 +310,7 @@ absl::Status FilesystemObjectStore::PutObject(const std::string& key,
   return AtomicWrite(root_, *path, data);
 }
 
-absl::StatusOr<std::string> FilesystemObjectStore::GetObject(
-    const std::string& key) {
+absl::StatusOr<std::string> FilesystemObjectStore::GetObject(const std::string& key) {
   auto path = KeyToPath(key);
   if (!path.ok()) {
     return path.status();
@@ -341,9 +327,8 @@ absl::Status FilesystemObjectStore::DeleteObject(const std::string& key) {
   std::error_code ec;
   stdfs::remove(*path, ec);  // false when missing; ec set only on real error
   if (ec) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: delete failed: ", path->string(), ": ",
-        ec.message()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: delete failed: ", path->string(), ": ", ec.message()));
   }
   return absl::OkStatus();
 }
@@ -361,8 +346,8 @@ absl::StatusOr<std::vector<std::string>> FilesystemObjectStore::ListObjects(
   std::vector<std::string> result;
   for (const auto& entry : stdfs::recursive_directory_iterator(root_, ec)) {
     if (ec) {
-      return absl::InternalError(absl::StrCat(
-          "FilesystemObjectStore: list walk failed: ", ec.message()));
+      return absl::InternalError(
+          absl::StrCat("FilesystemObjectStore: list walk failed: ", ec.message()));
     }
     if (!entry.is_regular_file(ec)) {
       continue;
@@ -374,8 +359,7 @@ absl::StatusOr<std::vector<std::string>> FilesystemObjectStore::ListObjects(
     // Use generic_string so keys always use '/' regardless of host OS.
     std::string key = rel.generic_string();
     // Skip the reserved subtree that holds in-flight atomic-write temps.
-    if (key.compare(0, std::strlen(kReservedTempPrefix),
-                     kReservedTempPrefix) == 0) {
+    if (key.compare(0, std::strlen(kReservedTempPrefix), kReservedTempPrefix) == 0) {
       continue;
     }
     if (key.compare(0, prefix.size(), prefix) == 0) {
@@ -386,8 +370,7 @@ absl::StatusOr<std::vector<std::string>> FilesystemObjectStore::ListObjects(
   return result;
 }
 
-absl::StatusOr<bool> FilesystemObjectStore::ObjectExists(
-    const std::string& key) {
+absl::StatusOr<bool> FilesystemObjectStore::ObjectExists(const std::string& key) {
   auto path = KeyToPath(key);
   if (!path.ok()) {
     return path.status();
@@ -396,12 +379,12 @@ absl::StatusOr<bool> FilesystemObjectStore::ObjectExists(
   return stdfs::is_regular_file(*path, ec);
 }
 
-absl::Status FilesystemObjectStore::PutObjectFromFile(
-    const std::string& key, const std::string& local_file_path) {
+absl::Status FilesystemObjectStore::PutObjectFromFile(const std::string& key,
+                                                      const std::string& local_file_path) {
   std::error_code ec;
   if (!stdfs::exists(local_file_path, ec) || ec) {
-    return absl::NotFoundError(absl::StrCat(
-        "FilesystemObjectStore: local file not found: ", local_file_path));
+    return absl::NotFoundError(
+        absl::StrCat("FilesystemObjectStore: local file not found: ", local_file_path));
   }
 
   auto dest = KeyToPath(key);
@@ -411,25 +394,22 @@ absl::Status FilesystemObjectStore::PutObjectFromFile(
 
   stdfs::create_directories(dest->parent_path(), ec);
   if (ec) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: failed to create parent dir for ",
-        dest->string(), ": ", ec.message()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: failed to create parent dir for ", dest->string(),
+                     ": ", ec.message()));
   }
   stdfs::create_directories(root_ / ".gvdb-tmp", ec);
   if (ec) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: failed to create reserved temp dir: ",
-        ec.message()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: failed to create reserved temp dir: ", ec.message()));
   }
 
   const stdfs::path tmp = UniqueTempPath(root_);
-  stdfs::copy_file(local_file_path, tmp,
-                   stdfs::copy_options::overwrite_existing, ec);
+  stdfs::copy_file(local_file_path, tmp, stdfs::copy_options::overwrite_existing, ec);
   if (ec) {
     stdfs::remove(tmp, ec);
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: copy failed: ", local_file_path, " -> ",
-        tmp.string()));
+    return absl::InternalError(absl::StrCat("FilesystemObjectStore: copy failed: ", local_file_path,
+                                            " -> ", tmp.string()));
   }
 
   if (auto s = SyncFileAtPath(tmp); !s.ok()) {
@@ -440,8 +420,8 @@ absl::Status FilesystemObjectStore::PutObjectFromFile(
   stdfs::rename(tmp, *dest, ec);
   if (ec) {
     stdfs::remove(tmp, ec);
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: rename failed: ", dest->string()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: rename failed: ", dest->string()));
   }
 
   if (auto s = SyncDir(dest->parent_path()); !s.ok()) {
@@ -450,8 +430,8 @@ absl::Status FilesystemObjectStore::PutObjectFromFile(
   return absl::OkStatus();
 }
 
-absl::Status FilesystemObjectStore::GetObjectToFile(
-    const std::string& key, const std::string& local_file_path) {
+absl::Status FilesystemObjectStore::GetObjectToFile(const std::string& key,
+                                                    const std::string& local_file_path) {
   auto src = KeyToPath(key);
   if (!src.ok()) {
     return src.status();
@@ -459,23 +439,21 @@ absl::Status FilesystemObjectStore::GetObjectToFile(
 
   std::error_code ec;
   if (!stdfs::exists(*src, ec) || ec) {
-    return absl::NotFoundError(absl::StrCat(
-        "FilesystemObjectStore: object not found: ", key));
+    return absl::NotFoundError(absl::StrCat("FilesystemObjectStore: object not found: ", key));
   }
 
   const stdfs::path dest(local_file_path);
   stdfs::create_directories(dest.parent_path(), ec);
   if (ec) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: failed to create parent dir for ",
-        dest.string(), ": ", ec.message()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: failed to create parent dir for ", dest.string(), ": ",
+                     ec.message()));
   }
 
   stdfs::copy_file(*src, dest, stdfs::copy_options::overwrite_existing, ec);
   if (ec) {
-    return absl::InternalError(absl::StrCat(
-        "FilesystemObjectStore: copy failed: ", src->string(), " -> ",
-        dest.string()));
+    return absl::InternalError(
+        absl::StrCat("FilesystemObjectStore: copy failed: ", src->string(), " -> ", dest.string()));
   }
   return absl::OkStatus();
 }

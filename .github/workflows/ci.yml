@@ -884,3 +884,19 @@ jobs:
 
       - name: Check the module layers
         run: python3 tools/check_layers.py
+
+  # The C++ sources in src/ and test/ match .clang-format.
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.1.0
+
+      # The Makefile pins the clang-format version.
+      - name: Check the C++ format
+        run: make check-format

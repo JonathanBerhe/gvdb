@@ -2,17 +2,16 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "cluster/datanode/data_node.h"
-#include "core/config.h"
-#include "common/logger.h"
 #include "absl/strings/str_cat.h"
+#include "common/logger.h"
+#include "core/config.h"
 
 namespace gvdb {
 namespace cluster {
 
 DataNode::DataNode(std::unique_ptr<index::IndexFactory> index_factory,
                    std::shared_ptr<storage::ISegmentStore> segment_store)
-    : index_factory_(std::move(index_factory)),
-      segment_store_(std::move(segment_store)) {
+    : index_factory_(std::move(index_factory)), segment_store_(std::move(segment_store)) {
   common::Logger::Instance().Info("DataNode initialized");
 }
 
@@ -24,8 +23,7 @@ absl::Status DataNode::ScheduleBuildTask(const BuildTask& task) {
   build_cv_.notify_one();
 
   common::Logger::Instance().Info("Scheduled build task for segment {}, priority: {}",
-                                 core::ToUInt32(task.segment_id),
-                                 task.priority);
+                                  core::ToUInt32(task.segment_id), task.priority);
 
   return absl::OkStatus();
 }
@@ -33,15 +31,13 @@ absl::Status DataNode::ScheduleBuildTask(const BuildTask& task) {
 absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType index_type) {
   auto* segment = segment_store_->GetSegment(segment_id);
   if (!segment) {
-    return absl::NotFoundError(
-        absl::StrCat("Segment not found: ", core::ToUInt32(segment_id)));
+    return absl::NotFoundError(absl::StrCat("Segment not found: ", core::ToUInt32(segment_id)));
   }
 
   if (segment->GetState() != core::SegmentState::GROWING) {
-    return absl::FailedPreconditionError(
-        absl::StrCat("Segment ", core::ToUInt32(segment_id),
-                     " is not in GROWING state (current: ",
-                     static_cast<int>(segment->GetState()), ")"));
+    return absl::FailedPreconditionError(absl::StrCat(
+        "Segment ", core::ToUInt32(segment_id),
+        " is not in GROWING state (current: ", static_cast<int>(segment->GetState()), ")"));
   }
 
   if (segment->GetVectorCount() == 0) {
@@ -50,20 +46,17 @@ absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType in
   }
 
   // Resolve AUTO to a concrete index type + adaptive parameters
-  auto config = core::ResolveAutoIndexConfig(
-      index_type, segment->GetVectorCount(),
-      segment->GetDimension(), segment->GetMetric());
+  auto config = core::ResolveAutoIndexConfig(index_type, segment->GetVectorCount(),
+                                             segment->GetDimension(), segment->GetMetric());
 
-  common::Logger::Instance().Info(
-      "Building {} index for segment {} ({} vectors, dim={})",
-      static_cast<int>(config.index_type), core::ToUInt32(segment_id),
-      segment->GetVectorCount(), segment->GetDimension());
+  common::Logger::Instance().Info("Building {} index for segment {} ({} vectors, dim={})",
+                                  static_cast<int>(config.index_type), core::ToUInt32(segment_id),
+                                  segment->GetVectorCount(), segment->GetDimension());
 
   auto status = segment_store_->SealSegment(segment_id, config);
   if (!status.ok()) {
-    common::Logger::Instance().Error(
-        "Failed to build index for segment {}: {}",
-        core::ToUInt32(segment_id), status.message());
+    common::Logger::Instance().Error("Failed to build index for segment {}: {}",
+                                     core::ToUInt32(segment_id), status.message());
     return status;
   }
 
@@ -74,15 +67,13 @@ absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType in
   // rather than fail the build task (upload retries are tracked separately).
   auto flush_status = segment_store_->FlushSegment(segment_id);
   if (!flush_status.ok()) {
-    common::Logger::Instance().Error(
-        "Failed to flush segment {} after seal: {}",
-        core::ToUInt32(segment_id), flush_status.message());
+    common::Logger::Instance().Error("Failed to flush segment {} after seal: {}",
+                                     core::ToUInt32(segment_id), flush_status.message());
   }
 
-  common::Logger::Instance().Info(
-      "Index built for segment {} (type={}, vectors={})",
-      core::ToUInt32(segment_id), static_cast<int>(config.index_type),
-      segment->GetVectorCount());
+  common::Logger::Instance().Info("Index built for segment {} (type={}, vectors={})",
+                                  core::ToUInt32(segment_id), static_cast<int>(config.index_type),
+                                  segment->GetVectorCount());
 
   return absl::OkStatus();
 }
@@ -103,9 +94,8 @@ size_t DataNode::ProcessBuildQueue() {
     if (status.ok()) {
       processed++;
     } else {
-      common::Logger::Instance().Error(
-          "Build task failed for segment {}: {}",
-          core::ToUInt32(task.segment_id), status.message());
+      common::Logger::Instance().Error("Build task failed for segment {}: {}",
+                                       core::ToUInt32(task.segment_id), status.message());
     }
   }
 

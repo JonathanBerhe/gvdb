@@ -3,28 +3,26 @@
 //
 // Search and range search fanned out to the shards through the coordinator.
 
-#include "service/vectordb/vectordb_service.h"
-#include "rpc/proto_conversions.h"
-#include "service/vectordb/collection_resolver.h"
-#include "rpc/replica_fallback.h"
-#include "common/logger.h"
-#include "common/timer.h"
-#include "absl/strings/str_cat.h"
-#include "internal.grpc.pb.h"
+#include <grpcpp/grpcpp.h>
 #include <algorithm>
 #include <chrono>
 #include <future>
 #include <set>
-#include <grpcpp/grpcpp.h>
+#include "absl/strings/str_cat.h"
+#include "common/logger.h"
+#include "common/timer.h"
+#include "internal.grpc.pb.h"
+#include "rpc/proto_conversions.h"
+#include "rpc/replica_fallback.h"
+#include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
 
 namespace gvdb {
 namespace service {
 
-grpc::Status VectorDBService::SearchDistributed(
-    const proto::SearchRequest* request,
-    proto::SearchResponse* response,
-    const core::Vector& query) {
-
+grpc::Status VectorDBService::SearchDistributed(const proto::SearchRequest* request,
+                                                proto::SearchResponse* response,
+                                                const core::Vector& query) {
   common::Timer timer;
 
   // Get shard targets from coordinator
@@ -36,11 +34,11 @@ grpc::Status VectorDBService::SearchDistributed(
   const auto& targets = *targets_result;
   if (targets.empty()) {
     return grpc::Status(grpc::StatusCode::NOT_FOUND,
-        "No shards found for collection: " + request->collection_name());
+                        "No shards found for collection: " + request->collection_name());
   }
 
-  common::Logger::Instance().Info("Distributed search: {} shards for '{}'",
-                                  targets.size(), request->collection_name());
+  common::Logger::Instance().Info("Distributed search: {} shards for '{}'", targets.size(),
+                                  request->collection_name());
 
   // Fan out ExecuteShardQuery to each data node in parallel. Each shard
   // walks its own candidate list (primary + routable replicas) on
@@ -63,86 +61,77 @@ grpc::Status VectorDBService::SearchDistributed(
   futures.reserve(targets.size());
 
   for (const auto& target : targets) {
-    futures.push_back(std::async(std::launch::async,
-        [&target, &query, &request]() -> ShardResult {
-          ShardResult result;
-          result.shard_id = target.shard_id;
+    futures.push_back(std::async(std::launch::async, [&target, &query, &request]() -> ShardResult {
+      ShardResult result;
+      result.shard_id = target.shard_id;
 
-          if (target.options.empty()) {
-            // Coordinator returned no candidates for this shard at all;
-            // surface explicitly rather than silently dropping.
-            result.last_status_code = grpc::StatusCode::FAILED_PRECONDITION;
-            result.last_error = "no routable nodes for shard";
-            return result;
-          }
+      if (target.options.empty()) {
+        // Coordinator returned no candidates for this shard at all;
+        // surface explicitly rather than silently dropping.
+        result.last_status_code = grpc::StatusCode::FAILED_PRECONDITION;
+        result.last_error = "no routable nodes for shard";
+        return result;
+      }
 
-          // Project resolver-side options into the proto type the helper
-          // consumes. Same data, different message: the resolver layer
-          // intentionally keeps internal.pb.h out of its public header.
-          google::protobuf::RepeatedPtrField<
-              proto::internal::RouteQueryNodeOption>
-              proto_options;
-          for (const auto& o : target.options) {
-            auto* p = proto_options.Add();
-            p->set_node_id(o.node_id);
-            p->set_node_address(o.node_address);
-            p->set_is_primary(o.is_primary);
-          }
+      // Project resolver-side options into the proto type the helper
+      // consumes. Same data, different message: the resolver layer
+      // intentionally keeps internal.pb.h out of its public header.
+      google::protobuf::RepeatedPtrField<proto::internal::RouteQueryNodeOption> proto_options;
+      for (const auto& o : target.options) {
+        auto* p = proto_options.Add();
+        p->set_node_id(o.node_id);
+        p->set_node_address(o.node_address);
+        p->set_is_primary(o.is_primary);
+      }
 
-          auto rpc_result = rpc::CallWithReplicaFallback(
-              proto_options, std::chrono::milliseconds(10000), "search",
-              [&](grpc::ClientContext* ctx,
-                  const std::string& addr) -> grpc::Status {
-                // Defensive clear: today's helper returns on first OK,
-                // so this lambda runs at most once with a successful
-                // status. If a future maintainer changes the helper's
-                // strategy (e.g. best-of-N) this prevents accumulating
-                // duplicate entries from multiple successful retries.
-                result.entries.clear();
+      auto rpc_result = rpc::CallWithReplicaFallback(
+          proto_options, std::chrono::milliseconds(10000), "search",
+          [&](grpc::ClientContext* ctx, const std::string& addr) -> grpc::Status {
+            // Defensive clear: today's helper returns on first OK,
+            // so this lambda runs at most once with a successful
+            // status. If a future maintainer changes the helper's
+            // strategy (e.g. best-of-N) this prevents accumulating
+            // duplicate entries from multiple successful retries.
+            result.entries.clear();
 
-                auto channel = grpc::CreateChannel(
-                    addr, grpc::InsecureChannelCredentials());
-                auto stub =
-                    proto::internal::InternalService::NewStub(channel);
+            auto channel = grpc::CreateChannel(addr, grpc::InsecureChannelCredentials());
+            auto stub = proto::internal::InternalService::NewStub(channel);
 
-                proto::internal::ExecuteShardQueryRequest shard_req;
-                shard_req.set_collection_id(target.collection_id);
-                shard_req.set_shard_id(target.shard_id);
-                shard_req.set_top_k(request->top_k());
-                shard_req.set_filter(request->filter());
-                shard_req.set_return_metadata(request->return_metadata());
-                for (int i = 0; i < query.dimension(); ++i) {
-                  shard_req.add_query_vector(query.data()[i]);
+            proto::internal::ExecuteShardQueryRequest shard_req;
+            shard_req.set_collection_id(target.collection_id);
+            shard_req.set_shard_id(target.shard_id);
+            shard_req.set_top_k(request->top_k());
+            shard_req.set_filter(request->filter());
+            shard_req.set_return_metadata(request->return_metadata());
+            for (int i = 0; i < query.dimension(); ++i) {
+              shard_req.add_query_vector(query.data()[i]);
+            }
+
+            proto::internal::ExecuteShardQueryResponse shard_resp;
+            auto status = stub->ExecuteShardQuery(ctx, shard_req, &shard_resp);
+            if (status.ok()) {
+              for (const auto& r : shard_resp.results()) {
+                ShardEntry entry;
+                entry.id = r.id();
+                entry.distance = r.distance();
+                if (r.metadata().fields_size() > 0) {
+                  entry.metadata = r.metadata();
                 }
+                result.entries.push_back(std::move(entry));
+              }
+            }
+            return status;
+          });
 
-                proto::internal::ExecuteShardQueryResponse shard_resp;
-                auto status = stub->ExecuteShardQuery(ctx, shard_req,
-                                                       &shard_resp);
-                if (status.ok()) {
-                  for (const auto& r : shard_resp.results()) {
-                    ShardEntry entry;
-                    entry.id = r.id();
-                    entry.distance = r.distance();
-                    if (r.metadata().fields_size() > 0) {
-                      entry.metadata = r.metadata();
-                    }
-                    result.entries.push_back(std::move(entry));
-                  }
-                }
-                return status;
-              });
-
-          result.ok = rpc_result.final_status.ok();
-          result.last_status_code = rpc_result.final_status.error_code();
-          result.last_error =
-              std::string(rpc_result.final_status.error_message());
-          if (!result.ok) {
-            common::Logger::Instance().Warn(
-                "Shard {} search exhausted candidates: {}",
-                target.shard_id, result.last_error);
-          }
-          return result;
-        }));
+      result.ok = rpc_result.final_status.ok();
+      result.last_status_code = rpc_result.final_status.error_code();
+      result.last_error = std::string(rpc_result.final_status.error_message());
+      if (!result.ok) {
+        common::Logger::Instance().Warn("Shard {} search exhausted candidates: {}", target.shard_id,
+                                        result.last_error);
+      }
+      return result;
+    }));
   }
 
   // Collect and merge results. Surface partial failures explicitly:
@@ -173,16 +162,14 @@ grpc::Status VectorDBService::SearchDistributed(
     return grpc::Status(
         last_failed_code,
         absl::StrCat("distributed search incomplete: shards [", ids,
-                      "] exhausted all candidates (last error: ",
-                      last_error_summary, ")"));
+                     "] exhausted all candidates (last error: ", last_error_summary, ")"));
   }
 
   // Sort by distance ascending (L2/cosine) and take top_k
   std::sort(all_entries.begin(), all_entries.end(),
             [](const auto& a, const auto& b) { return a.distance < b.distance; });
 
-  int top_k = std::min(static_cast<int>(all_entries.size()),
-                        static_cast<int>(request->top_k()));
+  int top_k = std::min(static_cast<int>(all_entries.size()), static_cast<int>(request->top_k()));
 
   for (int i = 0; i < top_k; ++i) {
     auto* proto_entry = response->add_results();
@@ -197,17 +184,14 @@ grpc::Status VectorDBService::SearchDistributed(
   response->set_query_time_ms(timer.ElapsedMillis());
 
   total_queries_.fetch_add(1, std::memory_order_relaxed);
-  total_query_time_ms_.fetch_add(
-      static_cast<uint64_t>(timer.ElapsedMillis()),
-      std::memory_order_relaxed);
+  total_query_time_ms_.fetch_add(static_cast<uint64_t>(timer.ElapsedMillis()),
+                                 std::memory_order_relaxed);
 
   return grpc::Status::OK;
 }
 
-grpc::Status VectorDBService::RangeSearchDistributed(
-    const proto::RangeSearchRequest* request,
-    proto::RangeSearchResponse* response) {
-
+grpc::Status VectorDBService::RangeSearchDistributed(const proto::RangeSearchRequest* request,
+                                                     proto::RangeSearchResponse* response) {
   common::Timer timer;
 
   auto targets_result = resolver_->GetShardTargets(request->collection_name());
@@ -218,7 +202,7 @@ grpc::Status VectorDBService::RangeSearchDistributed(
   const auto& targets = *targets_result;
   if (targets.empty()) {
     return grpc::Status(grpc::StatusCode::NOT_FOUND,
-        "No shards found for collection: " + request->collection_name());
+                        "No shards found for collection: " + request->collection_name());
   }
 
   // Deduplicate node addresses: multiple shards may live on the same
@@ -249,30 +233,26 @@ grpc::Status VectorDBService::RangeSearchDistributed(
   futures.reserve(node_addrs.size());
 
   for (const auto& addr : node_addrs) {
-    futures.push_back(std::async(std::launch::async,
-        [addr, &request]() -> NodeResult {
-          NodeResult result;
-          result.addr = addr;
+    futures.push_back(std::async(std::launch::async, [addr, &request]() -> NodeResult {
+      NodeResult result;
+      result.addr = addr;
 
-          auto channel = grpc::CreateChannel(
-              addr, grpc::InsecureChannelCredentials());
-          auto stub = proto::VectorDBService::NewStub(channel);
+      auto channel = grpc::CreateChannel(addr, grpc::InsecureChannelCredentials());
+      auto stub = proto::VectorDBService::NewStub(channel);
 
-          grpc::ClientContext ctx;
-          ctx.set_deadline(std::chrono::system_clock::now() +
-                           std::chrono::seconds(10));
+      grpc::ClientContext ctx;
+      ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(10));
 
-          auto status = stub->RangeSearch(&ctx, *request, &result.resp);
-          result.ok = status.ok();
-          result.last_status_code = status.error_code();
-          result.last_error = std::string(status.error_message());
-          if (!result.ok) {
-            common::Logger::Instance().Warn(
-                "Distributed RangeSearch failed on {}: {}",
-                result.addr, result.last_error);
-          }
-          return result;
-        }));
+      auto status = stub->RangeSearch(&ctx, *request, &result.resp);
+      result.ok = status.ok();
+      result.last_status_code = status.error_code();
+      result.last_error = std::string(status.error_message());
+      if (!result.ok) {
+        common::Logger::Instance().Warn("Distributed RangeSearch failed on {}: {}", result.addr,
+                                        result.last_error);
+      }
+      return result;
+    }));
   }
 
   // Collect and merge results. Surface partial failures explicitly so a
@@ -305,15 +285,12 @@ grpc::Status VectorDBService::RangeSearchDistributed(
     return grpc::Status(
         last_failed_code,
         absl::StrCat("distributed range search incomplete: nodes [", addrs,
-                      "] exhausted all candidates (last error: ",
-                      last_error_summary, ")"));
+                     "] exhausted all candidates (last error: ", last_error_summary, ")"));
   }
 
   // Sort by distance and limit
   std::sort(all_entries.begin(), all_entries.end(),
-            [](const auto& a, const auto& b) {
-              return a.distance() < b.distance();
-            });
+            [](const auto& a, const auto& b) { return a.distance() < b.distance(); });
   if (static_cast<int>(all_entries.size()) > max_results) {
     all_entries.resize(max_results);
   }

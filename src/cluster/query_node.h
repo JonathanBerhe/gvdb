@@ -3,15 +3,15 @@
 
 #pragma once
 
+#include <map>
+#include <memory>
+#include <shared_mutex>
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "compute/query_executor.h"
 #include "core/types.h"
 #include "core/vector.h"
 #include "storage/segment/segment_store.h"
-#include "compute/query_executor.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include <memory>
-#include <map>
-#include <shared_mutex>
 
 namespace gvdb {
 namespace cluster {
@@ -20,8 +20,7 @@ namespace cluster {
 class QueryNode {
  public:
   QueryNode(std::shared_ptr<storage::ISegmentStore> segment_store,
-            std::shared_ptr<compute::QueryExecutor> query_executor,
-            size_t memory_limit_bytes);
+            std::shared_ptr<compute::QueryExecutor> query_executor, size_t memory_limit_bytes);
   ~QueryNode() = default;
 
   // Segment loading/unloading
@@ -31,10 +30,8 @@ class QueryNode {
   std::vector<core::SegmentId> GetLoadedSegments() const;
 
   // Query execution
-  absl::StatusOr<core::SearchResult> ExecuteSearch(
-      core::CollectionId collection_id,
-      const core::Vector& query_vector,
-      size_t top_k);
+  absl::StatusOr<core::SearchResult> ExecuteSearch(core::CollectionId collection_id,
+                                                   const core::Vector& query_vector, size_t top_k);
 
   // Resource management
   size_t GetMemoryUsage() const { return memory_used_bytes_; }

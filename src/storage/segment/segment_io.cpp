@@ -4,12 +4,12 @@
 // Segment flush to disk, load from disk, and the byte format for
 // replication.
 
-#include "storage/segment/segment.h"
-#include "core/status.h"
 #include <fstream>
 #include <sstream>
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
+#include "core/status.h"
+#include "storage/segment/segment.h"
 
 namespace gvdb {
 namespace storage {
@@ -20,8 +20,7 @@ absl::Status Segment::Flush(const std::string& base_path) {
   // Validate state
   if (state_ != core::SegmentState::SEALED) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot flush segment in state: ",
-                     static_cast<int>(state_)));
+        absl::StrCat("Cannot flush segment in state: ", static_cast<int>(state_)));
   }
 
   if (!index_) {
@@ -30,8 +29,7 @@ absl::Status Segment::Flush(const std::string& base_path) {
   }
 
   // Segment directory (must be created by SegmentManager before calling Flush)
-  std::string segment_path =
-      absl::StrCat(base_path, "/segment_", core::ToUInt32(id_));
+  std::string segment_path = absl::StrCat(base_path, "/segment_", core::ToUInt32(id_));
 
   // Serialize index to disk
   std::string index_path = absl::StrCat(segment_path, "/index.faiss");
@@ -41,8 +39,7 @@ absl::Status Segment::Flush(const std::string& base_path) {
   std::string metadata_path = absl::StrCat(segment_path, "/metadata.txt");
   std::ofstream metadata_file(metadata_path);
   if (!metadata_file.is_open()) {
-    return absl::InternalError(
-        absl::StrCat("Failed to open metadata file: ", metadata_path));
+    return absl::InternalError(absl::StrCat("Failed to open metadata file: ", metadata_path));
   }
 
   metadata_file << "segment_id=" << core::ToUInt32(id_) << "\n";
@@ -50,8 +47,7 @@ absl::Status Segment::Flush(const std::string& base_path) {
   metadata_file << "dimension=" << dimension_ << "\n";
   metadata_file << "metric=" << static_cast<int>(metric_) << "\n";
   metadata_file << "vector_count=" << index_->GetVectorCount() << "\n";
-  metadata_file << "index_type=" << static_cast<int>(index_->GetIndexType())
-                << "\n";
+  metadata_file << "index_type=" << static_cast<int>(index_->GetIndexType()) << "\n";
 
   metadata_file.close();
 
@@ -59,8 +55,7 @@ absl::Status Segment::Flush(const std::string& base_path) {
   std::string vectors_path = absl::StrCat(segment_path, "/vectors.bin");
   std::ofstream vectors_file(vectors_path, std::ios::binary);
   if (!vectors_file.is_open()) {
-    return absl::InternalError(
-        absl::StrCat("Failed to open vectors file: ", vectors_path));
+    return absl::InternalError(absl::StrCat("Failed to open vectors file: ", vectors_path));
   }
 
   // Write vector count
@@ -75,8 +70,7 @@ absl::Status Segment::Flush(const std::string& base_path) {
 
   // Write vector data
   for (const auto& vec : vectors_) {
-    vectors_file.write(reinterpret_cast<const char*>(vec.data()),
-                       vec.size() * sizeof(float));
+    vectors_file.write(reinterpret_cast<const char*>(vec.data()), vec.size() * sizeof(float));
   }
 
   // Write per-vector metadata
@@ -98,17 +92,15 @@ absl::Status Segment::Flush(const std::string& base_path) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<std::unique_ptr<Segment>> Segment::Load(
-    const std::string& base_path, core::SegmentId id) {
+absl::StatusOr<std::unique_ptr<Segment>> Segment::Load(const std::string& base_path,
+                                                       core::SegmentId id) {
   // Read metadata
-  std::string segment_path =
-      absl::StrCat(base_path, "/segment_", core::ToUInt32(id));
+  std::string segment_path = absl::StrCat(base_path, "/segment_", core::ToUInt32(id));
   std::string metadata_path = absl::StrCat(segment_path, "/metadata.txt");
 
   std::ifstream metadata_file(metadata_path);
   if (!metadata_file.is_open()) {
-    return absl::NotFoundError(
-        absl::StrCat("Metadata file not found: ", metadata_path));
+    return absl::NotFoundError(absl::StrCat("Metadata file not found: ", metadata_path));
   }
 
   // Parse metadata
@@ -139,9 +131,8 @@ absl::StatusOr<std::unique_ptr<Segment>> Segment::Load(
   metadata_file.close();
 
   // Create segment
-  auto segment = std::make_unique<Segment>(
-      id, core::MakeCollectionId(collection_id_raw), dimension,
-      static_cast<core::MetricType>(metric_raw));
+  auto segment = std::make_unique<Segment>(id, core::MakeCollectionId(collection_id_raw), dimension,
+                                           static_cast<core::MetricType>(metric_raw));
   segment->index_type_ = static_cast<core::IndexType>(index_type_raw);
 
   // Load vectors from vectors.bin if it exists
@@ -164,8 +155,7 @@ absl::StatusOr<std::unique_ptr<Segment>> Segment::Load(
     segment->vectors_.reserve(vector_count);
     for (uint64_t i = 0; i < vector_count; ++i) {
       std::vector<float> data(dimension);
-      vectors_file.read(reinterpret_cast<char*>(data.data()),
-                        dimension * sizeof(float));
+      vectors_file.read(reinterpret_cast<char*>(data.data()), dimension * sizeof(float));
       segment->vectors_.push_back(core::Vector(std::move(data)));
     }
 
@@ -233,8 +223,7 @@ absl::StatusOr<std::string> Segment::SerializeToBytes() const {
 
   // Vector data
   for (const auto& vec : vectors_) {
-    ss.write(reinterpret_cast<const char*>(vec.data()),
-             vec.size() * sizeof(float));
+    ss.write(reinterpret_cast<const char*>(vec.data()), vec.size() * sizeof(float));
   }
 
   // Metadata: write count then serialize each metadata map
@@ -303,16 +292,13 @@ absl::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
 
   // Validate dimension
   if (dim == 0 || dim > 100000) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Invalid dimension: ", dim));
+    return absl::InvalidArgumentError(absl::StrCat("Invalid dimension: ", dim));
   }
 
   // Create segment
-  auto segment = std::make_unique<Segment>(
-      core::MakeSegmentId(seg_id),
-      core::MakeCollectionId(coll_id),
-      dim,
-      static_cast<core::MetricType>(metric));
+  auto segment =
+      std::make_unique<Segment>(core::MakeSegmentId(seg_id), core::MakeCollectionId(coll_id), dim,
+                                static_cast<core::MetricType>(metric));
 
   segment->state_ = static_cast<core::SegmentState>(state);
 
@@ -326,8 +312,7 @@ absl::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
 
   // Validate vector count (max 100M vectors)
   if (vector_count > 100000000) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Invalid vector count: ", vector_count));
+    return absl::InvalidArgumentError(absl::StrCat("Invalid vector count: ", vector_count));
   }
 
   // Read vector IDs
@@ -337,8 +322,7 @@ absl::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
     uint64_t id_val;
     ss.read(reinterpret_cast<char*>(&id_val), sizeof(id_val));
     if (ss.fail()) {
-      return absl::InvalidArgumentError(
-          absl::StrCat("Failed to read vector ID at index ", i));
+      return absl::InvalidArgumentError(absl::StrCat("Failed to read vector ID at index ", i));
     }
     ids.push_back(core::MakeVectorId(id_val));
   }
@@ -350,8 +334,7 @@ absl::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
     std::vector<float> values(dim);
     ss.read(reinterpret_cast<char*>(values.data()), dim * sizeof(float));
     if (ss.fail()) {
-      return absl::InvalidArgumentError(
-          absl::StrCat("Failed to read vector data at index ", i));
+      return absl::InvalidArgumentError(absl::StrCat("Failed to read vector data at index ", i));
     }
     vectors.emplace_back(std::move(values));
   }
@@ -371,8 +354,7 @@ absl::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
 
   // Validate metadata count (max 100M entries)
   if (metadata_count > 100000000) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Invalid metadata count: ", metadata_count));
+    return absl::InvalidArgumentError(absl::StrCat("Invalid metadata count: ", metadata_count));
   }
 
   // Check if stream has enough remaining data for metadata entries
@@ -386,9 +368,9 @@ absl::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
   size_t min_bytes_needed = metadata_count * 16;  // Minimum per entry
 
   if (bytes_remaining < min_bytes_needed) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Insufficient data for metadata: need at least ",
-                     min_bytes_needed, " bytes, have ", bytes_remaining));
+    return absl::InvalidArgumentError(absl::StrCat("Insufficient data for metadata: need at least ",
+                                                   min_bytes_needed, " bytes, have ",
+                                                   bytes_remaining));
   }
 
   // Read metadata entries
@@ -449,8 +431,8 @@ absl::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
     }
   }
 
-  common::Logger::Instance().Info("Deserialized segment {} ({} vectors, {} bytes)",
-                                  seg_id, vector_count, bytes_data.size());
+  common::Logger::Instance().Info("Deserialized segment {} ({} vectors, {} bytes)", seg_id,
+                                  vector_count, bytes_data.size());
 
   return segment;
 }

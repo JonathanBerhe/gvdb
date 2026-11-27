@@ -30,9 +30,7 @@ void AuditLogger::Initialize(const AuditLogConfig& config) {
   }
 
   auto sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-      config.file_path,
-      config.max_file_size_mb * 1024 * 1024,
-      config.max_files);
+      config.file_path, config.max_file_size_mb * 1024 * 1024, config.max_files);
 
   // Raw message only — timestamp is inside the JSON
   sink->set_pattern("%v");
@@ -51,9 +49,7 @@ void AuditLogger::Log(const std::string& json_line) {
   }
 }
 
-bool AuditLogger::IsEnabled() {
-  return enabled_.load(std::memory_order_relaxed);
-}
+bool AuditLogger::IsEnabled() { return enabled_.load(std::memory_order_relaxed); }
 
 void AuditLogger::Shutdown() {
   if (logger_) {

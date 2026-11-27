@@ -30,8 +30,7 @@ struct LocalBackupTarget {
 };
 
 // Mirrors proto BackupTarget oneof; std::monostate represents "unset".
-using BackupTarget =
-    std::variant<std::monostate, S3BackupTarget, LocalBackupTarget>;
+using BackupTarget = std::variant<std::monostate, S3BackupTarget, LocalBackupTarget>;
 
 }  // namespace storage
 }  // namespace gvdb

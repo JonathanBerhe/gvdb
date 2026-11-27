@@ -30,7 +30,7 @@
 #define ASSIGN_OR_RETURN(lhs, expr) \
   GVDB_ASSIGN_OR_RETURN_IMPL(GVDB_STATUS_CONCAT(_status_or_, __LINE__), lhs, expr)
 
-#define GVDB_ASSIGN_OR_RETURN_IMPL(status_or, lhs, expr) \
-  auto status_or = (expr);                               \
+#define GVDB_ASSIGN_OR_RETURN_IMPL(status_or, lhs, expr)     \
+  auto status_or = (expr);                                   \
   if (!status_or.ok()) return std::move(status_or).status(); \
   lhs = std::move(*status_or)

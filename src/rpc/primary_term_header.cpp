@@ -30,8 +30,7 @@ PrimaryTermFromHeader ReadPrimaryTermHeader(grpc::ServerContext* context) {
   }
   errno = 0;
   char* end = nullptr;
-  unsigned long long parsed =
-      std::strtoull(raw.c_str(), &end, 10);
+  unsigned long long parsed = std::strtoull(raw.c_str(), &end, 10);
   // Reject empty parses, trailing junk, and overflow. uint64_t fits
   // strtoull's return on every supported platform; ULLONG_MAX returned
   // with errno==ERANGE means overflow.

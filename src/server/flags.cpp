@@ -39,8 +39,8 @@ std::vector<std::string> SplitList(const std::string& list) {
 void FlagSet::AddString(std::string name, std::string value_name, std::string help,
                         std::string* target, std::string env) {
   auto assign = [target](const std::string& value) { *target = value; };
-  flags_.push_back({std::move(name), std::move(value_name), std::move(help), std::move(env),
-                    assign, assign});
+  flags_.push_back(
+      {std::move(name), std::move(value_name), std::move(help), std::move(env), assign, assign});
 }
 
 void FlagSet::AddInt(std::string name, std::string value_name, std::string help, int* target) {
@@ -65,8 +65,8 @@ void FlagSet::AddList(std::string name, std::string value_name, std::string help
 
 void FlagSet::AddValue(std::string name, std::string value_name, std::string help,
                        std::function<void(const std::string&)> set) {
-  flags_.push_back({std::move(name), std::move(value_name), std::move(help), "",
-                    std::move(set), nullptr});
+  flags_.push_back(
+      {std::move(name), std::move(value_name), std::move(help), "", std::move(set), nullptr});
 }
 
 void FlagSet::AddSwitch(std::string name, std::string help, std::function<void()> set) {

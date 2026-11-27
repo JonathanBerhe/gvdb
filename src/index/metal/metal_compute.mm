@@ -11,8 +11,8 @@
 #include "index/metal/metal_compute.h"
 
 #include <fstream>
-#include <sstream>
 #include <mutex>
+#include <sstream>
 
 namespace gvdb {
 namespace index {
@@ -31,8 +31,7 @@ std::string ReadShaderSource(const std::string& path) {
 }
 
 // Kernel names we need from distance.metal
-const std::vector<std::string> kKernelNames = {
-    "l2_distance", "inner_product", "cosine_distance"};
+const std::vector<std::string> kKernelNames = {"l2_distance", "inner_product", "cosine_distance"};
 
 }  // namespace
 
@@ -139,11 +138,8 @@ bool MetalCompute::CompileKernels() {
   return true;
 }
 
-void MetalCompute::ComputeDistances(const std::string& kernel_name,
-                                     const float* queries, size_t nq,
-                                     MTL::Buffer* vec_buf, size_t nb,
-                                     size_t dim,
-                                     float* distances) {
+void MetalCompute::ComputeDistances(const std::string& kernel_name, const float* queries, size_t nq,
+                                    MTL::Buffer* vec_buf, size_t nb, size_t dim, float* distances) {
   if (!initialized_) return;
 
   auto it = pipelines_.find(kernel_name);
@@ -154,10 +150,9 @@ void MetalCompute::ComputeDistances(const std::string& kernel_name,
 
     // Only query and distance buffers are per-search (small).
     // Vector buffer is persistent (passed in by caller).
-    auto* q_buf = device_->newBuffer(queries, nq * dim * sizeof(float),
-                                     MTL::ResourceStorageModeShared);
-    auto* d_buf = device_->newBuffer(nq * nb * sizeof(float),
-                                     MTL::ResourceStorageModeShared);
+    auto* q_buf =
+        device_->newBuffer(queries, nq * dim * sizeof(float), MTL::ResourceStorageModeShared);
+    auto* d_buf = device_->newBuffer(nq * nb * sizeof(float), MTL::ResourceStorageModeShared);
 
     uint32_t dim32 = static_cast<uint32_t>(dim);
     uint32_t nb32 = static_cast<uint32_t>(nb);

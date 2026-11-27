@@ -17,8 +17,7 @@ int64_t ClampLease(int64_t lease_ms) {
 }
 }  // namespace
 
-bool ShardWriteGate::MaybeExpire(
-    uint16_t key, std::chrono::steady_clock::time_point now) const {
+bool ShardWriteGate::MaybeExpire(uint16_t key, std::chrono::steady_clock::time_point now) const {
   auto it = frozen_.find(key);
   if (it == frozen_.end()) return false;
   if (now >= it->second.expires_at) {
@@ -28,8 +27,7 @@ bool ShardWriteGate::MaybeExpire(
   return false;
 }
 
-bool ShardWriteGate::Freeze(core::ShardId shard_id, const std::string& token,
-                            int64_t lease_ms) {
+bool ShardWriteGate::Freeze(core::ShardId shard_id, const std::string& token, int64_t lease_ms) {
   if (token.empty()) return false;
   const auto key = core::ToUInt16(shard_id);
   const auto now = std::chrono::steady_clock::now();
@@ -52,8 +50,7 @@ bool ShardWriteGate::Freeze(core::ShardId shard_id, const std::string& token,
   return true;
 }
 
-bool ShardWriteGate::Unfreeze(core::ShardId shard_id,
-                              const std::string& token) {
+bool ShardWriteGate::Unfreeze(core::ShardId shard_id, const std::string& token) {
   if (token.empty()) return false;
   const auto key = core::ToUInt16(shard_id);
   std::lock_guard<std::mutex> lk(mu_);

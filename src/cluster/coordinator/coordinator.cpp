@@ -6,19 +6,18 @@
 // per responsibility.
 
 #include "cluster/coordinator/coordinator.h"
-#include "cluster/coordinator/internal_client.h"
-#include "common/logger.h"
 #include <chrono>
 #include <mutex>
 #include <set>
 #include <thread>
+#include "cluster/coordinator/internal_client.h"
+#include "common/logger.h"
 
 namespace gvdb {
 namespace cluster {
 
 Coordinator::Coordinator(std::shared_ptr<ShardManager> shard_manager,
-                         std::shared_ptr<NodeRegistry> node_registry,
-                         CoordinatorOptions options)
+                         std::shared_ptr<NodeRegistry> node_registry, CoordinatorOptions options)
     : shard_manager_(std::move(shard_manager)),
       node_registry_(std::move(node_registry)),
       registry_path_(options.registry_dir.empty() ? std::string()
@@ -30,13 +29,10 @@ Coordinator::Coordinator(std::shared_ptr<ShardManager> shard_manager,
   common::Logger::Instance().Info(
       "Coordinator initialized (using NodeRegistry, distributed_mode={}, "
       "auto_rebalance_debounce={}s)",
-      client_factory_ != nullptr,
-      auto_rebalance_config_.debounce.count());
+      client_factory_ != nullptr, auto_rebalance_config_.debounce.count());
 }
 
-Coordinator::~Coordinator() {
-  Shutdown().IgnoreError();
-}
+Coordinator::~Coordinator() { Shutdown().IgnoreError(); }
 
 absl::Status Coordinator::Start(const std::string& bind_address) {
   common::Logger::Instance().Info("Starting coordinator on {}", bind_address);
@@ -48,8 +44,8 @@ absl::Status Coordinator::Start(const std::string& bind_address) {
   // was already balanced. Seeding on Start() means only nodes that join
   // AFTER we're running count as scale-up events.
   {
-    auto data_nodes = node_registry_->GetHealthyNodesByType(
-        proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    auto data_nodes =
+        node_registry_->GetHealthyNodesByType(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
     std::lock_guard lock(known_nodes_mutex_);
     known_data_nodes_.clear();
     for (const auto& n : data_nodes) {
@@ -68,8 +64,7 @@ absl::Status Coordinator::Start(const std::string& bind_address) {
 }
 
 absl::Status Coordinator::Shutdown() {
-  const bool was_running =
-      running_.exchange(false, std::memory_order_acq_rel);
+  const bool was_running = running_.exchange(false, std::memory_order_acq_rel);
   if (was_running) {
     common::Logger::Instance().Info("Shutting down coordinator");
     StopHealthCheckLoop();
@@ -101,9 +96,7 @@ core::CollectionId Coordinator::AllocateCollectionId() {
 
 core::Timestamp Coordinator::GetCurrentTimestamp() const {
   auto now = std::chrono::system_clock::now();
-  return std::chrono::duration_cast<std::chrono::milliseconds>(
-             now.time_since_epoch())
-      .count();
+  return std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 }
 
 }  // namespace cluster

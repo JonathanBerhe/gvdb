@@ -17,7 +17,7 @@
 namespace rocksdb {
 class DB;
 class ColumnFamilyHandle;
-}
+}  // namespace rocksdb
 
 namespace gvdb {
 namespace consensus {
@@ -94,8 +94,8 @@ class GvdbLogStore : public nuraft::log_store {
    * @param end End index (exclusive)
    * @return Vector of log entries
    */
-  nuraft::ptr<std::vector<nuraft::ptr<nuraft::log_entry>>>
-  log_entries(nuraft::ulong start, nuraft::ulong end) override;
+  nuraft::ptr<std::vector<nuraft::ptr<nuraft::log_entry>>> log_entries(nuraft::ulong start,
+                                                                       nuraft::ulong end) override;
 
   /**
    * Get log entry at specific index.

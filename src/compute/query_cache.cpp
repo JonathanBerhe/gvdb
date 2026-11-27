@@ -26,10 +26,8 @@ static uint64_t HashString(const std::string& s) {
   return std::hash<std::string>{}(s);
 }
 
-CacheKey MakeCacheKey(core::CollectionId collection_id,
-                      const float* vector_data, size_t vector_size,
-                      uint32_t top_k,
-                      const std::string& filter) {
+CacheKey MakeCacheKey(core::CollectionId collection_id, const float* vector_data,
+                      size_t vector_size, uint32_t top_k, const std::string& filter) {
   return CacheKey{
       core::ToUInt32(collection_id),
       HashVector(vector_data, vector_size),
@@ -38,11 +36,9 @@ CacheKey MakeCacheKey(core::CollectionId collection_id,
   };
 }
 
-QueryCache::QueryCache(size_t max_entries)
-    : max_entries_(max_entries) {}
+QueryCache::QueryCache(size_t max_entries) : max_entries_(max_entries) {}
 
-std::optional<core::SearchResult> QueryCache::Get(const CacheKey& key,
-                                                   uint32_t collection_id) {
+std::optional<core::SearchResult> QueryCache::Get(const CacheKey& key, uint32_t collection_id) {
   std::unique_lock lock(mutex_);
 
   auto it = map_.find(key);

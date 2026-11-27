@@ -3,13 +3,13 @@
 
 #pragma once
 
-#include "internal.pb.h"
 #include <chrono>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
+#include "internal.pb.h"
 
 namespace gvdb {
 namespace cluster {
@@ -44,8 +44,7 @@ struct RegisteredNode {
 
   std::chrono::milliseconds TimeSinceLastHeartbeat(
       std::chrono::steady_clock::time_point now) const {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - last_heartbeat);
+    return std::chrono::duration_cast<std::chrono::milliseconds>(now - last_heartbeat);
   }
 };
 
@@ -58,8 +57,9 @@ class NodeRegistry {
   // must be safe to call from several threads at once.
   using Clock = std::function<std::chrono::steady_clock::time_point()>;
 
-  NodeRegistry(std::chrono::milliseconds heartbeat_timeout = std::chrono::seconds(10),
-               Clock clock = [] { return std::chrono::steady_clock::now(); });
+  NodeRegistry(
+      std::chrono::milliseconds heartbeat_timeout = std::chrono::seconds(10),
+      Clock clock = [] { return std::chrono::steady_clock::now(); });
   ~NodeRegistry();
 
   // Register or update a node from heartbeat
@@ -118,5 +118,5 @@ class NodeRegistry {
   Clock clock_;
 };
 
-} // namespace cluster
-} // namespace gvdb
+}  // namespace cluster
+}  // namespace gvdb

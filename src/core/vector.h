@@ -106,4 +106,3 @@ class Vector {
 
 }  // namespace core
 }  // namespace gvdb
-

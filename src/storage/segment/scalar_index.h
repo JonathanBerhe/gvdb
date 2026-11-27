@@ -79,8 +79,7 @@ class ScalarIndexSet {
   void RemoveVector(uint64_t vector_id, const core::Metadata& metadata);
 
   // Build indexes from a full metadata map (used during Seal)
-  void BuildFromMetadata(
-      const std::unordered_map<uint64_t, core::Metadata>& metadata_map);
+  void BuildFromMetadata(const std::unordered_map<uint64_t, core::Metadata>& metadata_map);
 
   // Evaluate a parsed filter node using indexes
   // Returns the set of matching vector IDs, or std::nullopt if the filter
@@ -100,4 +99,3 @@ class ScalarIndexSet {
 
 }  // namespace storage
 }  // namespace gvdb
-

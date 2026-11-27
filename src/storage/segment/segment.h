@@ -11,9 +11,9 @@
 
 #include "core/interfaces.h"
 #include "core/metadata.h"
+#include "core/sparse_vector.h"
 #include "core/status.h"
 #include "core/types.h"
-#include "core/sparse_vector.h"
 #include "core/vector.h"
 #include "index/sparse_index.h"
 #include "index/text_index.h"
@@ -35,9 +35,8 @@ class Segment;
 class Segment {
  public:
   // Constructor
-  Segment(core::SegmentId id, core::CollectionId collection_id,
-          core::Dimension dimension, core::MetricType metric,
-          size_t max_segment_size = kMaxSegmentSize);
+  Segment(core::SegmentId id, core::CollectionId collection_id, core::Dimension dimension,
+          core::MetricType metric, size_t max_segment_size = kMaxSegmentSize);
 
   // Disable copy and move (contains mutex)
   Segment(const Segment&) = delete;
@@ -51,14 +50,12 @@ class Segment {
 
   // Add vectors to segment (only valid for GROWING state)
   [[nodiscard]] absl::Status AddVectors(
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids,
+      const std::vector<core::Vector>& vectors, const std::vector<core::VectorId>& ids,
       const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Add vectors with metadata to segment (only valid for GROWING state)
   [[nodiscard]] absl::Status AddVectorsWithMetadata(
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids,
+      const std::vector<core::Vector>& vectors, const std::vector<core::VectorId>& ids,
       const std::vector<core::Metadata>& metadata,
       const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
@@ -73,8 +70,8 @@ class Segment {
     std::vector<core::Metadata> found_metadata;
     std::vector<core::VectorId> not_found_ids;
   };
-  [[nodiscard]] GetVectorsResult GetVectors(
-      const std::vector<core::VectorId>& ids, bool include_metadata) const;
+  [[nodiscard]] GetVectorsResult GetVectors(const std::vector<core::VectorId>& ids,
+                                            bool include_metadata) const;
 
   // Delete vectors by ID (only valid for GROWING state)
   struct DeleteVectorsResult {
@@ -85,12 +82,11 @@ class Segment {
       const std::vector<core::VectorId>& ids);
 
   // Update metadata for a vector (only valid for GROWING state)
-  [[nodiscard]] absl::Status UpdateMetadata(
-      core::VectorId id, const core::Metadata& metadata, bool merge);
+  [[nodiscard]] absl::Status UpdateMetadata(core::VectorId id, const core::Metadata& metadata,
+                                            bool merge);
 
   // Search for nearest neighbors (requires index to be built)
-  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
-      const core::Vector& query, int k) const;
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(const core::Vector& query, int k) const;
 
   // Search with metadata filtering (requires index to be built)
   [[nodiscard]] absl::StatusOr<core::SearchResult> SearchWithFilter(
@@ -99,14 +95,9 @@ class Segment {
   // Hybrid search combining vector similarity and BM25 text relevance
   // Uses Reciprocal Rank Fusion to combine ranked results
   [[nodiscard]] absl::StatusOr<core::SearchResult> SearchHybrid(
-      const core::Vector& query_vector,
-      const std::string& text_query,
-      int k,
-      float vector_weight = 0.5f,
-      float text_weight = 0.5f,
-      const std::string& text_field = "text",
-      const core::SparseVector* sparse_query = nullptr,
-      float sparse_weight = 0.0f) const;
+      const core::Vector& query_vector, const std::string& text_query, int k,
+      float vector_weight = 0.5f, float text_weight = 0.5f, const std::string& text_field = "text",
+      const core::SparseVector* sparse_query = nullptr, float sparse_weight = 0.0f) const;
 
   // Upsert: insert or replace vector (only valid for GROWING state)
   struct UpsertResult {
@@ -114,14 +105,14 @@ class Segment {
     uint64_t updated_count;
   };
   [[nodiscard]] absl::StatusOr<UpsertResult> UpsertVectors(
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids,
+      const std::vector<core::Vector>& vectors, const std::vector<core::VectorId>& ids,
       const std::vector<core::Metadata>& metadata,
       const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Range search: find all vectors within distance radius
-  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRange(
-      const core::Vector& query, float radius, int max_results = 1000) const;
+  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRange(const core::Vector& query,
+                                                               float radius,
+                                                               int max_results = 1000) const;
 
   // Range search with metadata filter
   [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRangeWithFilter(
@@ -135,7 +126,7 @@ class Segment {
 
   // Build a BM25 text index from a metadata field across all vectors in this segment
   absl::Status BuildTextIndex(std::unique_ptr<index::ITextIndex> text_index,
-                               const std::string& text_field = "text");
+                              const std::string& text_field = "text");
 
   // Build sparse index from stored sparse vectors
   absl::Status BuildSparseIndex(std::unique_ptr<index::SparseIndex> sparse_index);
@@ -148,8 +139,7 @@ class Segment {
 
   // Add vectors with sparse data alongside dense vectors and metadata
   [[nodiscard]] absl::Status AddVectorsWithSparse(
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids,
+      const std::vector<core::Vector>& vectors, const std::vector<core::VectorId>& ids,
       const std::vector<core::Metadata>& metadata,
       const std::unordered_map<uint64_t, core::SparseVector>& sparse,
       const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
@@ -162,8 +152,8 @@ class Segment {
   [[nodiscard]] absl::Status Flush(const std::string& base_path);
 
   // Load segment from persistent storage
-  [[nodiscard]] static absl::StatusOr<std::unique_ptr<Segment>> Load(
-      const std::string& base_path, core::SegmentId id);
+  [[nodiscard]] static absl::StatusOr<std::unique_ptr<Segment>> Load(const std::string& base_path,
+                                                                     core::SegmentId id);
 
   // ========== Serialization for Replication ==========
 
@@ -195,9 +185,7 @@ class Segment {
   // ========== Accessors ==========
 
   [[nodiscard]] core::SegmentId GetId() const { return id_; }
-  [[nodiscard]] core::CollectionId GetCollectionId() const {
-    return collection_id_;
-  }
+  [[nodiscard]] core::CollectionId GetCollectionId() const { return collection_id_; }
   [[nodiscard]] core::SegmentState GetState() const;
   [[nodiscard]] core::Dimension GetDimension() const { return dimension_; }
   [[nodiscard]] core::MetricType GetMetric() const { return metric_; }
@@ -278,18 +266,15 @@ class Segment {
     if (it == expiry_map_.end()) return false;
     return now >= it->second;
   }
-  [[nodiscard]] absl::Status ValidateVectors(
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids) const;
+  [[nodiscard]] absl::Status ValidateVectors(const std::vector<core::Vector>& vectors,
+                                             const std::vector<core::VectorId>& ids) const;
 
   // Delete vectors without acquiring the lock. Caller must hold unique_lock.
   [[nodiscard]] absl::StatusOr<DeleteVectorsResult> DeleteVectorsUnlocked(
       const std::vector<core::VectorId>& ids);
 
-
   // Compute distance between two vectors using the segment's metric
-  [[nodiscard]] float ComputeDistance(const core::Vector& a,
-                                      const core::Vector& b) const;
+  [[nodiscard]] float ComputeDistance(const core::Vector& a, const core::Vector& b) const;
 
   // Brute-force search over in-memory vectors. Caller must hold the lock.
   [[nodiscard]] absl::StatusOr<core::SearchResult> BruteForceSearchUnlocked(
@@ -298,4 +283,3 @@ class Segment {
 
 }  // namespace storage
 }  // namespace gvdb
-

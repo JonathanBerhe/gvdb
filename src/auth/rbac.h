@@ -20,23 +20,18 @@ namespace auth {
 // configuration).
 struct ApiKeyConfig {
   std::string key;
-  std::string role;                        // "admin", "readwrite", "readonly", "collection_admin"
-  std::vector<std::string> collections;    // empty or ["*"] = all collections
+  std::string role;                      // "admin", "readwrite", "readonly", "collection_admin"
+  std::vector<std::string> collections;  // empty or ["*"] = all collections
 };
 
 // Authentication settings of a server.
 struct AuthConfig {
   bool enabled = false;
-  std::vector<std::string> api_keys;       // Legacy: flat keys treated as admin
-  std::vector<ApiKeyConfig> roles;         // Role-based keys
+  std::vector<std::string> api_keys;  // Legacy: flat keys treated as admin
+  std::vector<ApiKeyConfig> roles;    // Role-based keys
 };
 
-enum class Role {
-  ADMIN,
-  READWRITE,
-  READONLY,
-  COLLECTION_ADMIN
-};
+enum class Role { ADMIN, READWRITE, READONLY, COLLECTION_ADMIN };
 
 enum class Permission {
   CREATE_COLLECTION,
@@ -72,8 +67,7 @@ bool HasPermission(Role role, Permission permission);
 
 // Check if a key-role grants access to a specific collection.
 // Returns true if role is ADMIN, collections contains "*", or contains the name.
-bool HasCollectionAccess(const ApiKeyRole& key_role,
-                         const std::string& collection);
+bool HasCollectionAccess(const ApiKeyRole& key_role, const std::string& collection);
 
 // Parse a role string ("admin", "readwrite", "readonly", "collection_admin").
 // Returns InvalidArgumentError for unrecognized strings.
@@ -87,8 +81,7 @@ class RbacStore {
   //   - empty key
   //   - unrecognized role string
   //   - non-admin role with empty collections (must specify ["*"] or explicit list)
-  static absl::StatusOr<std::shared_ptr<RbacStore>> Create(
-      const auth::AuthConfig& config);
+  static absl::StatusOr<std::shared_ptr<RbacStore>> Create(const auth::AuthConfig& config);
 
   // Look up role info for an API key. Returns nullptr if not found.
   const ApiKeyRole* Lookup(const std::string& key) const;

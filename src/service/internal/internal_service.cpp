@@ -7,19 +7,18 @@
 // data_node_handlers.cpp hold the two groups of RPCs.
 
 #include "service/internal/internal_service.h"
-#include "cluster/coordinator/node_registry.h"
 #include "cluster/coordinator/coordinator.h"
-#include "consensus/raft_node.h"
+#include "cluster/coordinator/node_registry.h"
 #include "common/logger.h"
+#include "consensus/raft_node.h"
 
 namespace gvdb {
 namespace service {
 
-InternalService::InternalService(
-    std::shared_ptr<cluster::ShardManager> shard_manager,
-    std::shared_ptr<storage::ISegmentStore> segment_store,
-    std::shared_ptr<compute::QueryExecutor> query_executor,
-    InternalServiceOptions options)
+InternalService::InternalService(std::shared_ptr<cluster::ShardManager> shard_manager,
+                                 std::shared_ptr<storage::ISegmentStore> segment_store,
+                                 std::shared_ptr<compute::QueryExecutor> query_executor,
+                                 InternalServiceOptions options)
     : shard_manager_(std::move(shard_manager)),
       segment_store_(std::move(segment_store)),
       query_executor_(std::move(query_executor)),
@@ -32,8 +31,7 @@ InternalService::InternalService(
       shard_write_gate_(options.shard_write_gate) {
   common::Logger::Instance().Info(
       "InternalService initialized (node_registry={}, coordinator={}, raft_node={})",
-      node_registry_ != nullptr ? "yes" : "no",
-      coordinator_ != nullptr ? "yes" : "no",
+      node_registry_ != nullptr ? "yes" : "no", coordinator_ != nullptr ? "yes" : "no",
       raft_node_ != nullptr ? "yes" : "no");
 }
 

@@ -16,10 +16,10 @@
 //      RemovePeer on the leader. Verify cluster_config returns to 3.
 
 #include "cluster/coordinator/raft_peer_client.h"
-#include "consensus/raft_node.h"
 #include "consensus/raft_config.h"
-#include "service/internal/internal_service.h"
+#include "consensus/raft_node.h"
 #include "internal.grpc.pb.h"
+#include "service/internal/internal_service.h"
 #include "support/temp_dir.h"
 #include "support/wait.h"
 
@@ -92,22 +92,18 @@ struct TestCoordinator {
   std::unique_ptr<service::InternalService> service;
   std::unique_ptr<grpc::Server> grpc_server;
 
-  std::string raft_endpoint() const {
-    return "localhost:" + std::to_string(raft_port);
-  }
-  std::string grpc_endpoint() const {
-    return "localhost:" + std::to_string(grpc_port);
-  }
+  std::string raft_endpoint() const { return "localhost:" + std::to_string(raft_port); }
+  std::string grpc_endpoint() const { return "localhost:" + std::to_string(grpc_port); }
 };
 
 // Peer specs for a cluster of 'count' members, each with a raft port and a
 // gRPC port from PickFreePorts(). Order is 1..count, matching the
 // ordinal->node_id convention (ordinal 0 => node_id 1).
 struct ClusterLayout {
-  std::vector<std::string> raft_peers;         // "id:host:port"
+  std::vector<std::string> raft_peers;              // "id:host:port"
   std::vector<std::string> coordinator_grpc_peers;  // "host:port"
-  std::vector<int> raft_ports;  // [node_id - 1]
-  std::vector<int> grpc_ports;  // [node_id - 1]
+  std::vector<int> raft_ports;                      // [node_id - 1]
+  std::vector<int> grpc_ports;                      // [node_id - 1]
 };
 
 ClusterLayout MakeLayout(int count) {
@@ -118,18 +114,15 @@ ClusterLayout MakeLayout(int count) {
     int id = i + 1;
     l.raft_ports.push_back(ports[2 * i]);
     l.grpc_ports.push_back(ports[2 * i + 1]);
-    l.raft_peers.push_back(
-        std::to_string(id) + ":localhost:" +
-        std::to_string(l.raft_ports.back()));
-    l.coordinator_grpc_peers.push_back(
-        "localhost:" + std::to_string(l.grpc_ports.back()));
+    l.raft_peers.push_back(std::to_string(id) +
+                           ":localhost:" + std::to_string(l.raft_ports.back()));
+    l.coordinator_grpc_peers.push_back("localhost:" + std::to_string(l.grpc_ports.back()));
   }
   return l;
 }
 
-std::unique_ptr<TestCoordinator> StartCoordinator(
-    int node_id, const ClusterLayout& layout,
-    const std::filesystem::path& root_dir) {
+std::unique_ptr<TestCoordinator> StartCoordinator(int node_id, const ClusterLayout& layout,
+                                                  const std::filesystem::path& root_dir) {
   auto c = std::make_unique<TestCoordinator>();
   c->node_id = node_id;
   c->raft_port = layout.raft_ports[node_id - 1];
@@ -159,8 +152,7 @@ std::unique_ptr<TestCoordinator> StartCoordinator(
   c->service = std::make_unique<service::InternalService>(
       /*shard_manager=*/nullptr,
       /*segment_store=*/nullptr,
-      /*query_executor=*/nullptr,
-      service::InternalServiceOptions{.raft_node = c->raft});
+      /*query_executor=*/nullptr, service::InternalServiceOptions{.raft_node = c->raft});
 
   grpc::ServerBuilder builder;
   builder.AddListeningPort(c->grpc_endpoint(), grpc::InsecureServerCredentials());
@@ -173,8 +165,7 @@ std::unique_ptr<TestCoordinator> StartCoordinator(
 void ShutdownCoordinator(TestCoordinator* c) {
   if (!c) return;
   if (c->grpc_server) {
-    c->grpc_server->Shutdown(std::chrono::system_clock::now() +
-                              std::chrono::milliseconds(200));
+    c->grpc_server->Shutdown(std::chrono::system_clock::now() + std::chrono::milliseconds(200));
     c->grpc_server.reset();
   }
   if (c->raft) {
@@ -200,38 +191,37 @@ TestCoordinator* FindLeader(const std::vector<std::unique_ptr<TestCoordinator>>&
 // retries idempotently, so the test mirrors the production retry loop.
 bool RemovePeerWithRetry(const std::string& leader_target, uint32_t node_id,
                          std::chrono::milliseconds budget = std::chrono::seconds(5)) {
-  auto channel = grpc::CreateChannel(leader_target,
-                                    grpc::InsecureChannelCredentials());
+  auto channel = grpc::CreateChannel(leader_target, grpc::InsecureChannelCredentials());
   auto stub = proto::internal::InternalService::NewStub(channel);
-  return WaitFor([&]() {
-    proto::internal::RemovePeerRequest req;
-    req.set_node_id(node_id);
-    proto::internal::RemovePeerResponse resp;
-    grpc::ClientContext ctx;
-    ctx.set_deadline(std::chrono::system_clock::now() +
-                     std::chrono::seconds(3));
-    auto st = stub->RemovePeer(&ctx, req, &resp);
-    return st.ok() && resp.success();
-  }, budget, std::chrono::milliseconds(200));
+  return WaitFor(
+      [&]() {
+        proto::internal::RemovePeerRequest req;
+        req.set_node_id(node_id);
+        proto::internal::RemovePeerResponse resp;
+        grpc::ClientContext ctx;
+        ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(3));
+        auto st = stub->RemovePeer(&ctx, req, &resp);
+        return st.ok() && resp.success();
+      },
+      budget, std::chrono::milliseconds(200));
 }
 
 // Same retry wrapper for TransferLeadership.
-bool TransferLeadershipWithRetry(const std::string& leader_target,
-                                 uint32_t target_node_id,
+bool TransferLeadershipWithRetry(const std::string& leader_target, uint32_t target_node_id,
                                  std::chrono::milliseconds budget = std::chrono::seconds(8)) {
-  auto channel = grpc::CreateChannel(leader_target,
-                                    grpc::InsecureChannelCredentials());
+  auto channel = grpc::CreateChannel(leader_target, grpc::InsecureChannelCredentials());
   auto stub = proto::internal::InternalService::NewStub(channel);
-  return WaitFor([&]() {
-    proto::internal::TransferLeadershipRequest req;
-    req.set_target_node_id(target_node_id);
-    proto::internal::TransferLeadershipResponse resp;
-    grpc::ClientContext ctx;
-    ctx.set_deadline(std::chrono::system_clock::now() +
-                     std::chrono::seconds(5));
-    auto st = stub->TransferLeadership(&ctx, req, &resp);
-    return st.ok() && resp.success();
-  }, budget, std::chrono::milliseconds(200));
+  return WaitFor(
+      [&]() {
+        proto::internal::TransferLeadershipRequest req;
+        req.set_target_node_id(target_node_id);
+        proto::internal::TransferLeadershipResponse resp;
+        grpc::ClientContext ctx;
+        ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(5));
+        auto st = stub->TransferLeadership(&ctx, req, &resp);
+        return st.ok() && resp.success();
+      },
+      budget, std::chrono::milliseconds(200));
 }
 
 // Call GetLeaderInfo on a specific coordinator's gRPC port and return the
@@ -242,8 +232,7 @@ int32_t QueryLeader(const std::string& target) {
   proto::internal::GetLeaderInfoRequest req;
   proto::internal::GetLeaderInfoResponse resp;
   grpc::ClientContext ctx;
-  ctx.set_deadline(std::chrono::system_clock::now() +
-                   std::chrono::seconds(2));
+  ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(2));
   auto st = stub->GetLeaderInfo(&ctx, req, &resp);
   if (!st.ok()) return 0;
   return resp.leader_id();
@@ -279,9 +268,8 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "3NodeBootstrapElectsLeader") {
 
   // Leader election + config convergence. 10s is generous; typical
   // elections finish in 200-500ms on localhost.
-  bool elected = WaitFor([&]() {
-    return FindLeader(coords_) != nullptr;
-  }, std::chrono::seconds(10));
+  bool elected =
+      WaitFor([&]() { return FindLeader(coords_) != nullptr; }, std::chrono::seconds(10));
   REQUIRE(elected);
 
   auto* leader = FindLeader(coords_);
@@ -289,14 +277,16 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "3NodeBootstrapElectsLeader") {
   CHECK(leader->raft->GetLeaderId() == leader->node_id);
 
   // Every node should agree on the same leader_id once stable.
-  bool converged = WaitFor([&]() {
-    int32_t leader_id = leader->raft->GetLeaderId();
-    if (leader_id <= 0) return false;
-    for (const auto& c : coords_) {
-      if (c->raft->GetLeaderId() != leader_id) return false;
-    }
-    return true;
-  }, std::chrono::seconds(5));
+  bool converged = WaitFor(
+      [&]() {
+        int32_t leader_id = leader->raft->GetLeaderId();
+        if (leader_id <= 0) return false;
+        for (const auto& c : coords_) {
+          if (c->raft->GetLeaderId() != leader_id) return false;
+        }
+        return true;
+      },
+      std::chrono::seconds(5));
   CHECK(converged);
 }
 
@@ -311,10 +301,9 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "ScaleUpJoinsExistingCluster") {
   // 4. Verify all 4 pods agree on the same leader_id.
 
   // Phase 1: 3-node cold-start with a layout sized for 4 (so adding
-  // node 4 later does not require a restart of nodes 1-3). Nodes 1-3 start with 4 declared peers but only
-  // themselves are alive initially; NuRaft's bootstrap with the
-  // 4-member seed config still elects a leader once the majority (3/4)
-  // is up.
+  // node 4 later does not require a restart of nodes 1-3). Nodes 1-3 start with 4 declared peers
+  // but only themselves are alive initially; NuRaft's bootstrap with the 4-member seed config still
+  // elects a leader once the majority (3/4) is up.
   auto full_layout = MakeLayout(/*count=*/4);
   for (int id = 1; id <= 3; ++id) {
     auto c = StartCoordinator(id, full_layout, root_dir_.path());
@@ -322,9 +311,8 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "ScaleUpJoinsExistingCluster") {
     coords_.push_back(std::move(c));
   }
 
-  bool elected = WaitFor([&]() {
-    return FindLeader(coords_) != nullptr;
-  }, std::chrono::seconds(15));
+  bool elected =
+      WaitFor([&]() { return FindLeader(coords_) != nullptr; }, std::chrono::seconds(15));
   REQUIRE(elected);
   auto* leader = FindLeader(coords_);
   REQUIRE(leader != nullptr);
@@ -342,18 +330,20 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "ScaleUpJoinsExistingCluster") {
   // leader to keep its role: elections use real-time timeouts, so a loaded
   // machine can hold a new election while node 4 joins.
   int agreed_leader_id = 0;
-  bool all_converged = WaitFor([&]() {
-    const int leader_id = coords_.front()->raft->GetLeaderId();
-    if (leader_id <= 0) return false;
-    bool leader_confirms = false;
-    for (const auto& c : coords_) {
-      if (c->raft->GetLeaderId() != leader_id) return false;
-      if (c->node_id == leader_id) leader_confirms = c->raft->IsLeader();
-    }
-    if (!leader_confirms) return false;
-    agreed_leader_id = leader_id;
-    return true;
-  }, std::chrono::seconds(15));
+  bool all_converged = WaitFor(
+      [&]() {
+        const int leader_id = coords_.front()->raft->GetLeaderId();
+        if (leader_id <= 0) return false;
+        bool leader_confirms = false;
+        for (const auto& c : coords_) {
+          if (c->raft->GetLeaderId() != leader_id) return false;
+          if (c->node_id == leader_id) leader_confirms = c->raft->IsLeader();
+        }
+        if (!leader_confirms) return false;
+        agreed_leader_id = leader_id;
+        return true;
+      },
+      std::chrono::seconds(15));
   CHECK(all_converged);
   CHECK_GE(agreed_leader_id, 1);
   CHECK_LE(agreed_leader_id, 4);
@@ -376,9 +366,8 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "ScaleDownRemovesPeerViaRPC") {
     coords_.push_back(std::move(c));
   }
 
-  bool elected = WaitFor([&]() {
-    return FindLeader(coords_) != nullptr;
-  }, std::chrono::seconds(15));
+  bool elected =
+      WaitFor([&]() { return FindLeader(coords_) != nullptr; }, std::chrono::seconds(15));
   REQUIRE(elected);
   auto* leader = FindLeader(coords_);
   REQUIRE(leader != nullptr);
@@ -389,11 +378,13 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "ScaleDownRemovesPeerViaRPC") {
   // membership settling.
   TestCoordinator* victim = nullptr;
   for (auto& c : coords_) {
-    if (c->node_id != leader->node_id) { victim = c.get(); break; }
+    if (c->node_id != leader->node_id) {
+      victim = c.get();
+      break;
+    }
   }
   REQUIRE(victim != nullptr);
-  CHECK(RemovePeerWithRetry(leader->grpc_endpoint(),
-                            static_cast<uint32_t>(victim->node_id)));
+  CHECK(RemovePeerWithRetry(leader->grpc_endpoint(), static_cast<uint32_t>(victim->node_id)));
 
   // Tear down the removed node locally to mirror what the pod SIGTERM
   // path would do next.
@@ -403,13 +394,15 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "ScaleDownRemovesPeerViaRPC") {
   // config) and keep the same leader, or at worst re-elect if the
   // removed node happened to be the leader (we explicitly avoided that
   // above, but NuRaft can still trigger an election under rare timing).
-  bool stable = WaitFor([&]() {
-    for (auto& c : coords_) {
-      if (c.get() == victim) continue;
-      if (c->raft && c->raft->GetLeaderId() <= 0) return false;
-    }
-    return true;
-  }, std::chrono::seconds(10));
+  bool stable = WaitFor(
+      [&]() {
+        for (auto& c : coords_) {
+          if (c.get() == victim) continue;
+          if (c->raft && c->raft->GetLeaderId() <= 0) return false;
+        }
+        return true;
+      },
+      std::chrono::seconds(10));
   CHECK(stable);
 }
 
@@ -429,9 +422,8 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "GhostPeerCleanupAfterHardKill") {
     coords_.push_back(std::move(c));
   }
 
-  bool elected = WaitFor([&]() {
-    return FindLeader(coords_) != nullptr;
-  }, std::chrono::seconds(15));
+  bool elected =
+      WaitFor([&]() { return FindLeader(coords_) != nullptr; }, std::chrono::seconds(15));
   REQUIRE(elected);
   auto* leader = FindLeader(coords_);
   REQUIRE(leader != nullptr);
@@ -440,7 +432,10 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "GhostPeerCleanupAfterHardKill") {
   // the departing ordinal isn't the current leader).
   TestCoordinator* victim = nullptr;
   for (auto& c : coords_) {
-    if (c->node_id != leader->node_id) { victim = c.get(); break; }
+    if (c->node_id != leader->node_id) {
+      victim = c.get();
+      break;
+    }
   }
   REQUIRE(victim != nullptr);
   int victim_node_id = victim->node_id;
@@ -453,11 +448,13 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "GhostPeerCleanupAfterHardKill") {
   // Confirm the leader's view still shows the ghost peer (4 members
   // including the dead one). NuRaft doesn't auto-remove dead members;
   // it just marks them unreachable and keeps them in config.
-  auto membership_before =
-      leader->raft->GetClusterMembership();
+  auto membership_before = leader->raft->GetClusterMembership();
   bool found_ghost = false;
   for (const auto& m : membership_before) {
-    if (m.node_id == victim_node_id) { found_ghost = true; break; }
+    if (m.node_id == victim_node_id) {
+      found_ghost = true;
+      break;
+    }
   }
   CHECK(found_ghost);
 
@@ -465,18 +462,19 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "GhostPeerCleanupAfterHardKill") {
   // surface exactly as reconcileCoordinatorScale would. Idempotent per
   // MapNuRaftCode if the pod had already left cleanly. Uses retry
   // to absorb NuRaft's transient CONFIG_CHANGING window.
-  CHECK(RemovePeerWithRetry(leader->grpc_endpoint(),
-                            static_cast<uint32_t>(victim_node_id)));
+  CHECK(RemovePeerWithRetry(leader->grpc_endpoint(), static_cast<uint32_t>(victim_node_id)));
 
   // Assert membership converges to 3 members, excluding the ghost.
-  bool removed = WaitFor([&]() {
-    auto members = leader->raft->GetClusterMembership();
-    if (members.size() != 3) return false;
-    for (const auto& m : members) {
-      if (m.node_id == victim_node_id) return false;
-    }
-    return true;
-  }, std::chrono::seconds(10));
+  bool removed = WaitFor(
+      [&]() {
+        auto members = leader->raft->GetClusterMembership();
+        if (members.size() != 3) return false;
+        for (const auto& m : members) {
+          if (m.node_id == victim_node_id) return false;
+        }
+        return true;
+      },
+      std::chrono::seconds(10));
   CHECK(removed);
 
   // And the existing leader stays leader (no election churn induced).
@@ -496,9 +494,8 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "TransferLeadershipBeforeScaleDown") {
     coords_.push_back(std::move(c));
   }
 
-  bool elected = WaitFor([&]() {
-    return FindLeader(coords_) != nullptr;
-  }, std::chrono::seconds(15));
+  bool elected =
+      WaitFor([&]() { return FindLeader(coords_) != nullptr; }, std::chrono::seconds(15));
   REQUIRE(elected);
   auto* original_leader = FindLeader(coords_);
   REQUIRE(original_leader != nullptr);
@@ -517,33 +514,34 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "TransferLeadershipBeforeScaleDown") {
   // Operator-simulated call: TransferLeadership to the successor via
   // the original leader's gRPC surface. Retry absorbs NuRaft's transient
   // pending-config window.
-  CHECK(TransferLeadershipWithRetry(
-      original_leader->grpc_endpoint(),
-      static_cast<uint32_t>(successor_node_id)));
+  CHECK(TransferLeadershipWithRetry(original_leader->grpc_endpoint(),
+                                    static_cast<uint32_t>(successor_node_id)));
 
   // The successor should now be leader.
-  bool transferred = WaitFor([&]() {
-    return successor->raft->IsLeader() &&
-           successor->raft->GetLeaderId() == successor_node_id;
-  }, std::chrono::seconds(5));
+  bool transferred = WaitFor(
+      [&]() {
+        return successor->raft->IsLeader() && successor->raft->GetLeaderId() == successor_node_id;
+      },
+      std::chrono::seconds(5));
   CHECK(transferred);
 
   // Now RemovePeer on the ex-leader succeeds (no CANNOT_REMOVE_LEADER
   // because it's a follower now).
-  CHECK(RemovePeerWithRetry(
-      successor->grpc_endpoint(),
-      static_cast<uint32_t>(original_leader->node_id)));
+  CHECK(RemovePeerWithRetry(successor->grpc_endpoint(),
+                            static_cast<uint32_t>(original_leader->node_id)));
 
   // Membership on the new leader converges to 3 members, excluding
   // the ex-leader.
-  bool converged = WaitFor([&]() {
-    auto members = successor->raft->GetClusterMembership();
-    if (members.size() != 3) return false;
-    for (const auto& m : members) {
-      if (m.node_id == original_leader->node_id) return false;
-    }
-    return true;
-  }, std::chrono::seconds(10));
+  bool converged = WaitFor(
+      [&]() {
+        auto members = successor->raft->GetClusterMembership();
+        if (members.size() != 3) return false;
+        for (const auto& m : members) {
+          if (m.node_id == original_leader->node_id) return false;
+        }
+        return true;
+      },
+      std::chrono::seconds(10));
   CHECK(converged);
 }
 

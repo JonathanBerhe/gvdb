@@ -4,19 +4,18 @@
 // Segment searches: brute force, filtered, range and hybrid (text and
 // sparse), and the text and sparse indexes they use.
 
-#include "storage/segment/segment.h"
-#include "core/status.h"
 #include <algorithm>
 #include <mutex>
 #include "absl/strings/str_cat.h"
-#include "core/filter.h"
 #include "common/logger.h"
+#include "core/filter.h"
+#include "core/status.h"
+#include "storage/segment/segment.h"
 
 namespace gvdb {
 namespace storage {
 
-float Segment::ComputeDistance(const core::Vector& a,
-                               const core::Vector& b) const {
+float Segment::ComputeDistance(const core::Vector& a, const core::Vector& b) const {
   switch (metric_) {
     case core::MetricType::L2:
       return a.L2Distance(b);
@@ -29,8 +28,8 @@ float Segment::ComputeDistance(const core::Vector& a,
   }
 }
 
-absl::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(
-    const core::Vector& query, int k) const {
+absl::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(const core::Vector& query,
+                                                                     int k) const {
   if (vectors_.empty()) {
     return core::SearchResult{};
   }
@@ -46,11 +45,8 @@ absl::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(
   }
 
   int actual_k = std::min(k, static_cast<int>(results.size()));
-  std::partial_sort(results.begin(),
-                    results.begin() + actual_k,
-                    results.end(),
-                    [](const core::SearchResultEntry& a,
-                       const core::SearchResultEntry& b) {
+  std::partial_sort(results.begin(), results.begin() + actual_k, results.end(),
+                    [](const core::SearchResultEntry& a, const core::SearchResultEntry& b) {
                       return a.distance < b.distance;
                     });
   results.resize(actual_k);
@@ -60,19 +56,16 @@ absl::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(
   return result;
 }
 
-absl::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
-                                                     int k) const {
+absl::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query, int k) const {
   std::shared_lock lock(mutex_);
 
   if (state_ == core::SegmentState::GROWING) {
     return BruteForceSearchUnlocked(query, k);
   }
 
-  if (state_ != core::SegmentState::SEALED &&
-      state_ != core::SegmentState::FLUSHED) {
+  if (state_ != core::SegmentState::SEALED && state_ != core::SegmentState::FLUSHED) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot search in segment state: ",
-                     static_cast<int>(state_)));
+        absl::StrCat("Cannot search in segment state: ", static_cast<int>(state_)));
   }
 
   if (!index_) {
@@ -89,12 +82,11 @@ absl::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
 
   int64_t now = NowEpochSeconds();
   auto& entries = result->entries;
-  entries.erase(
-      std::remove_if(entries.begin(), entries.end(),
-          [this, now](const core::SearchResultEntry& e) {
-            return IsExpired(core::ToUInt64(e.id), now);
-          }),
-      entries.end());
+  entries.erase(std::remove_if(entries.begin(), entries.end(),
+                               [this, now](const core::SearchResultEntry& e) {
+                                 return IsExpired(core::ToUInt64(e.id), now);
+                               }),
+                entries.end());
 
   // Truncate to requested k
   if (static_cast<int>(entries.size()) > k) {
@@ -106,8 +98,7 @@ absl::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
 
 // ========== Build Sparse Index ==========
 
-absl::Status Segment::BuildSparseIndex(
-    std::unique_ptr<index::SparseIndex> sparse_index) {
+absl::Status Segment::BuildSparseIndex(std::unique_ptr<index::SparseIndex> sparse_index) {
   std::unique_lock lock(mutex_);
   if (!sparse_index) {
     return absl::InvalidArgumentError("Sparse index pointer is null");
@@ -123,8 +114,8 @@ absl::Status Segment::BuildSparseIndex(
 
 // ========== Range Search ==========
 
-absl::StatusOr<core::SearchResult> Segment::SearchRange(
-    const core::Vector& query, float radius, int max_results) const {
+absl::StatusOr<core::SearchResult> Segment::SearchRange(const core::Vector& query, float radius,
+                                                        int max_results) const {
   std::shared_lock lock(mutex_);
 
   core::SearchResult result;
@@ -135,14 +126,12 @@ absl::StatusOr<core::SearchResult> Segment::SearchRange(
       float distance = ComputeDistance(query, vectors_[i]);
       if (distance <= radius) {
         result.entries.emplace_back(vector_ids_[i], distance);
-        if (max_results > 0 &&
-            static_cast<int>(result.entries.size()) >= max_results) {
+        if (max_results > 0 && static_cast<int>(result.entries.size()) >= max_results) {
           break;
         }
       }
     }
-  } else if (state_ == core::SegmentState::SEALED ||
-             state_ == core::SegmentState::FLUSHED) {
+  } else if (state_ == core::SegmentState::SEALED || state_ == core::SegmentState::FLUSHED) {
     if (!index_) {
       return absl::FailedPreconditionError("Segment has no index");
     }
@@ -150,8 +139,7 @@ absl::StatusOr<core::SearchResult> Segment::SearchRange(
     auto index_result = index_->SearchRange(query, radius);
     if (index_result.ok()) {
       result = std::move(*index_result);
-      if (max_results > 0 &&
-          static_cast<int>(result.entries.size()) > max_results) {
+      if (max_results > 0 && static_cast<int>(result.entries.size()) > max_results) {
         result.entries.resize(max_results);
       }
     } else {
@@ -160,8 +148,7 @@ absl::StatusOr<core::SearchResult> Segment::SearchRange(
         float distance = ComputeDistance(query, vectors_[i]);
         if (distance <= radius) {
           result.entries.emplace_back(vector_ids_[i], distance);
-          if (max_results > 0 &&
-              static_cast<int>(result.entries.size()) >= max_results) {
+          if (max_results > 0 && static_cast<int>(result.entries.size()) >= max_results) {
             break;
           }
         }
@@ -169,22 +156,20 @@ absl::StatusOr<core::SearchResult> Segment::SearchRange(
     }
   } else {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot search in segment state: ",
-                     static_cast<int>(state_)));
+        absl::StrCat("Cannot search in segment state: ", static_cast<int>(state_)));
   }
 
   // Sort by distance
   std::sort(result.entries.begin(), result.entries.end(),
-            [](const auto& a, const auto& b) {
-              return a.distance < b.distance;
-            });
+            [](const auto& a, const auto& b) { return a.distance < b.distance; });
 
   return result;
 }
 
-absl::StatusOr<core::SearchResult> Segment::SearchRangeWithFilter(
-    const core::Vector& query, float radius, const std::string& filter_expr,
-    int max_results) const {
+absl::StatusOr<core::SearchResult> Segment::SearchRangeWithFilter(const core::Vector& query,
+                                                                  float radius,
+                                                                  const std::string& filter_expr,
+                                                                  int max_results) const {
   // Get range results first
   auto range_result = SearchRange(query, radius, 0);  // No limit for pre-filter
   if (!range_result.ok()) {
@@ -204,8 +189,7 @@ absl::StatusOr<core::SearchResult> Segment::SearchRangeWithFilter(
     auto it = metadata_map_.find(core::ToUInt64(entry.id));
     if (it != metadata_map_.end() && (*filter)->Evaluate(it->second)) {
       filtered.entries.push_back(entry);
-      if (max_results > 0 &&
-          static_cast<int>(filtered.entries.size()) >= max_results) {
+      if (max_results > 0 && static_cast<int>(filtered.entries.size()) >= max_results) {
         break;
       }
     }
@@ -214,8 +198,8 @@ absl::StatusOr<core::SearchResult> Segment::SearchRangeWithFilter(
   return filtered;
 }
 
-absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(
-    const core::Vector& query, int k, const std::string& filter_expr) const {
+absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(const core::Vector& query, int k,
+                                                             const std::string& filter_expr) const {
   std::shared_lock lock(mutex_);
 
   // Parse filter
@@ -268,12 +252,9 @@ absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(
       results.emplace_back(vector_ids_[i], distance);
     }
 
-    std::partial_sort(results.begin(),
-                      results.begin() + std::min(k, (int)results.size()),
+    std::partial_sort(results.begin(), results.begin() + std::min(k, (int)results.size()),
                       results.end(),
-                      [](const auto& a, const auto& b) {
-                        return a.distance < b.distance;
-                      });
+                      [](const auto& a, const auto& b) { return a.distance < b.distance; });
 
     core::SearchResult result(k);
     for (int i = 0; i < std::min(k, (int)results.size()); ++i) {
@@ -283,11 +264,9 @@ absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(
   }
 
   // For SEALED segments with index
-  if (state_ != core::SegmentState::SEALED &&
-      state_ != core::SegmentState::FLUSHED) {
+  if (state_ != core::SegmentState::SEALED && state_ != core::SegmentState::FLUSHED) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot search in segment state: ",
-                     static_cast<int>(state_)));
+        absl::StrCat("Cannot search in segment state: ", static_cast<int>(state_)));
   }
 
   if (!index_) {
@@ -335,15 +314,12 @@ absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(
   return filtered_result;
 }
 
-absl::StatusOr<core::SearchResult> Segment::SearchHybrid(
-    const core::Vector& query_vector,
-    const std::string& text_query,
-    int k,
-    float vector_weight,
-    float text_weight,
-    const std::string& /*text_field*/,
-    const core::SparseVector* sparse_query,
-    float sparse_weight) const {
+absl::StatusOr<core::SearchResult> Segment::SearchHybrid(const core::Vector& query_vector,
+                                                         const std::string& text_query, int k,
+                                                         float vector_weight, float text_weight,
+                                                         const std::string& /*text_field*/,
+                                                         const core::SparseVector* sparse_query,
+                                                         float sparse_weight) const {
   std::shared_lock lock(mutex_);
 
   if (vectors_.empty() && !index_) {
@@ -413,8 +389,7 @@ absl::StatusOr<core::SearchResult> Segment::SearchHybrid(
   }
 
   // 4. Sort by fused score and take top-k
-  std::vector<std::pair<uint64_t, float>> scored_ids(fused_scores.begin(),
-                                                      fused_scores.end());
+  std::vector<std::pair<uint64_t, float>> scored_ids(fused_scores.begin(), fused_scores.end());
   std::sort(scored_ids.begin(), scored_ids.end(),
             [](const auto& a, const auto& b) { return a.second > b.second; });
 
@@ -422,16 +397,14 @@ absl::StatusOr<core::SearchResult> Segment::SearchHybrid(
   int count = std::min(k, static_cast<int>(scored_ids.size()));
   for (int i = 0; i < count; ++i) {
     // Use RRF score as the "distance" (higher = better)
-    result.entries.emplace_back(
-        core::MakeVectorId(scored_ids[i].first), scored_ids[i].second);
+    result.entries.emplace_back(core::MakeVectorId(scored_ids[i].first), scored_ids[i].second);
   }
 
   return result;
 }
 
-absl::Status Segment::BuildTextIndex(
-    std::unique_ptr<index::ITextIndex> text_index,
-    const std::string& text_field) {
+absl::Status Segment::BuildTextIndex(std::unique_ptr<index::ITextIndex> text_index,
+                                     const std::string& text_field) {
   std::unique_lock lock(mutex_);
 
   if (!text_index) {
@@ -453,9 +426,8 @@ absl::Status Segment::BuildTextIndex(
 
   text_index_ = std::move(text_index);
 
-  common::Logger::Instance().Info(
-      "Built text index for segment {} ({} documents from '{}' field)",
-      core::ToUInt32(id_), indexed, text_field);
+  common::Logger::Instance().Info("Built text index for segment {} ({} documents from '{}' field)",
+                                  core::ToUInt32(id_), indexed, text_field);
 
   return absl::OkStatus();
 }

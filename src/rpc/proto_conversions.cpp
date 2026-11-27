@@ -2,8 +2,8 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "rpc/proto_conversions.h"
-#include "core/status.h"
 #include "absl/strings/str_format.h"
+#include "core/status.h"
 
 namespace gvdb {
 namespace rpc {
@@ -19,16 +19,16 @@ absl::StatusOr<core::Vector> FromProto(const proto::Vector& proto_vector) {
 
   if (proto_vector.dimension() != static_cast<uint32_t>(proto_vector.values().size())) {
     return absl::InvalidArgumentError(
-        absl::StrFormat("Dimension mismatch: declared %d, got %d values",
-                        proto_vector.dimension(), proto_vector.values().size()));
+        absl::StrFormat("Dimension mismatch: declared %d, got %d values", proto_vector.dimension(),
+                        proto_vector.values().size()));
   }
 
   std::vector<float> data(proto_vector.values().begin(), proto_vector.values().end());
   return core::Vector(std::move(data));
 }
 
-absl::StatusOr<std::pair<core::VectorId, core::Vector>>
-FromProto(const proto::VectorWithId& proto_vector_with_id) {
+absl::StatusOr<std::pair<core::VectorId, core::Vector>> FromProto(
+    const proto::VectorWithId& proto_vector_with_id) {
   auto vector_result = FromProto(proto_vector_with_id.vector());
   if (!vector_result.ok()) {
     return vector_result.status();
@@ -38,8 +38,7 @@ FromProto(const proto::VectorWithId& proto_vector_with_id) {
                         std::move(*vector_result));
 }
 
-absl::StatusOr<core::MetricType>
-FromProto(proto::CreateCollectionRequest::MetricType metric) {
+absl::StatusOr<core::MetricType> FromProto(proto::CreateCollectionRequest::MetricType metric) {
   switch (metric) {
     case proto::CreateCollectionRequest::L2:
       return core::MetricType::L2;
@@ -53,8 +52,7 @@ FromProto(proto::CreateCollectionRequest::MetricType metric) {
   }
 }
 
-absl::StatusOr<core::IndexType>
-FromProto(proto::CreateCollectionRequest::IndexType index_type) {
+absl::StatusOr<core::IndexType> FromProto(proto::CreateCollectionRequest::IndexType index_type) {
   switch (index_type) {
     case proto::CreateCollectionRequest::FLAT:
       return core::IndexType::FLAT;
@@ -103,9 +101,8 @@ absl::StatusOr<core::Metadata> FromProto(const proto::Metadata& proto_metadata) 
     // Validate value
     auto value_validation = core::ValidateMetadataValue(value);
     if (!value_validation.ok()) {
-      return absl::InvalidArgumentError(
-          absl::StrFormat("Invalid metadata value for key '%s': %s",
-                          key, value_validation.message()));
+      return absl::InvalidArgumentError(absl::StrFormat("Invalid metadata value for key '%s': %s",
+                                                        key, value_validation.message()));
     }
 
     metadata[key] = std::move(value);
@@ -160,10 +157,8 @@ absl::StatusOr<core::SparseVector> FromProto(const proto::SparseVector& proto_sp
                         proto_sparse.indices_size(), proto_sparse.values_size()));
   }
 
-  std::vector<uint32_t> indices(proto_sparse.indices().begin(),
-                                proto_sparse.indices().end());
-  std::vector<float> values(proto_sparse.values().begin(),
-                            proto_sparse.values().end());
+  std::vector<uint32_t> indices(proto_sparse.indices().begin(), proto_sparse.indices().end());
+  std::vector<float> values(proto_sparse.values().begin(), proto_sparse.values().end());
 
   auto sparse = core::SparseVector::FromArrays(indices, values);
   RETURN_IF_ERROR(sparse.Validate());
@@ -175,16 +170,14 @@ absl::StatusOr<core::SparseVector> FromProto(const proto::SparseVector& proto_sp
 // Backup / Restore
 // ============================================================================
 
-absl::StatusOr<storage::BackupTarget> FromProto(
-    const proto::BackupTarget& proto_target) {
+absl::StatusOr<storage::BackupTarget> FromProto(const proto::BackupTarget& proto_target) {
   switch (proto_target.target_case()) {
     case proto::BackupTarget::kS3: {
       const auto& s3 = proto_target.s3();
       if (s3.bucket().empty()) {
         return absl::InvalidArgumentError("S3 BackupTarget missing 'bucket'");
       }
-      return storage::BackupTarget{
-          storage::S3BackupTarget{s3.bucket(), s3.prefix()}};
+      return storage::BackupTarget{storage::S3BackupTarget{s3.bucket(), s3.prefix()}};
     }
     case proto::BackupTarget::kLocal: {
       const auto& local = proto_target.local();
@@ -195,13 +188,11 @@ absl::StatusOr<storage::BackupTarget> FromProto(
     }
     case proto::BackupTarget::TARGET_NOT_SET:
     default:
-      return absl::InvalidArgumentError(
-          "BackupTarget is unset (must select s3 or local)");
+      return absl::InvalidArgumentError("BackupTarget is unset (must select s3 or local)");
   }
 }
 
-absl::Status ToProto(const storage::BackupTarget& target,
-                     proto::BackupTarget* proto_target) {
+absl::Status ToProto(const storage::BackupTarget& target, proto::BackupTarget* proto_target) {
   if (proto_target == nullptr) {
     return absl::InvalidArgumentError("proto_target is null");
   }
@@ -224,11 +215,16 @@ absl::Status ToProto(const storage::BackupTarget& target,
 
 proto::BackupState ToProto(storage::BackupState state) {
   switch (state) {
-    case storage::BackupState::PENDING:   return proto::BACKUP_PENDING;
-    case storage::BackupState::RUNNING:   return proto::BACKUP_RUNNING;
-    case storage::BackupState::COMPLETED: return proto::BACKUP_COMPLETED;
-    case storage::BackupState::FAILED:    return proto::BACKUP_FAILED;
-    case storage::BackupState::CANCELLED: return proto::BACKUP_CANCELLED;
+    case storage::BackupState::PENDING:
+      return proto::BACKUP_PENDING;
+    case storage::BackupState::RUNNING:
+      return proto::BACKUP_RUNNING;
+    case storage::BackupState::COMPLETED:
+      return proto::BACKUP_COMPLETED;
+    case storage::BackupState::FAILED:
+      return proto::BACKUP_FAILED;
+    case storage::BackupState::CANCELLED:
+      return proto::BACKUP_CANCELLED;
   }
   return proto::BACKUP_PENDING;
 }
@@ -288,7 +284,7 @@ meta::NodeInfo FromProto(const proto::internal::NodeInfo& proto_info) {
   info.disk_capacity_bytes = proto_info.disk_total_bytes();
   info.disk_used_bytes = proto_info.disk_used_bytes();
   info.cpu_usage_percent = 0.0f;  // Not in proto, leave at 0
-  info.last_heartbeat_ts = 0;  // Not available from proto, handled by NodeRegistry
+  info.last_heartbeat_ts = 0;     // Not available from proto, handled by NodeRegistry
 
   return info;
 }
@@ -408,4 +404,4 @@ absl::Status FromGrpcStatus(const grpc::Status& grpc_status) {
 }
 
 }  // namespace rpc
-} // namespace gvdb
+}  // namespace gvdb

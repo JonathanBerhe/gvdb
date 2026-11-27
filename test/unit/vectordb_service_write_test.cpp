@@ -12,11 +12,11 @@
 #include <string>
 #include <vector>
 
-#include "service/vectordb/vectordb_service.h"
-#include "service/vectordb/collection_resolver.h"
-#include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
+#include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
+#include "storage/segment/segment_manager.h"
 #include "support/grpc_server.h"
 #include "support/temp_dir.h"
 #include "support/wait.h"
@@ -35,8 +35,7 @@ constexpr uint32_t kDim = 4;
 // Builds a VectorWithId. An empty name means no metadata; a zero ttl means
 // the vector never expires.
 proto::VectorWithId MakeVector(uint64_t id, const std::vector<float>& values,
-                               const std::string& name = "",
-                               uint32_t ttl_seconds = 0) {
+                               const std::string& name = "", uint32_t ttl_seconds = 0) {
   proto::VectorWithId v;
   v.set_id(id);
   v.mutable_vector()->set_dimension(static_cast<uint32_t>(values.size()));
@@ -91,7 +90,8 @@ std::set<uint64_t> NotFoundOf(const proto::GetResponse& response) {
 
 int64_t EpochMillis() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
 }
 
 }  // namespace
@@ -104,14 +104,13 @@ class ServiceWriteTest {
  public:
   ServiceWriteTest() {
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_.str(), index_factory_.get());
-    query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *segment_store_);
+    segment_store_ =
+        std::make_shared<storage::SegmentManager>(test_dir_.str(), index_factory_.get());
+    query_executor_ = std::make_shared<compute::QueryExecutor>(*segment_store_);
 
     auto resolver = service::MakeLocalResolver(segment_store_);
-    service_ = std::make_unique<service::VectorDBService>(
-        segment_store_, query_executor_, std::move(resolver));
+    service_ = std::make_unique<service::VectorDBService>(segment_store_, query_executor_,
+                                                          std::move(resolver));
   }
 
   ~ServiceWriteTest() {
@@ -135,8 +134,7 @@ class ServiceWriteTest {
     REQUIRE(status.ok());
   }
 
-  grpc::Status Insert(const std::string& name,
-                      const std::vector<proto::VectorWithId>& vectors,
+  grpc::Status Insert(const std::string& name, const std::vector<proto::VectorWithId>& vectors,
                       proto::InsertResponse* resp) {
     grpc::ServerContext ctx;
     proto::InsertRequest req;
@@ -145,8 +143,7 @@ class ServiceWriteTest {
     return service_->Insert(&ctx, &req, resp);
   }
 
-  void InsertOk(const std::string& name,
-                const std::vector<proto::VectorWithId>& vectors) {
+  void InsertOk(const std::string& name, const std::vector<proto::VectorWithId>& vectors) {
     proto::InsertResponse resp;
     auto status = Insert(name, vectors, &resp);
     INFO(status.error_message());
@@ -154,8 +151,7 @@ class ServiceWriteTest {
     REQUIRE_EQ(resp.inserted_count(), vectors.size());
   }
 
-  grpc::Status Upsert(const std::string& name,
-                      const std::vector<proto::VectorWithId>& vectors,
+  grpc::Status Upsert(const std::string& name, const std::vector<proto::VectorWithId>& vectors,
                       proto::UpsertResponse* resp) {
     grpc::ServerContext ctx;
     proto::UpsertRequest req;
@@ -164,8 +160,7 @@ class ServiceWriteTest {
     return service_->Upsert(&ctx, &req, resp);
   }
 
-  proto::GetResponse Get(const std::string& name,
-                         const std::vector<uint64_t>& ids) {
+  proto::GetResponse Get(const std::string& name, const std::vector<uint64_t>& ids) {
     grpc::ServerContext ctx;
     proto::GetRequest req;
     req.set_collection_name(name);
@@ -186,10 +181,8 @@ class ServiceWriteTest {
     return resp.vectors(0);
   }
 
-  proto::SearchResponse Search(const std::string& name,
-                               const std::vector<float>& query,
-                               uint32_t top_k,
-                               const std::string& filter = "") {
+  proto::SearchResponse Search(const std::string& name, const std::vector<float>& query,
+                               uint32_t top_k, const std::string& filter = "") {
     grpc::ServerContext ctx;
     proto::SearchRequest req;
     req.set_collection_name(name);
@@ -204,10 +197,8 @@ class ServiceWriteTest {
   }
 
   // RangeSearch with metadata in the results.
-  proto::RangeSearchResponse RangeSearch(const std::string& name,
-                                         const std::vector<float>& query,
-                                         float radius,
-                                         const std::string& filter = "") {
+  proto::RangeSearchResponse RangeSearch(const std::string& name, const std::vector<float>& query,
+                                         float radius, const std::string& filter = "") {
     grpc::ServerContext ctx;
     proto::RangeSearchRequest req;
     req.set_collection_name(name);
@@ -286,8 +277,7 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertInsertsNewIds") {
 
   proto::UpsertResponse resp;
   auto status = Upsert("upsert_new",
-                       {MakeVector(1, {1, 0, 0, 0}, "one"),
-                        MakeVector(2, {0, 1, 0, 0}, "two"),
+                       {MakeVector(1, {1, 0, 0, 0}, "one"), MakeVector(2, {0, 1, 0, 0}, "two"),
                         MakeVector(3, {0, 0, 1, 0})},
                        &resp);
   INFO(status.error_message());
@@ -327,10 +317,9 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertReplacesVectorAndMetadataOfExistingId
   // Id 2 gets a new vector and new metadata; id 3 gets a new vector and no
   // metadata, which replaces (clears) its old metadata.
   proto::UpsertResponse resp;
-  auto status = Upsert("upsert_replace",
-                       {MakeVector(2, {0.9f, 0, 0, 0}, "updated_2"),
-                        MakeVector(3, {0, 0, 0, 3.0f})},
-                       &resp);
+  auto status =
+      Upsert("upsert_replace",
+             {MakeVector(2, {0.9f, 0, 0, 0}, "updated_2"), MakeVector(3, {0, 0, 0, 3.0f})}, &resp);
   INFO(status.error_message());
   REQUIRE(status.ok());
   CHECK_EQ(resp.upserted_count(), 2);
@@ -369,10 +358,10 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertMixedBatchInsertsAndUpdates") {
 
   // Update id 2, insert id 4.
   proto::UpsertResponse resp;
-  auto status = Upsert("upsert_mixed",
-                       {MakeVector(2, {0.9f, 0, 0, 0}, "updated_2"),
-                        MakeVector(4, {2.0f, 0, 0, 0}, "new_4")},
-                       &resp);
+  auto status =
+      Upsert("upsert_mixed",
+             {MakeVector(2, {0.9f, 0, 0, 0}, "updated_2"), MakeVector(4, {2.0f, 0, 0, 0}, "new_4")},
+             &resp);
   INFO(status.error_message());
   REQUIRE(status.ok());
   CHECK_EQ(resp.upserted_count(), 2);
@@ -404,8 +393,7 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertMixedBatchInsertsAndUpdates") {
     REQUIRE(updated.results(0).has_metadata());
     CHECK_EQ(updated.results(0).metadata().fields().at("name").string_value(), "updated_2");
 
-    CHECK_EQ(RangeSearch("upsert_mixed", origin, 100.0f, "name = 'original_2'").results_size(),
-             0);
+    CHECK_EQ(RangeSearch("upsert_mixed", origin, 100.0f, "name = 'original_2'").results_size(), 0);
   }
 
   // A filtered Search, which reads the scalar indexes that the upsert
@@ -416,15 +404,12 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertMixedBatchInsertsAndUpdates") {
     CHECK_EQ(updated.results(0).id(), 2);
     CHECK(updated.results(0).distance() == doctest::Approx(0.0f));
 
-    CHECK_EQ(Search("upsert_mixed", {0.9f, 0, 0, 0}, 10, "name = 'original_2'").results_size(),
-             0);
+    CHECK_EQ(Search("upsert_mixed", {0.9f, 0, 0, 0}, 10, "name = 'original_2'").results_size(), 0);
   }
 
   // A second mixed batch: one existing id and one far-away new id.
   proto::UpsertResponse resp2;
-  status = Upsert("upsert_mixed",
-                  {MakeVector(1, {0, 1, 0, 0}),
-                   MakeVector(99999, {0, 0, 1, 0})},
+  status = Upsert("upsert_mixed", {MakeVector(1, {0, 1, 0, 0}), MakeVector(99999, {0, 0, 1, 0})},
                   &resp2);
   INFO(status.error_message());
   REQUIRE(status.ok());
@@ -439,8 +424,7 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertMixedBatchInsertsAndUpdates") {
 
   // Id 1 was replaced without metadata, so no filter matches its old name.
   CHECK_EQ(Search("upsert_mixed", {0, 1, 0, 0}, 10, "name = 'original_1'").results_size(), 0);
-  CHECK_EQ(RangeSearch("upsert_mixed", origin, 100.0f, "name = 'original_1'").results_size(),
-           0);
+  CHECK_EQ(RangeSearch("upsert_mixed", origin, 100.0f, "name = 'original_1'").results_size(), 0);
 }
 
 TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertRejectsInvalidRequests") {
@@ -451,10 +435,9 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertRejectsInvalidRequests") {
     // The first vector is valid; the second has 3 values in a 4-dim
     // collection. Nothing may be written.
     proto::UpsertResponse resp;
-    auto status = Upsert("upsert_invalid",
-                         {MakeVector(1, {0, 0, 0, 9}, "changed_1"),
-                          MakeVector(2, {1, 2, 3})},
-                         &resp);
+    auto status =
+        Upsert("upsert_invalid",
+               {MakeVector(1, {0, 0, 0, 9}, "changed_1"), MakeVector(2, {1, 2, 3})}, &resp);
     CHECK_FALSE(status.ok());
     CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
 
@@ -490,8 +473,7 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "UpsertRejectsInvalidRequests") {
 
   SUBCASE("unknown collection") {
     proto::UpsertResponse resp;
-    auto status = Upsert("no_such_collection", {MakeVector(2, {1, 2, 3, 4})},
-                         &resp);
+    auto status = Upsert("no_such_collection", {MakeVector(2, {1, 2, 3, 4})}, &resp);
     CHECK_FALSE(status.ok());
     CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
   }
@@ -519,10 +501,8 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "TtlVectorsExpireFromGetAndSearch") {
   CreateCollection(ttl_only);
 
   // Permanent vectors (no TTL).
-  InsertOk(coll, {MakeVector(100, {100, 0, 0, 1}),
-                  MakeVector(101, {101, 0, 0, 1}),
-                  MakeVector(102, {102, 0, 0, 1}),
-                  MakeVector(103, {103, 0, 0, 1}),
+  InsertOk(coll, {MakeVector(100, {100, 0, 0, 1}), MakeVector(101, {101, 0, 0, 1}),
+                  MakeVector(102, {102, 0, 0, 1}), MakeVector(103, {103, 0, 0, 1}),
                   MakeVector(104, {104, 0, 0, 1})});
   // Wait until the wall clock is in the first half of a second.
   REQUIRE(test::WaitFor([] { return EpochMillis() % 1000 < 500; }));
@@ -530,15 +510,12 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "TtlVectorsExpireFromGetAndSearch") {
 
   // Insert with TTL: ids 1-5 in a dense-only batch, ids 6 and 8 with
   // metadata (the metadata write path also carries expiry).
-  InsertOk(coll, {MakeVector(1, {1, 0, 0, 1}, "", 1),
-                  MakeVector(2, {2, 0, 0, 1}, "", 1),
-                  MakeVector(3, {3, 0, 0, 1}, "", 1),
-                  MakeVector(4, {4, 0, 0, 1}, "", 1),
+  InsertOk(coll, {MakeVector(1, {1, 0, 0, 1}, "", 1), MakeVector(2, {2, 0, 0, 1}, "", 1),
+                  MakeVector(3, {3, 0, 0, 1}, "", 1), MakeVector(4, {4, 0, 0, 1}, "", 1),
                   MakeVector(5, {5, 0, 0, 1}, "", 1)});
-  InsertOk(coll, {MakeVector(6, {6, 0, 0, 1}, "ttl_6", 1),
-                  MakeVector(8, {8, 0, 0, 1}, "ttl_8", 1)});
-  InsertOk(ttl_only, {MakeVector(1, {1, 0, 0, 1}, "", 1),
-                      MakeVector(2, {2, 0, 0, 1}, "", 1),
+  InsertOk(coll,
+           {MakeVector(6, {6, 0, 0, 1}, "ttl_6", 1), MakeVector(8, {8, 0, 0, 1}, "ttl_8", 1)});
+  InsertOk(ttl_only, {MakeVector(1, {1, 0, 0, 1}, "", 1), MakeVector(2, {2, 0, 0, 1}, "", 1),
                       MakeVector(3, {3, 0, 0, 1}, "", 1)});
   InsertOk(ttl_only, {MakeVector(4, {4, 0, 0, 1}, "ttl_only_4", 1)});
   const std::vector<uint64_t> ttl_only_ids = {1, 2, 3, 4};
@@ -548,19 +525,18 @@ TEST_CASE_FIXTURE(ServiceWriteTest, "TtlVectorsExpireFromGetAndSearch") {
   // Id 6 is replaced without a TTL, so it no longer expires.
   {
     proto::UpsertResponse resp;
-    auto status = Upsert(coll,
-                         {MakeVector(7, {7, 0, 0, 1}, "", 1),
-                          MakeVector(100, {100, 0, 0, 2}, "", 1),
-                          MakeVector(6, {6, 0, 0, 2}, "permanent_6")},
-                         &resp);
+    auto status =
+        Upsert(coll,
+               {MakeVector(7, {7, 0, 0, 1}, "", 1), MakeVector(100, {100, 0, 0, 2}, "", 1),
+                MakeVector(6, {6, 0, 0, 2}, "permanent_6")},
+               &resp);
     INFO(status.error_message());
     REQUIRE(status.ok());
     CHECK_EQ(resp.inserted_count(), 1);
     CHECK_EQ(resp.updated_count(), 2);
   }
 
-  const std::vector<uint64_t> all_ids = {1, 2, 3, 4, 5, 6, 7, 8,
-                                         100, 101, 102, 103, 104};
+  const std::vector<uint64_t> all_ids = {1, 2, 3, 4, 5, 6, 7, 8, 100, 101, 102, 103, 104};
   const std::set<uint64_t> expiring = {1, 2, 3, 4, 5, 7, 8, 100};
   const std::set<uint64_t> permanent = {6, 101, 102, 103, 104};
 
@@ -627,13 +603,13 @@ std::vector<float> StreamVector(uint64_t id) {
   return v;
 }
 
-proto::InsertRequest StreamMessage(const std::string& coll, uint64_t first_id,
-                                   uint64_t count, bool with_metadata) {
+proto::InsertRequest StreamMessage(const std::string& coll, uint64_t first_id, uint64_t count,
+                                   bool with_metadata) {
   proto::InsertRequest req;
   req.set_collection_name(coll);
   for (uint64_t id = first_id; id < first_id + count; ++id) {
-    *req.add_vectors() = MakeVector(
-        id, StreamVector(id), with_metadata ? "item_" + std::to_string(id) : "");
+    *req.add_vectors() =
+        MakeVector(id, StreamVector(id), with_metadata ? "item_" + std::to_string(id) : "");
   }
   return req;
 }
@@ -711,8 +687,7 @@ TEST_CASE_FIXTURE(ServiceWriteServerTest, "StreamInsertRejectsDimensionMismatch"
 
 TEST_CASE_FIXTURE(ServiceWriteServerTest, "StreamInsertUnknownCollectionFails") {
   proto::InsertResponse resp;
-  auto status = StreamInsert({StreamMessage("no_such_collection", 1, 5, false)},
-                             &resp);
+  auto status = StreamInsert({StreamMessage("no_such_collection", 1, 5, false)}, &resp);
   CHECK_FALSE(status.ok());
   CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
 }

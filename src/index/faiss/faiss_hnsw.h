@@ -27,13 +27,12 @@ class FaissHNSWIndex : public FaissIndexBase {
   [[nodiscard]] int GetEfSearch() const;
 
  private:
-  static std::unique_ptr<faiss::Index> CreateHNSWIndex(
-      core::Dimension dimension, core::MetricType metric, int M,
-      int ef_construction);
+  static std::unique_ptr<faiss::Index> CreateHNSWIndex(core::Dimension dimension,
+                                                       core::MetricType metric, int M,
+                                                       int ef_construction);
 
   int ef_search_;
 };
 
 }  // namespace index
 }  // namespace gvdb
-

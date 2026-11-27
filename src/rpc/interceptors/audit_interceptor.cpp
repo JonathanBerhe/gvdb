@@ -37,24 +37,42 @@ std::string ExtractMethodName(const std::string& full_method) {
 // Map gRPC status code to human-readable string
 const char* StatusCodeName(grpc::StatusCode code) {
   switch (code) {
-    case grpc::StatusCode::OK:                  return "OK";
-    case grpc::StatusCode::CANCELLED:           return "CANCELLED";
-    case grpc::StatusCode::UNKNOWN:             return "UNKNOWN";
-    case grpc::StatusCode::INVALID_ARGUMENT:    return "INVALID_ARGUMENT";
-    case grpc::StatusCode::DEADLINE_EXCEEDED:   return "DEADLINE_EXCEEDED";
-    case grpc::StatusCode::NOT_FOUND:           return "NOT_FOUND";
-    case grpc::StatusCode::ALREADY_EXISTS:      return "ALREADY_EXISTS";
-    case grpc::StatusCode::PERMISSION_DENIED:   return "PERMISSION_DENIED";
-    case grpc::StatusCode::RESOURCE_EXHAUSTED:  return "RESOURCE_EXHAUSTED";
-    case grpc::StatusCode::FAILED_PRECONDITION: return "FAILED_PRECONDITION";
-    case grpc::StatusCode::ABORTED:             return "ABORTED";
-    case grpc::StatusCode::OUT_OF_RANGE:        return "OUT_OF_RANGE";
-    case grpc::StatusCode::UNIMPLEMENTED:       return "UNIMPLEMENTED";
-    case grpc::StatusCode::INTERNAL:            return "INTERNAL";
-    case grpc::StatusCode::UNAVAILABLE:         return "UNAVAILABLE";
-    case grpc::StatusCode::DATA_LOSS:           return "DATA_LOSS";
-    case grpc::StatusCode::UNAUTHENTICATED:     return "UNAUTHENTICATED";
-    default:                                    return "UNKNOWN";
+    case grpc::StatusCode::OK:
+      return "OK";
+    case grpc::StatusCode::CANCELLED:
+      return "CANCELLED";
+    case grpc::StatusCode::UNKNOWN:
+      return "UNKNOWN";
+    case grpc::StatusCode::INVALID_ARGUMENT:
+      return "INVALID_ARGUMENT";
+    case grpc::StatusCode::DEADLINE_EXCEEDED:
+      return "DEADLINE_EXCEEDED";
+    case grpc::StatusCode::NOT_FOUND:
+      return "NOT_FOUND";
+    case grpc::StatusCode::ALREADY_EXISTS:
+      return "ALREADY_EXISTS";
+    case grpc::StatusCode::PERMISSION_DENIED:
+      return "PERMISSION_DENIED";
+    case grpc::StatusCode::RESOURCE_EXHAUSTED:
+      return "RESOURCE_EXHAUSTED";
+    case grpc::StatusCode::FAILED_PRECONDITION:
+      return "FAILED_PRECONDITION";
+    case grpc::StatusCode::ABORTED:
+      return "ABORTED";
+    case grpc::StatusCode::OUT_OF_RANGE:
+      return "OUT_OF_RANGE";
+    case grpc::StatusCode::UNIMPLEMENTED:
+      return "UNIMPLEMENTED";
+    case grpc::StatusCode::INTERNAL:
+      return "INTERNAL";
+    case grpc::StatusCode::UNAVAILABLE:
+      return "UNAVAILABLE";
+    case grpc::StatusCode::DATA_LOSS:
+      return "DATA_LOSS";
+    case grpc::StatusCode::UNAUTHENTICATED:
+      return "UNAUTHENTICATED";
+    default:
+      return "UNKNOWN";
   }
 }
 
@@ -77,32 +95,26 @@ std::string JsonEscape(const std::string& s) {
 // Format current UTC time as ISO 8601
 std::string NowISO8601() {
   auto now = std::chrono::system_clock::now();
-  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-      now.time_since_epoch()) % 1000;
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
   auto time_t_now = std::chrono::system_clock::to_time_t(now);
   struct tm utc;
   gmtime_r(&time_t_now, &utc);
 
-  return fmt::format("{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:03d}Z",
-                     utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
-                     utc.tm_hour, utc.tm_min, utc.tm_sec,
+  return fmt::format("{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:03d}Z", utc.tm_year + 1900,
+                     utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec,
                      static_cast<int>(ms.count()));
 }
 
 }  // namespace
 
-AuditInterceptor::AuditInterceptor(grpc::experimental::ServerRpcInfo* info)
-    : info_(info) {
+AuditInterceptor::AuditInterceptor(grpc::experimental::ServerRpcInfo* info) : info_(info) {
   std::string method(info_->method());
   is_public_ = IsPublicMethod(method);
 }
 
-void AuditInterceptor::Intercept(
-    grpc::experimental::InterceptorBatchMethods* methods) {
-
+void AuditInterceptor::Intercept(grpc::experimental::InterceptorBatchMethods* methods) {
   if (!is_public_ && methods->QueryInterceptionHookPoint(
-          grpc::experimental::InterceptionHookPoints::
-              POST_RECV_INITIAL_METADATA)) {
+                         grpc::experimental::InterceptionHookPoints::POST_RECV_INITIAL_METADATA)) {
     start_time_ = std::chrono::steady_clock::now();
     // Extract API key directly from gRPC metadata — self-contained, no dependency
     // on AuthContext thread-local which is cleared by intermediate hook dispatches.
@@ -133,14 +145,8 @@ void AuditInterceptor::Intercept(
 
     std::string json = fmt::format(
         R"({{"timestamp":"{}","api_key_id":"{}","operation":"{}","collection":"{}","status":"{}","grpc_code":{},"latency_ms":{},"item_count":{}}})",
-        NowISO8601(),
-        JsonEscape(api_key_),
-        JsonEscape(operation),
-        JsonEscape(collection),
-        StatusCodeName(code),
-        static_cast<int>(code),
-        elapsed.count(),
-        item_count);
+        NowISO8601(), JsonEscape(api_key_), JsonEscape(operation), JsonEscape(collection),
+        StatusCodeName(code), static_cast<int>(code), elapsed.count(), item_count);
 
     auth::AuditLogger::Log(json);
   }
@@ -148,8 +154,7 @@ void AuditInterceptor::Intercept(
   methods->Proceed();
 }
 
-grpc::experimental::Interceptor*
-AuditInterceptorFactory::CreateServerInterceptor(
+grpc::experimental::Interceptor* AuditInterceptorFactory::CreateServerInterceptor(
     grpc::experimental::ServerRpcInfo* info) {
   return new AuditInterceptor(info);
 }

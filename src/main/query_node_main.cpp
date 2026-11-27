@@ -11,9 +11,9 @@
 #include "cluster/query_node.h"
 #include "common/logger.h"
 #include "compute/query_executor.h"
+#include "core/status.h"
 #include "index/index_factory.h"
 #include "internal.pb.h"
-#include "core/status.h"
 #include "server/bootstrap.h"
 #include "server/cluster_steps.h"
 #include "server/flags.h"
@@ -56,21 +56,21 @@ absl::Status Run(const Args& args) {
       segment_manager, query_executor, std::move(resolver));
 
   ASSIGN_OR_RETURN(auto grpc_server,
-                   server::StartGrpcServer(args.bind_address, {vectordb_service.get()}, grpc::InsecureServerCredentials()));
+                   server::StartGrpcServer(args.bind_address, {vectordb_service.get()},
+                                           grpc::InsecureServerCredentials()));
 
-  server::PrintBanner(
-      "GVDB Query Node",
-      {
-          "Node ID: " + std::to_string(args.node_id),
-          "gRPC Service: " + args.bind_address,
-          "Metrics: http://0.0.0.0:" + std::to_string(metrics_port) + "/metrics",
-          "Cache Directory: " + args.data_dir,
-          "Cache Memory Limit: " + std::to_string(args.memory_limit_gb) + " GB",
-      });
+  server::PrintBanner("GVDB Query Node",
+                      {
+                          "Node ID: " + std::to_string(args.node_id),
+                          "gRPC Service: " + args.bind_address,
+                          "Metrics: http://0.0.0.0:" + std::to_string(metrics_port) + "/metrics",
+                          "Cache Directory: " + args.data_dir,
+                          "Cache Memory Limit: " + std::to_string(args.memory_limit_gb) + " GB",
+                      });
 
-  auto heartbeat =
-      server::StartHeartbeat(args.coordinator_addresses, args.node_id, args.bind_address,
-                             args.advertise_address, proto::internal::NodeType::NODE_TYPE_QUERY_NODE);
+  auto heartbeat = server::StartHeartbeat(args.coordinator_addresses, args.node_id,
+                                          args.bind_address, args.advertise_address,
+                                          proto::internal::NodeType::NODE_TYPE_QUERY_NODE);
   server::WaitForShutdown();
 
   // Tell the coordinator that this node drains, so it stops routing new

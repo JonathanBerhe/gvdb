@@ -4,26 +4,21 @@
 // Collection create, drop, lookup and list, and the shard assignment of a
 // new collection.
 
-#include "cluster/coordinator/coordinator.h"
-#include "core/status.h"
-#include "cluster/coordinator/internal_client.h"
-#include "core/type_names.h"
-#include "common/logger.h"
-#include "absl/strings/str_cat.h"
 #include <chrono>
 #include <mutex>
+#include "absl/strings/str_cat.h"
+#include "cluster/coordinator/coordinator.h"
+#include "cluster/coordinator/internal_client.h"
+#include "common/logger.h"
+#include "core/status.h"
+#include "core/type_names.h"
 
 namespace gvdb {
 namespace cluster {
 
 absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
-    const std::string& name,
-    core::Dimension dimension,
-    core::MetricType metric_type,
-    core::IndexType index_type,
-    size_t replication_factor,
-    size_t num_shards) {
-
+    const std::string& name, core::Dimension dimension, core::MetricType metric_type,
+    core::IndexType index_type, size_t replication_factor, size_t num_shards) {
   std::unique_lock lock(collection_mutex_);
 
   if (num_shards == 0) num_shards = 1;
@@ -49,8 +44,8 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
   collection_name_to_id_[name] = collection_id;
 
   common::Logger::Instance().Info(
-      "Created collection '{}' ID={} (dim={}, shards={}, replication={})",
-      name, core::ToUInt32(collection_id), dimension, num_shards, replication_factor);
+      "Created collection '{}' ID={} (dim={}, shards={}, replication={})", name,
+      core::ToUInt32(collection_id), dimension, num_shards, replication_factor);
 
   // Assign shards to nodes
   auto assign_status = AssignShardsToCollection(collection_id, num_shards, replication_factor);
@@ -66,8 +61,7 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
   std::string index_str = core::ToString(index_type);
 
   if (!client_factory_) {
-    common::Logger::Instance().Info(
-        "Collection '{}' created (distributed mode disabled)", name);
+    common::Logger::Instance().Info("Collection '{}' created (distributed mode disabled)", name);
     return collection_id;
   }
 
@@ -104,17 +98,14 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
       promote_req.set_new_term(view->term);
       proto::internal::PreparePromoteResponse promote_resp;
       grpc::ClientContext promote_ctx;
-      promote_ctx.set_deadline(std::chrono::system_clock::now() +
-                               std::chrono::seconds(2));
-      auto promote_status =
-          client->PreparePromote(&promote_ctx, promote_req, &promote_resp);
+      promote_ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(2));
+      auto promote_status = client->PreparePromote(&promote_ctx, promote_req, &promote_resp);
       if (!promote_status.ok() || !promote_resp.success()) {
         common::Logger::Instance().Warn(
             "CreateCollection: initial PreparePromote for shard {} on node {} "
             "did not apply ({}); write gate will sync via heartbeat",
             core::ToUInt16(shard_id), core::ToUInt32(*primary_result),
-            promote_status.ok() ? promote_resp.message()
-                                : promote_status.error_message());
+            promote_status.ok() ? promote_resp.message() : promote_status.error_message());
       }
     }
 
@@ -131,18 +122,16 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
     grpc::Status status = client->CreateSegment(&context, request, &response);
     if (status.ok() && response.success()) {
       common::Logger::Instance().Info("Created segment {} (shard {}) on node {}",
-                                      core::ToUInt32(seg_id), i,
-                                      core::ToUInt32(*primary_result));
+                                      core::ToUInt32(seg_id), i, core::ToUInt32(*primary_result));
     } else {
       std::string err = status.ok() ? response.message() : status.error_message();
       common::Logger::Instance().Error("Failed to create segment {} on node {}: {}",
-                                       core::ToUInt32(seg_id),
-                                       core::ToUInt32(*primary_result), err);
+                                       core::ToUInt32(seg_id), core::ToUInt32(*primary_result),
+                                       err);
     }
   }
 
-  common::Logger::Instance().Info(
-      "Collection '{}' created with {} shards", name, num_shards);
+  common::Logger::Instance().Info("Collection '{}' created with {} shards", name, num_shards);
 
   return collection_id;
 }
@@ -221,8 +210,8 @@ absl::Status Coordinator::DropCollection(const std::string& name) {
 
   PersistRegistryLocked();
 
-  common::Logger::Instance().Info("Dropped collection '{}' (ID: {})",
-                                  name, core::ToUInt32(collection_id));
+  common::Logger::Instance().Info("Dropped collection '{}' (ID: {})", name,
+                                  core::ToUInt32(collection_id));
 
   return absl::OkStatus();
 }
@@ -250,8 +239,7 @@ absl::StatusOr<meta::CollectionMetadata> Coordinator::GetCollectionMetadata(
 
   auto it = collections_.find(id);
   if (it == collections_.end()) {
-    return absl::NotFoundError(
-        absl::StrCat("Collection not found: ", core::ToUInt32(id)));
+    return absl::NotFoundError(absl::StrCat("Collection not found: ", core::ToUInt32(id)));
   }
 
   return it->second;
@@ -270,8 +258,7 @@ std::vector<meta::CollectionMetadata> Coordinator::ListCollections() const {
 }
 
 absl::Status Coordinator::AssignShardsToCollection(core::CollectionId collection_id,
-                                                    size_t num_shards,
-                                                    size_t replication_factor) {
+                                                   size_t num_shards, size_t replication_factor) {
   // Get healthy data nodes
   auto data_nodes = GetHealthyNodes(meta::NodeType::DATA_NODE);
   if (data_nodes.empty()) {
@@ -280,8 +267,8 @@ absl::Status Coordinator::AssignShardsToCollection(core::CollectionId collection
 
   if (data_nodes.size() < replication_factor) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Not enough data nodes for replication factor ",
-                    replication_factor, " (have ", data_nodes.size(), " nodes)"));
+        absl::StrCat("Not enough data nodes for replication factor ", replication_factor, " (have ",
+                     data_nodes.size(), " nodes)"));
   }
 
   // NOTE: Caller must hold collection_mutex_
@@ -303,10 +290,11 @@ absl::Status Coordinator::AssignShardsToCollection(core::CollectionId collection
   // and breaking per-shard fan-out (e.g. backup orchestration).
   const size_t cluster_shards = shard_manager_->GetTotalShards();
   if (num_shards > cluster_shards) {
-    return absl::FailedPreconditionError(absl::StrCat(
-        "Collection requested ", num_shards, " shards but the cluster's "
-        "ShardManager only has ", cluster_shards,
-        " (start the cluster with at least that many shards)"));
+    return absl::FailedPreconditionError(
+        absl::StrCat("Collection requested ", num_shards,
+                     " shards but the cluster's "
+                     "ShardManager only has ",
+                     cluster_shards, " (start the cluster with at least that many shards)"));
   }
   std::vector<core::ShardId> shard_ids;
   shard_ids.reserve(num_shards);

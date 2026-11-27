@@ -37,17 +37,15 @@ namespace test {
 
 // Mock InternalService that answers RouteQuery with a fixed two-option
 // list. Other RPCs are unimplemented (and unused by this test).
-class DrainFallbackCoordinatorService
-    : public proto::internal::InternalService::Service {
+class DrainFallbackCoordinatorService : public proto::internal::InternalService::Service {
  public:
   std::atomic<int> route_query_calls{0};
   std::string mock1_address;
   std::string mock2_address;
 
-  grpc::Status RouteQuery(
-      grpc::ServerContext* /*context*/,
-      const proto::internal::RouteQueryRequest* /*request*/,
-      proto::internal::RouteQueryResponse* response) override {
+  grpc::Status RouteQuery(grpc::ServerContext* /*context*/,
+                          const proto::internal::RouteQueryRequest* /*request*/,
+                          proto::internal::RouteQueryResponse* response) override {
     route_query_calls++;
 
     response->set_collection_id(1);
@@ -81,15 +79,14 @@ class DrainFallbackDataNodeService : public proto::VectorDBService::Service {
 
   explicit DrainFallbackDataNodeService(std::string l) : label(std::move(l)) {}
 
-  grpc::Status Get(grpc::ServerContext* /*context*/,
-                    const proto::GetRequest* request,
-                    proto::GetResponse* response) override {
+  grpc::Status Get(grpc::ServerContext* /*context*/, const proto::GetRequest* request,
+                   proto::GetResponse* response) override {
     get_calls++;
     if (fail_mode.load()) {
       // UNAVAILABLE is the transient code the helper retries on; if the
       // helper short-circuited on this it would fail the test.
       return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                           "drain-fallback test: " + label + " in fail mode");
+                          "drain-fallback test: " + label + " in fail mode");
     }
     // Echo the requested ids so the test can confirm the response came
     // from a real data-node call.
@@ -104,8 +101,7 @@ class DrainFallbackDataNodeService : public proto::VectorDBService::Service {
 namespace {
 
 // Starts a server on a free local port with the given services.
-std::unique_ptr<TestGrpcServer> StartServer(
-    std::initializer_list<grpc::Service*> services) {
+std::unique_ptr<TestGrpcServer> StartServer(std::initializer_list<grpc::Service*> services) {
   auto server = std::make_unique<TestGrpcServer>(services);
   REQUIRE(server->ok());
   return server;
@@ -176,8 +172,7 @@ class DrainReadFallbackTest {
   grpc::Status last_status_;
 };
 
-TEST_CASE_FIXTURE(DrainReadFallbackTest,
-                  "GetSucceedsOnPrimaryWhenHealthy") {
+TEST_CASE_FIXTURE(DrainReadFallbackTest, "GetSucceedsOnPrimaryWhenHealthy") {
   // Both mocks healthy → proxy hits mock1 (primary) and never mock2.
   auto resp = IssueGet();
 
@@ -188,8 +183,7 @@ TEST_CASE_FIXTURE(DrainReadFallbackTest,
   CHECK(resp.vectors(0).id() == 42);
 }
 
-TEST_CASE_FIXTURE(DrainReadFallbackTest,
-                  "GetFallsOverToReplicaWhenPrimaryUnavailable") {
+TEST_CASE_FIXTURE(DrainReadFallbackTest, "GetFallsOverToReplicaWhenPrimaryUnavailable") {
   // mock1 (primary) fails UNAVAILABLE; mock2 (replica) healthy.
   // Proxy must dial mock1, see UNAVAILABLE, dial mock2, succeed.
   mock1_->fail_mode.store(true);
@@ -203,8 +197,7 @@ TEST_CASE_FIXTURE(DrainReadFallbackTest,
   CHECK(resp.vectors(0).id() == 42);
 }
 
-TEST_CASE_FIXTURE(DrainReadFallbackTest,
-                  "GetSurfacesUnavailableWhenAllCandidatesFail") {
+TEST_CASE_FIXTURE(DrainReadFallbackTest, "GetSurfacesUnavailableWhenAllCandidatesFail") {
   // Both mocks return UNAVAILABLE. Proxy must walk both candidates and
   // surface UNAVAILABLE (not silently truncate).
   mock1_->fail_mode.store(true);

@@ -3,17 +3,17 @@
 
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
-#include <thread>
 #include <atomic>
 #include <initializer_list>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include "internal.grpc.pb.h"
 #include "service/proxy/proxy_service.h"
 #include "support/grpc_server.h"
 #include "vectordb.grpc.pb.h"
-#include "internal.grpc.pb.h"
 
 using namespace gvdb;
 
@@ -29,29 +29,26 @@ class MockCoordinatorService : public proto::VectorDBService::Service {
   std::atomic<int> list_collections_calls{0};
   std::atomic<int> get_stats_calls{0};
 
-  grpc::Status CreateCollection(
-      grpc::ServerContext* /*context*/,
-      const proto::CreateCollectionRequest* /*request*/,
-      proto::CreateCollectionResponse* response) override {
+  grpc::Status CreateCollection(grpc::ServerContext* /*context*/,
+                                const proto::CreateCollectionRequest* /*request*/,
+                                proto::CreateCollectionResponse* response) override {
     create_collection_calls++;
     response->set_collection_id(42);
     response->set_message("Collection created");
     return grpc::Status::OK;
   }
 
-  grpc::Status DropCollection(
-      grpc::ServerContext* /*context*/,
-      const proto::DropCollectionRequest* /*request*/,
-      proto::DropCollectionResponse* response) override {
+  grpc::Status DropCollection(grpc::ServerContext* /*context*/,
+                              const proto::DropCollectionRequest* /*request*/,
+                              proto::DropCollectionResponse* response) override {
     drop_collection_calls++;
     response->set_message("Collection dropped");
     return grpc::Status::OK;
   }
 
-  grpc::Status ListCollections(
-      grpc::ServerContext* /*context*/,
-      const proto::ListCollectionsRequest* /*request*/,
-      proto::ListCollectionsResponse* response) override {
+  grpc::Status ListCollections(grpc::ServerContext* /*context*/,
+                               const proto::ListCollectionsRequest* /*request*/,
+                               proto::ListCollectionsResponse* response) override {
     list_collections_calls++;
     auto* collection = response->add_collections();
     collection->set_collection_id(1);
@@ -61,10 +58,8 @@ class MockCoordinatorService : public proto::VectorDBService::Service {
     return grpc::Status::OK;
   }
 
-  grpc::Status GetStats(
-      grpc::ServerContext* /*context*/,
-      const proto::GetStatsRequest* /*request*/,
-      proto::GetStatsResponse* response) override {
+  grpc::Status GetStats(grpc::ServerContext* /*context*/, const proto::GetStatsRequest* /*request*/,
+                        proto::GetStatsResponse* response) override {
     get_stats_calls++;
     response->set_total_collections(1);
     response->set_total_vectors(100);
@@ -83,10 +78,9 @@ class MockCoordinatorInternalService : public proto::internal::InternalService::
   std::atomic<int> route_query_calls{0};
   std::string data_node_address;
 
-  grpc::Status RouteQuery(
-      grpc::ServerContext* /*context*/,
-      const proto::internal::RouteQueryRequest* /*request*/,
-      proto::internal::RouteQueryResponse* response) override {
+  grpc::Status RouteQuery(grpc::ServerContext* /*context*/,
+                          const proto::internal::RouteQueryRequest* /*request*/,
+                          proto::internal::RouteQueryResponse* response) override {
     route_query_calls++;
     response->add_target_node_addresses(data_node_address);
     auto* shard_opts = response->add_per_shard_options();
@@ -106,10 +100,8 @@ class MockQueryNodeService : public proto::VectorDBService::Service {
 
   explicit MockQueryNodeService(int id) : node_id(id) {}
 
-  grpc::Status Search(
-      grpc::ServerContext* /*context*/,
-      const proto::SearchRequest* /*request*/,
-      proto::SearchResponse* response) override {
+  grpc::Status Search(grpc::ServerContext* /*context*/, const proto::SearchRequest* /*request*/,
+                      proto::SearchResponse* response) override {
     search_calls++;
 
     // Add a result entry with node ID encoded in the vector ID
@@ -129,19 +121,15 @@ class MockDataNodeService : public proto::VectorDBService::Service {
   std::atomic<int> delete_calls{0};
   std::atomic<int> update_metadata_calls{0};
 
-  grpc::Status Insert(
-      grpc::ServerContext* /*context*/,
-      const proto::InsertRequest* request,
-      proto::InsertResponse* response) override {
+  grpc::Status Insert(grpc::ServerContext* /*context*/, const proto::InsertRequest* request,
+                      proto::InsertResponse* response) override {
     insert_calls++;
     response->set_inserted_count(request->vectors_size());
     return grpc::Status::OK;
   }
 
-  grpc::Status Get(
-      grpc::ServerContext* /*context*/,
-      const proto::GetRequest* /*request*/,
-      proto::GetResponse* response) override {
+  grpc::Status Get(grpc::ServerContext* /*context*/, const proto::GetRequest* /*request*/,
+                   proto::GetResponse* response) override {
     get_calls++;
     auto* vec = response->add_vectors();
     vec->set_id(123);
@@ -149,19 +137,16 @@ class MockDataNodeService : public proto::VectorDBService::Service {
     return grpc::Status::OK;
   }
 
-  grpc::Status Delete(
-      grpc::ServerContext* /*context*/,
-      const proto::DeleteRequest* request,
-      proto::DeleteResponse* response) override {
+  grpc::Status Delete(grpc::ServerContext* /*context*/, const proto::DeleteRequest* request,
+                      proto::DeleteResponse* response) override {
     delete_calls++;
     response->set_deleted_count(request->ids_size());
     return grpc::Status::OK;
   }
 
-  grpc::Status UpdateMetadata(
-      grpc::ServerContext* /*context*/,
-      const proto::UpdateMetadataRequest* /*request*/,
-      proto::UpdateMetadataResponse* response) override {
+  grpc::Status UpdateMetadata(grpc::ServerContext* /*context*/,
+                              const proto::UpdateMetadataRequest* /*request*/,
+                              proto::UpdateMetadataResponse* response) override {
     update_metadata_calls++;
     response->set_message("Metadata updated");
     return grpc::Status::OK;
@@ -192,8 +177,7 @@ struct ProxyServiceTest {
 
     // Coordinator server registers BOTH the public VectorDBService (for
     // metadata ops) AND the internal InternalService (for RouteQuery).
-    coordinator_server_ = StartServer(
-        {mock_coordinator_.get(), mock_coordinator_internal_.get()});
+    coordinator_server_ = StartServer({mock_coordinator_.get(), mock_coordinator_internal_.get()});
     coordinator_address_ = coordinator_server_->address();
 
     // Query node
@@ -201,8 +185,7 @@ struct ProxyServiceTest {
     query_node_address_ = query_node_server_->address();
 
     proxy_service_ = std::make_unique<service::ProxyService>(
-        std::vector<std::string>{coordinator_address_},
-        query_node_address_);
+        std::vector<std::string>{coordinator_address_}, query_node_address_);
   }
 
   ~ProxyServiceTest() {
@@ -436,8 +419,7 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "NoCoordinatorAvailable") {
 
   // Create new proxy whose coordinator address has nothing listening
   auto proxy = std::make_unique<service::ProxyService>(
-      std::vector<std::string>{coordinator_address_},
-      query_node_address_);
+      std::vector<std::string>{coordinator_address_}, query_node_address_);
 
   grpc::ServerContext context;
   proto::CreateCollectionRequest request;
@@ -460,9 +442,9 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "NoQueryNodeReturnsUnavailable") {
   // query-node URI fails Search cleanly rather than silently fanning out
   // to a random data-node. Users deploying without query-nodes are an
   // unsupported configuration; failure here is the correct surface.
-  auto proxy = std::make_unique<service::ProxyService>(
-      std::vector<std::string>{coordinator_address_},
-      std::string{});  // empty URI = no query-node target
+  auto proxy =
+      std::make_unique<service::ProxyService>(std::vector<std::string>{coordinator_address_},
+                                              std::string{});  // empty URI = no query-node target
 
   grpc::ServerContext context;
   proto::SearchRequest request;
@@ -490,8 +472,7 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "NoQueryNodeReturnsUnavailable") {
 TEST_CASE_FIXTURE(ProxyServiceTest, "LazyClientInitialization") {
   // Create new proxy (clients not initialized yet)
   auto proxy = std::make_unique<service::ProxyService>(
-      std::vector<std::string>{coordinator_address_},
-      query_node_address_);
+      std::vector<std::string>{coordinator_address_}, query_node_address_);
 
   // Clients should be lazily initialized on first use
   grpc::ServerContext context;

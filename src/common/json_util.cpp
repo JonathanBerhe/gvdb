@@ -17,12 +17,23 @@ std::string EscapeJson(const std::string& s) {
   result.reserve(s.size());
   for (char c : s) {
     switch (c) {
-      case '"': result += "\\\""; break;
-      case '\\': result += "\\\\"; break;
-      case '\n': result += "\\n"; break;
-      case '\r': result += "\\r"; break;
-      case '\t': result += "\\t"; break;
-      default: result += c;
+      case '"':
+        result += "\\\"";
+        break;
+      case '\\':
+        result += "\\\\";
+        break;
+      case '\n':
+        result += "\\n";
+        break;
+      case '\r':
+        result += "\\r";
+        break;
+      case '\t':
+        result += "\\t";
+        break;
+      default:
+        result += c;
     }
   }
   return result;
@@ -33,16 +44,14 @@ std::string EscapeJson(const std::string& s) {
 // ============================================================================
 
 // Parse "field":N where N is decimal. Returns true on success.
-bool ParseUint32(const std::string& json, std::string_view field,
-                 uint32_t& out) {
+bool ParseUint32(const std::string& json, std::string_view field, uint32_t& out) {
   std::string needle = absl::StrCat("\"", field, "\":");
   auto pos = json.find(needle);
   if (pos == std::string::npos) return false;
   pos += needle.size();
   auto end = json.find_first_of(",}", pos);
   if (end == std::string::npos) return false;
-  return absl::SimpleAtoi(
-      absl::string_view(json.data() + pos, end - pos), &out);
+  return absl::SimpleAtoi(absl::string_view(json.data() + pos, end - pos), &out);
 }
 
 bool ParseInt32(const std::string& json, std::string_view field, int32_t& out) {
@@ -52,20 +61,17 @@ bool ParseInt32(const std::string& json, std::string_view field, int32_t& out) {
   pos += needle.size();
   auto end = json.find_first_of(",}", pos);
   if (end == std::string::npos) return false;
-  return absl::SimpleAtoi(
-      absl::string_view(json.data() + pos, end - pos), &out);
+  return absl::SimpleAtoi(absl::string_view(json.data() + pos, end - pos), &out);
 }
 
-bool ParseUint64(const std::string& json, std::string_view field,
-                 uint64_t& out) {
+bool ParseUint64(const std::string& json, std::string_view field, uint64_t& out) {
   std::string needle = absl::StrCat("\"", field, "\":");
   auto pos = json.find(needle);
   if (pos == std::string::npos) return false;
   pos += needle.size();
   auto end = json.find_first_of(",}", pos);
   if (end == std::string::npos) return false;
-  return absl::SimpleAtoi(
-      absl::string_view(json.data() + pos, end - pos), &out);
+  return absl::SimpleAtoi(absl::string_view(json.data() + pos, end - pos), &out);
 }
 
 bool ParseInt64(const std::string& json, std::string_view field, int64_t& out) {
@@ -75,12 +81,10 @@ bool ParseInt64(const std::string& json, std::string_view field, int64_t& out) {
   pos += needle.size();
   auto end = json.find_first_of(",}", pos);
   if (end == std::string::npos) return false;
-  return absl::SimpleAtoi(
-      absl::string_view(json.data() + pos, end - pos), &out);
+  return absl::SimpleAtoi(absl::string_view(json.data() + pos, end - pos), &out);
 }
 
-bool ParseString(const std::string& json, std::string_view field,
-                 std::string& out) {
+bool ParseString(const std::string& json, std::string_view field, std::string& out) {
   std::string needle = absl::StrCat("\"", field, "\":\"");
   auto pos = json.find(needle);
   if (pos == std::string::npos) return false;
@@ -110,12 +114,24 @@ bool ParseString(const std::string& json, std::string_view field,
     if (out[k] == '\\' && k + 1 < out.size()) {
       char next = out[k + 1];
       switch (next) {
-        case '"': unescaped += '"'; break;
-        case '\\': unescaped += '\\'; break;
-        case 'n': unescaped += '\n'; break;
-        case 'r': unescaped += '\r'; break;
-        case 't': unescaped += '\t'; break;
-        default: unescaped += next; break;
+        case '"':
+          unescaped += '"';
+          break;
+        case '\\':
+          unescaped += '\\';
+          break;
+        case 'n':
+          unescaped += '\n';
+          break;
+        case 'r':
+          unescaped += '\r';
+          break;
+        case 't':
+          unescaped += '\t';
+          break;
+        default:
+          unescaped += next;
+          break;
       }
       ++k;
     } else {
@@ -129,8 +145,7 @@ bool ParseString(const std::string& json, std::string_view field,
 // Locate the body of a JSON array following "field":[, with proper depth
 // tracking on []/{}/""; returns the substring from '[' to its matching ']'
 // inclusive, or empty if not found. Skips bracket characters inside strings.
-std::string_view ExtractArrayBody(const std::string& json,
-                                  std::string_view field) {
+std::string_view ExtractArrayBody(const std::string& json, std::string_view field) {
   std::string needle = absl::StrCat("\"", field, "\":[");
   auto pos = json.find(needle);
   if (pos == std::string::npos) return {};

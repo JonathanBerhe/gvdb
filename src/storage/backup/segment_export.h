@@ -71,8 +71,7 @@ class SegmentExporter {
   // `tmp_root` is a writable directory used for GROWING-segment
   // snapshots.
   [[nodiscard]] static absl::StatusOr<SegmentExport> Export(
-      const Segment& segment,
-      const std::filesystem::path& flushed_segments_root,
+      const Segment& segment, const std::filesystem::path& flushed_segments_root,
       const std::filesystem::path& tmp_root);
 
   // Inverse of Export. The directory must contain the files Export
@@ -80,10 +79,8 @@ class SegmentExporter {
   // Segment owned by the caller, ready to hand to
   // ISegmentStore::AddReplicatedSegment.
   [[nodiscard]] static absl::StatusOr<std::unique_ptr<Segment>> Import(
-      const std::filesystem::path& segment_dir,
-      core::SegmentId segment_id);
+      const std::filesystem::path& segment_dir, core::SegmentId segment_id);
 };
 
 }  // namespace storage
 }  // namespace gvdb
-

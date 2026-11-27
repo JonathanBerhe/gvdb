@@ -3,18 +3,22 @@
 
 #pragma once
 
-#include "core/types.h"
-#include "core/status.h"
-#include "internal.grpc.pb.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
 #include <memory>
 #include <string>
 #include <vector>
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "core/status.h"
+#include "core/types.h"
+#include "internal.grpc.pb.h"
 
 namespace gvdb {
-namespace storage { class ISegmentStore; }
-namespace cluster { class Coordinator; }
+namespace storage {
+class ISegmentStore;
+}
+namespace cluster {
+class Coordinator;
+}
 namespace service {
 
 // One candidate node for a shard query. Intentionally mirrors the proto
@@ -62,16 +66,14 @@ class ICollectionResolver {
   virtual ~ICollectionResolver() = default;
 
   // Resolve a collection name to its ID
-  virtual absl::StatusOr<core::CollectionId> GetCollectionId(
-      const std::string& name) = 0;
+  virtual absl::StatusOr<core::CollectionId> GetCollectionId(const std::string& name) = 0;
 
   // Create a new collection, returning its ID
-  virtual absl::StatusOr<core::CollectionId> CreateCollection(
-      const std::string& name,
-      core::Dimension dimension,
-      core::MetricType metric_type,
-      core::IndexType index_type,
-      size_t num_shards = 1) = 0;
+  virtual absl::StatusOr<core::CollectionId> CreateCollection(const std::string& name,
+                                                              core::Dimension dimension,
+                                                              core::MetricType metric_type,
+                                                              core::IndexType index_type,
+                                                              size_t num_shards = 1) = 0;
 
   // Drop a collection by name
   virtual absl::Status DropCollection(const std::string& name) = 0;
@@ -87,8 +89,7 @@ class ICollectionResolver {
 
   // Get all segment IDs for a collection (for multi-shard search)
   // Coordinator: returns error (data ops not supported)
-  virtual absl::StatusOr<std::vector<core::SegmentId>> GetSegmentIds(
-      const std::string& name) = 0;
+  virtual absl::StatusOr<std::vector<core::SegmentId>> GetSegmentIds(const std::string& name) = 0;
 
   // Get gRPC stub for segment replication (only CachedCoordinatorResolver has one)
   virtual proto::internal::InternalService::Stub* GetCoordinatorStub() { return nullptr; }
@@ -108,8 +109,7 @@ class ICollectionResolver {
 // process restarts. Empty (the default) keeps the registry in memory only,
 // which is what tests use.
 std::unique_ptr<ICollectionResolver> MakeLocalResolver(
-    std::shared_ptr<storage::ISegmentStore> segment_store,
-    const std::string& registry_dir = "");
+    std::shared_ptr<storage::ISegmentStore> segment_store, const std::string& registry_dir = "");
 
 std::unique_ptr<ICollectionResolver> MakeCoordinatorResolver(
     std::shared_ptr<cluster::Coordinator> coordinator);
