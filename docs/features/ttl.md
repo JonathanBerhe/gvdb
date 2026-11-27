@@ -37,7 +37,7 @@ results = client.search("sessions", query_vector=[0.1]*384, top_k=10)
 
 ## Background sweep
 
-A background thread in each `gvdb-single-node` and `gvdb-data-node` process periodically scans segments and permanently removes expired vectors. The sweep runs on a fixed cadence — see [`src/main/data_node_main.cpp`](https://github.com/JonathanBerhe/gvdb/blob/main/src/main/data_node_main.cpp) for the current interval.
+A background thread in each `gvdb-single-node` and `gvdb-data-node` process scans the segments and permanently removes expired vectors. The sweep runs every 30 seconds (`Segment::kTTLSweepIntervalSeconds` in [`src/storage/segment/segment.h`](https://github.com/JonathanBerhe/gvdb/blob/main/src/storage/segment/segment.h)).
 
 ## Guarantees
 

@@ -50,7 +50,7 @@ class HeartbeatSender {
   // Retries the drain RPC once on failure with a short backoff.
   //
   // Requires the shutdown_flag passed in the constructor to have been set
-  // (normal path: SIGTERM handler in ServerBootstrap); otherwise the loop join
+  // (normal path: the SIGTERM handler of server::InstallSignalHandlers); otherwise the loop join
   // would hang indefinitely.
   //
   // Returns true if the drain heartbeat was acknowledged by the coordinator.

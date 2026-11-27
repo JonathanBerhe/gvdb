@@ -1,330 +1,145 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
+//
+// gvdb-single-node: every role in one process. Raft runs in single-node
+// mode, and the segment store and the service share one data folder.
 
-#include <algorithm>
-#include <iostream>
+#include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
+#include <utility>
 
 #include "absl/strings/str_cat.h"
-#include "consensus/raft_node.h"
-#include "consensus/raft_config.h"
 #include "cluster/coordinator.h"
+#include "cluster/node_registry.h"
 #include "cluster/shard_manager.h"
-#include "storage/segment/segment_manager.h"
-#include "storage/segment/tiered_segment_manager.h"
-#include "storage/segment/segment_cache.h"
-#include "storage/backup/backup_manager.h"
-#include "storage/import/bulk_importer.h"
 #include "cluster/shard_write_gate.h"
-#include "storage/objstore/object_store_factory.h"
+#include "common/logger.h"
+#include "compute/query_cache.h"
 #include "compute/query_executor.h"
-#include "service/vectordb_service.h"
-#include "service/collection_resolver.h"
-#include "rpc/interceptors/auth_processor.h"
-#include "rpc/interceptors/audit_interceptor.h"
-#include "auth/audit_logger.h"
-#include "auth/rbac.h"
-#include "index/index_factory.h"
-#include "server/bootstrap.h"
 #include "config/config.h"
+#include "consensus/raft_config.h"
+#include "consensus/raft_node.h"
+#include "server/bootstrap.h"
+#include "server/builders.h"
+#include "server/cluster_steps.h"
+#include "server/flags.h"
+#include "service/collection_resolver.h"
+#include "service/vectordb_service.h"
 
-// Command-line arguments
-std::string g_config_file = "";
-int g_port = -1;
-std::string g_data_dir = "";
-int g_node_id = -1;
+namespace gvdb {
+namespace {
 
-void PrintUsage(const char* program_name) {
-  std::cout << "Usage: " << program_name << " [options]\n"
-            << "Options:\n"
-            << "  --config FILE        YAML config file (optional)\n"
-            << "  --port PORT          gRPC server port (overrides config, default: 50051)\n"
-            << "  --data-dir PATH      Data directory (overrides config, default: /tmp/gvdb)\n"
-            << "  --node-id ID         Node ID (overrides config, default: 1)\n"
-            << "  --help               Show this help message\n";
-}
+// A flag that is not set keeps the value from the YAML configuration.
+struct Args {
+  std::string config_file;
+  int port = -1;
+  std::string data_dir;
+  int node_id = -1;
+};
 
-bool ParseArgs(int argc, char** argv) {
-  for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
-    if (arg == "--help" || arg == "-h") {
-      PrintUsage(argv[0]);
-      return false;
-    } else if (arg == "--config" && i + 1 < argc) {
-      g_config_file = argv[++i];
-    } else if (arg == "--port" && i + 1 < argc) {
-      g_port = std::stoi(argv[++i]);
-    } else if (arg == "--data-dir" && i + 1 < argc) {
-      g_data_dir = argv[++i];
-    } else if (arg == "--node-id" && i + 1 < argc) {
-      g_node_id = std::stoi(argv[++i]);
-    } else {
-      std::cerr << "Unknown argument: " << arg << std::endl;
-      PrintUsage(argv[0]);
-      return false;
-    }
+absl::Status Run(const Args& args) {
+  server::InstallSignalHandlers();
+
+  auto loaded = server::LoadConfig(args.config_file);
+  if (!loaded.ok()) return loaded.status();
+  config::GVDBConfig config = std::move(*loaded);
+  if (args.port != -1) config.server.grpc_port = args.port;
+  if (!args.data_dir.empty()) config.storage.data_dir = args.data_dir;
+  if (args.node_id != -1) config.consensus.node_id = args.node_id;
+  if (auto status = config::Config::validate(config); !status.ok()) {
+    return server::WithPrefix("Invalid configuration: ", status);
   }
-  return true;
+  const std::string data_dir = config.storage.data_dir;
+  const int node_id = config.consensus.node_id;
+
+  server::StartLogging(data_dir, "gvdb.log", server::ParseLogLevel(config.logging.level));
+  common::Logger::Instance().Info("Starting GVDB All-in-One Server");
+  server::StartMetricsServer(9090);
+
+  consensus::RaftConfig raft_config;
+  raft_config.node_id = node_id;
+  raft_config.single_node_mode = true;
+  raft_config.data_dir = data_dir + "/raft";
+  auto started_raft = server::StartRaft(raft_config);
+  if (!started_raft.ok()) return started_raft.status();
+  std::unique_ptr<consensus::RaftNode> raft_node = std::move(*started_raft);
+
+  auto built_storage =
+      server::BuildSegmentStore(config.storage, data_dir, server::ObjectStoreFailure::kStop);
+  if (!built_storage.ok()) return built_storage.status();
+  server::SegmentStoreParts storage = std::move(*built_storage);
+  auto segment_store = storage.segment_store;
+  auto query_executor = std::make_shared<compute::QueryExecutor>(segment_store.get());
+  query_executor->SetCache(std::make_shared<compute::QueryCache>(10000));
+  server::SealFullSegmentsInline(segment_store);
+
+  // The coordinator restores the collection registry from the data folder.
+  // Without it, a restart orphans every collection, although the segments
+  // load.
+  auto coordinator = std::make_unique<cluster::Coordinator>(
+      std::make_shared<cluster::ShardManager>(16, cluster::ShardingStrategy::HASH),
+      std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30)));
+  coordinator->SetRegistryDir(data_dir);
+  if (auto status = coordinator->LoadRegistry(); !status.ok()) {
+    return server::WithPrefix("Failed to load coordinator registry: ", status);
+  }
+
+  server::InterceptorFactories interceptors;
+  auto rbac_store = server::AddAuthInterceptor(config.server.auth, interceptors);
+  if (!rbac_store.ok()) return rbac_store.status();
+  server::AddAuditInterceptor(config.logging.audit, interceptors);
+
+  // Single node runs the single-shard backup against its own segment store.
+  // S3 targets need the object store, local targets need local_backup_dir.
+  auto backup = server::BuildBackupEngines(config.storage, {.object_store = storage.object_store,
+                                                            .data_dir = data_dir,
+                                                            .version = "single-node",
+                                                            .node_id = node_id});
+  // The backup write fence. Single node has one shard, and the fence works
+  // the same way.
+  cluster::ShardWriteGate shard_write_gate;
+
+  auto vectordb_service = std::make_unique<service::VectorDBService>(
+      segment_store, query_executor, service::MakeLocalResolver(segment_store, data_dir),
+      *rbac_store, server::MakeBulkImporter(storage, data_dir), backup.backup, backup.restore);
+  vectordb_service->SetShardWriteGate(&shard_write_gate);
+
+  const std::string address = absl::StrCat("0.0.0.0:", config.server.grpc_port);
+  auto grpc_server =
+      server::StartGrpcServer(address, {vectordb_service.get()},
+                              server::MakeServerCredentials(config.server.tls), std::move(interceptors));
+  if (!grpc_server.ok()) return grpc_server.status();
+
+  std::thread ttl_sweep_thread(
+      [segment_store] { segment_store->RunTTLSweepLoop(server::ShutdownFlag()); });
+
+  server::PrintBanner("GVDB All-in-One Server", {
+                                                     "gRPC Service: " + address,
+                                                     "Metrics: http://0.0.0.0:9090/metrics",
+                                                     "Node ID: " + std::to_string(node_id),
+                                                     "Data Directory: " + data_dir,
+                                                 });
+  server::WaitForShutdown();
+
+  ttl_sweep_thread.join();
+  server::StopServing(**grpc_server);
+  (void)raft_node->Shutdown();
+  return absl::OkStatus();
 }
 
-gvdb::common::LogLevel ParseLogLevel(const std::string& level_str) {
-  std::string lower = level_str;
-  std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-  if (lower == "debug") return gvdb::common::LogLevel::DEBUG;
-  if (lower == "warn" || lower == "warning") return gvdb::common::LogLevel::WARN;
-  if (lower == "error") return gvdb::common::LogLevel::ERROR;
-  return gvdb::common::LogLevel::INFO;
-}
+}  // namespace
+}  // namespace gvdb
 
 int main(int argc, char** argv) {
-  if (!ParseArgs(argc, argv)) return 1;
-
-  using namespace gvdb;
-  server::ServerBootstrap::InstallSignalHandlers();
-
-  // Load configuration: CLI flags > YAML > defaults
-  config::GVDBConfig config = config::Config::get_default();
-  if (!g_config_file.empty()) {
-    auto yaml_result = config::Config::load_from_file(g_config_file);
-    if (!yaml_result.ok()) {
-      std::cerr << "Failed to load config: " << yaml_result.status().message() << std::endl;
-      return 1;
-    }
-    config = std::move(yaml_result.value());
-  }
-  if (g_port != -1) config.server.grpc_port = g_port;
-  if (!g_data_dir.empty()) config.storage.data_dir = g_data_dir;
-  if (g_node_id != -1) config.consensus.node_id = g_node_id;
-
-  auto validate_status = config::Config::validate(config);
-  if (!validate_status.ok()) {
-    std::cerr << "Invalid configuration: " << validate_status.message() << std::endl;
-    return 1;
-  }
-
-  int port = config.server.grpc_port;
-  std::string data_dir = config.storage.data_dir;
-  int node_id = config.consensus.node_id;
-
-  // Initialize shared infrastructure
-  auto log_status = server::ServerBootstrap::InitializeLogger(
-      data_dir, "gvdb.log", ParseLogLevel(config.logging.level));
-  if (!log_status.ok()) {
-    std::cerr << "Warning: Failed to initialize logger: " << log_status.message() << std::endl;
-  }
-
-  common::Logger::Instance().Info("Starting GVDB All-in-One Server");
-  server::ServerBootstrap::StartMetricsServer(9090);
-
-  try {
-    // 1. Consensus (single-node mode)
-    consensus::RaftConfig raft_config;
-    raft_config.node_id = node_id;
-    raft_config.single_node_mode = true;
-    raft_config.data_dir = data_dir + "/raft";
-
-    auto raft_node = std::make_unique<consensus::RaftNode>(raft_config);
-    auto status = raft_node->Start();
-    if (!status.ok()) {
-      std::cerr << "Failed to start Raft: " << status.message() << std::endl;
-      return 1;
-    }
-
-    // 2. Storage + compute
-    auto index_factory = std::make_unique<index::IndexFactory>();
-    // Honor storage.segment_max_size_mb from config (was previously ignored,
-    // leaving every segment on the 512 MB default and never rotating small
-    // collections). Clamp to >=1 MB so a 0 value can't produce 0-byte
-    // segments that seal on the first insert.
-    const size_t segment_max_bytes =
-        (config.storage.segment_max_size_mb ? config.storage.segment_max_size_mb : 1)
-        * 1024 * 1024;
-    auto local_manager = std::make_unique<storage::SegmentManager>(
-        data_dir + "/segments", index_factory.get(), segment_max_bytes);
-
-    // Optionally wrap in tiered storage. The backend (S3 / MinIO / GCS) is
-    // selected from config by the shared factory; an empty result means
-    // object storage is disabled and we run local-disk only.
-    std::shared_ptr<storage::ISegmentStore> segment_store;
-    storage::IObjectStore* object_store_ptr = nullptr;  // for BulkImporter
-    auto object_store_or = storage::CreateObjectStore(config.storage.object_store);
-    if (!object_store_or.ok()) {
-      std::cerr << "Failed to create object store: "
-                << object_store_or.status().message() << std::endl;
-      return 1;
-    }
-    if (*object_store_or) {
-      auto cache_dir = data_dir + "/cache";
-      auto cache_size = static_cast<size_t>(config.storage.object_store_cache_size_mb) * 1024 * 1024;
-      auto cache = std::make_unique<storage::SegmentCache>(cache_dir, cache_size);
-      auto prefix = config.storage.object_store.prefix.empty()
-          ? "gvdb" : config.storage.object_store.prefix;
-
-      object_store_ptr = object_store_or->get();
-      segment_store = std::make_shared<storage::TieredSegmentManager>(
-          std::move(local_manager), std::move(*object_store_or),
-          std::move(cache), prefix, config.storage.object_store_upload_threads);
-    } else {
-      segment_store = std::shared_ptr<storage::SegmentManager>(
-          std::move(local_manager));
-    }
-
-    if (auto load_status = segment_store->LoadAllSegments(); !load_status.ok()) {
-      common::Logger::Instance().Warn(
-          "Failed to load existing segments on startup: {}",
-          load_status.message());
-    }
-    auto query_executor = std::make_shared<compute::QueryExecutor>(
-        segment_store.get());
-    query_executor->SetCache(std::make_shared<compute::QueryCache>(10000));
-
-    // Wire auto-seal: when a segment fills up, seal it inline
-    segment_store->SetSealCallback(
-        [segment_store](core::SegmentId sid, core::IndexType idx_type) {
-          auto* seg = segment_store->GetSegment(sid);
-          if (!seg) return;
-          auto config = core::ResolveAutoIndexConfig(
-              idx_type, seg->GetVectorCount(), seg->GetDimension(), seg->GetMetric());
-          common::Logger::Instance().Info("Auto-sealing segment {} ({} vectors, index={})",
-              core::ToUInt32(sid), seg->GetVectorCount(),
-              static_cast<int>(config.index_type));
-          auto status = segment_store->SealSegment(sid, config);
-          if (!status.ok()) {
-            common::Logger::Instance().Error("Auto-seal failed: {}", status.message());
-            return;
-          }
-          // Persist the freshly sealed segment. On the plain manager this writes
-          // it to local disk; on the tiered manager it also schedules the async
-          // upload to object storage. Without this a sealed segment stays
-          // memory-only and never reaches disk or the cold tier.
-          auto flush_status = segment_store->FlushSegment(sid);
-          if (!flush_status.ok()) {
-            common::Logger::Instance().Error(
-                "Auto-flush failed for segment {}: {}", core::ToUInt32(sid),
-                flush_status.message());
-          }
-        });
-
-    // Background TTL sweep thread
-    std::thread ttl_sweep_thread([segment_store]() {
-      segment_store->RunTTLSweepLoop(server::ServerBootstrap::ShutdownFlag());
-    });
-
-    // 3. Cluster coordinator
-    auto shard_manager = std::make_shared<cluster::ShardManager>(
-        16, cluster::ShardingStrategy::HASH);
-    auto node_registry = std::make_shared<cluster::NodeRegistry>(
-        std::chrono::seconds(30));
-    auto coordinator = std::make_unique<cluster::Coordinator>(
-        shard_manager, node_registry);
-
-    // Restore the collection registry from the data dir; without this a
-    // restart orphans every collection even though segments reload fine.
-    coordinator->SetRegistryDir(data_dir);
-    if (auto reg_status = coordinator->LoadRegistry(); !reg_status.ok()) {
-      std::cerr << "Failed to load coordinator registry: "
-                << reg_status.message() << std::endl;
-      return 1;
-    }
-
-    // 4. RBAC (if auth enabled in config)
-    std::shared_ptr<auth::RbacStore> rbac_store;
-    std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors;
-    if (config.server.auth.enabled) {
-      auto rbac_result = auth::RbacStore::Create(config.server.auth);
-      if (!rbac_result.ok()) {
-        std::cerr << "Invalid auth config: " << rbac_result.status().message() << std::endl;
-        return 1;
-      }
-      rbac_store = std::move(*rbac_result);
-      interceptors.push_back(
-          std::make_unique<rpc::ApiKeyAuthInterceptorFactory>(rbac_store));
-    }
-
-    // 5. Audit logging (if enabled in config)
-    if (config.logging.audit.enabled) {
-      auth::AuditLogger::Initialize(config.logging.audit);
-      interceptors.push_back(
-          std::make_unique<rpc::AuditInterceptorFactory>());
-    }
-
-    // 6. Bulk importer (optional — requires object store)
-    std::shared_ptr<storage::BulkImporter> bulk_importer;
-    if (object_store_ptr) {
-      bulk_importer = std::make_shared<storage::BulkImporter>(
-          segment_store, object_store_ptr, data_dir + "/tmp", 2);
-    }
-
-    // 7. Backup / restore engines. Single-node has no cluster fan-out;
-    // BackupManager runs the single-shard path against the local
-    // segment store. Requires either an S3 store (for S3 targets) or a
-    // local backup directory (for LocalBackupTarget); we configure both
-    // when available so operators can choose at request time.
-    std::shared_ptr<storage::BackupManager> backup_manager;
-    std::shared_ptr<storage::RestoreManager> restore_manager;
-    {
-      storage::BackupManagerOptions bopts;
-      bopts.default_object_store = object_store_ptr;
-      bopts.s3_bucket = config.storage.object_store.bucket;
-      bopts.local_root_allowlist = config.storage.local_backup_dir;
-      bopts.flushed_segments_root = data_dir + "/segments";
-      bopts.tmp_dir = data_dir + "/tmp/backup";
-      bopts.gvdb_version = "single-node";
-      bopts.node_id = node_id;
-      backup_manager = std::make_shared<storage::BackupManager>(std::move(bopts));
-
-      storage::RestoreManagerOptions ropts;
-      ropts.default_object_store = object_store_ptr;
-      ropts.s3_bucket = config.storage.object_store.bucket;
-      ropts.local_root_allowlist = config.storage.local_backup_dir;
-      ropts.staging_dir = data_dir + "/tmp/restore";
-      restore_manager = std::make_shared<storage::RestoreManager>(
-          std::move(ropts));
-    }
-
-    // Per-shard backup write fence. Single-node uses a single shard but
-    // the gate plumbing is the same — FreezeWrites against shard 0
-    // works identically.
-    auto shard_write_gate = std::make_unique<cluster::ShardWriteGate>();
-
-    // 8. gRPC service
-    auto resolver = service::MakeLocalResolver(segment_store, data_dir);
-    auto service = std::make_unique<service::VectorDBService>(
-        segment_store, query_executor, std::move(resolver), rbac_store,
-        bulk_importer, backup_manager, restore_manager);
-    service->SetShardWriteGate(shard_write_gate.get());
-
-    // 6. Start server
-    std::string server_address = absl::StrCat("0.0.0.0:", port);
-    auto credentials = server::ServerBootstrap::MakeServerCredentials(config.server.tls);
-    auto server = server::ServerBootstrap::StartGrpcServer(
-        server_address, {service.get()}, credentials, std::move(interceptors));
-    if (!server) {
-      std::cerr << "Failed to start gRPC server on " << server_address << std::endl;
-      return 1;
-    }
-
-    server::ServerBootstrap::PrintBanner("GVDB All-in-One Server", {
-        "gRPC Service: " + server_address,
-        "Metrics: http://0.0.0.0:9090/metrics",
-        "Node ID: " + std::to_string(node_id),
-        "Data Directory: " + data_dir,
-    });
-
-    server::ServerBootstrap::WaitForShutdown();
-
-    // Graceful shutdown
-    std::cout << "\nShutting down gracefully..." << std::endl;
-    if (ttl_sweep_thread.joinable()) ttl_sweep_thread.join();
-    server->Shutdown();
-    server::ServerBootstrap::StopMetricsServer();
-    (void)raft_node->Shutdown();
-    std::cout << "Shutdown complete. Goodbye!" << std::endl;
-    return 0;
-
-  } catch (const std::exception& e) {
-    std::cerr << "Fatal error: " << e.what() << std::endl;
-    return 1;
-  }
+  gvdb::Args args;
+  gvdb::server::FlagSet flags;
+  flags.AddString("--config", "FILE", "YAML config file (optional)", &args.config_file);
+  flags.AddInt("--port", "PORT", "gRPC server port (overrides config, default: 50051)", &args.port);
+  flags.AddString("--data-dir", "PATH", "Data directory (overrides config, default: /tmp/gvdb)",
+                  &args.data_dir);
+  flags.AddInt("--node-id", "ID", "Node ID (overrides config, default: 1)", &args.node_id);
+  if (auto exit_code = flags.Parse(argc, argv)) return *exit_code;
+  return gvdb::server::RunMain([&] { return gvdb::Run(args); });
 }
