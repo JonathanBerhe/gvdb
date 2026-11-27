@@ -10,13 +10,10 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "cluster/coordinator.h"
+#include "meta/collection_metadata.h"
 
 namespace gvdb {
 namespace network {
-
-// Use the canonical CollectionMetadata from the cluster module
-using CollectionMetadata = cluster::CollectionMetadata;
 
 // Thread-safe cache for collection metadata
 // Used by data/query nodes to avoid querying coordinator on every request
@@ -26,10 +23,10 @@ class CollectionMetadataCache {
   ~CollectionMetadataCache() = default;
 
   // Get collection metadata by name
-  absl::StatusOr<CollectionMetadata> GetByName(const std::string& collection_name) const;
+  absl::StatusOr<meta::CollectionMetadata> GetByName(const std::string& collection_name) const;
 
   // Add or update collection metadata in cache
-  void Put(const CollectionMetadata& metadata);
+  void Put(const meta::CollectionMetadata& metadata);
 
   // Get number of cached collections
   size_t Size() const;
@@ -38,8 +35,8 @@ class CollectionMetadataCache {
   mutable std::shared_mutex mutex_;
 
   // Dual indexing for fast lookup by name or ID
-  absl::flat_hash_map<std::string, CollectionMetadata> by_name_;
-  absl::flat_hash_map<core::CollectionId, CollectionMetadata> by_id_;
+  absl::flat_hash_map<std::string, meta::CollectionMetadata> by_name_;
+  absl::flat_hash_map<core::CollectionId, meta::CollectionMetadata> by_id_;
 };
 
 }  // namespace network

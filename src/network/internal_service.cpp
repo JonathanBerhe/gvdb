@@ -2,7 +2,8 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "network/internal_service.h"
-#include "network/proto_conversions.h"
+#include "core/type_names.h"
+#include "rpc/proto_conversions.h"
 #include "cluster/node_registry.h"
 #include "cluster/coordinator.h"
 #include "cluster/primary_term_tracker.h"
@@ -354,7 +355,7 @@ grpc::Status InternalService::CreateSegment(
     }
 
     // Convert string types to enums
-    auto metric_result = metricTypeFromString(metric_type_str);
+    auto metric_result = core::metricTypeFromString(metric_type_str);
     if (!metric_result.ok()) {
       response->set_success(false);
       response->set_message(std::string(metric_result.status().message()));
@@ -362,7 +363,7 @@ grpc::Status InternalService::CreateSegment(
                           std::string(metric_result.status().message()));
     }
 
-    auto index_result = indexTypeFromString(index_type_str);
+    auto index_result = core::indexTypeFromString(index_type_str);
     if (!index_result.ok()) {
       response->set_success(false);
       response->set_message(std::string(index_result.status().message()));
@@ -415,7 +416,7 @@ grpc::Status InternalService::GetCollectionMetadata(
     }
 
     // Get collection metadata from coordinator
-    absl::StatusOr<cluster::CollectionMetadata> metadata_result;
+    absl::StatusOr<meta::CollectionMetadata> metadata_result;
 
     if (request->has_collection_id()) {
       uint32_t collection_id = request->collection_id();
@@ -464,7 +465,7 @@ grpc::Status InternalService::GetCollectionMetadata(
     }
 
     // Convert IndexType enum to string (reuse proto_conversions toString)
-    proto_metadata->set_index_type(toString(metadata.index_type));
+    proto_metadata->set_index_type(core::toString(metadata.index_type));
 
     proto_metadata->set_shard_count(metadata.shard_ids.size());
 
@@ -641,7 +642,7 @@ grpc::Status InternalService::ExecuteShardQuery(
                                      collection_id, top_k);
 
     uint32_t shard_id = request->shard_id();
-    core::SegmentId segment_id = cluster::ShardSegmentId(
+    core::SegmentId segment_id = core::ShardSegmentId(
         core::MakeCollectionId(collection_id), shard_id);
     auto* segment = segment_store_->GetSegment(segment_id);
     if (!segment) {
@@ -688,7 +689,7 @@ grpc::Status InternalService::ExecuteShardQuery(
       if (request->return_metadata()) {
         auto meta_result = segment->GetMetadata(entry.id);
         if (meta_result.ok()) {
-          toProto(*meta_result, result->mutable_metadata());
+          rpc::toProto(*meta_result, result->mutable_metadata());
         }
       }
     }
@@ -1113,9 +1114,9 @@ grpc::Status InternalService::BackupShard(
         "BackupShard requires a segment store");
   }
 
-  auto target = fromProto(request->target());
+  auto target = rpc::fromProto(request->target());
   if (!target.ok()) {
-    return toGrpcStatus(target.status());
+    return rpc::toGrpcStatus(target.status());
   }
 
   auto result = backup_manager_->RunShardBackup(
@@ -1128,7 +1129,7 @@ grpc::Status InternalService::BackupShard(
   if (!result.ok()) {
     response->set_success(false);
     response->set_message(std::string(result.status().message()));
-    return toGrpcStatus(result.status());
+    return rpc::toGrpcStatus(result.status());
   }
 
   response->set_success(true);
@@ -1159,9 +1160,9 @@ grpc::Status InternalService::RestoreShard(
         "RestoreShard requires a segment store");
   }
 
-  auto source = fromProto(request->source());
+  auto source = rpc::fromProto(request->source());
   if (!source.ok()) {
-    return toGrpcStatus(source.status());
+    return rpc::toGrpcStatus(source.status());
   }
 
   auto status = restore_manager_->RunShardRestore(
@@ -1173,7 +1174,7 @@ grpc::Status InternalService::RestoreShard(
   if (!status.ok()) {
     response->set_success(false);
     response->set_message(std::string(status.message()));
-    return toGrpcStatus(status);
+    return rpc::toGrpcStatus(status);
   }
   response->set_success(true);
   response->set_message("Shard restore complete");

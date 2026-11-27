@@ -3,7 +3,6 @@
 gvdb_add_library(network
   SOURCES
     vectordb_service.cpp
-    proto_conversions.cpp
     internal_service.cpp
     proxy_service.cpp
     collection_metadata_cache.cpp
@@ -18,11 +17,14 @@ gvdb_add_library(network
     gvdb::core
     gvdb::utils
     gvdb::auth
-    gvdb::proto
-  PRIVATE_DEPS
+    gvdb::meta
     gvdb::storage
     gvdb::compute
     gvdb::cluster
+    gvdb::proto
+  PRIVATE_DEPS
+    gvdb::index
+    gvdb::rpc
     gvdb::consensus
     absl::status
     absl::statusor

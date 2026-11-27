@@ -182,7 +182,7 @@ gvdb_add_test(consensus_persistence_tests
 # network
 gvdb_add_test(network_tests
   SOURCES network_test.cpp
-  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  DEPS gvdb::network gvdb::rpc gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
   TIMEOUT 120 LABELS unit)
 
 gvdb_add_test(metadata_cache_tests

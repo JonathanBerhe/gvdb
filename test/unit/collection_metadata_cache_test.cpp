@@ -20,7 +20,7 @@ class CollectionMetadataCacheTest {
 
 // Test basic put and get by name
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "PutAndGetByName") {
-  CollectionMetadata metadata(
+  meta::CollectionMetadata metadata(
       static_cast<core::CollectionId>(1),
       "test_collection",
       128,
@@ -47,7 +47,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "GetNonExistentByName") {
 
 // Test update existing collection
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "UpdateCollection") {
-  CollectionMetadata metadata1(
+  meta::CollectionMetadata metadata1(
       static_cast<core::CollectionId>(1),
       "test_collection",
       128,
@@ -57,7 +57,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "UpdateCollection") {
   cache_->Put(metadata1);
 
   // Update with different parameters
-  CollectionMetadata metadata2(
+  meta::CollectionMetadata metadata2(
       static_cast<core::CollectionId>(1),
       "test_collection",
       256,  // Changed dimension
@@ -77,7 +77,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "UpdateCollection") {
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "Size") {
   CHECK_EQ(cache_->Size(), 0);
 
-  CollectionMetadata metadata1(
+  meta::CollectionMetadata metadata1(
       static_cast<core::CollectionId>(1),
       "collection1",
       128,
@@ -86,7 +86,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "Size") {
   cache_->Put(metadata1);
   CHECK_EQ(cache_->Size(), 1);
 
-  CollectionMetadata metadata2(
+  meta::CollectionMetadata metadata2(
       static_cast<core::CollectionId>(2),
       "collection2",
       256,
@@ -98,7 +98,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "Size") {
 
 // Test multiple collections
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "MultipleCollections") {
-  std::vector<CollectionMetadata> collections;
+  std::vector<meta::CollectionMetadata> collections;
   for (int i = 1; i <= 10; ++i) {
     collections.emplace_back(
         static_cast<core::CollectionId>(i),
@@ -124,7 +124,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "MultipleCollections") {
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentReads") {
   // Populate cache
   for (int i = 1; i <= 100; ++i) {
-    CollectionMetadata metadata(
+    meta::CollectionMetadata metadata(
         static_cast<core::CollectionId>(i),
         "collection_" + std::to_string(i),
         128,
@@ -165,7 +165,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentWrites") {
     threads.emplace_back([this, t]() {
       for (int i = 0; i < 10; ++i) {
         int id = t * 10 + i + 1;
-        CollectionMetadata metadata(
+        meta::CollectionMetadata metadata(
             static_cast<core::CollectionId>(id),
             "collection_" + std::to_string(id),
             128,
@@ -202,7 +202,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentReadsAndWrites") {
     writers.emplace_back([this, t]() {
       for (int count = 0; count < 50; ++count) {
         int id = t * 50 + count + 1;
-        CollectionMetadata metadata(
+        meta::CollectionMetadata metadata(
             static_cast<core::CollectionId>(id),
             "collection_" + std::to_string(id),
             128,

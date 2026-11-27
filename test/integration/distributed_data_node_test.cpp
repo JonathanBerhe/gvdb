@@ -211,7 +211,7 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "CoordinatorCreatesSegmentOnDataNode"
   uint32_t collection_id = create_resp.collection_id();
 
   // Verify segment was created on data node (shard 0)
-  auto segment_id = cluster::ShardSegmentId(core::CollectionId(collection_id), 0);
+  auto segment_id = core::ShardSegmentId(core::CollectionId(collection_id), 0);
   auto* segment = dn_segment_store_->GetSegment(segment_id);
   INFO("Segment not found on data node after CreateCollection");
   REQUIRE_NE(segment, nullptr);
@@ -236,7 +236,7 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "CoordinatorCreatesIvfPqAfterFlatDrop
   INFO("FLAT CreateCollection failed: " << flat_status.error_message());
   REQUIRE(flat_status.ok());
 
-  auto flat_segment_id = cluster::ShardSegmentId(
+  auto flat_segment_id = core::ShardSegmentId(
       core::CollectionId(flat_resp.collection_id()), 0);
   auto* flat_segment = dn_segment_store_->GetSegment(flat_segment_id);
   REQUIRE_NE(flat_segment, nullptr);
@@ -269,7 +269,7 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "CoordinatorCreatesIvfPqAfterFlatDrop
   REQUIRE(ivf_status.ok());
   CHECK_NE(ivf_resp.collection_id(), flat_resp.collection_id());
 
-  auto ivf_segment_id = cluster::ShardSegmentId(
+  auto ivf_segment_id = core::ShardSegmentId(
       core::CollectionId(ivf_resp.collection_id()), 0);
   auto* ivf_segment = dn_segment_store_->GetSegment(ivf_segment_id);
   INFO("IVF_PQ segment not found on data node after CreateCollection");
@@ -539,7 +539,7 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "ReplicateSegmentBetweenNodes") {
   node_registry_->UpdateNode(proto_node2);
 
   // Replicate segment from data node 1 to data node 2
-  core::SegmentId seg_id = cluster::ShardSegmentId(core::CollectionId(collection_id), 0);
+  core::SegmentId seg_id = core::ShardSegmentId(core::CollectionId(collection_id), 0);
   core::NodeId source = core::MakeNodeId(100);
   core::NodeId target = core::MakeNodeId(200);
 

@@ -7,7 +7,7 @@
 namespace gvdb {
 namespace network {
 
-absl::StatusOr<CollectionMetadata> CollectionMetadataCache::GetByName(
+absl::StatusOr<meta::CollectionMetadata> CollectionMetadataCache::GetByName(
     const std::string& collection_name) const {
   std::shared_lock<std::shared_mutex> lock(mutex_);
 
@@ -20,7 +20,7 @@ absl::StatusOr<CollectionMetadata> CollectionMetadataCache::GetByName(
   return it->second;
 }
 
-void CollectionMetadataCache::Put(const CollectionMetadata& metadata) {
+void CollectionMetadataCache::Put(const meta::CollectionMetadata& metadata) {
   std::unique_lock<std::shared_mutex> lock(mutex_);
 
   // Remove old entries if collection name or ID changed

@@ -110,10 +110,10 @@ class CoordinatorTest {
 };
 
 TEST_CASE_FIXTURE(CoordinatorTest, "RegisterNode") {
-  NodeInfo node_info;
+  meta::NodeInfo node_info;
   node_info.node_id = core::MakeNodeId(1);
-  node_info.type = NodeType::QUERY_NODE;
-  node_info.status = NodeStatus::HEALTHY;
+  node_info.type = meta::NodeType::QUERY_NODE;
+  node_info.status = meta::NodeStatus::HEALTHY;
   node_info.address = "localhost:50051";
 
   auto status = coordinator_->RegisterNode(node_info);
@@ -266,16 +266,16 @@ TEST_CASE_FIXTURE(CoordinatorTest, "GetHealthyNodesFiltersByType") {
   query_node.set_grpc_address("localhost:50052");
   node_registry_->UpdateNode(query_node);
 
-  auto data_nodes = coordinator_->GetHealthyNodes(NodeType::DATA_NODE);
+  auto data_nodes = coordinator_->GetHealthyNodes(meta::NodeType::DATA_NODE);
   CHECK_EQ(data_nodes.size(), 1);
-  CHECK_EQ(data_nodes[0].type, NodeType::DATA_NODE);
+  CHECK_EQ(data_nodes[0].type, meta::NodeType::DATA_NODE);
 
-  auto query_nodes = coordinator_->GetHealthyNodes(NodeType::QUERY_NODE);
+  auto query_nodes = coordinator_->GetHealthyNodes(meta::NodeType::QUERY_NODE);
   CHECK_EQ(query_nodes.size(), 1);
-  CHECK_EQ(query_nodes[0].type, NodeType::QUERY_NODE);
+  CHECK_EQ(query_nodes[0].type, meta::NodeType::QUERY_NODE);
 
   // No proxy nodes registered
-  auto proxy_nodes = coordinator_->GetHealthyNodes(NodeType::PROXY);
+  auto proxy_nodes = coordinator_->GetHealthyNodes(meta::NodeType::PROXY);
   CHECK_EQ(proxy_nodes.size(), 0);
 }
 
@@ -294,17 +294,17 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodePromotesReplica") {
   core::NodeId primary_id = core::MakeNodeId(1);
   core::NodeId replica_id = core::MakeNodeId(2);
 
-  NodeInfo primary_info;
+  meta::NodeInfo primary_info;
   primary_info.node_id = primary_id;
-  primary_info.type = NodeType::DATA_NODE;
-  primary_info.status = NodeStatus::HEALTHY;
+  primary_info.type = meta::NodeType::DATA_NODE;
+  primary_info.status = meta::NodeStatus::HEALTHY;
   primary_info.address = "localhost:50051";
   REQUIRE(coordinator_->RegisterNode(primary_info).ok());
 
-  NodeInfo replica_info;
+  meta::NodeInfo replica_info;
   replica_info.node_id = replica_id;
-  replica_info.type = NodeType::DATA_NODE;
-  replica_info.status = NodeStatus::HEALTHY;
+  replica_info.type = meta::NodeType::DATA_NODE;
+  replica_info.status = meta::NodeStatus::HEALTHY;
   replica_info.address = "localhost:50052";
   REQUIRE(coordinator_->RegisterNode(replica_info).ok());
 
@@ -843,10 +843,10 @@ TEST_CASE_FIXTURE(CoordinatorTest, "RegistryPersistsAcrossRestart") {
   gvdb::test::ScopedTempDir tmp("gvdb_coordinator_registry_test");
   const std::string reg_dir = tmp.str();
 
-  NodeInfo node_info;
+  meta::NodeInfo node_info;
   node_info.node_id = core::MakeNodeId(1);
-  node_info.type = NodeType::DATA_NODE;
-  node_info.status = NodeStatus::HEALTHY;
+  node_info.type = meta::NodeType::DATA_NODE;
+  node_info.status = meta::NodeStatus::HEALTHY;
   node_info.address = "localhost:50051";
   REQUIRE(coordinator_->RegisterNode(node_info).ok());
 

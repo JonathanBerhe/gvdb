@@ -744,21 +744,15 @@ core::Status RestoreManager::RunShardRestore(
   };
 
   // Restoring into a fresh target collection (different collection_id
-  // than the backup recorded) requires remapping segment_ids too — the
-  // original ids may still be live under the source collection on the
-  // same data-node. Mirrors the cluster::ShardSegmentId scheme
-  // (collection_id * 1000 + shard_index) so restored segments live in
-  // the same id space the resolver hands out for fresh segments;
-  // inlined here to keep the storage layer free of cluster/ deps.
-  // The remap is a no-op when the manifest's collection_id already
-  // matches the target.
-  auto shard_segment_base = [](core::CollectionId cid, uint16_t shard) {
-    return core::MakeSegmentId(core::ToUInt32(cid) * 1000 + shard);
-  };
+  // than the backup recorded) requires remapping segment_ids too, because
+  // the original ids may still be live under the source collection on the
+  // same data-node. core::ShardSegmentId gives the restored segments the
+  // same ids that the resolver hands out for fresh segments. The remap is
+  // a no-op when the manifest's collection_id already matches the target.
   const bool remap_needed = !mani_or->segments.empty() &&
       mani_or->segments.front().segment_id !=
-          core::ToUInt32(shard_segment_base(target_collection_id,
-                                            core::ToUInt16(shard_id)));
+          core::ToUInt32(core::ShardSegmentId(target_collection_id,
+                                              core::ToUInt16(shard_id)));
 
   for (size_t seg_index = 0; seg_index < mani_or->segments.size();
        ++seg_index) {
@@ -791,8 +785,8 @@ core::Status RestoreManager::RunShardRestore(
       // eagerly created on CreateCollection — that's exactly what we
       // want for the common one-segment-per-shard restore.
       auto new_seg_id = core::MakeSegmentId(
-          core::ToUInt32(shard_segment_base(target_collection_id,
-                                            core::ToUInt16(shard_id))) +
+          core::ToUInt32(core::ShardSegmentId(target_collection_id,
+                                              core::ToUInt16(shard_id))) +
           static_cast<uint32_t>(seg_index));
       (*seg_or)->SetSegmentIdForRestore(new_seg_id);
       // Drop any existing segment at this id (the empty
