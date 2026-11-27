@@ -170,7 +170,9 @@ class RaftNodeTest {
     config.single_node_mode = true;
     config.data_dir = (data_dir_ / "raft").string();
 
-    node_ = std::make_unique<RaftNode>(config);
+    auto created = RaftNode::Create(config);
+    REQUIRE(created.ok());
+    node_ = std::move(*created);
   }
 
   ~RaftNodeTest() {
@@ -225,8 +227,9 @@ TEST_CASE("RaftNode Start fails when coordinator gRPC peers are set without a pe
   config.coordinator_grpc_peers = {"127.0.0.1:1"};
   config.data_dir = dir.str();
 
-  RaftNode node(config);
-  auto status = node.Start();
+  auto node = RaftNode::Create(config);
+  REQUIRE(node.ok());
+  auto status = (*node)->Start();
   CHECK_EQ(status.code(), absl::StatusCode::kInvalidArgument);
-  CHECK_FALSE(node.IsRunning());
+  CHECK_FALSE((*node)->IsRunning());
 }

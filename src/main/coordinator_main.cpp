@@ -94,7 +94,7 @@ absl::Status Run(const Args& args) {
   auto index_factory = std::make_unique<index::IndexFactory>();
   auto segment_manager =
       std::make_shared<storage::SegmentManager>(args.data_dir + "/segments", index_factory.get());
-  auto query_executor = std::make_shared<compute::QueryExecutor>(segment_manager.get());
+  auto query_executor = std::make_shared<compute::QueryExecutor>(*segment_manager);
 
   // The service shares the Raft node without owning it. raft_node outlives
   // the service.

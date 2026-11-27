@@ -67,7 +67,7 @@ absl::Status Run(const Args& args) {
   segment_store->SetSealCallback([data_node](core::SegmentId sid, core::IndexType idx_type) {
     (void)data_node->ScheduleBuildTask({sid, idx_type, 100});
   });
-  auto query_executor = std::make_shared<compute::QueryExecutor>(segment_store.get());
+  auto query_executor = std::make_shared<compute::QueryExecutor>(*segment_store);
   query_executor->SetCache(std::make_shared<compute::QueryCache>(10000));
 
   // Both services and the heartbeat keep raw pointers to the write fence and

@@ -23,7 +23,7 @@ class QueryExecutor {
  public:
   // Create query executor with segment manager and optional thread pool
   // If thread_pool is nullptr, creates a default pool with hardware concurrency
-  explicit QueryExecutor(storage::ISegmentStore* segment_store,
+  explicit QueryExecutor(storage::ISegmentStore& segment_store,
                         common::ThreadPool* thread_pool = nullptr);
 
   ~QueryExecutor();

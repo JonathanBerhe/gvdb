@@ -41,7 +41,9 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "BasicPersistence") {
 
   // Create log store and write entries
   {
-    GvdbLogStore log_store(log_path);
+    auto log_store_created = GvdbLogStore::Create(log_path);
+    REQUIRE(log_store_created.ok());
+    GvdbLogStore& log_store = **log_store_created;
 
     auto entry1 = create_log_entry(1, "data1");
     auto entry2 = create_log_entry(2, "data2");
@@ -75,7 +77,9 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "BasicPersistence") {
 
   // Reopen and verify data persisted
   {
-    GvdbLogStore log_store(log_path);
+    auto log_store_created = GvdbLogStore::Create(log_path);
+    REQUIRE(log_store_created.ok());
+    GvdbLogStore& log_store = **log_store_created;
 
     auto read1 = log_store.entry_at(1);
     auto read2 = log_store.entry_at(2);
@@ -106,14 +110,18 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "AppendAfterReopen") {
   constexpr ulong kAfter = 20;
 
   {
-    GvdbLogStore log_store(log_path);
+    auto log_store_created = GvdbLogStore::Create(log_path);
+    REQUIRE(log_store_created.ok());
+    GvdbLogStore& log_store = **log_store_created;
     for (ulong i = 1; i <= kBefore; ++i) {
       auto entry = create_log_entry(1, "before_" + std::to_string(i));
       log_store.append(entry);
     }
   }
 
-  GvdbLogStore log_store(log_path);
+  auto log_store_created = GvdbLogStore::Create(log_path);
+  REQUIRE(log_store_created.ok());
+  GvdbLogStore& log_store = **log_store_created;
   REQUIRE_EQ(log_store.next_slot(), kBefore + 1);
 
   for (ulong i = 1; i <= kAfter; ++i) {
@@ -143,7 +151,9 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "TruncationPersistence") {
 
   // Write entries and truncate
   {
-    GvdbLogStore log_store(log_path);
+    auto log_store_created = GvdbLogStore::Create(log_path);
+    REQUIRE(log_store_created.ok());
+    GvdbLogStore& log_store = **log_store_created;
 
     auto entry1 = create_log_entry(1, "data1");
     auto entry2 = create_log_entry(2, "data2");
@@ -169,7 +179,9 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "TruncationPersistence") {
 
   // Reopen and verify truncation persisted
   {
-    GvdbLogStore log_store(log_path);
+    auto log_store_created = GvdbLogStore::Create(log_path);
+    REQUIRE(log_store_created.ok());
+    GvdbLogStore& log_store = **log_store_created;
 
     CHECK_NE(log_store.entry_at(1), nullptr);
     CHECK_NE(log_store.entry_at(2), nullptr);
@@ -185,7 +197,9 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "CompactionPersistence") {
 
   // Write entries and compact
   {
-    GvdbLogStore log_store(log_path);
+    auto log_store_created = GvdbLogStore::Create(log_path);
+    REQUIRE(log_store_created.ok());
+    GvdbLogStore& log_store = **log_store_created;
 
     for (int i = 1; i <= 10; ++i) {
       auto entry = create_log_entry(i, "data" + std::to_string(i));
@@ -209,7 +223,9 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "CompactionPersistence") {
 
   // Reopen and verify compaction persisted
   {
-    GvdbLogStore log_store(log_path);
+    auto log_store_created = GvdbLogStore::Create(log_path);
+    REQUIRE(log_store_created.ok());
+    GvdbLogStore& log_store = **log_store_created;
 
     CHECK_EQ(log_store.start_index(), 6);
     for (ulong i = 1; i <= 5; ++i) {
@@ -231,14 +247,18 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "LargeEntries") {
   std::string large_data(1024 * 1024, 'X');
 
   {
-    GvdbLogStore log_store(log_path);
+    auto log_store_created = GvdbLogStore::Create(log_path);
+    REQUIRE(log_store_created.ok());
+    GvdbLogStore& log_store = **log_store_created;
     auto entry = create_log_entry(1, large_data);
     log_store.append(entry);
   }
 
   // Reopen and verify large entry persisted
   {
-    GvdbLogStore log_store(log_path);
+    auto log_store_created = GvdbLogStore::Create(log_path);
+    REQUIRE(log_store_created.ok());
+    GvdbLogStore& log_store = **log_store_created;
     auto read = log_store.entry_at(1);
     REQUIRE_NE(read, nullptr);
     CHECK_EQ(read->get_term(), 1);
@@ -250,7 +270,9 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "LargeEntries") {
 TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "SequentialWrites") {
   std::string log_path = (test_dir_ / "logs").string();
 
-  GvdbLogStore log_store(log_path);
+  auto log_store_created = GvdbLogStore::Create(log_path);
+  REQUIRE(log_store_created.ok());
+  GvdbLogStore& log_store = **log_store_created;
 
   // Write 1000 entries
   for (int i = 1; i <= 1000; ++i) {
@@ -273,7 +295,9 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "SequentialWrites") {
 // Test 6: last_entry() honors persistent mode (replication read path)
 TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "LastEntryPersistent") {
   std::string log_path = (test_dir_ / "logs").string();
-  GvdbLogStore log_store(log_path);
+  auto log_store_created = GvdbLogStore::Create(log_path);
+  REQUIRE(log_store_created.ok());
+  GvdbLogStore& log_store = **log_store_created;
 
   // Empty log → dummy sentinel with term 0
   auto empty = log_store.last_entry();
@@ -296,7 +320,9 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "LastEntryPersistent") {
 // Test 7: log_entries() honors persistent mode (leader replication path)
 TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "LogEntriesPersistent") {
   std::string log_path = (test_dir_ / "logs").string();
-  GvdbLogStore log_store(log_path);
+  auto log_store_created = GvdbLogStore::Create(log_path);
+  REQUIRE(log_store_created.ok());
+  GvdbLogStore& log_store = **log_store_created;
 
   for (int i = 1; i <= 5; ++i) {
     auto e = create_log_entry(i, "v" + std::to_string(i));
@@ -323,7 +349,9 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "ApplyPackPersistent") {
   // Build a pack from a source store.
   ptr<buffer> packed;
   {
-    GvdbLogStore src(log_path + "_src");
+    auto src_created = GvdbLogStore::Create(log_path + "_src");
+    REQUIRE(src_created.ok());
+    GvdbLogStore& src = **src_created;
     for (int i = 1; i <= 3; ++i) {
       auto e = create_log_entry(10 + i, "pkt" + std::to_string(i));
       src.append(e);
@@ -333,7 +361,9 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "ApplyPackPersistent") {
   }
 
   // Apply into a fresh persistent store at index 1.
-  GvdbLogStore dst(log_path);
+  auto dst_created = GvdbLogStore::Create(log_path);
+  REQUIRE(dst_created.ok());
+  GvdbLogStore& dst = **dst_created;
   dst.apply_pack(1, *packed);
 
   // next_slot must advance to one past the highest applied index —
@@ -359,7 +389,9 @@ TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "BasicPersistence") {
 
   // Create state manager and save some state
   {
-    GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
+    auto mgr_created = GvdbStateManager::Create(1, "localhost:9000", log_path, state_path);
+    REQUIRE(mgr_created.ok());
+    GvdbStateManager& mgr = **mgr_created;
 
     // Create and save a server state
     auto srv_state = nuraft::cs_new<nuraft::srv_state>();
@@ -371,7 +403,9 @@ TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "BasicPersistence") {
 
   // Reopen and verify state persisted
   {
-    GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
+    auto mgr_created = GvdbStateManager::Create(1, "localhost:9000", log_path, state_path);
+    REQUIRE(mgr_created.ok());
+    GvdbStateManager& mgr = **mgr_created;
 
     auto loaded_state = mgr.read_state();
     REQUIRE_NE(loaded_state, nullptr);
@@ -387,7 +421,9 @@ TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "ClusterConfigPersistence") {
 
   // Create multi-server cluster config
   {
-    GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
+    auto mgr_created = GvdbStateManager::Create(1, "localhost:9000", log_path, state_path);
+    REQUIRE(mgr_created.ok());
+    GvdbStateManager& mgr = **mgr_created;
 
     // Add more servers
     auto srv2 = nuraft::cs_new<nuraft::srv_config>(2, "localhost:9001");
@@ -402,7 +438,9 @@ TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "ClusterConfigPersistence") {
 
   // Reopen and verify cluster config persisted
   {
-    GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
+    auto mgr_created = GvdbStateManager::Create(1, "localhost:9000", log_path, state_path);
+    REQUIRE(mgr_created.ok());
+    GvdbStateManager& mgr = **mgr_created;
 
     auto config = mgr.load_config();
     REQUIRE_NE(config, nullptr);
@@ -432,7 +470,9 @@ TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "StartOnExistingEmptyDirs") {
   constexpr int kNumEntries = 20;
 
   {
-    GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
+    auto mgr_created = GvdbStateManager::Create(1, "localhost:9000", log_path, state_path);
+    REQUIRE(mgr_created.ok());
+    GvdbStateManager& mgr = **mgr_created;
 
     // Nothing saved yet: no server state, and a config with only this node.
     CHECK_EQ(mgr.read_state(), nullptr);
@@ -459,7 +499,9 @@ TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "StartOnExistingEmptyDirs") {
   }
 
   {
-    GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
+    auto mgr_created = GvdbStateManager::Create(1, "localhost:9000", log_path, state_path);
+    REQUIRE(mgr_created.ok());
+    GvdbStateManager& mgr = **mgr_created;
 
     auto log_store = mgr.load_log_store();
     CHECK_EQ(log_store->next_slot(), static_cast<ulong>(kNumEntries + 1));
@@ -477,7 +519,9 @@ TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "FullCrashRecovery") {
 
   // Simulate normal operation
   {
-    GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
+    auto mgr_created = GvdbStateManager::Create(1, "localhost:9000", log_path, state_path);
+    REQUIRE(mgr_created.ok());
+    GvdbStateManager& mgr = **mgr_created;
 
     // Write some log entries
     auto log_store = mgr.load_log_store();
@@ -501,7 +545,9 @@ TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "FullCrashRecovery") {
 
   // Simulate crash and recovery
   {
-    GvdbStateManager mgr(1, "localhost:9000", log_path, state_path);
+    auto mgr_created = GvdbStateManager::Create(1, "localhost:9000", log_path, state_path);
+    REQUIRE(mgr_created.ok());
+    GvdbStateManager& mgr = **mgr_created;
 
     // Verify log entries recovered
     auto log_store = mgr.load_log_store();

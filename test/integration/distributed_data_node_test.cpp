@@ -73,7 +73,7 @@ class DistributedDataNodeTest {
     coord_segment_store_ = std::make_shared<storage::SegmentManager>(
         (dir_ / "coordinator").string(), index_factory_.get());
     coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        coord_segment_store_.get());
+        *coord_segment_store_);
 
     // --- Data node setup (separate storage) ---
     // The data node starts first, so that the coordinator finds its address
@@ -81,7 +81,7 @@ class DistributedDataNodeTest {
     dn_segment_store_ = std::make_shared<storage::SegmentManager>(
         (dir_ / "data_node").string(), index_factory_.get());
     dn_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        dn_segment_store_.get());
+        *dn_segment_store_);
     auto dn_shard_manager = std::make_shared<cluster::ShardManager>(
         8, cluster::ShardingStrategy::HASH);
     dn_internal_service_ = std::make_unique<service::InternalService>(
@@ -138,7 +138,7 @@ class DistributedDataNodeTest {
     dn2_segment_store_ = std::make_shared<storage::SegmentManager>(
         (dir_ / "data_node_2").string(), index_factory_.get());
     dn2_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        dn2_segment_store_.get());
+        *dn2_segment_store_);
     auto dn2_shard_manager = std::make_shared<cluster::ShardManager>(
         8, cluster::ShardingStrategy::HASH);
     dn2_internal_service_ = std::make_unique<service::InternalService>(
@@ -466,7 +466,7 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "DistributedSearchAcrossDataNodes" * 
   auto qn_segment_manager = std::make_shared<storage::SegmentManager>(
       (dir_ / "query_node").string(), index_factory_.get());
   auto qn_query_executor = std::make_shared<compute::QueryExecutor>(
-      qn_segment_manager.get());
+      *qn_segment_manager);
   auto qn_resolver = service::MakeCachedCoordinatorResolver(coord_server_address_);
   auto qn_service = std::make_unique<service::VectorDBService>(
       qn_segment_manager, qn_query_executor, std::move(qn_resolver));

@@ -146,7 +146,9 @@ std::unique_ptr<TestCoordinator> StartCoordinator(
   cfg.coordinator_grpc_peers = layout.coordinator_grpc_peers;
   cfg.data_dir = c->data_dir.string();
 
-  c->raft = std::make_shared<RaftNode>(cfg, std::make_shared<cluster::GrpcRaftPeerClient>());
+  auto created = RaftNode::Create(cfg, std::make_shared<cluster::GrpcRaftPeerClient>());
+  if (!created.ok()) return nullptr;
+  c->raft = std::move(*created);
   auto status = c->raft->Start();
   if (!status.ok()) return nullptr;
 

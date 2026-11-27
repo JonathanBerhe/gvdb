@@ -102,7 +102,7 @@ class BackupServiceFixtureBase {
           std::shared_ptr<storage::SegmentManager>(std::move(local));
     }
     query_executor_ =
-        std::make_shared<compute::QueryExecutor>(segment_store_.get());
+        std::make_shared<compute::QueryExecutor>(*segment_store_);
 
     storage::BackupManagerOptions backup_options;
     backup_options.default_object_store = object_store_;
