@@ -12,8 +12,7 @@
 #include "common/logger.h"
 #include "core/status.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 namespace {
 
@@ -55,7 +54,7 @@ absl::StatusOr<uint32_t> Coordinator::ExecuteRebalancePlan(core::CollectionId co
 
   for (const auto& move : moves) {
     // Resolve which collection owns this shard and the shard index
-    core::CollectionId resolved_cid = core::CollectionId(0);
+    auto resolved_cid = core::CollectionId(0);
     uint32_t shard_index = 0;
     bool found = false;
 
@@ -104,7 +103,7 @@ absl::Status Coordinator::ExecuteSingleMove(const ShardManager::RebalanceMove& m
 
   // 1. Check and track migration
   {
-    std::lock_guard lock(migration_mutex_);
+    std::scoped_lock lock(migration_mutex_);
     if (shards_migrating_.count(move.shard_id) > 0) {
       return absl::AlreadyExistsError(absl::StrCat("Shard ", shard_key, " already migrating"));
     }
@@ -113,7 +112,7 @@ absl::Status Coordinator::ExecuteSingleMove(const ShardManager::RebalanceMove& m
 
   // RAII: remove from migrating set on any exit path (including exceptions)
   ScopeGuard migration_guard([this, shard_id = move.shard_id]() {
-    std::lock_guard lock(migration_mutex_);
+    std::scoped_lock lock(migration_mutex_);
     shards_migrating_.erase(shard_id);
   });
 
@@ -197,5 +196,4 @@ void Coordinator::RecoverMigratingShards() {
   }
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

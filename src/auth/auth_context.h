@@ -5,8 +5,7 @@
 
 #include <string>
 
-namespace gvdb {
-namespace auth {
+namespace gvdb::auth {
 
 // Thread-local storage for the authenticated API key.
 // Set by the auth interceptor, read by service methods.
@@ -18,5 +17,4 @@ class AuthContext {
   static void Clear();
 };
 
-}  // namespace auth
-}  // namespace gvdb
+}  // namespace gvdb::auth

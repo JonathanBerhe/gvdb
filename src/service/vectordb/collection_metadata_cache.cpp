@@ -4,8 +4,7 @@
 #include "service/vectordb/collection_metadata_cache.h"
 #include "absl/strings/str_format.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 absl::StatusOr<meta::CollectionMetadata> CollectionMetadataCache::GetByName(
     const std::string& collection_name) const {
@@ -44,5 +43,4 @@ size_t CollectionMetadataCache::Size() const {
   return by_name_.size();
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

@@ -597,7 +597,7 @@ constexpr uint32_t kStreamDim = 8;
 std::vector<float> StreamVector(uint64_t id) {
   std::vector<float> v(kStreamDim);
   for (uint32_t d = 0; d < kStreamDim; ++d) {
-    v[d] = static_cast<float>((id * 31 + d * 17) % 97) / 10.0f +
+    v[d] = static_cast<float>((id * 31 + uint64_t{d} * 17) % 97) / 10.0f +
            static_cast<float>(d == id % kStreamDim) * 5.0f;
   }
   return v;

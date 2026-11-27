@@ -276,8 +276,9 @@ class RangeSearchTest : public SearchServiceTest {
   // All points sorted by exact distance to the query.
   std::vector<std::pair<double, uint64_t>> SortedByDistance(const std::vector<float>& query) const {
     std::vector<std::pair<double, uint64_t>> out;
+    out.reserve(points_.size());
     for (const auto& [id, values] : points_) out.emplace_back(Distance(query, values), id);
-    std::sort(out.begin(), out.end());
+    std::ranges::sort(out);
     return out;
   }
 
@@ -932,7 +933,7 @@ TEST_CASE_FIXTURE(SearchServiceTest, "SparseSearchOrderOnALargerCorpus") {
   for (uint64_t id = 1; id <= 70; ++id) {
     auto* v = request.add_vectors();
     v->set_id(id);
-    float f = static_cast<float>(id);
+    auto f = static_cast<float>(id);
     SetProtoVector({f, -f, 0.5f * f, 1.0f}, v->mutable_vector());
     SetStringField(v->mutable_metadata(), "name", "d" + std::to_string(id));
     if (id <= 60) {
@@ -1122,7 +1123,7 @@ class SearchFilterTest : public SearchServiceTest {
       p.rating = 3.0 + static_cast<double>(i % 20) * 0.1;
       p.in_stock = i % 3 != 0;
 
-      const auto id = static_cast<uint64_t>(i + 1);
+      const auto id = static_cast<uint64_t>(i) + 1;
       auto* v = request.add_vectors();
       v->set_id(id);
       SetProtoVector(p.vector, v->mutable_vector());
@@ -1399,7 +1400,7 @@ TEST_CASE_FIXTURE(SearchServiceTest, "EveryIndexTypeAndMetricCreatesInsertsAndSe
     for (const auto& [id, values] : coll_points) {
       reference.emplace_back(ReferenceDistance(c.metric, query, values), id);
     }
-    std::sort(reference.begin(), reference.end());
+    std::ranges::sort(reference);
     REQUIRE_EQ(reference.front().second, c.nearest_id);
 
     proto::SearchRequest request;

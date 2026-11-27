@@ -10,8 +10,7 @@
 #include "absl/status/statusor.h"
 #include "consensus/raft_peer_client.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // IRaftPeerClient over the internal gRPC API: GetLeaderInfo and JoinCluster
 // on the InternalService of another coordinator. Each call opens a new
@@ -26,5 +25,4 @@ class GrpcRaftPeerClient : public consensus::IRaftPeerClient {
                                         std::chrono::milliseconds timeout) override;
 };
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

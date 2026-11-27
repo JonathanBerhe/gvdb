@@ -5,8 +5,7 @@
 #include <cstring>
 #include "common/logger.h"
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 // Import NuRaft types
 using nuraft::ulong;
@@ -23,7 +22,7 @@ nuraft::ptr<nuraft::buffer> MetadataStateMachine::commit(const ulong log_idx,
                                                          nuraft::buffer& /*data*/) {
   // Update last committed index
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     last_committed_idx_ = log_idx;
   }
 
@@ -42,7 +41,7 @@ void MetadataStateMachine::create_snapshot(nuraft::snapshot& s,
   // For now, we create a simple snapshot
   // In production, this would serialize the entire metadata store state
   {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     last_snapshot_ = nuraft::cs_new<nuraft::snapshot>(s.get_last_log_idx(), s.get_last_log_term(),
                                                       s.get_last_config());
   }
@@ -55,7 +54,7 @@ void MetadataStateMachine::create_snapshot(nuraft::snapshot& s,
 }
 
 bool MetadataStateMachine::apply_snapshot(nuraft::snapshot& s) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   common::Logger::Instance().Info("Applying snapshot at log index {} (term {})",
                                   s.get_last_log_idx(), s.get_last_log_term());
@@ -88,5 +87,4 @@ void MetadataStateMachine::save_logical_snp_obj(nuraft::snapshot& /*s*/, ulong& 
   // In production, this would deserialize and restore metadata state
 }
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

@@ -17,8 +17,7 @@
 #include "service/vectordb/collection_resolver.h"
 #include "service/vectordb/vectordb_service.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 namespace {
 
@@ -141,8 +140,8 @@ grpc::Status VectorDBService::RangeSearch(grpc::ServerContext* /*context*/,
   }
 
   // Sort by distance and limit
-  std::sort(all_results.begin(), all_results.end(),
-            [](const auto& a, const auto& b) { return a.distance < b.distance; });
+  std::ranges::sort(all_results,
+                    [](const auto& a, const auto& b) { return a.distance < b.distance; });
   if (static_cast<int>(all_results.size()) > max_results) {
     all_results.resize(max_results);
   }
@@ -361,8 +360,8 @@ grpc::Status VectorDBService::HybridSearch(grpc::ServerContext* /*context*/,
   }
 
   // Sort by RRF score (higher = better) and take top_k
-  std::sort(all_entries.begin(), all_entries.end(),
-            [](const auto& a, const auto& b) { return a.distance > b.distance; });
+  std::ranges::sort(all_entries,
+                    [](const auto& a, const auto& b) { return a.distance > b.distance; });
 
   int top_k = std::min(static_cast<int>(all_entries.size()), static_cast<int>(request->top_k()));
 
@@ -397,12 +396,12 @@ grpc::Status VectorDBService::Get(grpc::ServerContext* /*context*/,
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "IDs list cannot be empty");
   }
 
-  constexpr size_t MAX_GET_BATCH_SIZE = 10000;
-  if (static_cast<size_t>(request->ids().size()) > MAX_GET_BATCH_SIZE) {
+  constexpr size_t kMaxGetBatchSize = 10000;
+  if (static_cast<size_t>(request->ids().size()) > kMaxGetBatchSize) {
     common::MetricsRegistry::Instance().RecordGet(request->collection_name(), false);
     return grpc::Status(
         grpc::StatusCode::INVALID_ARGUMENT,
-        absl::StrCat("Cannot get more than ", MAX_GET_BATCH_SIZE,
+        absl::StrCat("Cannot get more than ", kMaxGetBatchSize,
                      " vectors in one request. Requested: ", request->ids().size()));
   }
 
@@ -504,5 +503,4 @@ grpc::Status VectorDBService::ListVectors(grpc::ServerContext* /*context*/,
   return grpc::Status::OK;
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

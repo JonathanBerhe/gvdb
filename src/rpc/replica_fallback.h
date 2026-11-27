@@ -15,8 +15,7 @@
 #include "internal.pb.h"
 #include "vectordb.grpc.pb.h"
 
-namespace gvdb {
-namespace rpc {
+namespace gvdb::rpc {
 
 // Per-attempt deadline lower bound. A tight overall deadline divided by
 // many candidates can produce sub-millisecond budgets; clamp so every
@@ -164,5 +163,4 @@ grpc::Status RouteWriteAndCallWithFallback(proto::internal::InternalService::Stu
                                            std::chrono::milliseconds per_attempt_deadline,
                                            DialFn dial_fn, StubCallFn call_fn);
 
-}  // namespace rpc
-}  // namespace gvdb
+}  // namespace gvdb::rpc

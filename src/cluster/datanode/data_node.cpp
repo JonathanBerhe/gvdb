@@ -6,8 +6,7 @@
 #include "common/logger.h"
 #include "core/config.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 DataNode::DataNode(std::unique_ptr<index::IndexFactory> index_factory,
                    std::shared_ptr<storage::ISegmentStore> segment_store)
@@ -17,7 +16,7 @@ DataNode::DataNode(std::unique_ptr<index::IndexFactory> index_factory,
 
 absl::Status DataNode::ScheduleBuildTask(const BuildTask& task) {
   {
-    std::lock_guard lock(queue_mutex_);
+    std::scoped_lock lock(queue_mutex_);
     build_queue_.push(task);
   }
   build_cv_.notify_one();
@@ -84,7 +83,7 @@ size_t DataNode::ProcessBuildQueue() {
   while (true) {
     BuildTask task;
     {
-      std::lock_guard lock(queue_mutex_);
+      std::scoped_lock lock(queue_mutex_);
       if (build_queue_.empty()) break;
       task = build_queue_.top();
       build_queue_.pop();
@@ -123,14 +122,13 @@ void DataNode::RunTTLSweepLoop(const std::atomic<bool>& shutdown) {
 }
 
 size_t DataNode::GetPendingTaskCount() const {
-  std::lock_guard lock(queue_mutex_);
+  std::scoped_lock lock(queue_mutex_);
   return build_queue_.size();
 }
 
 bool DataNode::HasPendingTasks() const {
-  std::lock_guard lock(queue_mutex_);
+  std::scoped_lock lock(queue_mutex_);
   return !build_queue_.empty();
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

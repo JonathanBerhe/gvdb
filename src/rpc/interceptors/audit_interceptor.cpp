@@ -10,14 +10,13 @@
 #include <chrono>
 #include <string>
 
-namespace gvdb {
-namespace rpc {
+namespace gvdb::rpc {
 
 namespace {
 
 bool EndsWith(const std::string& str, const std::string& suffix) {
   if (suffix.size() > str.size()) return false;
-  return str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+  return str.ends_with(suffix);
 }
 
 bool IsPublicMethod(const std::string& method) {
@@ -116,14 +115,14 @@ void AuditInterceptor::Intercept(grpc::experimental::InterceptorBatchMethods* me
   if (!is_public_ && methods->QueryInterceptionHookPoint(
                          grpc::experimental::InterceptionHookPoints::POST_RECV_INITIAL_METADATA)) {
     start_time_ = std::chrono::steady_clock::now();
-    // Extract API key directly from gRPC metadata — self-contained, no dependency
+    // Extract API key directly from gRPC metadata, self-contained, no dependency
     // on AuthContext thread-local which is cleared by intermediate hook dispatches.
     auto* ctx = info_->server_context();
     const auto& metadata = ctx->client_metadata();
     auto it = metadata.find("authorization");
     if (it != metadata.end()) {
       std::string val(it->second.data(), it->second.length());
-      if (val.size() > 7 && val.substr(0, 7) == "Bearer ") {
+      if (val.size() > 7 && val.starts_with("Bearer ")) {
         api_key_ = val.substr(7);
       }
     }
@@ -159,5 +158,4 @@ grpc::experimental::Interceptor* AuditInterceptorFactory::CreateServerIntercepto
   return new AuditInterceptor(info);
 }
 
-}  // namespace rpc
-}  // namespace gvdb
+}  // namespace gvdb::rpc

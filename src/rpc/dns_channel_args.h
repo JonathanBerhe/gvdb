@@ -6,8 +6,7 @@
 #include <grpcpp/grpcpp.h>
 #include <string>
 
-namespace gvdb {
-namespace rpc {
+namespace gvdb::rpc {
 
 // Minimum time between DNS re-resolutions for dns:/// channels. gRPC's default
 // is 30s; for our K8s scale-up / pod-restart recovery target we want faster
@@ -33,7 +32,7 @@ grpc::ChannelArguments BuildDnsChannelArgs();
 
 // IsDnsUri returns true if the given target string uses the dns:/// scheme
 // (the format gRPC's built-in DNS resolver expects). Used by the proxy to
-// decide whether to apply BuildDnsChannelArgs — legacy unit tests or local
+// decide whether to apply BuildDnsChannelArgs, legacy unit tests or local
 // runs may still pass a bare host:port.
 //
 // If you add support for another resolver-tuning scheme (e.g. xds:// for
@@ -43,5 +42,4 @@ grpc::ChannelArguments BuildDnsChannelArgs();
 // also be reasonable at that point.
 bool IsDnsUri(const std::string& target);
 
-}  // namespace rpc
-}  // namespace gvdb
+}  // namespace gvdb::rpc

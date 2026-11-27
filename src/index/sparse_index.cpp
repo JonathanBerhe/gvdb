@@ -6,8 +6,7 @@
 #include <functional>
 #include "core/status.h"
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 absl::Status SparseIndex::AddVector(core::VectorId id, const core::SparseVector& sparse) {
   RETURN_IF_ERROR(sparse.Validate());
@@ -46,10 +45,10 @@ absl::StatusOr<core::SearchResult> SparseIndex::Search(const core::SparseVector&
 
   for (const auto& [id_val, score] : scores) {
     if (static_cast<int>(heap.size()) < k) {
-      heap.push({score, id_val});
+      heap.emplace(score, id_val);
     } else if (score > heap.top().first) {
       heap.pop();
-      heap.push({score, id_val});
+      heap.emplace(score, id_val);
     }
   }
 
@@ -60,10 +59,9 @@ absl::StatusOr<core::SearchResult> SparseIndex::Search(const core::SparseVector&
     heap.pop();
     result.entries.emplace_back(core::MakeVectorId(id_val), score);
   }
-  std::reverse(result.entries.begin(), result.entries.end());
+  std::ranges::reverse(result.entries);
 
   return result;
 }
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

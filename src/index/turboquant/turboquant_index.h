@@ -13,9 +13,7 @@
 #include "core/vector.h"
 #include "index/turboquant/turboquant_codec.h"
 
-namespace gvdb {
-namespace index {
-namespace turboquant {
+namespace gvdb::index::turboquant {
 
 // TurboQuant vector index: data-oblivious quantized search.
 //
@@ -86,6 +84,4 @@ class TurboQuantIndex : public core::IVectorIndex {
   mutable std::shared_mutex mutex_;
 };
 
-}  // namespace turboquant
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index::turboquant

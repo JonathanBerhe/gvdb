@@ -11,8 +11,7 @@
 
 #include "core/types.h"
 
-namespace gvdb {
-namespace meta {
+namespace gvdb::meta {
 
 // Node type in the cluster
 enum class NodeType {
@@ -33,30 +32,22 @@ enum class NodeStatus {
 
 // Information about a node in the cluster, as the coordinator keeps it.
 struct NodeInfo {
-  core::NodeId node_id;
-  NodeType type;
-  NodeStatus status;
+  core::NodeId node_id{core::kInvalidNodeId};
+  NodeType type{NodeType::QUERY_NODE};
+  NodeStatus status{NodeStatus::STARTING};
   std::string address;  // host:port
-  uint64_t last_heartbeat_ts;
+  uint64_t last_heartbeat_ts{0};
 
   // Resource information
-  size_t memory_capacity_bytes;
-  size_t memory_used_bytes;
-  size_t disk_capacity_bytes;
-  size_t disk_used_bytes;
-  float cpu_usage_percent;
+  size_t memory_capacity_bytes{0};
+  size_t memory_used_bytes{0};
+  size_t disk_capacity_bytes{0};
+  size_t disk_used_bytes{0};
+  float cpu_usage_percent{0.0f};
 
   NodeInfo()
-      : node_id(core::kInvalidNodeId),
-        type(NodeType::QUERY_NODE),
-        status(NodeStatus::STARTING),
-        last_heartbeat_ts(0),
-        memory_capacity_bytes(0),
-        memory_used_bytes(0),
-        disk_capacity_bytes(0),
-        disk_used_bytes(0),
-        cpu_usage_percent(0.0f) {}
+
+      = default;
 };
 
-}  // namespace meta
-}  // namespace gvdb
+}  // namespace gvdb::meta

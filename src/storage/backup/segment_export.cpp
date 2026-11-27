@@ -10,8 +10,7 @@
 #include "absl/strings/str_cat.h"
 #include "common/file_util.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 namespace {
 
@@ -155,7 +154,6 @@ absl::StatusOr<std::unique_ptr<Segment>> SegmentExporter::Import(
   }
 
   auto growing_path = segment_dir / kGrowingFile;
-  auto index_path = segment_dir / kIndexFile;
   auto vectors_path = segment_dir / kVectorsFile;
 
   const bool has_growing = std::filesystem::exists(growing_path, ec);
@@ -185,5 +183,4 @@ absl::StatusOr<std::unique_ptr<Segment>> SegmentExporter::Import(
   return Segment::Load(base_path.string(), segment_id);
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

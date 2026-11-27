@@ -6,11 +6,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <numbers>
 #include <random>
 
-namespace gvdb {
-namespace index {
-namespace turboquant {
+namespace gvdb::index::turboquant {
 
 namespace {
 
@@ -37,9 +36,22 @@ static const float kLM2Centroids[] = {-1.510f, -0.4528f, 0.4528f, 1.510f};
 static const float kLM4Boundaries[] = {-2.4008f, -1.8436f, -1.4371f, -1.0993f, -0.7975f,
                                        -0.5224f, -0.2582f, 0.0f,     0.2582f,  0.5224f,
                                        0.7975f,  1.0993f,  1.4371f,  1.8436f,  2.4008f};
-static const float kLM4Centroids[] = {-2.7326f, -2.0690f, -1.6180f, -1.2562f, -0.9424f, -0.6568f,
-                                      -0.3881f, -0.1284f, 0.1284f,  0.3881f,  0.6568f,  0.9424f,
-                                      1.2562f,  1.6180f,  2.0690f,  2.7326f};
+static const float kLM4Centroids[] = {-2.7326f,
+                                      -2.0690f,
+                                      -std::numbers::phi_v<float>,
+                                      -1.2562f,
+                                      -0.9424f,
+                                      -0.6568f,
+                                      -0.3881f,
+                                      -0.1284f,
+                                      0.1284f,
+                                      0.3881f,
+                                      0.6568f,
+                                      0.9424f,
+                                      1.2562f,
+                                      std::numbers::phi_v<float>,
+                                      2.0690f,
+                                      2.7326f};
 
 // 8-bit (256 levels): uniform quantizer with clip at ±3.5
 // Generated programmatically in CreateLloydMaxTable
@@ -134,7 +146,7 @@ void TurboQuantCodec::PackCode(uint8_t value, int index, uint8_t* packed) const 
   int values_per_byte = 8 / bit_width_;
   int byte_idx = index / values_per_byte;
   int shift = (index % values_per_byte) * bit_width_;
-  uint8_t mask = static_cast<uint8_t>((1 << bit_width_) - 1);
+  auto mask = static_cast<uint8_t>((1 << bit_width_) - 1);
   packed[byte_idx] =
       static_cast<uint8_t>((packed[byte_idx] & ~(mask << shift)) | ((value & mask) << shift));
 }
@@ -143,7 +155,7 @@ uint8_t TurboQuantCodec::UnpackCode(int index, const uint8_t* packed) const {
   int values_per_byte = 8 / bit_width_;
   int byte_idx = index / values_per_byte;
   int shift = (index % values_per_byte) * bit_width_;
-  uint8_t mask = static_cast<uint8_t>((1 << bit_width_) - 1);
+  auto mask = static_cast<uint8_t>((1 << bit_width_) - 1);
   return (packed[byte_idx] >> shift) & mask;
 }
 
@@ -304,7 +316,7 @@ float TurboQuantCodec::EstimateIP(const PreprocessedQuery& query, const uint8_t*
       qjl_dot += sign * query.qjl_projected[j];
     }
     // Correction: norm * ||q|| * res_norm * sqrt(2*d/π) / m * qjl_dot
-    static constexpr float kPi = 3.14159265358979323846f;
+    static constexpr float kPi = std::numbers::pi_v<float>;
     float factor =
         std::sqrt(2.0f * static_cast<float>(padded_dim_) / kPi) / static_cast<float>(qjl_dim_);
     ip += norm * query.norm * residual_norm * factor * qjl_dot;
@@ -313,6 +325,4 @@ float TurboQuantCodec::EstimateIP(const PreprocessedQuery& query, const uint8_t*
   return ip;
 }
 
-}  // namespace turboquant
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index::turboquant

@@ -32,8 +32,7 @@
 #include "support/grpc_server.h"
 #include "vectordb.grpc.pb.h"
 
-namespace gvdb {
-namespace test {
+namespace gvdb::test {
 
 // Mock InternalService that answers RouteQuery with a fixed two-option
 // list. Other RPCs are unimplemented (and unused by this test).
@@ -212,5 +211,4 @@ TEST_CASE_FIXTURE(DrainReadFallbackTest, "GetSurfacesUnavailableWhenAllCandidate
   CHECK(mock2_->get_calls.load() == 1);
 }
 
-}  // namespace test
-}  // namespace gvdb
+}  // namespace gvdb::test

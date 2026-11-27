@@ -113,6 +113,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentReads") {
   std::vector<std::thread> threads;
   std::atomic<int> success_count{0};
 
+  threads.reserve(10);
   for (int t = 0; t < 10; ++t) {
     threads.emplace_back([this, &success_count]() {
       for (int i = 1; i <= 100; ++i) {
@@ -137,6 +138,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentWrites") {
   std::vector<std::thread> threads;
 
   // Concurrent writers
+  threads.reserve(10);
   for (int t = 0; t < 10; ++t) {
     threads.emplace_back([this, t]() {
       for (int i = 0; i < 10; ++i) {
@@ -171,6 +173,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentReadsAndWrites") {
 
   // Writers: each one writes exactly 50 collections. The short pause between
   // writes only spreads them out so that reads interleave with them.
+  writers.reserve(5);
   for (int t = 0; t < 5; ++t) {
     writers.emplace_back([this, t]() {
       for (int count = 0; count < 50; ++count) {
@@ -186,6 +189,7 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentReadsAndWrites") {
 
   // Readers: read until every writer is done, so reads overlap the whole
   // write phase. Each reader makes at least one full pass.
+  readers.reserve(5);
   for (int t = 0; t < 5; ++t) {
     readers.emplace_back([this, &writers_done]() {
       do {

@@ -11,8 +11,7 @@
 #include "absl/status/statusor.h"
 #include "core/metadata.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 // ============================================================================
 // Filter Expression Abstract Syntax Tree (AST)
@@ -147,7 +146,7 @@ class FilterParser {
   static absl::StatusOr<std::unique_ptr<FilterNode>> parse(const std::string& expression);
 
  private:
-  FilterParser(const std::string& expression);
+  FilterParser(std::string expression);
 
   // Parsing methods (recursive descent)
   absl::StatusOr<std::unique_ptr<FilterNode>> ParseExpression();
@@ -177,9 +176,8 @@ class FilterParser {
   absl::Status EnterNesting();
 
   std::string expression_;
-  size_t pos_;
-  int depth_;
+  size_t pos_{0};
+  int depth_{0};
 };
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

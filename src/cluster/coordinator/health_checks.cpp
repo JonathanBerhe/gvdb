@@ -12,8 +12,7 @@
 #include "common/logger.h"
 #include "common/metrics.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 namespace {
 
@@ -72,12 +71,12 @@ void Coordinator::DetectDrainingNodes() {
 }
 
 std::set<core::NodeId> Coordinator::KnownDataNodesForTesting() const {
-  std::lock_guard lock(known_nodes_mutex_);
+  std::scoped_lock lock(known_nodes_mutex_);
   return known_data_nodes_;
 }
 
 std::optional<Coordinator::LastAutoRebalance> Coordinator::GetLastAutoRebalance() const {
-  std::lock_guard lock(rebalance_worker_mutex_);
+  std::scoped_lock lock(rebalance_worker_mutex_);
   return last_auto_rebalance_;
 }
 
@@ -100,7 +99,7 @@ void Coordinator::DetectNewDataNodes() {
   std::vector<core::NodeId> newly_seen;
   bool within_debounce = false;
   {
-    std::lock_guard lock(known_nodes_mutex_);
+    std::scoped_lock lock(known_nodes_mutex_);
     for (const auto& n : data_nodes) {
       if (n.IsDraining()) continue;  // don't count departing nodes
       auto id = core::MakeNodeId(n.info.node_id());
@@ -165,7 +164,7 @@ void Coordinator::DetectNewDataNodes() {
   // Join any previous finished worker so we don't leak the thread handle.
   // Then start a new one.
   {
-    std::lock_guard lock(rebalance_worker_mutex_);
+    std::scoped_lock lock(rebalance_worker_mutex_);
     if (rebalance_worker_ && rebalance_worker_->joinable()) {
       rebalance_worker_->join();
     }
@@ -196,7 +195,7 @@ void Coordinator::DetectNewDataNodes() {
         common::MetricsRegistry::Instance().IncAutoRebalanceFailures();
       }
       {
-        std::lock_guard inner(rebalance_worker_mutex_);
+        std::scoped_lock inner(rebalance_worker_mutex_);
         last_auto_rebalance_ = snapshot;
       }
       rebalance_in_flight_.store(false, std::memory_order_release);
@@ -214,7 +213,7 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
     {
       // Same pruning as the post-migration path: let a future rejoin
       // be detected as a scale-up event.
-      std::lock_guard lock(known_nodes_mutex_);
+      std::scoped_lock lock(known_nodes_mutex_);
       known_data_nodes_.erase(draining_node_id);
     }
     return;
@@ -288,7 +287,7 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
     {
       // Forget this node so a future rejoin (same id) is treated as a
       // genuine scale-up event and auto-rebalance fires again.
-      std::lock_guard lock(known_nodes_mutex_);
+      std::scoped_lock lock(known_nodes_mutex_);
       known_data_nodes_.erase(draining_node_id);
     }
     common::Logger::Instance().Info("Drain: node {} fully drained, unregistered from shard manager",
@@ -420,7 +419,7 @@ void Coordinator::HandleFailedNode(core::NodeId failed_node_id) {
   {
     // Same pruning as the drain path: allow a future rejoin to be detected
     // as a scale-up event.
-    std::lock_guard lock(known_nodes_mutex_);
+    std::scoped_lock lock(known_nodes_mutex_);
     known_data_nodes_.erase(failed_node_id);
   }
   common::Logger::Instance().Info("Removed failed node {} from shard manager",
@@ -428,5 +427,4 @@ void Coordinator::HandleFailedNode(core::NodeId failed_node_id) {
   PersistRegistry();
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

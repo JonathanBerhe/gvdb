@@ -68,7 +68,7 @@ absl::StatusOr<std::unique_ptr<GcsObjectStore>> GcsObjectStore::Create(const Gcs
         .set<gc::UnifiedCredentialsOption>(gc::MakeInsecureCredentials());
   } else if (!config.credentials_path.empty()) {
     // Explicit service-account JSON key. Load it and hand it to this store's
-    // client directly, so each store uses exactly its own credentials — no
+    // client directly, so each store uses exactly its own credentials, no
     // process-global GOOGLE_APPLICATION_CREDENTIALS mutation that would let
     // one store's key leak into another (or clobber the ambient env).
     std::ifstream key_file(config.credentials_path, std::ios::binary);
@@ -150,7 +150,7 @@ absl::StatusOr<bool> GcsObjectStore::ObjectExists(const std::string& key) {
   if (metadata.status().code() == gc::StatusCode::kNotFound) {
     return false;
   }
-  // A permission/network error is not "absent" — surface it rather than
+  // A permission/network error is not "absent", surface it rather than
   // masquerading as false.
   return ToAbslStatus(metadata.status());
 }

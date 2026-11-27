@@ -17,14 +17,15 @@
 
 // Forward declarations for NuRaft
 namespace nuraft {
+// NOLINTBEGIN(readability-identifier-naming): NuRaft names.
 class raft_launcher;
 class raft_server;
 class state_machine;
 class logger;
+// NOLINTEND(readability-identifier-naming)
 }  // namespace nuraft
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 // Forward declarations
 class MetadataStateMachine;
@@ -142,7 +143,7 @@ class RaftNode {
   TimestampOracle* GetTimestampOracle() { return &tso_; }
 
  private:
-  RaftNode(const RaftConfig& config, std::shared_ptr<IRaftPeerClient> peer_client);
+  RaftNode(RaftConfig config, std::shared_ptr<IRaftPeerClient> peer_client);
 
   RaftConfig config_;
   std::shared_ptr<IRaftPeerClient> peer_client_;
@@ -187,5 +188,4 @@ class RaftNode {
   absl::Status AnnounceJoinToCluster();
 };
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

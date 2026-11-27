@@ -16,8 +16,7 @@
 #include "storage/objstore/gcs_object_store.h"
 #endif
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 absl::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(const ObjectStoreConfig& config) {
   const std::string& type = config.type;
@@ -64,7 +63,7 @@ absl::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(const ObjectStor
 
   // S3/MinIO activate on a configured endpoint (the historical gate). If the
   // type explicitly names s3/minio but no endpoint is given, that's a
-  // misconfiguration, not a deliberate "disabled" — surface it rather than
+  // misconfiguration, not a deliberate "disabled", surface it rather than
   // silently running local-only.
   if (config.endpoint.empty()) {
     if (type == "s3" || type == "minio") {
@@ -100,5 +99,4 @@ absl::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(const ObjectStor
 #endif
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

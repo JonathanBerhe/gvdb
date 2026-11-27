@@ -11,8 +11,7 @@
 #include "absl/status/statusor.h"
 #include "core/types.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 // "L2", "INNER_PRODUCT" or "COSINE"; "UNKNOWN" for any other value.
 std::string ToString(MetricType metric);
@@ -27,5 +26,4 @@ absl::StatusOr<MetricType> MetricTypeFromString(const std::string& metric_str);
 // The inverse of ToString(IndexType). InvalidArgument for an unknown name.
 absl::StatusOr<IndexType> IndexTypeFromString(const std::string& index_str);
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

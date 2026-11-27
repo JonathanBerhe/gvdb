@@ -13,8 +13,7 @@
 #include "common/logger.h"
 #include "core/status.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 Segment::Segment(core::SegmentId id, core::CollectionId collection_id, core::Dimension dimension,
                  core::MetricType metric, size_t max_segment_size)
@@ -22,8 +21,7 @@ Segment::Segment(core::SegmentId id, core::CollectionId collection_id, core::Dim
       collection_id_(collection_id),
       dimension_(dimension),
       metric_(metric),
-      state_(core::SegmentState::GROWING),
-      memory_usage_(0),
+
       max_segment_size_(max_segment_size) {}
 
 // ========== Data Operations ==========
@@ -132,7 +130,7 @@ Segment::GetVectorsResult Segment::GetVectors(const std::vector<core::VectorId>&
             result.found_metadata.push_back(it->second);
           } else {
             // No metadata for this vector, push empty metadata
-            result.found_metadata.push_back(core::Metadata{});
+            result.found_metadata.emplace_back();
           }
         }
 
@@ -184,7 +182,7 @@ absl::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectorsUnlocked(
 
   // Sort indices in descending order to delete from back to front
   // This prevents index invalidation during deletion
-  std::sort(indices_to_delete.begin(), indices_to_delete.end(), std::greater<size_t>());
+  std::ranges::sort(indices_to_delete, std::greater<>());
 
   // Delete vectors, IDs, and metadata
   for (size_t idx : indices_to_delete) {
@@ -233,8 +231,8 @@ absl::Status Segment::UpdateMetadata(core::VectorId id, const core::Metadata& me
 
   // Find vector with matching ID
   bool found = false;
-  for (size_t i = 0; i < vector_ids_.size(); ++i) {
-    if (vector_ids_[i] == id) {
+  for (auto& vector_id : vector_ids_) {
+    if (vector_id == id) {
       found = true;
       break;
     }
@@ -600,5 +598,4 @@ absl::Status Segment::ValidateVectors(const std::vector<core::Vector>& vectors,
   return absl::OkStatus();
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

@@ -3,8 +3,8 @@
 //
 // Benchmark: NVIDIA CUDA GPU vs CPU (faiss) FLAT L2 search.
 //
-// Deliberately aligned with metal_bench.cpp — same index type (exhaustive
-// FLAT L2), same top-k, and the same vector-count and dimension sweeps — so
+// Deliberately aligned with metal_bench.cpp: same index type (exhaustive
+// FLAT L2), same top-k, and the same vector-count and dimension sweeps, so
 // the two GPU backends can be compared head-to-head. FLAT (not IVF) is the
 // common denominator: the Metal backend only implements a FLAT kernel.
 //

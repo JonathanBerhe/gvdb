@@ -62,7 +62,7 @@ bool CudaAvailable() {
 
 }  // namespace
 
-// CTest label: cuda — `ctest -L cuda` selects only this suite.
+// CTest label: cuda. `ctest -L cuda` selects only this suite.
 TEST_CASE("CUDA IVF_FLAT smoke: build + search returns sensible top-k") {
   if (!CudaAvailable()) return;
 

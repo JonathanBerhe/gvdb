@@ -7,18 +7,22 @@
 #include "common/logger.h"
 #include "core/status.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
+
+namespace {
+
+constexpr size_t kBytesPerMb = size_t{1024} * 1024;
+
+}  // namespace
 
 QueryNode::QueryNode(std::shared_ptr<storage::ISegmentStore> segment_store,
                      std::shared_ptr<compute::QueryExecutor> query_executor,
                      size_t memory_limit_bytes)
     : segment_store_(std::move(segment_store)),
       query_executor_(std::move(query_executor)),
-      memory_limit_bytes_(memory_limit_bytes),
-      memory_used_bytes_(0) {
+      memory_limit_bytes_(memory_limit_bytes) {
   common::Logger::Instance().Info("QueryNode initialized with {} MB memory limit",
-                                  memory_limit_bytes / (1024 * 1024));
+                                  memory_limit_bytes / kBytesPerMb);
 }
 
 absl::Status QueryNode::LoadSegment(core::SegmentId segment_id) {
@@ -47,8 +51,8 @@ absl::Status QueryNode::LoadSegment(core::SegmentId segment_id) {
   memory_used_bytes_ += segment_size;
 
   common::Logger::Instance().Info("Loaded segment {}, memory usage: {} MB / {} MB",
-                                  core::ToUInt32(segment_id), memory_used_bytes_ / (1024 * 1024),
-                                  memory_limit_bytes_ / (1024 * 1024));
+                                  core::ToUInt32(segment_id), memory_used_bytes_ / kBytesPerMb,
+                                  memory_limit_bytes_ / kBytesPerMb);
 
   return absl::OkStatus();
 }
@@ -66,8 +70,8 @@ absl::Status QueryNode::UnloadSegment(core::SegmentId segment_id) {
   memory_used_bytes_ -= segment_size;
 
   common::Logger::Instance().Info("Unloaded segment {}, memory usage: {} MB / {} MB",
-                                  core::ToUInt32(segment_id), memory_used_bytes_ / (1024 * 1024),
-                                  memory_limit_bytes_ / (1024 * 1024));
+                                  core::ToUInt32(segment_id), memory_used_bytes_ / kBytesPerMb,
+                                  memory_limit_bytes_ / kBytesPerMb);
 
   return absl::OkStatus();
 }
@@ -126,12 +130,11 @@ absl::Status QueryNode::EvictSegmentsIfNeeded(size_t required_bytes) {
 
   if (memory_used_bytes_ + required_bytes > memory_limit_bytes_) {
     return absl::ResourceExhaustedError(absl::StrCat(
-        "Not enough memory to load segment. Required: ", required_bytes / (1024 * 1024),
-        " MB, Available: ", (memory_limit_bytes_ - memory_used_bytes_) / (1024 * 1024), " MB"));
+        "Not enough memory to load segment. Required: ", required_bytes / kBytesPerMb,
+        " MB, Available: ", (memory_limit_bytes_ - memory_used_bytes_) / kBytesPerMb, " MB"));
   }
 
   return absl::OkStatus();
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

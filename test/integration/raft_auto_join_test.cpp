@@ -37,9 +37,7 @@
 #include <string>
 #include <vector>
 
-namespace gvdb {
-namespace consensus {
-namespace integration {
+namespace gvdb::consensus::integration {
 
 namespace {
 
@@ -112,8 +110,8 @@ ClusterLayout MakeLayout(int count) {
   ClusterLayout l;
   for (int i = 0; i < count; ++i) {
     int id = i + 1;
-    l.raft_ports.push_back(ports[2 * i]);
-    l.grpc_ports.push_back(ports[2 * i + 1]);
+    l.raft_ports.push_back(ports[2 * static_cast<size_t>(i)]);
+    l.grpc_ports.push_back(ports[2 * static_cast<size_t>(i) + 1]);
     l.raft_peers.push_back(std::to_string(id) +
                            ":localhost:" + std::to_string(l.raft_ports.back()));
     l.coordinator_grpc_peers.push_back("localhost:" + std::to_string(l.grpc_ports.back()));
@@ -545,6 +543,4 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "TransferLeadershipBeforeScaleDown") {
   CHECK(converged);
 }
 
-}  // namespace integration
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus::integration

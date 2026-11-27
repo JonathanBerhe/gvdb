@@ -73,6 +73,8 @@ See the [changelog](changelog.md) for the version-bump rules.
 - Tests must be isolated, because CI runs the test binaries in parallel. Use the helpers in `test/support` for temp folders, gRPC servers on free ports and bounded waits. Do not use a fixed path, a fixed port or a fixed sleep.
 - After a change to a file in `proto/`, run `make proto` and commit the regenerated stubs. CI fails when a stub differs from `proto/`.
 - Before you commit C++ changes, run `make format`. CI runs `make check-format` and fails when a file in `src/` or `test/` does not match `.clang-format`.
+- `.git-blame-ignore-revs` lists the commits that only reformat code. GitHub skips them in its blame view. For a local `git blame`, run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
+- CI also runs `make tidy` with clang-tidy 22 on the `ci` build and fails on any hit. To run it locally, build a preset first, then run `make tidy PRESET=dev`. A local clang-tidy of another LLVM version can report a few hits that version 22 does not.
 
 ## Coding conventions
 
@@ -80,6 +82,7 @@ The C++ code follows these conventions:
 
 - C++23, set in one place (`GVDB_CXX_STANDARD` in `cmake/GvdbCompilerSettings.cmake`). The fetched dependencies build at the same standard.
 - The layout follows `.clang-format`: Google style with a limit of 100 columns. `make format` applies it with clang-format 22.1.8 from PyPI, which `uvx` downloads on first use.
+- `.clang-tidy` enables the `bugprone`, `performance` and `modernize` checks and the naming check, minus the checks that it lists with a reason. `test/.clang-tidy` turns off two more checks for the tests. A `NOLINT` comment names the check and gives the reason, for example `// NOLINT(readability-identifier-naming): NuRaft name.`
 - RAII + smart pointers (no raw `new`/`delete`)
 - `absl::Status` and `absl::StatusOr<T>` for fallible operations, used directly. `core/status.h` includes both and adds `RETURN_IF_ERROR` and `ASSIGN_OR_RETURN`, which return an error to the caller.
 - A class whose construction can fail has a private constructor and a static `Create()` that returns `absl::StatusOr` (for example `RaftNode::Create`). Constructors do not throw. Two exceptions stay: value types such as `core::Vector` throw on a precondition violation like a standard container, and the NuRaft log store throws from its overrides, because that interface has no other way to report an error.

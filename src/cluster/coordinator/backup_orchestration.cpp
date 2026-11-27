@@ -10,8 +10,7 @@
 #include "core/status.h"
 #include "rpc/proto_conversions.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // =============================================================================
 // Backup / Restore orchestration
@@ -260,5 +259,4 @@ absl::StatusOr<storage::RestoreJobStatus> Coordinator::GetDistributedRestoreStat
   return restore_manager_->GetStatus(restore_id);
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

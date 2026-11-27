@@ -7,8 +7,7 @@
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 namespace {
 // FNV-1a hash function for consistent hashing
@@ -17,7 +16,7 @@ constexpr uint64_t kFNVPrime = 1099511628211ULL;
 
 uint64_t FNV1aHash(const void* data, size_t len) {
   uint64_t hash = kFNVOffsetBasis;
-  const uint8_t* bytes = static_cast<const uint8_t*>(data);
+  const auto* bytes = static_cast<const uint8_t*>(data);
   for (size_t i = 0; i < len; ++i) {
     hash ^= bytes[i];
     hash *= kFNVPrime;
@@ -94,28 +93,15 @@ core::ShardId ShardManager::AssignShard(core::VectorId vector_id) const {
       return core::MakeShardId(static_cast<uint16_t>(id % num_shards_));
 
     case ShardingStrategy::RANGE:
-      return core::MakeShardId(static_cast<uint16_t>(HashKey(id)));
-
     default:
       return core::MakeShardId(static_cast<uint16_t>(HashKey(id)));
   }
 }
 
 core::ShardId ShardManager::AssignShard(const std::string& key) const {
-  switch (strategy_) {
-    case ShardingStrategy::HASH:
-      return core::MakeShardId(static_cast<uint16_t>(HashKey(key)));
-
-    case ShardingStrategy::ROUND_ROBIN:
-      // For string keys, use hash for round-robin
-      return core::MakeShardId(static_cast<uint16_t>(HashKey(key)));
-
-    case ShardingStrategy::RANGE:
-      return core::MakeShardId(static_cast<uint16_t>(HashKey(key)));
-
-    default:
-      return core::MakeShardId(static_cast<uint16_t>(HashKey(key)));
-  }
+  // Every strategy hashes a string key. Round robin and ranges have no
+  // meaning for strings.
+  return core::MakeShardId(static_cast<uint16_t>(HashKey(key)));
 }
 
 std::vector<ShardInfo> ShardManager::GetAllShards() const {
@@ -213,7 +199,7 @@ absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id, core::NodeId n
 
 // Explicit-term setter for the two-phase swap orchestrator. Rejects
 // term regressions: primary_term is monotonic per shard by contract,
-// so writing a term ≤ existing term is a coordinator bug — never
+// so writing a term ≤ existing term is a coordinator bug, never
 // silently apply it (would let a stale-routing client win against a
 // later promotion).
 absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id, core::NodeId node_id,
@@ -267,7 +253,7 @@ absl::Status ShardManager::RemoveReplica(core::ShardId shard_id, core::NodeId no
   }
 
   auto& replicas = it->second.replica_nodes;
-  auto replica_it = std::find(replicas.begin(), replicas.end(), node_id);
+  auto replica_it = std::ranges::find(replicas, node_id);
   if (replica_it == replicas.end()) {
     return absl::NotFoundError(absl::StrCat("Node ", core::ToUInt32(node_id),
                                             " is not a replica for shard ",
@@ -302,7 +288,7 @@ absl::Status ShardManager::UnregisterNode(core::NodeId node_id, bool graceful) {
 
   if (graceful) {
     // Caller is responsible for having migrated this node's shards off
-    // before reaching here — see Coordinator::HandleDrainingNode which
+    // before reaching here, see Coordinator::HandleDrainingNode which
     // promotes replicas / drops replica entries and only then calls this
     // with graceful=true.
     common::Logger::Instance().Info("Gracefully unregistering node {}", core::ToUInt32(node_id));
@@ -396,10 +382,8 @@ std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() 
   if (overloaded.empty() || underloaded.empty()) return moves;
 
   // Sort: most overloaded first, least loaded target first
-  std::sort(overloaded.begin(), overloaded.end(),
-            [&](auto a, auto b) { return node_loads[a] > node_loads[b]; });
-  std::sort(underloaded.begin(), underloaded.end(),
-            [&](auto a, auto b) { return node_loads[a] < node_loads[b]; });
+  std::ranges::sort(overloaded, [&](auto a, auto b) { return node_loads[a] > node_loads[b]; });
+  std::ranges::sort(underloaded, [&](auto a, auto b) { return node_loads[a] < node_loads[b]; });
 
   // Simulated loads for planning (don't mutate real state)
   auto sim_loads = node_loads;
@@ -421,8 +405,9 @@ std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() 
         }
       }
     }
-    std::sort(source_shards.begin(), source_shards.end(),
-              [](const auto* a, const auto* b) { return a->data_size_bytes > b->data_size_bytes; });
+    std::ranges::sort(source_shards, [](const auto* a, const auto* b) {
+      return a->data_size_bytes > b->data_size_bytes;
+    });
 
     for (const auto* shard : source_shards) {
       if (shard->state != ShardState::ACTIVE) continue;
@@ -483,5 +468,4 @@ absl::Status ShardManager::UpdateShardMetrics(core::ShardId shard_id, size_t dat
   return absl::OkStatus();
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

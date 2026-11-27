@@ -12,8 +12,7 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/spdlog.h"
 
-namespace gvdb {
-namespace common {
+namespace gvdb::common {
 
 // ============================================================================
 // Static members
@@ -55,7 +54,7 @@ Logger::~Logger() {
 
 absl::Status Logger::Initialize(const LogConfig& config) {
   static std::mutex init_mutex;
-  std::lock_guard<std::mutex> lock(init_mutex);
+  std::scoped_lock lock(init_mutex);
 
   if (instance_ != nullptr) {
     return absl::AlreadyExistsError("Logger already initialized");
@@ -145,5 +144,4 @@ void Logger::Shutdown() {
 // Note: Template methods are implemented inline in the header file
 // to avoid explicit instantiation issues
 
-}  // namespace common
-}  // namespace gvdb
+}  // namespace gvdb::common

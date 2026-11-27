@@ -25,8 +25,7 @@
 #include <unistd.h>
 #endif
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 namespace {
 
@@ -282,7 +281,7 @@ absl::StatusOr<stdfs::path> FilesystemObjectStore::KeyToPath(const std::string& 
   // our current threat model (single-tenant, operator-provisioned root);
   // tighten with std::filesystem::weakly_canonical if multi-tenant use-cases
   // appear.
-  const stdfs::path normalised = candidate.lexically_normal();
+  stdfs::path normalised = candidate.lexically_normal();
   const std::string root_str = root_.lexically_normal().generic_string();
   const std::string norm_str = normalised.generic_string();
 
@@ -290,7 +289,7 @@ absl::StatusOr<stdfs::path> FilesystemObjectStore::KeyToPath(const std::string& 
   // match "/root" as a prefix.
   const std::string root_prefix =
       root_str.empty() || root_str.back() == '/' ? root_str : root_str + "/";
-  if (norm_str != root_str && norm_str.compare(0, root_prefix.size(), root_prefix) != 0) {
+  if (norm_str != root_str && !norm_str.starts_with(root_prefix)) {
     return absl::InvalidArgumentError(
         absl::StrCat("FilesystemObjectStore: key escapes root: ", key));
   }
@@ -362,11 +361,11 @@ absl::StatusOr<std::vector<std::string>> FilesystemObjectStore::ListObjects(
     if (key.compare(0, std::strlen(kReservedTempPrefix), kReservedTempPrefix) == 0) {
       continue;
     }
-    if (key.compare(0, prefix.size(), prefix) == 0) {
+    if (key.starts_with(prefix)) {
       result.push_back(std::move(key));
     }
   }
-  std::sort(result.begin(), result.end());
+  std::ranges::sort(result);
   return result;
 }
 
@@ -458,5 +457,4 @@ absl::Status FilesystemObjectStore::GetObjectToFile(const std::string& key,
   return absl::OkStatus();
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

@@ -7,13 +7,12 @@
 
 #include <string>
 
-namespace gvdb {
-namespace rpc {
+namespace gvdb::rpc {
 
 namespace {
 bool EndsWith(const std::string& str, const std::string& suffix) {
   if (suffix.size() > str.size()) return false;
-  return str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+  return str.ends_with(suffix);
 }
 
 bool IsPublicMethod(const std::string& method) {
@@ -56,8 +55,7 @@ void ApiKeyAuthInterceptor::Intercept(grpc::experimental::InterceptorBatchMethod
       std::string auth_value(it->second.data(), it->second.length());
       const std::string prefix = "Bearer ";
 
-      if (auth_value.length() <= prefix.length() ||
-          auth_value.substr(0, prefix.length()) != prefix) {
+      if (auth_value.length() <= prefix.length() || !auth_value.starts_with(prefix)) {
         should_reject = true;
         reject_status = grpc::Status(grpc::StatusCode::UNAUTHENTICATED,
                                      "Invalid authorization format. Expected: Bearer <api-key>");
@@ -68,7 +66,7 @@ void ApiKeyAuthInterceptor::Intercept(grpc::experimental::InterceptorBatchMethod
           should_reject = true;
           reject_status = grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "Invalid API key");
         } else {
-          // Authentication passed — store key in thread-local for service to read
+          // Authentication passed: store key in thread-local for service to read
           auth::AuthContext::SetCurrentKey(key);
         }
       }
@@ -95,5 +93,4 @@ grpc::experimental::Interceptor* ApiKeyAuthInterceptorFactory::CreateServerInter
   return new ApiKeyAuthInterceptor(info, rbac_store_.get());
 }
 
-}  // namespace rpc
-}  // namespace gvdb
+}  // namespace gvdb::rpc

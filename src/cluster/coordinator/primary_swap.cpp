@@ -9,8 +9,7 @@
 #include "common/logger.h"
 #include "core/status.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // Two-phase primary swap. Bumps the per-shard term, pauses the old
 // primary, prepares the new primary, then commits the assignment in
@@ -127,5 +126,4 @@ absl::Status Coordinator::TransferPrimary(core::ShardId shard_id, core::NodeId o
   return absl::OkStatus();
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

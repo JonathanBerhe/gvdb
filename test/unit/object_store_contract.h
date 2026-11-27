@@ -33,9 +33,7 @@
 #include "core/status.h"
 #include "storage/objstore/object_store.h"
 
-namespace gvdb {
-namespace storage {
-namespace contract {
+namespace gvdb::storage::contract {
 
 // Wraps a store that several tests share (a cloud bucket) and puts every key
 // under a prefix that is unique to this instance. The contract cases then see
@@ -262,7 +260,7 @@ TEST_CASE_TEMPLATE_DEFINE("ObjectStore contract: large (1 MiB) object round-trip
   Fixture f;
   auto& store = f.Get();
 
-  const std::string large(1024 * 1024, 'X');
+  const std::string large(size_t{1024} * 1024, 'X');
   REQUIRE(store.PutObject("large", large).ok());
   auto result = store.GetObject("large");
   REQUIRE(result.ok());
@@ -324,7 +322,7 @@ TEST_CASE_TEMPLATE_DEFINE(
   // Enumerate the full set of payloads up front so the final read can be
   // validated against a membership check.
   std::vector<std::string> all_payloads;
-  all_payloads.reserve(kThreads * kOpsPerThread);
+  all_payloads.reserve(static_cast<size_t>(kThreads) * kOpsPerThread);
   for (int t = 0; t < kThreads; ++t) {
     for (int i = 0; i < kOpsPerThread; ++i) {
       all_payloads.push_back("t" + std::to_string(t) + "-" + std::to_string(i));
@@ -353,9 +351,7 @@ TEST_CASE_TEMPLATE_DEFINE(
                 *final_value, "'");
 }
 
-}  // namespace contract
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage::contract
 
 // Runs every contract case above against each fixture type in the argument
 // list. Use it once per test binary, inside namespace gvdb::storage::contract.

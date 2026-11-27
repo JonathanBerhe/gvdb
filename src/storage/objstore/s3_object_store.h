@@ -12,14 +12,11 @@
 #include "storage/objstore/object_store.h"
 
 // Forward declarations for AWS SDK types
-namespace Aws {
-namespace S3 {
+namespace Aws::S3 {  // NOLINT(readability-identifier-naming): AWS SDK names.
 class S3Client;
-}  // namespace S3
-}  // namespace Aws
+}  // namespace Aws::S3
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // Configuration for creating an S3ObjectStore
 struct S3Config {
@@ -36,10 +33,10 @@ struct S3Config {
 // S3ObjectStore - IObjectStore implementation using AWS S3 / MinIO
 // ============================================================================
 // Uses the AWS SDK for C++ (s3 component only).
-// Thread-safe — the underlying S3Client is thread-safe for concurrent requests.
+// Thread-safe: the underlying S3Client is thread-safe for concurrent requests.
 class S3ObjectStore : public IObjectStore {
  public:
-  // Factory method — handles AWS SDK initialization
+  // Factory method: handles AWS SDK initialization
   [[nodiscard]] static absl::StatusOr<std::unique_ptr<S3ObjectStore>> Create(
       const S3Config& config);
 
@@ -61,13 +58,12 @@ class S3ObjectStore : public IObjectStore {
   absl::Status GetObjectToFile(const std::string& key, const std::string& local_file_path) override;
 
  private:
-  S3ObjectStore(std::shared_ptr<Aws::S3::S3Client> client, const std::string& bucket);
+  S3ObjectStore(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket);
 
   std::shared_ptr<Aws::S3::S3Client> client_;
   std::string bucket_;
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage
 
 #endif  // GVDB_HAS_S3

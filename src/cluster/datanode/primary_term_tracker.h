@@ -12,8 +12,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // PrimaryTermTracker is the per-data-node state that lets writes be
 // gated against "am I currently the primary for this shard, at this
@@ -91,5 +90,4 @@ class PrimaryTermTracker {
   std::unordered_map<uint32_t, Entry> table_;
 };
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

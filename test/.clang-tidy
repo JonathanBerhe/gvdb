@@ -1,0 +1,10 @@
+# The tests use the checks of the parent configuration, except for two.
+InheritParentConfig: true
+# - bugprone-unchecked-optional-access: doctest REQUIRE ends the test case
+#   when an optional is empty, but the analysis does not see it.
+# - bugprone-throwing-static-initialization: a test binary that throws
+#   while it initializes a static constant fails at start, which is a
+#   visible test failure.
+Checks: >
+  -bugprone-unchecked-optional-access,
+  -bugprone-throwing-static-initialization

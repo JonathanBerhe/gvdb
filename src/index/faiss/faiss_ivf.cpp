@@ -8,8 +8,7 @@
 #include <faiss/IndexIVFPQ.h>
 #include <faiss/IndexScalarQuantizer.h>
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 FaissIVFIndex::FaissIVFIndex(core::Dimension dimension, core::MetricType metric, int nlist,
                              int nprobe, IVFQuantizationType quantization, int pq_m, int pq_nbits)
@@ -92,5 +91,4 @@ core::IndexType FaissIVFIndex::GetIndexType() const {
   }
 }
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

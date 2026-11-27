@@ -12,8 +12,7 @@
 #include <mutex>
 #include <string>
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 /**
  * GVDB implementation of NuRaft's state_mgr interface.
@@ -112,7 +111,7 @@ class GvdbStateManager : public nuraft::state_mgr {
 
  private:
   // Loads or seeds the state. Create() then opens the log store.
-  GvdbStateManager(int32_t server_id, const std::string& endpoint, const std::string& state_path);
+  GvdbStateManager(int32_t server_id, const std::string& endpoint, std::string state_path);
 
   // Mutex protecting all data structures
   mutable std::mutex mutex_;
@@ -145,5 +144,4 @@ class GvdbStateManager : public nuraft::state_mgr {
   bool SaveStateToDb();
 };
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

@@ -5,8 +5,7 @@
 
 #include "index/faiss/faiss_base.h"
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 // HNSW index: Hierarchical Navigable Small World
 // Best for medium to large datasets with high recall requirements
@@ -34,5 +33,4 @@ class FaissHNSWIndex : public FaissIndexBase {
   int ef_search_;
 };
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

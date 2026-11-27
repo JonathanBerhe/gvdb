@@ -67,7 +67,7 @@ class InternalService final : public proto::internal::InternalService::Service {
                   std::shared_ptr<compute::QueryExecutor> query_executor,
                   InternalServiceOptions options = {});
 
-  ~InternalService();
+  ~InternalService() override;
 
   // =========================================================================
   // Shard Management (Coordinator → Data/Query Nodes)

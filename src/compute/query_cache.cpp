@@ -6,8 +6,7 @@
 #include <cstring>
 #include <functional>
 
-namespace gvdb {
-namespace compute {
+namespace gvdb::compute {
 
 // FNV-1a hash for float vectors (fast, good distribution)
 static uint64_t HashVector(const float* data, size_t size) {
@@ -50,7 +49,7 @@ std::optional<core::SearchResult> QueryCache::Get(const CacheKey& key, uint32_t 
   auto ver_it = collection_versions_.find(collection_id);
   uint64_t current_version = (ver_it != collection_versions_.end()) ? ver_it->second : 0;
   if (it->second->collection_version != current_version) {
-    // Stale entry — evict
+    // Stale entry: evict
     lru_list_.erase(it->second);
     map_.erase(it);
     return std::nullopt;
@@ -97,5 +96,4 @@ void QueryCache::InvalidateCollection(uint32_t collection_id) {
   collection_versions_[collection_id]++;
 }
 
-}  // namespace compute
-}  // namespace gvdb
+}  // namespace gvdb::compute

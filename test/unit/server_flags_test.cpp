@@ -14,14 +14,14 @@
 
 #include "server/flags.h"
 
-namespace gvdb {
-namespace server {
+namespace gvdb::server {
 namespace {
 
 // Parses `args` after a program name.
 std::optional<int> ParseArgs(FlagSet& flags, std::vector<std::string> args) {
   args.insert(args.begin(), "program");
   std::vector<char*> argv;
+  argv.reserve(args.size());
   for (auto& arg : args) argv.push_back(arg.data());
   return flags.Parse(static_cast<int>(argv.size()), argv.data());
 }
@@ -142,5 +142,4 @@ TEST_CASE("FlagSet usage text aligns the help column and indents extra help line
            "  --help         Show this help message\n");
 }
 
-}  // namespace server
-}  // namespace gvdb
+}  // namespace gvdb::server

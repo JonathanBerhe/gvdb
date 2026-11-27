@@ -16,9 +16,7 @@
 #include "support/temp_dir.h"
 #include "support/vectors.h"
 
-namespace gvdb {
-namespace compute {
-namespace test {
+namespace gvdb::compute::test {
 
 // ============================================================================
 // Test Fixture
@@ -157,7 +155,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchMultipleSegments") {
   // Create and populate multiple segments
   for (int i = 0; i < 3; ++i) {
     auto vectors = CreateTestVectors(30, dimension_);
-    auto ids = CreateTestVectorIds(30, i * 30);
+    auto ids = CreateTestVectorIds(30, static_cast<size_t>(i) * 30);
 
     auto segment_result = segment_manager_->CreateSegment(collection_id_, dimension_, metric_);
     REQUIRE(segment_result.ok());
@@ -362,6 +360,4 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchDifferentCollections") {
   CHECK_EQ(result2.value().entries.size(), 10);
 }
 
-}  // namespace test
-}  // namespace compute
-}  // namespace gvdb
+}  // namespace gvdb::compute::test

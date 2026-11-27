@@ -10,8 +10,7 @@
 #include "core/status.h"
 #include "core/types.h"
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 // Quantization types for IVF indexes
 enum class IVFQuantizationType {
@@ -59,5 +58,4 @@ class IndexFactory : public core::IIndexFactory {
   [[nodiscard]] static absl::Status ValidateConfig(const core::IndexConfig& config);
 };
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

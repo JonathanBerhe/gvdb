@@ -3,8 +3,7 @@
 
 #include "auth/auth_context.h"
 
-namespace gvdb {
-namespace auth {
+namespace gvdb::auth {
 
 namespace {
 thread_local std::string g_current_key;
@@ -16,5 +15,4 @@ const std::string& AuthContext::GetCurrentKey() { return g_current_key; }
 
 void AuthContext::Clear() { g_current_key.clear(); }
 
-}  // namespace auth
-}  // namespace gvdb
+}  // namespace gvdb::auth

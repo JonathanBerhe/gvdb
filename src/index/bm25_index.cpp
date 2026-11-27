@@ -9,8 +9,7 @@
 #include <sstream>
 #include <unordered_set>
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 BM25Index::BM25Index(float k1, float b) : k1_(k1), b_(b) {}
 
@@ -59,15 +58,15 @@ absl::Status BM25Index::AddDocument(core::VectorId id, const std::string& text) 
 }
 
 float BM25Index::ComputeIDF(uint32_t doc_freq) const {
-  float N = static_cast<float>(total_docs_);
-  float df = static_cast<float>(doc_freq);
+  auto N = static_cast<float>(total_docs_);
+  auto df = static_cast<float>(doc_freq);
   // Lucene variant: always positive, never zero
   return std::log(1.0f + (N - df + 0.5f) / (df + 0.5f));
 }
 
 float BM25Index::ComputeTermScore(uint32_t term_freq, uint32_t doc_len, float idf) const {
-  float tf = static_cast<float>(term_freq);
-  float dl = static_cast<float>(doc_len);
+  auto tf = static_cast<float>(term_freq);
+  auto dl = static_cast<float>(doc_len);
   float avgdl = (total_docs_ > 0) ? static_cast<float>(total_doc_length_) / total_docs_ : 1.0f;
 
   float numerator = tf * (k1_ + 1.0f);
@@ -101,7 +100,7 @@ absl::StatusOr<core::SearchResult> BM25Index::Search(const std::string& query, i
     const auto& postings = it->second;
     float idf = ComputeIDF(static_cast<uint32_t>(postings.size()));
 
-    // Skip negative IDF (safety net — Lucene variant is always positive)
+    // Skip negative IDF (safety net: Lucene variant is always positive)
     if (idf < 0.0f) continue;
 
     for (const auto& posting : postings) {
@@ -118,10 +117,10 @@ absl::StatusOr<core::SearchResult> BM25Index::Search(const std::string& query, i
 
   for (const auto& [id_val, score] : scores) {
     if (static_cast<int>(heap.size()) < k) {
-      heap.push({score, id_val});
+      heap.emplace(score, id_val);
     } else if (score > heap.top().first) {
       heap.pop();
-      heap.push({score, id_val});
+      heap.emplace(score, id_val);
     }
   }
 
@@ -133,10 +132,9 @@ absl::StatusOr<core::SearchResult> BM25Index::Search(const std::string& query, i
     // Use score as "distance" (higher = better, inverted from vector distance)
     result.entries.emplace_back(core::MakeVectorId(id_val), score);
   }
-  std::reverse(result.entries.begin(), result.entries.end());
+  std::ranges::reverse(result.entries);
 
   return result;
 }
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

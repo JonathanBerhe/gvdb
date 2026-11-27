@@ -8,8 +8,7 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
-namespace gvdb {
-namespace common {
+namespace gvdb::common {
 
 // The whole content of the file at `path`. NotFound when the file cannot be
 // opened, Internal when the read fails.
@@ -19,5 +18,4 @@ absl::StatusOr<std::string> ReadFileToString(const std::string& path);
 // crash in the middle never leaves a truncated file at `path`.
 absl::Status WriteFileAtomically(const std::string& path, const std::string& contents);
 
-}  // namespace common
-}  // namespace gvdb
+}  // namespace gvdb::common

@@ -12,8 +12,7 @@
 #include "common/logger.h"
 #include "consensus/raft_node.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 InternalService::InternalService(std::shared_ptr<cluster::ShardManager> shard_manager,
                                  std::shared_ptr<storage::ISegmentStore> segment_store,
@@ -39,5 +38,4 @@ InternalService::~InternalService() {
   common::Logger::Instance().Info("InternalService shutting down");
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

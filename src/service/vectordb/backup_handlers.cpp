@@ -12,8 +12,7 @@
 #include "storage/backup/backup_manager.h"
 #include "storage/backup/restore_manager.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 // ============================================================================
 // Backup and Restore
@@ -254,5 +253,4 @@ grpc::Status VectorDBService::CancelBackup(grpc::ServerContext* /*context*/,
   return grpc::Status::OK;
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

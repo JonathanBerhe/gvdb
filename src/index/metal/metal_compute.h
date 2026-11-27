@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
-// Forward declarations — avoid exposing Metal types in the header
+// Forward declarations: avoid exposing Metal types in the header
 namespace MTL {
 class Device;
 class CommandQueue;
@@ -37,7 +37,7 @@ class MetalCompute {
 
   // Compute batch distances using pre-allocated vector buffer.
   // vec_buf: persistent Metal buffer holding [nb * dim] floats
-  // queries: [nq * dim] float array (copied per call — small)
+  // queries: [nq * dim] float array (copied per call, small)
   // distances: output [nq * nb] float array (caller-allocated)
   void ComputeDistances(const std::string& kernel_name, const float* queries, size_t nq,
                         MTL::Buffer* vec_buf, size_t nb, size_t dim, float* distances);

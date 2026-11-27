@@ -14,8 +14,7 @@
 #include "support/temp_dir.h"
 #include "support/vectors.h"
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 namespace {
 
 // Seed for vectors that are not in the index at build time (queries and
@@ -88,7 +87,7 @@ TEST_CASE("TurboQuantFactory - AllValidBitWidths") {
 }
 
 // ============================================================================
-// Training (data-oblivious — always trained)
+// Training (data-oblivious, always trained)
 // ============================================================================
 
 TEST_CASE("TurboQuant - AlwaysTrained") {
@@ -159,7 +158,7 @@ TEST_CASE("TurboQuant - BuildAndSearchIP") {
   REQUIRE(index->Build(vectors, ids).ok());
   CHECK_EQ(index->GetVectorCount(), 200);
 
-  // Search for vector 0 itself — should appear in top results
+  // Search for vector 0 itself: should appear in top results
   auto search_result = index->Search(vectors[0], 5);
   REQUIRE(search_result.ok());
 
@@ -211,7 +210,7 @@ TEST_CASE("TurboQuant - AddSingle") {
   REQUIRE(result.ok());
   auto index = std::move(result.value());
 
-  // Add vectors one by one (no Build needed — always trained)
+  // Add vectors one by one (no Build needed, always trained)
   auto vectors = CreateTestVectors(20, 16);
   for (std::size_t i = 0; i < vectors.size(); i++) {
     REQUIRE(index->Add(vectors[i], core::MakeVectorId(i + 1)).ok());
@@ -369,7 +368,7 @@ TEST_CASE("TurboQuant - BitWidth8") {
   REQUIRE(search_result.ok());
   CHECK_GT(search_result.value().Size(), 0);
 
-  // 8-bit should have good recall — query itself should be #1
+  // 8-bit should have good recall: query itself should be #1
   bool found_self = false;
   for (auto& e : search_result.value().entries) {
     if (core::ToUInt64(e.id) == 1) found_self = true;
@@ -709,12 +708,11 @@ TEST_CASE("IVFTurboQuant - Memory compression") {
   REQUIRE(index.Build(vectors, ids).ok());
 
   size_t memory = index.GetMemoryUsage();
-  size_t float32_size = 100 * 768 * sizeof(float);  // 307,200 bytes
+  size_t float32_size = size_t{100} * 768 * sizeof(float);  // 307,200 bytes
 
   // At 4-bit, expect significant compression (at least 4x)
   CHECK_LT(memory, float32_size / 2);
 }
 
 }  // namespace
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

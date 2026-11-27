@@ -82,7 +82,7 @@ class MetalFlatIndex : public core::IVectorIndex {
   std::vector<float> vectors_;
   std::vector<core::VectorId> ids_;
 
-  // Persistent Metal buffer — rebuilt on Build/Add/AddBatch, reused on Search
+  // Persistent Metal buffer: rebuilt on Build/Add/AddBatch, reused on Search
   MTL::Buffer* gpu_vectors_ = nullptr;
 
   mutable std::shared_mutex mutex_;

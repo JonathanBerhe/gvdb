@@ -12,8 +12,7 @@
 #include "core/status.h"
 #include "core/types.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // ============================================================================
 // SegmentCache - LRU disk cache for segments downloaded from object storage
@@ -23,7 +22,7 @@ namespace storage {
 // Thread-safe via shared_mutex.
 class SegmentCache {
  public:
-  SegmentCache(const std::string& cache_dir, size_t max_cache_bytes);
+  SegmentCache(std::string cache_dir, size_t max_cache_bytes);
 
   // Check if a segment is cached locally
   [[nodiscard]] bool HasSegment(core::SegmentId id) const;
@@ -70,5 +69,4 @@ class SegmentCache {
   void TouchLocked(core::SegmentId id);
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

@@ -11,8 +11,7 @@
 #include "core/status.h"
 #include "storage/segment/segment.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 absl::Status Segment::Flush(const std::string& base_path) {
   std::shared_lock lock(mutex_);
@@ -156,7 +155,7 @@ absl::StatusOr<std::unique_ptr<Segment>> Segment::Load(const std::string& base_p
     for (uint64_t i = 0; i < vector_count; ++i) {
       std::vector<float> data(dimension);
       vectors_file.read(reinterpret_cast<char*>(data.data()), dimension * sizeof(float));
-      segment->vectors_.push_back(core::Vector(std::move(data)));
+      segment->vectors_.emplace_back(data);
     }
 
     // Read per-vector metadata
@@ -202,8 +201,8 @@ absl::StatusOr<std::string> Segment::SerializeToBytes() const {
   uint32_t seg_id = core::ToUInt32(id_);
   uint32_t coll_id = core::ToUInt32(collection_id_);
   uint32_t dim = dimension_;
-  int32_t metric = static_cast<int32_t>(metric_);
-  int32_t state = static_cast<int32_t>(state_);
+  auto metric = static_cast<int32_t>(metric_);
+  auto state = static_cast<int32_t>(state_);
 
   ss.write(reinterpret_cast<const char*>(&seg_id), sizeof(seg_id));
   ss.write(reinterpret_cast<const char*>(&coll_id), sizeof(coll_id));
@@ -243,7 +242,7 @@ absl::StatusOr<std::string> Segment::SerializeToBytes() const {
   ss.write(reinterpret_cast<const char*>(&sparse_count), sizeof(sparse_count));
   for (const auto& [vid_raw, sparse] : sparse_vectors_) {
     ss.write(reinterpret_cast<const char*>(&vid_raw), sizeof(vid_raw));
-    uint32_t nnz = static_cast<uint32_t>(sparse.nnz());
+    auto nnz = static_cast<uint32_t>(sparse.nnz());
     ss.write(reinterpret_cast<const char*>(&nnz), sizeof(nnz));
     for (const auto& [idx, val] : sparse.entries()) {
       ss.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
@@ -437,5 +436,4 @@ absl::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
   return segment;
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

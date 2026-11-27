@@ -16,12 +16,12 @@
 
 // Evaluates `expr`, an absl::Status. When it is not OK, returns it from the
 // calling function.
-#define RETURN_IF_ERROR(expr)    \
-  do {                           \
-    const auto _status = (expr); \
-    if (!_status.ok()) {         \
-      return _status;            \
-    }                            \
+#define RETURN_IF_ERROR(expr) \
+  do {                        \
+    auto _status = (expr);    \
+    if (!_status.ok()) {      \
+      return _status;         \
+    }                         \
   } while (0)
 
 // Evaluates `expr`, an absl::StatusOr. When it is not OK, returns its status
@@ -30,7 +30,10 @@
 #define ASSIGN_OR_RETURN(lhs, expr) \
   GVDB_ASSIGN_OR_RETURN_IMPL(GVDB_STATUS_CONCAT(_status_or_, __LINE__), lhs, expr)
 
+// NOLINTBEGIN(bugprone-macro-parentheses): `lhs` can be a declaration such
+// as `auto x`, and `status_or` is a name, so neither can get parentheses.
 #define GVDB_ASSIGN_OR_RETURN_IMPL(status_or, lhs, expr)     \
   auto status_or = (expr);                                   \
   if (!status_or.ok()) return std::move(status_or).status(); \
   lhs = std::move(*status_or)
+// NOLINTEND(bugprone-macro-parentheses)

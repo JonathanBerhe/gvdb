@@ -8,11 +8,10 @@
 #include <string>
 
 namespace spdlog {
-class logger;
+class logger;  // NOLINT(readability-identifier-naming): spdlog name.
 }
 
-namespace gvdb {
-namespace auth {
+namespace gvdb::auth {
 
 // Settings of the audit log file.
 struct AuditLogConfig {
@@ -37,5 +36,4 @@ class AuditLogger {
   static std::atomic<bool> enabled_;
 };
 
-}  // namespace auth
-}  // namespace gvdb
+}  // namespace gvdb::auth

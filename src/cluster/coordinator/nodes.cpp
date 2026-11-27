@@ -12,8 +12,7 @@
 #include "core/status.h"
 #include "rpc/proto_conversions.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 namespace {
 
@@ -136,5 +135,4 @@ IInternalServiceClient* Coordinator::GetOrCreateDataNodeClient(core::NodeId node
   return data_node_clients_[node_id].get();
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

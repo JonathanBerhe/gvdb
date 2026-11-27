@@ -27,8 +27,7 @@
 #include "storage/objstore/s3_object_store.h"
 #include "support/temp_dir.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 namespace {
 
 constexpr int kSkipReturnCode = 77;
@@ -45,10 +44,10 @@ S3Config ConfigFromEnv() {
   std::string endpoint = EnvOr("GVDB_TEST_S3_ENDPOINT", "");
   constexpr std::string_view kHttps = "https://";
   constexpr std::string_view kHttp = "http://";
-  config.use_ssl = endpoint.rfind(kHttp, 0) != 0;
-  if (endpoint.rfind(kHttps, 0) == 0) {
+  config.use_ssl = !endpoint.starts_with(kHttp);
+  if (endpoint.starts_with(kHttps)) {
     endpoint.erase(0, kHttps.size());
-  } else if (endpoint.rfind(kHttp, 0) == 0) {
+  } else if (endpoint.starts_with(kHttp)) {
     endpoint.erase(0, kHttp.size());
   }
   config.endpoint = endpoint;
@@ -80,8 +79,7 @@ namespace contract {
 GVDB_OBJECT_STORE_CONTRACT(S3ObjectStoreFixture);
 }  // namespace contract
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage
 
 int main(int argc, char** argv) {
   const char* endpoint = std::getenv("GVDB_TEST_S3_ENDPOINT");

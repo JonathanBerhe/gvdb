@@ -12,8 +12,7 @@
 #include "absl/status/statusor.h"
 #include "meta/collection_metadata.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 // Thread-safe cache for collection metadata
 // Used by data/query nodes to avoid querying coordinator on every request
@@ -39,5 +38,4 @@ class CollectionMetadataCache {
   absl::flat_hash_map<core::CollectionId, meta::CollectionMetadata> by_id_;
 };
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

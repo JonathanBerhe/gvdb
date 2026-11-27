@@ -13,8 +13,7 @@
 #include "index/metal/metal_flat_index.h"
 #endif
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 absl::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateIndex(
     const core::IndexConfig& config) {
@@ -166,5 +165,4 @@ absl::Status IndexFactory::ValidateConfig(const core::IndexConfig& config) {
   return absl::OkStatus();
 }
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

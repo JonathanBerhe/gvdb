@@ -8,8 +8,7 @@
 
 #include <grpcpp/grpcpp.h>
 
-namespace gvdb {
-namespace rpc {
+namespace gvdb::rpc {
 
 // gRPC client-metadata header key the proxy stamps on every write RPC.
 // Carries the shard's primary_term as observed at routing time, in
@@ -30,7 +29,7 @@ inline constexpr char kPrimaryTermHeader[] = "gvdb-shard-term";
 //     upgrades smooth).
 //   - has_term=true + term populated on a parseable value.
 //   - has_term=true + term=0 + parse_error=true on a malformed value
-//     (caller should reject the request — a header that's there but
+//     (caller should reject the request, a header that's there but
 //     unparseable is a contract violation, not a back-compat case).
 struct PrimaryTermFromHeader {
   bool has_term = false;
@@ -44,5 +43,4 @@ PrimaryTermFromHeader ReadPrimaryTermHeader(grpc::ServerContext* context);
 // before dispatching a write RPC.
 void StampPrimaryTermHeader(grpc::ClientContext* context, uint64_t term);
 
-}  // namespace rpc
-}  // namespace gvdb
+}  // namespace gvdb::rpc

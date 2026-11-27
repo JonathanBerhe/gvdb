@@ -3,8 +3,7 @@
 
 #include "cluster/datanode/shard_write_gate.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 namespace {
 constexpr int64_t kMinLeaseMs = 1;
@@ -33,7 +32,7 @@ bool ShardWriteGate::Freeze(core::ShardId shard_id, const std::string& token, in
   const auto now = std::chrono::steady_clock::now();
   const auto deadline = now + std::chrono::milliseconds(ClampLease(lease_ms));
 
-  std::lock_guard<std::mutex> lk(mu_);
+  std::scoped_lock lk(mu_);
   MaybeExpire(key, now);
 
   auto it = frozen_.find(key);
@@ -53,7 +52,7 @@ bool ShardWriteGate::Freeze(core::ShardId shard_id, const std::string& token, in
 bool ShardWriteGate::Unfreeze(core::ShardId shard_id, const std::string& token) {
   if (token.empty()) return false;
   const auto key = core::ToUInt16(shard_id);
-  std::lock_guard<std::mutex> lk(mu_);
+  std::scoped_lock lk(mu_);
   auto it = frozen_.find(key);
   if (it == frozen_.end()) return false;
   if (it->second.token != token) return false;
@@ -64,15 +63,14 @@ bool ShardWriteGate::Unfreeze(core::ShardId shard_id, const std::string& token) 
 bool ShardWriteGate::IsFrozen(core::ShardId shard_id) const {
   const auto key = core::ToUInt16(shard_id);
   const auto now = std::chrono::steady_clock::now();
-  std::lock_guard<std::mutex> lk(mu_);
+  std::scoped_lock lk(mu_);
   MaybeExpire(key, now);
   return frozen_.find(key) != frozen_.end();
 }
 
 void ShardWriteGate::ClearForTesting() {
-  std::lock_guard<std::mutex> lk(mu_);
+  std::scoped_lock lk(mu_);
   frozen_.clear();
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

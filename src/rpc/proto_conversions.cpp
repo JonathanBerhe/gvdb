@@ -5,8 +5,7 @@
 #include "absl/strings/str_format.h"
 #include "core/status.h"
 
-namespace gvdb {
-namespace rpc {
+namespace gvdb::rpc {
 
 // ============================================================================
 // Proto to Core Conversions
@@ -24,7 +23,7 @@ absl::StatusOr<core::Vector> FromProto(const proto::Vector& proto_vector) {
   }
 
   std::vector<float> data(proto_vector.values().begin(), proto_vector.values().end());
-  return core::Vector(std::move(data));
+  return core::Vector(data);
 }
 
 absl::StatusOr<std::pair<core::VectorId, core::Vector>> FromProto(
@@ -403,5 +402,4 @@ absl::Status FromGrpcStatus(const grpc::Status& grpc_status) {
   return absl::Status(absl_code, grpc_status.error_message());
 }
 
-}  // namespace rpc
-}  // namespace gvdb
+}  // namespace gvdb::rpc

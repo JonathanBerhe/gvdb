@@ -9,8 +9,7 @@
 #include "service/vectordb/collection_resolver.h"
 #include "service/vectordb/vectordb_service.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 // ============================================================================
 // Server-Side Bulk Import
@@ -137,5 +136,4 @@ grpc::Status VectorDBService::CancelImport(grpc::ServerContext* /*context*/,
   return grpc::Status::OK;
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

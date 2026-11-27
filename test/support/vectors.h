@@ -13,8 +13,7 @@
 #include "core/types.h"
 #include "core/vector.h"
 
-namespace gvdb {
-namespace test {
+namespace gvdb::test {
 
 // `count` vectors with values uniform in [-1, 1]. The same seed gives the
 // same vectors, so a failing case can be run again with the same data.
@@ -42,5 +41,4 @@ inline std::vector<core::VectorId> SequentialIds(size_t count, std::uint64_t fir
   return ids;
 }
 
-}  // namespace test
-}  // namespace gvdb
+}  // namespace gvdb::test

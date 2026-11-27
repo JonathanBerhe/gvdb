@@ -5,8 +5,7 @@
 
 #include "common/logger.h"
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 void NuRaftLoggerAdapter::put_details(int level, const char* /*source_file*/,
                                       const char* /*func_name*/, size_t /*line_number*/,
@@ -27,5 +26,4 @@ void NuRaftLoggerAdapter::set_level(int level) { level_ = level; }
 
 int NuRaftLoggerAdapter::get_level() { return level_; }
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

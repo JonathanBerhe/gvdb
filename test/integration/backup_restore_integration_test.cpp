@@ -41,8 +41,7 @@
 #include "support/wait.h"
 #include "vectordb.grpc.pb.h"
 
-namespace gvdb {
-namespace test {
+namespace gvdb::test {
 
 namespace {
 
@@ -530,5 +529,4 @@ TEST_CASE_FIXTURE(BackupRestoreIntegrationTest,
   }
 }
 
-}  // namespace test
-}  // namespace gvdb
+}  // namespace gvdb::test

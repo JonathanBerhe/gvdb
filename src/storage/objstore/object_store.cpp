@@ -3,6 +3,7 @@
 
 #include "storage/objstore/object_store.h"
 
+#include <algorithm>
 #include <fstream>
 #include <mutex>
 #include <shared_mutex>
@@ -10,8 +11,7 @@
 
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // ============================================================================
 // InMemoryObjectStore implementation
@@ -43,11 +43,11 @@ absl::StatusOr<std::vector<std::string>> InMemoryObjectStore::ListObjects(
   std::shared_lock lock(mutex_);
   std::vector<std::string> result;
   for (const auto& [key, _] : objects_) {
-    if (key.substr(0, prefix.size()) == prefix) {
+    if (key.starts_with(prefix)) {
       result.push_back(key);
     }
   }
-  std::sort(result.begin(), result.end());
+  std::ranges::sort(result);
   return result;
 }
 
@@ -91,5 +91,4 @@ void InMemoryObjectStore::Clear() {
   objects_.clear();
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

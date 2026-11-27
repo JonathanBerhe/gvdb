@@ -12,9 +12,7 @@
 
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace index {
-namespace turboquant {
+namespace gvdb::index::turboquant {
 
 IVFTurboQuantIndex::IVFTurboQuantIndex(core::Dimension dimension, core::MetricType metric,
                                        int nlist, int nprobe, int bit_width, bool use_qjl,
@@ -54,7 +52,7 @@ absl::Status IVFTurboQuantIndex::Train(const std::vector<core::Vector>& training
   coarse_quantizer_->train(n, flat_data.data());
   coarse_quantizer_->add(n, flat_data.data());
 
-  // Actually, IndexFlat doesn't need training — we need to compute centroids.
+  // Actually, IndexFlat doesn't need training: we need to compute centroids.
   // Use Faiss Clustering directly.
   faiss::MetricType faiss_metric = (metric_type_ == core::MetricType::INNER_PRODUCT)
                                        ? faiss::METRIC_INNER_PRODUCT
@@ -251,10 +249,10 @@ absl::StatusOr<core::SearchResult> IVFTurboQuantIndex::Search(const core::Vector
       float dist = IPToDistance(ip, cluster.norms[i], pq);
 
       if (static_cast<int>(heap.size()) < k) {
-        heap.push({dist, cluster.ids[i]});
+        heap.emplace(dist, cluster.ids[i]);
       } else if (dist < heap.top().first) {
         heap.pop();
-        heap.push({dist, cluster.ids[i]});
+        heap.emplace(dist, cluster.ids[i]);
       }
     }
   }
@@ -308,13 +306,12 @@ absl::StatusOr<core::SearchResult> IVFTurboQuantIndex::SearchRange(const core::V
       float dist = IPToDistance(ip, cluster.norms[i], pq);
 
       if (dist <= radius) {
-        results.push_back({cluster.ids[i], dist});
+        results.emplace_back(cluster.ids[i], dist);
       }
     }
   }
 
-  std::sort(results.begin(), results.end(),
-            [](const auto& a, const auto& b) { return a.distance < b.distance; });
+  std::ranges::sort(results, [](const auto& a, const auto& b) { return a.distance < b.distance; });
 
   core::SearchResult result;
   result.entries = std::move(results);
@@ -350,7 +347,7 @@ absl::Status IVFTurboQuantIndex::Serialize(const std::string& path) const {
   out.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
   uint32_t dim = dimension_;
   out.write(reinterpret_cast<const char*>(&dim), sizeof(dim));
-  int32_t metric = static_cast<int32_t>(metric_type_);
+  auto metric = static_cast<int32_t>(metric_type_);
   out.write(reinterpret_cast<const char*>(&metric), sizeof(metric));
   out.write(reinterpret_cast<const char*>(&nlist_), sizeof(nlist_));
   out.write(reinterpret_cast<const char*>(&nprobe_), sizeof(nprobe_));
@@ -365,7 +362,7 @@ absl::Status IVFTurboQuantIndex::Serialize(const std::string& path) const {
 
   // Write centroids
   if (trained_) {
-    size_t centroid_bytes = nlist_ * dimension_ * sizeof(float);
+    size_t centroid_bytes = static_cast<size_t>(nlist_) * dimension_ * sizeof(float);
     auto* centroid_data = reinterpret_cast<const char*>(coarse_quantizer_->get_xb());
     out.write(centroid_data, centroid_bytes);
   }
@@ -438,7 +435,7 @@ absl::Status IVFTurboQuantIndex::Deserialize(const std::string& path) {
                                          : faiss::METRIC_L2;
     coarse_quantizer_ = std::make_unique<faiss::IndexFlat>(dimension_, faiss_metric);
 
-    std::vector<float> centroids(nlist_ * dimension_);
+    std::vector<float> centroids(static_cast<size_t>(nlist_) * dimension_);
     in.read(reinterpret_cast<char*>(centroids.data()), centroids.size() * sizeof(float));
     coarse_quantizer_->add(nlist_, centroids.data());
   }
@@ -530,7 +527,7 @@ size_t IVFTurboQuantIndex::GetMemoryUsage() const {
   std::shared_lock lock(mutex_);
   size_t usage = sizeof(*this);
   // Coarse quantizer: nlist * dim * 4 bytes
-  usage += nlist_ * dimension_ * sizeof(float);
+  usage += static_cast<size_t>(nlist_) * dimension_ * sizeof(float);
   // Per-cluster data
   for (const auto& cluster : clusters_) {
     usage += cluster.codes.capacity();
@@ -547,6 +544,4 @@ size_t IVFTurboQuantIndex::GetVectorCount() const {
   return total_vectors_;
 }
 
-}  // namespace turboquant
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index::turboquant

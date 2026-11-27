@@ -7,8 +7,7 @@
 #include <cstdlib>
 #include <string>
 
-namespace gvdb {
-namespace rpc {
+namespace gvdb::rpc {
 
 PrimaryTermFromHeader ReadPrimaryTermHeader(grpc::ServerContext* context) {
   PrimaryTermFromHeader out;
@@ -48,5 +47,4 @@ void StampPrimaryTermHeader(grpc::ClientContext* context, uint64_t term) {
   context->AddMetadata(kPrimaryTermHeader, std::to_string(term));
 }
 
-}  // namespace rpc
-}  // namespace gvdb
+}  // namespace gvdb::rpc

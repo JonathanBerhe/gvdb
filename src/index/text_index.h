@@ -9,8 +9,7 @@
 #include "core/status.h"
 #include "core/types.h"
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 // Interface for text-based search indexes (BM25, inverted index, etc.)
 class ITextIndex {
@@ -25,5 +24,4 @@ class ITextIndex {
                                                                   int k) = 0;
 };
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index
