@@ -41,13 +41,13 @@ std::vector<std::string> ReadLines(const std::string& path) {
 // Check if a JSON line contains a key-value pair like "key":"value"
 bool JsonContains(const std::string& json, const std::string& key, const std::string& value) {
   std::string needle = "\"" + key + "\":\"" + value + "\"";
-  return json.find(needle) != std::string::npos;
+  return json.contains(needle);
 }
 
 // Check if a JSON line contains a key-value pair like "key":123
 bool JsonContainsInt(const std::string& json, const std::string& key, int value) {
   std::string needle = "\"" + key + "\":" + std::to_string(value);
-  return json.find(needle) != std::string::npos;
+  return json.contains(needle);
 }
 
 }  // namespace
