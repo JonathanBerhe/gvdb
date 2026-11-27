@@ -16,6 +16,7 @@
 #include "core/vector.h"
 #include "index/index_factory.h"
 #include "storage/backup/backup_manager.h"
+#include "storage/backup/restore_manager.h"
 #include "storage/backup/backup_manifest.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_manager.h"

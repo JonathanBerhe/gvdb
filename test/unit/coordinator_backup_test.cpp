@@ -24,6 +24,7 @@
 #include "core/types.h"
 #include "internal.grpc.pb.h"
 #include "storage/backup/backup_manager.h"
+#include "storage/backup/restore_manager.h"
 #include "storage/objstore/object_store.h"
 #include "support/temp_dir.h"
 #include "support/wait.h"

@@ -10,6 +10,7 @@
 #include "cluster/coordinator/node_registry.h"
 #include "cluster/coordinator/internal_client.h"
 #include "storage/backup/backup_manager.h"
+#include "storage/backup/restore_manager.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include <chrono>
