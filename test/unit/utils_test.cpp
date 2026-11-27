@@ -12,6 +12,7 @@
 #include "support/temp_dir.h"
 #include "support/wait.h"
 #include "config/config.h"
+#include "common/file_util.h"
 #include "common/logger.h"
 #include "common/thread_pool.h"
 #include "common/timer.h"
@@ -455,6 +456,37 @@ TEST_CASE("UtilsIntegrationTest - ThreadPoolWithTimerAndLogger") {
 
   Logger::Instance().Flush();
   Logger::Shutdown();
+}
+
+TEST_CASE("ReadFileToString returns the whole file, and NotFound for a missing file") {
+  gvdb::test::ScopedTempDir dir("gvdb_file_util");
+  const std::string path = (dir / "data.bin").string();
+  const std::string contents("line 1\nline 2\0binary", 20);
+  std::ofstream(path, std::ios::binary) << contents;
+
+  auto read = ReadFileToString(path);
+  REQUIRE(read.ok());
+  CHECK_EQ(*read, contents);
+  CHECK(absl::IsNotFound(ReadFileToString((dir / "missing").string()).status()));
+}
+
+TEST_CASE("WriteFileAtomically replaces the file and leaves no temp file") {
+  gvdb::test::ScopedTempDir dir("gvdb_file_util");
+  const std::string path = (dir / "registry.json").string();
+
+  REQUIRE(WriteFileAtomically(path, "first").ok());
+  REQUIRE(WriteFileAtomically(path, "second").ok());
+  CHECK_EQ(*ReadFileToString(path), "second");
+  CHECK_FALSE(fs::exists(path + ".tmp"));
+}
+
+TEST_CASE("WriteFileAtomically fails when the folder does not exist") {
+  gvdb::test::ScopedTempDir dir("gvdb_file_util");
+  const std::string path = (dir / "no_such_folder" / "registry.json").string();
+
+  auto status = WriteFileAtomically(path, "data");
+  CHECK_FALSE(status.ok());
+  CHECK_FALSE(fs::exists(path));
 }
 
 }  // namespace test

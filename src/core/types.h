@@ -36,6 +36,12 @@ inline SegmentId MakeSegmentId(uint32_t value) { return SegmentId{value}; }
 inline SegmentId ShardSegmentId(CollectionId cid, uint32_t shard_index) {
   return static_cast<SegmentId>(ToUInt32(cid) * 1000 + shard_index);
 }
+// The shard of a vector in a collection: the vector id modulo the shard
+// count. The proxy, the write gate and the write handlers must route a
+// vector to the same shard, so they all use this.
+inline uint32_t ShardIndexForVector(uint64_t vector_id, uint32_t num_shards) {
+  return static_cast<uint32_t>(vector_id % num_shards);
+}
 inline ShardId MakeShardId(uint16_t value) { return ShardId{value}; }
 inline NodeId MakeNodeId(uint32_t value) { return NodeId{value}; }
 

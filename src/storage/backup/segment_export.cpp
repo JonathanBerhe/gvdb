@@ -8,6 +8,7 @@
 #include <system_error>
 
 #include "absl/strings/str_cat.h"
+#include "common/file_util.h"
 
 namespace gvdb {
 namespace storage {
@@ -41,21 +42,6 @@ std::string RenderGrowingMetadata(const Segment& segment) {
   return ss.str();
 }
 
-// Read the full contents of a file into a string. Used by Import for
-// growing.bin (which is a flat binary blob produced by SerializeToBytes).
-core::StatusOr<std::string> ReadFileBytes(const std::filesystem::path& p) {
-  std::ifstream in(p, std::ios::binary);
-  if (!in.is_open()) {
-    return core::NotFoundError(absl::StrCat("Cannot open: ", p.string()));
-  }
-  std::ostringstream ss;
-  ss << in.rdbuf();
-  if (in.bad()) {
-    return core::InternalError(absl::StrCat("Read failed: ", p.string()));
-  }
-  return ss.str();
-}
-
 }  // namespace
 
 // ============================================================================
@@ -72,7 +58,7 @@ core::StatusOr<SegmentExport> SegmentExporter::Export(
   out.vector_count = segment.GetVectorCount();
 
   const auto state = segment.GetState();
-  // FLUSHED is the post-Load shape — already a sealed-shape directory
+  // FLUSHED is the post-Load shape: already a sealed-shape directory
   // on disk, so we treat it identically to SEALED.
   const bool is_sealed_on_disk =
       state == core::SegmentState::SEALED ||
@@ -87,7 +73,7 @@ core::StatusOr<SegmentExport> SegmentExporter::Export(
       return core::FailedPreconditionError(absl::StrCat(
           "Sealed segment ", out.segment_id,
           " has no flushed directory at ", seg_dir.string(),
-          " — Flush() must run before backup"));
+          ". Flush() must run before backup"));
     }
     // metadata.txt and vectors.bin are mandatory; index.faiss is
     // expected for sealed segments but tolerated as missing if the
@@ -192,7 +178,7 @@ core::StatusOr<std::unique_ptr<Segment>> SegmentExporter::Import(
   const bool has_vectors = std::filesystem::exists(vectors_path, ec);
 
   if (has_growing) {
-    auto bytes_or = ReadFileBytes(growing_path);
+    auto bytes_or = common::ReadFileToString(growing_path.string());
     if (!bytes_or.ok()) return bytes_or.status();
     auto seg_or = Segment::DeserializeFromBytes(*bytes_or);
     if (!seg_or.ok()) return seg_or.status();

@@ -6,7 +6,6 @@
 #include "service/vectordb/vectordb_service.h"
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
-#include "auth/audit_context.h"
 #include "cluster/coordinator/coordinator.h"
 #include "storage/backup/backup_manager.h"
 #include "storage/backup/restore_manager.h"
@@ -27,10 +26,8 @@ grpc::Status VectorDBService::BackupCollection(
     grpc::ServerContext* /*context*/,
     const proto::BackupCollectionRequest* request,
     proto::BackupCollectionResponse* response) {
-  auto perm = CheckPermission(auth::Permission::BACKUP,
-                               request->collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::BACKUP, request->collection_name());
   if (!perm.ok()) return perm;
-  auth::AuditContext::SetCollection(request->collection_name());
 
   if (request->collection_name().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
@@ -100,10 +97,8 @@ grpc::Status VectorDBService::RestoreCollection(
     grpc::ServerContext* /*context*/,
     const proto::RestoreCollectionRequest* request,
     proto::RestoreCollectionResponse* response) {
-  auto perm = CheckPermission(auth::Permission::RESTORE,
-                               request->target_collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::RESTORE, request->target_collection_name());
   if (!perm.ok()) return perm;
-  auth::AuditContext::SetCollection(request->target_collection_name());
 
   if (request->backup_id().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,

@@ -10,12 +10,11 @@
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_split.h"
 #include "common/json_util.h"
+#include "common/file_util.h"
 #include "common/logger.h"
 #include "common/metrics.h"
 #include "internal.grpc.pb.h"
 #include <grpcpp/grpcpp.h>
-#include <filesystem>
-#include <fstream>
 #include <map>
 #include <mutex>
 #include <shared_mutex>
@@ -189,40 +188,25 @@ class LocalCollectionResolver : public ICollectionResolver {
     }
     ss << "]}";
 
-    const std::string tmp_path = registry_path_ + ".tmp";
-    {
-      std::ofstream out(tmp_path, std::ios::trunc);
-      if (!out.is_open()) {
-        common::Logger::Instance().Error(
-            "Failed to open collection registry temp file: {}", tmp_path);
-        return;
-      }
-      out << ss.str();
-      if (!out.good()) {
-        common::Logger::Instance().Error(
-            "Failed to write collection registry temp file: {}", tmp_path);
-        return;
-      }
-    }
-    std::error_code ec;
-    std::filesystem::rename(tmp_path, registry_path_, ec);
-    if (ec) {
-      common::Logger::Instance().Error(
-          "Failed to replace collection registry {}: {}", registry_path_,
-          ec.message());
+    if (auto status = common::WriteFileAtomically(registry_path_, ss.str()); !status.ok()) {
+      common::Logger::Instance().Error("Failed to persist the collection registry: {}",
+                                       status.message());
     }
   }
 
   void LoadRegistry() {
-    std::ifstream in(registry_path_);
-    if (!in.is_open()) {
+    auto read = common::ReadFileToString(registry_path_);
+    if (absl::IsNotFound(read.status())) {
       common::Logger::Instance().Info(
           "No collection registry at {} (first boot)", registry_path_);
       return;
     }
-    std::stringstream buffer;
-    buffer << in.rdbuf();
-    const std::string doc = buffer.str();
+    if (!read.ok()) {
+      common::Logger::Instance().Error("Failed to read the collection registry: {}",
+                                       read.status().message());
+      return;
+    }
+    const std::string doc = std::move(*read);
 
     uint32_t next_id = 0;
     if (common::json::ParseUint32(doc, "next_id", next_id) && next_id > 0) {

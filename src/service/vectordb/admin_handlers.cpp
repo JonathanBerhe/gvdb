@@ -7,7 +7,6 @@
 #include "core/type_names.h"
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
-#include "auth/audit_context.h"
 #include "common/logger.h"
 #include "common/metrics.h"
 #include "absl/strings/str_cat.h"
@@ -24,9 +23,8 @@ grpc::Status VectorDBService::CreateCollection(
     grpc::ServerContext* /*context*/,
     const proto::CreateCollectionRequest* request,
     proto::CreateCollectionResponse* response) {
-  auto perm = CheckPermission(auth::Permission::CREATE_COLLECTION, request->collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::CREATE_COLLECTION, request->collection_name());
   if (!perm.ok()) return perm;
-  auth::AuditContext::SetCollection(request->collection_name());
 
   common::Logger::Instance().Info("CreateCollection: {}", request->collection_name());
 
@@ -72,9 +70,8 @@ grpc::Status VectorDBService::DropCollection(
     grpc::ServerContext* /*context*/,
     const proto::DropCollectionRequest* request,
     proto::DropCollectionResponse* response) {
-  auto perm = CheckPermission(auth::Permission::DROP_COLLECTION, request->collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::DROP_COLLECTION, request->collection_name());
   if (!perm.ok()) return perm;
-  auth::AuditContext::SetCollection(request->collection_name());
 
   common::Logger::Instance().Info("DropCollection: {}", request->collection_name());
 
