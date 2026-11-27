@@ -34,7 +34,8 @@ function(gvdb_fetch name)
   set(BUILD_SHARED_LIBS OFF)
   set(CMAKE_SKIP_INSTALL_RULES ON)
   # Lets CMake 4 configure dependencies that still declare
-  # cmake_minimum_required() below 3.5 (doctest, yaml-cpp).
+  # cmake_minimum_required() below 3.5: only the c-ares that gRPC 1.66
+  # bundles. A gRPC update can remove this line.
   set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
   foreach(option IN LISTS arg_OPTIONS)
@@ -85,7 +86,7 @@ gvdb_fetch(abseil-cpp
 if(GVDB_BUILD_TESTS)
   gvdb_fetch(doctest
     GIT_REPOSITORY https://github.com/doctest/doctest.git
-    GIT_TAG        v2.4.11
+    GIT_TAG        v2.5.3
     OPTIONS
       DOCTEST_WITH_TESTS=OFF
       DOCTEST_NO_INSTALL=ON
@@ -126,31 +127,23 @@ gvdb_fetch(faiss
 )
 
 # ----------------------------------------------------------------------------
-# spdlog with its bundled fmt 10. The bundled fmt stays (not
+# spdlog with its bundled fmt 12. The bundled fmt stays (not
 # SPDLOG_USE_STD_FORMAT) because utils/logger.h needs fmt::runtime, which has
 # no std::format equivalent before C++26.
 # ----------------------------------------------------------------------------
 gvdb_fetch(spdlog
   GIT_REPOSITORY https://github.com/gabime/spdlog.git
-  GIT_TAG        v1.14.1
+  GIT_TAG        v1.17.0
   OPTIONS
     SPDLOG_BUILD_SHARED=OFF
 )
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  # Clang 22 and Apple clang on macOS SDK 26.4+ reject the consteval calls in
-  # the fmt that spdlog bundles: fmt's basic_format_string constructor is
-  # consteval. An empty FMT_CONSTEVAL makes fmt fall back to constexpr,
-  # which still checks format strings at compile time. PUBLIC, so every
-  # translation unit that includes spdlog or fmt headers sees it.
-  target_compile_definitions(spdlog PUBLIC FMT_CONSTEVAL=)
-endif()
 
 # ----------------------------------------------------------------------------
 # yaml-cpp (server configuration)
 # ----------------------------------------------------------------------------
 gvdb_fetch(yaml-cpp
   GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-  GIT_TAG        yaml-cpp-0.7.0
+  GIT_TAG        yaml-cpp-0.9.0
   OPTIONS
     YAML_CPP_BUILD_TESTS=OFF
     YAML_CPP_BUILD_TOOLS=OFF
@@ -186,7 +179,7 @@ gvdb_fetch(NuRaft
 # ----------------------------------------------------------------------------
 gvdb_fetch(rocksdb
   GIT_REPOSITORY https://github.com/facebook/rocksdb.git
-  GIT_TAG        v9.7.3
+  GIT_TAG        v10.4.2
   OPTIONS
     WITH_TESTS=OFF
     WITH_TOOLS=OFF
