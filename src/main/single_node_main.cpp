@@ -19,15 +19,15 @@
 #include "cluster/shard_write_gate.h"
 #include "storage/objstore/object_store_factory.h"
 #include "compute/query_executor.h"
-#include "network/vectordb_service.h"
-#include "network/collection_resolver.h"
-#include "network/auth_processor.h"
-#include "network/audit_interceptor.h"
-#include "utils/audit_logger.h"
+#include "service/vectordb_service.h"
+#include "service/collection_resolver.h"
+#include "rpc/interceptors/auth_processor.h"
+#include "rpc/interceptors/audit_interceptor.h"
+#include "auth/audit_logger.h"
 #include "auth/rbac.h"
 #include "index/index_factory.h"
-#include "utils/server_bootstrap.h"
-#include "utils/config.h"
+#include "server/bootstrap.h"
+#include "config/config.h"
 
 // Command-line arguments
 std::string g_config_file = "";
@@ -68,25 +68,25 @@ bool ParseArgs(int argc, char** argv) {
   return true;
 }
 
-gvdb::utils::LogLevel ParseLogLevel(const std::string& level_str) {
+gvdb::common::LogLevel ParseLogLevel(const std::string& level_str) {
   std::string lower = level_str;
   std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-  if (lower == "debug") return gvdb::utils::LogLevel::DEBUG;
-  if (lower == "warn" || lower == "warning") return gvdb::utils::LogLevel::WARN;
-  if (lower == "error") return gvdb::utils::LogLevel::ERROR;
-  return gvdb::utils::LogLevel::INFO;
+  if (lower == "debug") return gvdb::common::LogLevel::DEBUG;
+  if (lower == "warn" || lower == "warning") return gvdb::common::LogLevel::WARN;
+  if (lower == "error") return gvdb::common::LogLevel::ERROR;
+  return gvdb::common::LogLevel::INFO;
 }
 
 int main(int argc, char** argv) {
   if (!ParseArgs(argc, argv)) return 1;
 
   using namespace gvdb;
-  utils::ServerBootstrap::InstallSignalHandlers();
+  server::ServerBootstrap::InstallSignalHandlers();
 
   // Load configuration: CLI flags > YAML > defaults
-  utils::GVDBConfig config = utils::Config::get_default();
+  config::GVDBConfig config = config::Config::get_default();
   if (!g_config_file.empty()) {
-    auto yaml_result = utils::Config::load_from_file(g_config_file);
+    auto yaml_result = config::Config::load_from_file(g_config_file);
     if (!yaml_result.ok()) {
       std::cerr << "Failed to load config: " << yaml_result.status().message() << std::endl;
       return 1;
@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
   if (!g_data_dir.empty()) config.storage.data_dir = g_data_dir;
   if (g_node_id != -1) config.consensus.node_id = g_node_id;
 
-  auto validate_status = utils::Config::validate(config);
+  auto validate_status = config::Config::validate(config);
   if (!validate_status.ok()) {
     std::cerr << "Invalid configuration: " << validate_status.message() << std::endl;
     return 1;
@@ -108,14 +108,14 @@ int main(int argc, char** argv) {
   int node_id = config.consensus.node_id;
 
   // Initialize shared infrastructure
-  auto log_status = utils::ServerBootstrap::InitializeLogger(
+  auto log_status = server::ServerBootstrap::InitializeLogger(
       data_dir, "gvdb.log", ParseLogLevel(config.logging.level));
   if (!log_status.ok()) {
     std::cerr << "Warning: Failed to initialize logger: " << log_status.message() << std::endl;
   }
 
-  utils::Logger::Instance().Info("Starting GVDB All-in-One Server");
-  utils::ServerBootstrap::StartMetricsServer(9090);
+  common::Logger::Instance().Info("Starting GVDB All-in-One Server");
+  server::ServerBootstrap::StartMetricsServer(9090);
 
   try {
     // 1. Consensus (single-node mode)
@@ -148,7 +148,7 @@ int main(int argc, char** argv) {
     // object storage is disabled and we run local-disk only.
     std::shared_ptr<storage::ISegmentStore> segment_store;
     storage::IObjectStore* object_store_ptr = nullptr;  // for BulkImporter
-    auto object_store_or = storage::CreateObjectStore(config.storage);
+    auto object_store_or = storage::CreateObjectStore(config.storage.object_store);
     if (!object_store_or.ok()) {
       std::cerr << "Failed to create object store: "
                 << object_store_or.status().message() << std::endl;
@@ -158,8 +158,8 @@ int main(int argc, char** argv) {
       auto cache_dir = data_dir + "/cache";
       auto cache_size = static_cast<size_t>(config.storage.object_store_cache_size_mb) * 1024 * 1024;
       auto cache = std::make_unique<storage::SegmentCache>(cache_dir, cache_size);
-      auto prefix = config.storage.object_store_prefix.empty()
-          ? "gvdb" : config.storage.object_store_prefix;
+      auto prefix = config.storage.object_store.prefix.empty()
+          ? "gvdb" : config.storage.object_store.prefix;
 
       object_store_ptr = object_store_or->get();
       segment_store = std::make_shared<storage::TieredSegmentManager>(
@@ -171,13 +171,13 @@ int main(int argc, char** argv) {
     }
 
     if (auto load_status = segment_store->LoadAllSegments(); !load_status.ok()) {
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Failed to load existing segments on startup: {}",
           load_status.message());
     }
     auto query_executor = std::make_shared<compute::QueryExecutor>(
         segment_store.get());
-    query_executor->SetCache(std::make_shared<utils::QueryCache>(10000));
+    query_executor->SetCache(std::make_shared<compute::QueryCache>(10000));
 
     // Wire auto-seal: when a segment fills up, seal it inline
     segment_store->SetSealCallback(
@@ -186,12 +186,12 @@ int main(int argc, char** argv) {
           if (!seg) return;
           auto config = core::ResolveAutoIndexConfig(
               idx_type, seg->GetVectorCount(), seg->GetDimension(), seg->GetMetric());
-          utils::Logger::Instance().Info("Auto-sealing segment {} ({} vectors, index={})",
+          common::Logger::Instance().Info("Auto-sealing segment {} ({} vectors, index={})",
               core::ToUInt32(sid), seg->GetVectorCount(),
               static_cast<int>(config.index_type));
           auto status = segment_store->SealSegment(sid, config);
           if (!status.ok()) {
-            utils::Logger::Instance().Error("Auto-seal failed: {}", status.message());
+            common::Logger::Instance().Error("Auto-seal failed: {}", status.message());
             return;
           }
           // Persist the freshly sealed segment. On the plain manager this writes
@@ -200,7 +200,7 @@ int main(int argc, char** argv) {
           // memory-only and never reaches disk or the cold tier.
           auto flush_status = segment_store->FlushSegment(sid);
           if (!flush_status.ok()) {
-            utils::Logger::Instance().Error(
+            common::Logger::Instance().Error(
                 "Auto-flush failed for segment {}: {}", core::ToUInt32(sid),
                 flush_status.message());
           }
@@ -208,7 +208,7 @@ int main(int argc, char** argv) {
 
     // Background TTL sweep thread
     std::thread ttl_sweep_thread([segment_store]() {
-      segment_store->RunTTLSweepLoop(utils::ServerBootstrap::ShutdownFlag());
+      segment_store->RunTTLSweepLoop(server::ServerBootstrap::ShutdownFlag());
     });
 
     // 3. Cluster coordinator
@@ -239,14 +239,14 @@ int main(int argc, char** argv) {
       }
       rbac_store = std::move(*rbac_result);
       interceptors.push_back(
-          std::make_unique<network::ApiKeyAuthInterceptorFactory>(rbac_store));
+          std::make_unique<rpc::ApiKeyAuthInterceptorFactory>(rbac_store));
     }
 
     // 5. Audit logging (if enabled in config)
     if (config.logging.audit.enabled) {
-      utils::AuditLogger::Initialize(config.logging.audit);
+      auth::AuditLogger::Initialize(config.logging.audit);
       interceptors.push_back(
-          std::make_unique<network::AuditInterceptorFactory>());
+          std::make_unique<rpc::AuditInterceptorFactory>());
     }
 
     // 6. Bulk importer (optional — requires object store)
@@ -266,7 +266,7 @@ int main(int argc, char** argv) {
     {
       storage::BackupManagerOptions bopts;
       bopts.default_object_store = object_store_ptr;
-      bopts.s3_bucket = config.storage.object_store_bucket;
+      bopts.s3_bucket = config.storage.object_store.bucket;
       bopts.local_root_allowlist = config.storage.local_backup_dir;
       bopts.flushed_segments_root = data_dir + "/segments";
       bopts.tmp_dir = data_dir + "/tmp/backup";
@@ -276,7 +276,7 @@ int main(int argc, char** argv) {
 
       storage::RestoreManagerOptions ropts;
       ropts.default_object_store = object_store_ptr;
-      ropts.s3_bucket = config.storage.object_store_bucket;
+      ropts.s3_bucket = config.storage.object_store.bucket;
       ropts.local_root_allowlist = config.storage.local_backup_dir;
       ropts.staging_dir = data_dir + "/tmp/restore";
       restore_manager = std::make_shared<storage::RestoreManager>(
@@ -289,36 +289,36 @@ int main(int argc, char** argv) {
     auto shard_write_gate = std::make_unique<cluster::ShardWriteGate>();
 
     // 8. gRPC service
-    auto resolver = network::MakeLocalResolver(segment_store, data_dir);
-    auto service = std::make_unique<network::VectorDBService>(
+    auto resolver = service::MakeLocalResolver(segment_store, data_dir);
+    auto service = std::make_unique<service::VectorDBService>(
         segment_store, query_executor, std::move(resolver), rbac_store,
         bulk_importer, backup_manager, restore_manager);
     service->SetShardWriteGate(shard_write_gate.get());
 
     // 6. Start server
     std::string server_address = absl::StrCat("0.0.0.0:", port);
-    auto credentials = utils::ServerBootstrap::MakeServerCredentials(config.server.tls);
-    auto server = utils::ServerBootstrap::StartGrpcServer(
+    auto credentials = server::ServerBootstrap::MakeServerCredentials(config.server.tls);
+    auto server = server::ServerBootstrap::StartGrpcServer(
         server_address, {service.get()}, credentials, std::move(interceptors));
     if (!server) {
       std::cerr << "Failed to start gRPC server on " << server_address << std::endl;
       return 1;
     }
 
-    utils::ServerBootstrap::PrintBanner("GVDB All-in-One Server", {
+    server::ServerBootstrap::PrintBanner("GVDB All-in-One Server", {
         "gRPC Service: " + server_address,
         "Metrics: http://0.0.0.0:9090/metrics",
         "Node ID: " + std::to_string(node_id),
         "Data Directory: " + data_dir,
     });
 
-    utils::ServerBootstrap::WaitForShutdown();
+    server::ServerBootstrap::WaitForShutdown();
 
     // Graceful shutdown
     std::cout << "\nShutting down gracefully..." << std::endl;
     if (ttl_sweep_thread.joinable()) ttl_sweep_thread.join();
     server->Shutdown();
-    utils::ServerBootstrap::StopMetricsServer();
+    server::ServerBootstrap::StopMetricsServer();
     (void)raft_node->Shutdown();
     std::cout << "Shutdown complete. Goodbye!" << std::endl;
     return 0;

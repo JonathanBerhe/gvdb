@@ -29,10 +29,10 @@
 #include "cluster/shard_write_gate.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "network/collection_resolver.h"
-#include "network/internal_service.h"
-#include "network/proxy_service.h"
-#include "network/vectordb_service.h"
+#include "service/collection_resolver.h"
+#include "service/internal_service.h"
+#include "service/proxy_service.h"
+#include "service/vectordb_service.h"
 #include "storage/backup/backup_manager.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_manager.h"
@@ -136,11 +136,11 @@ class BackupRestoreIntegrationTest {
     coordinator_->SetBackupManager(coord_backup_mgr_);
     coordinator_->SetRestoreManager(coord_restore_mgr_);
 
-    coord_internal_service_ = std::make_unique<network::InternalService>(
+    coord_internal_service_ = std::make_unique<service::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
         node_registry_, coordinator_);
-    auto coord_resolver = network::MakeCoordinatorResolver(coordinator_);
-    coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
+    auto coord_resolver = service::MakeCoordinatorResolver(coordinator_);
+    coord_vectordb_service_ = std::make_unique<service::VectorDBService>(
         coord_segment_store_, coord_query_executor_,
         std::move(coord_resolver));
     coord_vectordb_service_->SetCoordinator(coordinator_);
@@ -164,7 +164,7 @@ class BackupRestoreIntegrationTest {
         dn_segment_store_.get());
     auto dn_shard_manager = std::make_shared<cluster::ShardManager>(
         8, cluster::ShardingStrategy::HASH);
-    dn_internal_service_ = std::make_unique<network::InternalService>(
+    dn_internal_service_ = std::make_unique<service::InternalService>(
         dn_shard_manager, dn_segment_store_, dn_query_executor_);
 
     // Backup/restore engines on the data-node — same object store so
@@ -194,8 +194,8 @@ class BackupRestoreIntegrationTest {
     dn_internal_service_->SetBackupManager(dn_backup_mgr_);
     dn_internal_service_->SetRestoreManager(dn_restore_mgr_);
 
-    auto dn_resolver = network::MakeCachedCoordinatorResolver(coord_address_);
-    dn_vectordb_service_ = std::make_unique<network::VectorDBService>(
+    auto dn_resolver = service::MakeCachedCoordinatorResolver(coord_address_);
+    dn_vectordb_service_ = std::make_unique<service::VectorDBService>(
         dn_segment_store_, dn_query_executor_, std::move(dn_resolver));
     dn_vectordb_service_->SetShardWriteGate(shard_write_gate_.get());
 
@@ -222,7 +222,7 @@ class BackupRestoreIntegrationTest {
     REQUIRE(shard_manager_->RegisterNode(core::MakeNodeId(100)).ok());
 
     // --- Proxy in front of both ---
-    proxy_service_ = std::make_unique<network::ProxyService>(
+    proxy_service_ = std::make_unique<service::ProxyService>(
         std::vector<std::string>{coord_address_}, dn_address_);
     {
       grpc::ServerBuilder builder;
@@ -347,8 +347,8 @@ class BackupRestoreIntegrationTest {
   std::shared_ptr<compute::QueryExecutor> coord_query_executor_;
   std::shared_ptr<storage::BackupManager> coord_backup_mgr_;
   std::shared_ptr<storage::RestoreManager> coord_restore_mgr_;
-  std::unique_ptr<network::InternalService> coord_internal_service_;
-  std::unique_ptr<network::VectorDBService> coord_vectordb_service_;
+  std::unique_ptr<service::InternalService> coord_internal_service_;
+  std::unique_ptr<service::VectorDBService> coord_vectordb_service_;
   std::unique_ptr<grpc::Server> coord_server_;
   std::string coord_address_;
 
@@ -357,12 +357,12 @@ class BackupRestoreIntegrationTest {
   std::shared_ptr<storage::BackupManager> dn_backup_mgr_;
   std::shared_ptr<storage::RestoreManager> dn_restore_mgr_;
   std::unique_ptr<cluster::ShardWriteGate> shard_write_gate_;
-  std::unique_ptr<network::InternalService> dn_internal_service_;
-  std::unique_ptr<network::VectorDBService> dn_vectordb_service_;
+  std::unique_ptr<service::InternalService> dn_internal_service_;
+  std::unique_ptr<service::VectorDBService> dn_vectordb_service_;
   std::unique_ptr<grpc::Server> dn_server_;
   std::string dn_address_;
 
-  std::unique_ptr<network::ProxyService> proxy_service_;
+  std::unique_ptr<service::ProxyService> proxy_service_;
   std::unique_ptr<grpc::Server> proxy_server_;
   std::string proxy_address_;
   std::unique_ptr<proto::VectorDBService::Stub> client_;

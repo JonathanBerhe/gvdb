@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "consensus/timestamp_oracle.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 #include <chrono>
 
 namespace gvdb {
@@ -16,7 +16,7 @@ TimestampOracle::TimestampOracle() {
 
   timestamp_.store(static_cast<core::Timestamp>(micros), std::memory_order_release);
 
-  utils::Logger::Instance().Info("TimestampOracle initialized with base timestamp: {}",
+  common::Logger::Instance().Info("TimestampOracle initialized with base timestamp: {}",
                                  timestamp_.load());
 }
 

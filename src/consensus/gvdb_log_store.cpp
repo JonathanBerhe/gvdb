@@ -3,7 +3,7 @@
 
 #include "consensus/gvdb_log_store.h"
 
-#include "utils/logger.h"
+#include "common/logger.h"
 
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
@@ -28,7 +28,7 @@ GvdbLogStore::GvdbLogStore(const std::string& db_path)
   if (!init_rocksdb()) {
     throw std::runtime_error("Failed to initialize RocksDB at " + db_path);
   }
-  utils::Logger::Instance().Info("GvdbLogStore initialized (persistent mode, path={})", db_path_);
+  common::Logger::Instance().Info("GvdbLogStore initialized (persistent mode, path={})", db_path_);
 }
 
 GvdbLogStore::~GvdbLogStore() {
@@ -57,7 +57,7 @@ ptr<log_entry> GvdbLogStore::last_entry() const {
   if (!entry) {
     // DB claims this index exists (next > start) but read returned null.
     // Log an error so corruption isn't silently masked as "empty log".
-    utils::Logger::Instance().Error(
+    common::Logger::Instance().Error(
         "last_entry: read_entry_from_db({}) returned null (start={}, next={})",
         next - 1, start, next);
     return nuraft::cs_new<log_entry>(0, nuraft::buffer::alloc(0));
@@ -71,7 +71,7 @@ ulong GvdbLogStore::append(ptr<log_entry>& entry) {
   // Use atomic counter for next index
   ulong index = next_idx_.fetch_add(1, std::memory_order_acq_rel);
   if (!write_entry_to_db(index, entry)) {
-    utils::Logger::Instance().Error("Failed to persist log entry at index {}", index);
+    common::Logger::Instance().Error("Failed to persist log entry at index {}", index);
     // Rollback counter on failure
     next_idx_.fetch_sub(1, std::memory_order_acq_rel);
     throw std::runtime_error("Failed to write log entry to RocksDB");
@@ -113,7 +113,7 @@ ptr<std::vector<ptr<log_entry>>> GvdbLogStore::log_entries(ulong start, ulong en
     auto entry = get_entry_internal(i);
     if (!entry) {
       // Entry not found - log has been compacted or doesn't exist
-      utils::Logger::Instance().Error(
+      common::Logger::Instance().Error(
           "Log entry at index {} not found (start={}, end={})", i, start, end);
       return nullptr;  // Indicate error
     }
@@ -139,7 +139,7 @@ ulong GvdbLogStore::term_at(ulong index) {
   auto entry = get_entry_internal(index);
   if (!entry) {
     // Should not happen for valid index >= start_index
-    utils::Logger::Instance().Error("term_at: entry at index {} not found", index);
+    common::Logger::Instance().Error("term_at: entry at index {} not found", index);
     return 0;
   }
 
@@ -157,7 +157,7 @@ ptr<buffer> GvdbLogStore::pack(ulong index, nuraft::int32 cnt) {
   for (nuraft::int32 i = 0; i < cnt; ++i) {
     auto entry = get_entry_internal(index + i);
     if (!entry) {
-      utils::Logger::Instance().Error("pack: entry at index {} not found", index + i);
+      common::Logger::Instance().Error("pack: entry at index {} not found", index + i);
       return nullptr;
     }
 
@@ -201,7 +201,7 @@ void GvdbLogStore::apply_pack(ulong index, buffer& pack) {
       // RocksDB with next_idx_ already advanced, matching append()'s
       // throw-on-IO-error contract. NuRaft's snapshot-install path is
       // expected to retry from scratch on restart.
-      utils::Logger::Instance().Error(
+      common::Logger::Instance().Error(
           "apply_pack: failed to persist entry at index {}", current_index);
       throw std::runtime_error("Failed to persist entry during apply_pack");
     }
@@ -237,11 +237,11 @@ bool GvdbLogStore::compact(ulong last_log_index) {
   rocksdb::Status status = db_->Put(write_opts, start_idx_key, start_idx_value);
 
   if (!status.ok()) {
-    utils::Logger::Instance().Error("Failed to persist start_idx: {}", status.ToString());
+    common::Logger::Instance().Error("Failed to persist start_idx: {}", status.ToString());
     return false;
   }
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Compacted log up to index {} (new start index: {})",
       last_log_index, new_start);
 
@@ -272,7 +272,7 @@ bool GvdbLogStore::init_rocksdb() {
   if (!fs::exists(db_dir)) {
     std::error_code ec;
     if (!fs::create_directories(db_dir, ec)) {
-      utils::Logger::Instance().Error(
+      common::Logger::Instance().Error(
           "Failed to create RocksDB directory: {} (error: {})", db_path_, ec.message());
       return false;
     }
@@ -301,12 +301,12 @@ bool GvdbLogStore::init_rocksdb() {
 
   if (!status.ok()) {
     // DB doesn't exist or column families missing, create new one
-    utils::Logger::Instance().Info("Creating new RocksDB instance at {}", db_path_);
+    common::Logger::Instance().Info("Creating new RocksDB instance at {}", db_path_);
 
     // Create DB with default CF only
     status = rocksdb::DB::Open(options, db_path_, &db_ptr);
     if (!status.ok()) {
-      utils::Logger::Instance().Error("Failed to create RocksDB: {}", status.ToString());
+      common::Logger::Instance().Error("Failed to create RocksDB: {}", status.ToString());
       return false;
     }
 
@@ -314,7 +314,7 @@ bool GvdbLogStore::init_rocksdb() {
     rocksdb::ColumnFamilyHandle* cf_handle;
     status = db_ptr->CreateColumnFamily(rocksdb::ColumnFamilyOptions(), "log_entries", &cf_handle);
     if (!status.ok()) {
-      utils::Logger::Instance().Error("Failed to create log_entries CF: {}", status.ToString());
+      common::Logger::Instance().Error("Failed to create log_entries CF: {}", status.ToString());
       delete db_ptr;
       return false;
     }
@@ -325,7 +325,7 @@ bool GvdbLogStore::init_rocksdb() {
     // Re-open with both column families
     status = rocksdb::DB::Open(options, db_path_, cf_descriptors, &cf_handles, &db_ptr);
     if (!status.ok()) {
-      utils::Logger::Instance().Error("Failed to re-open RocksDB: {}", status.ToString());
+      common::Logger::Instance().Error("Failed to re-open RocksDB: {}", status.ToString());
       return false;
     }
   }
@@ -337,7 +337,7 @@ bool GvdbLogStore::init_rocksdb() {
     delete cf_handles[0];  // Don't need default CF handle
     log_cf_ = cf_handles[1];
   } else {
-    utils::Logger::Instance().Error("Missing log_entries column family");
+    common::Logger::Instance().Error("Missing log_entries column family");
     return false;
   }
 
@@ -348,10 +348,10 @@ bool GvdbLogStore::init_rocksdb() {
     ulong stored_start_idx;
     std::memcpy(&stored_start_idx, start_idx_value.data(), sizeof(ulong));
     start_idx_.store(stored_start_idx, std::memory_order_release);
-    utils::Logger::Instance().Info("Recovered start_idx: {}", stored_start_idx);
+    common::Logger::Instance().Info("Recovered start_idx: {}", stored_start_idx);
   } else {
     // First initialization, start_idx remains 1
-    utils::Logger::Instance().Info("New log store, start_idx: 1");
+    common::Logger::Instance().Info("New log store, start_idx: 1");
   }
 
   // Find the last log entry to initialize next_idx_
@@ -364,12 +364,12 @@ bool GvdbLogStore::init_rocksdb() {
     ulong last_index;
     std::memcpy(&last_index, it->key().data(), sizeof(ulong));
     next_idx_.store(last_index + 1, std::memory_order_release);
-    utils::Logger::Instance().Info("Recovered next_idx: {} (last entry: {})", last_index + 1, last_index);
+    common::Logger::Instance().Info("Recovered next_idx: {} (last entry: {})", last_index + 1, last_index);
   } else {
     // No entries, use start_idx
     ulong start = start_idx_.load(std::memory_order_acquire);
     next_idx_.store(start, std::memory_order_release);
-    utils::Logger::Instance().Info("No existing entries, next_idx: {}", start);
+    common::Logger::Instance().Info("No existing entries, next_idx: {}", start);
   }
 
   return true;
@@ -381,7 +381,7 @@ void GvdbLogStore::close_rocksdb() {
     log_cf_ = nullptr;
   }
   db_.reset();
-  utils::Logger::Instance().Info("RocksDB closed");
+  common::Logger::Instance().Info("RocksDB closed");
 }
 
 std::string GvdbLogStore::make_log_key(ulong index) const {
@@ -409,7 +409,7 @@ bool GvdbLogStore::write_entry_to_db(ulong index, ptr<log_entry>& entry) {
   rocksdb::Status status = db_->Put(write_opts, log_cf_, key, value);
 
   if (!status.ok()) {
-    utils::Logger::Instance().Error("Failed to write log entry {}: {}", index, status.ToString());
+    common::Logger::Instance().Error("Failed to write log entry {}: {}", index, status.ToString());
     return false;
   }
 
@@ -428,7 +428,7 @@ ptr<log_entry> GvdbLogStore::read_entry_from_db(ulong index) const {
 
   if (!status.ok()) {
     if (!status.IsNotFound()) {
-      utils::Logger::Instance().Error("Failed to read log entry {}: {}", index, status.ToString());
+      common::Logger::Instance().Error("Failed to read log entry {}: {}", index, status.ToString());
     }
     return nullptr;
   }
@@ -455,7 +455,7 @@ bool GvdbLogStore::delete_range_from_db(ulong start_index, ulong end_index) {
   rocksdb::Status status = db_->DeleteRange(write_opts, log_cf_, start_key, end_key);
 
   if (!status.ok()) {
-    utils::Logger::Instance().Error("Failed to delete range [{}, {}): {}",
+    common::Logger::Instance().Error("Failed to delete range [{}, {}): {}",
                                      start_index, end_index, status.ToString());
     return false;
   }

@@ -28,7 +28,7 @@
 #include <string>
 
 #include "internal.grpc.pb.h"
-#include "network/proxy_service.h"
+#include "service/proxy_service.h"
 #include "support/grpc_server.h"
 #include "vectordb.grpc.pb.h"
 
@@ -128,7 +128,7 @@ class DrainReadFallbackTest {
     coord_server_ = StartServer({coord_.get()});
 
     // Proxy (the system under test).
-    proxy_ = std::make_unique<network::ProxyService>(
+    proxy_ = std::make_unique<service::ProxyService>(
         std::vector<std::string>{coord_server_->address()},
         // The proxy's query-node URI is irrelevant for Get (proxy routes
         // Get via RouteQuery) but the constructor requires a value.
@@ -169,7 +169,7 @@ class DrainReadFallbackTest {
   std::unique_ptr<DrainFallbackCoordinatorService> coord_;
   std::unique_ptr<TestGrpcServer> coord_server_;
 
-  std::unique_ptr<network::ProxyService> proxy_;
+  std::unique_ptr<service::ProxyService> proxy_;
   std::unique_ptr<TestGrpcServer> proxy_server_;
 
   std::unique_ptr<proto::VectorDBService::Stub> client_;

@@ -3,7 +3,7 @@
 
 #include "storage/segment/segment_manifest.h"
 
-#include "utils/json_util.h"
+#include "common/json_util.h"
 
 #include <sstream>
 #include <regex>
@@ -21,11 +21,11 @@ namespace {
 // Minimal JSON serialization (avoids adding nlohmann/json dependency).
 // Manifest is a simple flat array of objects with fixed fields.
 
-using utils::json::EscapeJson;
-using utils::json::ParseInt32;
-using utils::json::ParseString;
-using utils::json::ParseUint32;
-using utils::json::ParseUint64;
+using common::json::EscapeJson;
+using common::json::ParseInt32;
+using common::json::ParseString;
+using common::json::ParseUint32;
+using common::json::ParseUint64;
 
 std::string EntryToJson(const ManifestEntry& e) {
   std::ostringstream ss;

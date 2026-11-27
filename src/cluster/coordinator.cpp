@@ -5,12 +5,12 @@
 #include "cluster/internal_client.h"
 #include "core/type_names.h"
 #include "rpc/proto_conversions.h"
-#include "utils/logger.h"
-#include "utils/metrics.h"
+#include "common/logger.h"
+#include "common/metrics.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
-#include "utils/json_util.h"
+#include "common/json_util.h"
 #include "internal.grpc.pb.h"
 #include <chrono>
 #include <filesystem>
@@ -54,7 +54,7 @@ Coordinator::Coordinator(
       node_registry_(std::move(node_registry)),
       auto_rebalance_config_(auto_rebalance),
       client_factory_(std::move(client_factory)) {
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Coordinator initialized (using NodeRegistry, distributed_mode={}, "
       "auto_rebalance_debounce={}s)",
       client_factory_ != nullptr,
@@ -66,7 +66,7 @@ Coordinator::~Coordinator() {
 }
 
 absl::Status Coordinator::Start(const std::string& bind_address) {
-  utils::Logger::Instance().Info("Starting coordinator on {}", bind_address);
+  common::Logger::Instance().Info("Starting coordinator on {}", bind_address);
 
   // Seed the "known data nodes" set with whoever is already heartbeating.
   // Without this, every existing data node
@@ -83,7 +83,7 @@ absl::Status Coordinator::Start(const std::string& bind_address) {
       if (n.IsDraining()) continue;
       known_data_nodes_.insert(core::MakeNodeId(n.info.node_id()));
     }
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "Auto-rebalance: seeded known_data_nodes_ with {} existing node(s)",
         known_data_nodes_.size());
   }
@@ -98,7 +98,7 @@ absl::Status Coordinator::Shutdown() {
   const bool was_running =
       running_.exchange(false, std::memory_order_acq_rel);
   if (was_running) {
-    utils::Logger::Instance().Info("Shutting down coordinator");
+    common::Logger::Instance().Info("Shutting down coordinator");
     StopHealthCheckLoop();
   }
 
@@ -111,7 +111,7 @@ absl::Status Coordinator::Shutdown() {
     std::lock_guard lock(rebalance_worker_mutex_);
     if (rebalance_worker_ && rebalance_worker_->joinable()) {
       if (was_running) {
-        utils::Logger::Instance().Info(
+        common::Logger::Instance().Info(
             "Coordinator shutdown: waiting for auto-rebalance worker to finish");
       }
       rebalance_worker_->join();
@@ -152,7 +152,7 @@ absl::Status Coordinator::RegisterNode(const meta::NodeInfo& node_info) {
   rpc::toProto(node_info, &proto_info);
   node_registry_->UpdateNode(proto_info);
 
-  utils::Logger::Instance().Info("Registered node {} (type: {}, address: {})",
+  common::Logger::Instance().Info("Registered node {} (type: {}, address: {})",
                                  core::ToUInt32(node_info.node_id),
                                  static_cast<int>(node_info.type),
                                  node_info.address);
@@ -194,7 +194,7 @@ std::vector<meta::NodeInfo> Coordinator::GetHealthyNodes(meta::NodeType type) co
     result.push_back(ConvertRegisteredNode(reg_node));
   }
 
-  utils::Logger::Instance().Debug("GetHealthyNodes(type={}) returned {} nodes",
+  common::Logger::Instance().Debug("GetHealthyNodes(type={}) returned {} nodes",
                                    static_cast<int>(type), result.size());
 
   return result;
@@ -232,7 +232,7 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
   collections_[collection_id] = metadata;
   collection_name_to_id_[name] = collection_id;
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Created collection '{}' ID={} (dim={}, shards={}, replication={})",
       name, core::ToUInt32(collection_id), dimension, num_shards, replication_factor);
 
@@ -250,7 +250,7 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
   std::string index_str = core::toString(index_type);
 
   if (!client_factory_) {
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "Collection '{}' created (distributed mode disabled)", name);
     return collection_id;
   }
@@ -264,7 +264,7 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
 
     auto primary_result = shard_manager_->GetPrimaryNode(shard_id);
     if (!primary_result.ok() || *primary_result == core::kInvalidNodeId) {
-      utils::Logger::Instance().Warn("No primary node for shard {}, skipping segment",
+      common::Logger::Instance().Warn("No primary node for shard {}, skipping segment",
                                       core::ToUInt16(shard_id));
       continue;
     }
@@ -293,7 +293,7 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
       auto promote_status =
           client->PreparePromote(&promote_ctx, promote_req, &promote_resp);
       if (!promote_status.ok() || !promote_resp.success()) {
-        utils::Logger::Instance().Warn(
+        common::Logger::Instance().Warn(
             "CreateCollection: initial PreparePromote for shard {} on node {} "
             "did not apply ({}); write gate will sync via heartbeat",
             core::ToUInt16(shard_id), core::ToUInt32(*primary_result),
@@ -314,18 +314,18 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
 
     grpc::Status status = client->CreateSegment(&context, request, &response);
     if (status.ok() && response.success()) {
-      utils::Logger::Instance().Info("Created segment {} (shard {}) on node {}",
+      common::Logger::Instance().Info("Created segment {} (shard {}) on node {}",
                                       core::ToUInt32(seg_id), i,
                                       core::ToUInt32(*primary_result));
     } else {
       std::string err = status.ok() ? response.message() : status.error_message();
-      utils::Logger::Instance().Error("Failed to create segment {} on node {}: {}",
+      common::Logger::Instance().Error("Failed to create segment {} on node {}: {}",
                                        core::ToUInt32(seg_id),
                                        core::ToUInt32(*primary_result), err);
     }
   }
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Collection '{}' created with {} shards", name, num_shards);
 
   return collection_id;
@@ -351,7 +351,7 @@ absl::Status Coordinator::DropCollection(const std::string& name) {
 
   // Distributed cleanup (only if factory is provided)
   if (client_factory_) {
-    utils::Logger::Instance().Info("Starting distributed cleanup for collection '{}' (ID: {})",
+    common::Logger::Instance().Info("Starting distributed cleanup for collection '{}' (ID: {})",
                                     name, core::ToUInt32(collection_id));
 
     // Delete all shard segments from their respective nodes
@@ -378,7 +378,7 @@ absl::Status Coordinator::DropCollection(const std::string& name) {
       // Clear primary assignment
       auto status = shard_manager_->SetPrimaryNode(shard_id, core::kInvalidNodeId);
       if (!status.ok()) {
-        utils::Logger::Instance().Warn("Failed to clear primary for shard {}: {}",
+        common::Logger::Instance().Warn("Failed to clear primary for shard {}: {}",
                                         core::ToUInt16(shard_id), status.message());
       }
 
@@ -389,7 +389,7 @@ absl::Status Coordinator::DropCollection(const std::string& name) {
           if (replica != core::kInvalidNodeId) {
             auto rm_status = shard_manager_->RemoveReplica(shard_id, replica);
             if (!rm_status.ok()) {
-              utils::Logger::Instance().Warn("Failed to remove replica {} from shard {}: {}",
+              common::Logger::Instance().Warn("Failed to remove replica {} from shard {}: {}",
                                               core::ToUInt32(replica), core::ToUInt16(shard_id),
                                               rm_status.message());
             }
@@ -405,7 +405,7 @@ absl::Status Coordinator::DropCollection(const std::string& name) {
 
   PersistRegistryLocked();
 
-  utils::Logger::Instance().Info("Dropped collection '{}' (ID: {})",
+  common::Logger::Instance().Info("Dropped collection '{}' (ID: {})",
                                   name, core::ToUInt32(collection_id));
 
   return absl::OkStatus();
@@ -524,13 +524,13 @@ absl::Status Coordinator::AssignShardsToCollection(core::CollectionId collection
 
 void Coordinator::StartHealthCheckLoop() {
   health_check_thread_ = std::make_unique<std::thread>([this] { HealthCheckLoop(); });
-  utils::Logger::Instance().Info("Health check loop started");
+  common::Logger::Instance().Info("Health check loop started");
 }
 
 void Coordinator::StopHealthCheckLoop() {
   if (health_check_thread_ && health_check_thread_->joinable()) {
     health_check_thread_->join();
-    utils::Logger::Instance().Info("Health check loop stopped");
+    common::Logger::Instance().Info("Health check loop stopped");
   }
 }
 
@@ -638,10 +638,10 @@ void Coordinator::DetectNewDataNodes() {
   }
 
   if (within_debounce) {
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "Auto-rebalance: new data node(s) [{}] seen; skipping rebalance "
         "(within debounce window)", ids_str);
-    utils::MetricsRegistry::Instance().IncAutoRebalanceDebounced();
+    common::MetricsRegistry::Instance().IncAutoRebalanceDebounced();
     return;
   }
 
@@ -651,17 +651,17 @@ void Coordinator::DetectNewDataNodes() {
   bool expected = false;
   if (!rebalance_in_flight_.compare_exchange_strong(
           expected, true, std::memory_order_acq_rel)) {
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "Auto-rebalance: previous worker still in flight; skipping "
         "trigger for new node(s) [{}]", ids_str);
-    utils::MetricsRegistry::Instance().IncAutoRebalanceDebounced();
+    common::MetricsRegistry::Instance().IncAutoRebalanceDebounced();
     return;
   }
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Auto-rebalance: new data node(s) [{}] joined; scheduling "
       "ExecuteRebalancePlan", ids_str);
-  utils::MetricsRegistry::Instance().IncAutoRebalanceTriggered();
+  common::MetricsRegistry::Instance().IncAutoRebalanceTriggered();
 
   // Join any previous finished worker so we don't leak the thread handle.
   // Then start a new one.
@@ -686,19 +686,19 @@ void Coordinator::DetectNewDataNodes() {
         snapshot.status = absl::OkStatus();
         snapshot.moves = *result;
         if (*result == 0) {
-          utils::Logger::Instance().Debug(
+          common::Logger::Instance().Debug(
               "Auto-rebalance completed: 0 shards moved (already balanced)");
         } else {
-          utils::Logger::Instance().Info(
+          common::Logger::Instance().Info(
               "Auto-rebalance completed: {} shards moved", *result);
-          utils::MetricsRegistry::Instance().AddAutoRebalanceMovesCompleted(
+          common::MetricsRegistry::Instance().AddAutoRebalanceMovesCompleted(
               *result);
         }
       } else {
         snapshot.status = result.status();
-        utils::Logger::Instance().Warn(
+        common::Logger::Instance().Warn(
             "Auto-rebalance failed: {}", result.status().message());
-        utils::MetricsRegistry::Instance().IncAutoRebalanceFailures();
+        common::MetricsRegistry::Instance().IncAutoRebalanceFailures();
       }
       {
         std::lock_guard inner(rebalance_worker_mutex_);
@@ -752,7 +752,7 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
         // segment replication to a fresh node is not done here: it needs
         // the collection context to compute ShardSegmentId and bounded
         // concurrency.
-        utils::Logger::Instance().Warn(
+        common::Logger::Instance().Warn(
             "Drain: no routable replica for shard {} on draining node {}; "
             "will retry next cycle",
             core::ToUInt16(shard_info.shard_id),
@@ -766,14 +766,14 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
       auto status = TransferPrimary(shard_info.shard_id,
                                      draining_node_id, new_primary);
       if (status.ok()) {
-        utils::Logger::Instance().Info(
+        common::Logger::Instance().Info(
             "Drain: promoted replica {} to primary for shard {} "
             "(was on draining node {})",
             core::ToUInt32(new_primary),
             core::ToUInt16(shard_info.shard_id),
             core::ToUInt32(draining_node_id));
       } else {
-        utils::Logger::Instance().Warn(
+        common::Logger::Instance().Warn(
             "Drain: TransferPrimary failed for shard {} ({}); will retry next cycle",
             core::ToUInt16(shard_info.shard_id),
             status.message());
@@ -784,7 +784,7 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
       auto status = shard_manager_->RemoveReplica(
           shard_info.shard_id, draining_node_id);
       if (status.ok()) {
-        utils::Logger::Instance().Info(
+        common::Logger::Instance().Info(
             "Drain: removed draining node {} as replica of shard {}",
             core::ToUInt32(draining_node_id),
             core::ToUInt16(shard_info.shard_id));
@@ -802,7 +802,7 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
       std::lock_guard lock(known_nodes_mutex_);
       known_data_nodes_.erase(draining_node_id);
     }
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "Drain: node {} fully drained, unregistered from shard manager",
         core::ToUInt32(draining_node_id));
   }
@@ -850,7 +850,7 @@ void Coordinator::CheckReplication() {
           if (status.ok()) {
             (void)shard_manager_->AddReplica(shard_id, node.node_id);
             assignments_changed = true;
-            utils::Logger::Instance().Info(
+            common::Logger::Instance().Info(
                 "Auto-replicated shard {} (segment {}) to node {}",
                 core::ToUInt16(shard_id), core::ToUInt32(seg_id),
                 core::ToUInt32(node.node_id));
@@ -946,7 +946,7 @@ void Coordinator::CheckConsistency() {
         if (replica_total == primary_total) continue;
 
         // Divergence detected
-        utils::Logger::Instance().Warn(
+        common::Logger::Instance().Warn(
             "ReadRepair: collection {} shard {} diverged — primary node {} "
             "has {} vectors, replica node {} has {} vectors",
             core::ToUInt32(coll_id), core::ToUInt16(shard_id),
@@ -969,11 +969,11 @@ void Coordinator::CheckConsistency() {
         }
 
         if (repair_status.ok()) {
-          utils::Logger::Instance().Info(
+          common::Logger::Instance().Info(
               "ReadRepair: repaired shard {} on replica node {}",
               core::ToUInt16(shard_id), core::ToUInt32(replica_node));
         } else {
-          utils::Logger::Instance().Error(
+          common::Logger::Instance().Error(
               "ReadRepair: failed to repair shard {} on node {}: {}",
               core::ToUInt16(shard_id), core::ToUInt32(replica_node),
               repair_status.message());
@@ -990,7 +990,7 @@ absl::Status Coordinator::RepairSegment(
     core::SegmentId segment_id,
     core::NodeId primary_node,
     core::NodeId stale_replica) {
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "ReadRepair: replicating segment {} from node {} to node {}",
       core::ToUInt32(segment_id), core::ToUInt32(primary_node),
       core::ToUInt32(stale_replica));
@@ -1001,7 +1001,7 @@ void Coordinator::DetectFailedNodes() {
   auto failed_ids = node_registry_->DetectFailedNodes();
 
   for (uint32_t node_id : failed_ids) {
-    utils::Logger::Instance().Warn("Node {} failed (heartbeat timeout)", node_id);
+    common::Logger::Instance().Warn("Node {} failed (heartbeat timeout)", node_id);
     HandleFailedNode(core::MakeNodeId(node_id));
   }
 }
@@ -1041,18 +1041,18 @@ void Coordinator::HandleFailedNode(core::NodeId failed_node_id) {
         auto status = TransferPrimary(shard_info.shard_id,
                                        core::kInvalidNodeId, new_primary);
         if (status.ok()) {
-          utils::Logger::Instance().Info(
+          common::Logger::Instance().Info(
               "Promoted node {} to primary for shard {} (was on failed node {})",
               core::ToUInt32(new_primary), core::ToUInt16(shard_info.shard_id),
               core::ToUInt32(failed_node_id));
         } else {
-          utils::Logger::Instance().Warn(
+          common::Logger::Instance().Warn(
               "Failed-node promotion: TransferPrimary failed for shard {} ({}); "
               "will retry next health-check cycle",
               core::ToUInt16(shard_info.shard_id), status.message());
         }
       } else {
-        utils::Logger::Instance().Error(
+        common::Logger::Instance().Error(
             "No healthy replica available for shard {} (primary node {} failed)",
             core::ToUInt16(shard_info.shard_id), core::ToUInt32(failed_node_id));
       }
@@ -1067,7 +1067,7 @@ void Coordinator::HandleFailedNode(core::NodeId failed_node_id) {
     std::lock_guard lock(known_nodes_mutex_);
     known_data_nodes_.erase(failed_node_id);
   }
-  utils::Logger::Instance().Info("Removed failed node {} from shard manager",
+  common::Logger::Instance().Info("Removed failed node {} from shard manager",
                                   core::ToUInt32(failed_node_id));
   PersistRegistry();
 }
@@ -1132,7 +1132,7 @@ absl::Status Coordinator::ReplicateSegmentData(
     return absl::InternalError(rep_resp.message());
   }
 
-  utils::Logger::Instance().Info("Replicated segment {} from node {} to node {}",
+  common::Logger::Instance().Info("Replicated segment {} from node {} to node {}",
                                   core::ToUInt32(segment_id),
                                   core::ToUInt32(source_node),
                                   core::ToUInt32(target_node));
@@ -1166,7 +1166,7 @@ IInternalServiceClient* Coordinator::GetOrCreateDataNodeClient(core::NodeId node
   // Get node info from NodeRegistry
   RegisteredNode node;
   if (!node_registry_->GetNode(core::ToUInt32(node_id), &node)) {
-    utils::Logger::Instance().Error("Cannot create client for unknown node {}", core::ToUInt32(node_id));
+    common::Logger::Instance().Error("Cannot create client for unknown node {}", core::ToUInt32(node_id));
     return nullptr;
   }
 
@@ -1175,7 +1175,7 @@ IInternalServiceClient* Coordinator::GetOrCreateDataNodeClient(core::NodeId node
   // Use factory to create client
   auto client = client_factory_->CreateClient(node_id, address);
   if (!client) {
-    utils::Logger::Instance().Error("Factory failed to create client for node {}", core::ToUInt32(node_id));
+    common::Logger::Instance().Error("Factory failed to create client for node {}", core::ToUInt32(node_id));
     return nullptr;
   }
 
@@ -1200,7 +1200,7 @@ absl::StatusOr<uint32_t> Coordinator::ExecuteRebalancePlan(
   auto moves = shard_manager_->CalculateRebalancePlan();
   if (moves.empty()) return uint32_t{0};
 
-  utils::Logger::Instance().Info("Rebalance plan: {} moves proposed", moves.size());
+  common::Logger::Instance().Info("Rebalance plan: {} moves proposed", moves.size());
 
   // Cap moves per cycle
   if (moves.size() > kMaxMovesPerCycle) {
@@ -1234,7 +1234,7 @@ absl::StatusOr<uint32_t> Coordinator::ExecuteRebalancePlan(
     }
 
     if (!found) {
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Rebalance: shard {} not found in any collection, skipping",
           core::ToUInt16(move.shard_id));
       continue;
@@ -1244,13 +1244,13 @@ absl::StatusOr<uint32_t> Coordinator::ExecuteRebalancePlan(
     if (status.ok()) {
       ++success_count;
     } else {
-      utils::Logger::Instance().Error(
+      common::Logger::Instance().Error(
           "Rebalance: move shard {} failed: {}",
           core::ToUInt16(move.shard_id), status.message());
     }
   }
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Rebalance complete: {}/{} moves succeeded", success_count, moves.size());
   return success_count;
 }
@@ -1377,7 +1377,7 @@ absl::Status Coordinator::TransferPrimary(core::ShardId shard_id,
     return commit_status;
   }
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "TransferPrimary: shard={} old_node={} new_node={} new_term={}",
       core::ToUInt16(shard_id),
       old_node == core::kInvalidNodeId ? 0u : core::ToUInt32(old_node),
@@ -1418,7 +1418,7 @@ absl::Status Coordinator::ExecuteSingleMove(
   // 3. Compute segment ID
   core::SegmentId seg_id = core::ShardSegmentId(collection_id, shard_index);
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Rebalance: migrating shard {} (segment {}) from node {} to node {}",
       shard_key, core::ToUInt32(seg_id),
       core::ToUInt32(move.source_node), core::ToUInt32(move.target_node));
@@ -1427,7 +1427,7 @@ absl::Status Coordinator::ExecuteSingleMove(
   auto rep_status = ReplicateSegmentData(
       seg_id, move.source_node, move.target_node);
   if (!rep_status.ok()) {
-    utils::Logger::Instance().Error(
+    common::Logger::Instance().Error(
         "Rebalance: replication failed for shard {}: {}",
         shard_key, rep_status.message());
     shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE).IgnoreError();
@@ -1442,7 +1442,7 @@ absl::Status Coordinator::ExecuteSingleMove(
     auto xfer_status = TransferPrimary(move.shard_id, move.source_node,
                                        move.target_node);
     if (!xfer_status.ok()) {
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Rebalance: primary swap failed for shard {}: {} (will retry next cycle)",
           core::ToUInt16(move.shard_id), xfer_status.message());
       shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE).IgnoreError();
@@ -1463,7 +1463,7 @@ absl::Status Coordinator::ExecuteSingleMove(
     grpc::ClientContext del_ctx;
     auto del_status = client->DeleteSegment(&del_ctx, del_req, &del_resp);
     if (!del_status.ok()) {
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Rebalance: failed to delete segment {} from source node {}: {}",
           core::ToUInt32(seg_id), core::ToUInt32(move.source_node),
           del_status.error_message());
@@ -1479,7 +1479,7 @@ absl::Status Coordinator::ExecuteSingleMove(
   // 8. Set shard back to ACTIVE
   shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE).IgnoreError();
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Rebalance: shard {} migration complete", shard_key);
   PersistRegistry();
   return absl::OkStatus();
@@ -1492,7 +1492,7 @@ void Coordinator::RecoverMigratingShards() {
   auto all_shards = shard_manager_->GetAllShards();
   for (const auto& shard : all_shards) {
     if (shard.state == ShardState::MIGRATING) {
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Recovering shard {} from MIGRATING state (crash recovery)",
           core::ToUInt16(shard.shard_id));
       shard_manager_->SetShardState(shard.shard_id, ShardState::ACTIVE).IgnoreError();
@@ -1641,7 +1641,7 @@ absl::StatusOr<std::string> Coordinator::StartBackupDistributed(
       grpc::ClientContext ctx;
       auto unfreeze_status = client->UnfreezeWrites(&ctx, req, &resp);
       if (!unfreeze_status.ok()) {
-        utils::Logger::Instance().Warn(
+        common::Logger::Instance().Warn(
             "UnfreezeWrites for shard {} after backup {} failed: {}; "
             "lease will auto-expire",
             core::ToUInt16(shard_id), backup_id,
@@ -1807,7 +1807,7 @@ void Coordinator::PersistRegistryLocked() const {
     if (!first) ss << ",";
     first = false;
     ss << "{\"collection_id\":" << core::ToUInt32(id)
-       << ",\"name\":\"" << utils::json::EscapeJson(meta.collection_name)
+       << ",\"name\":\"" << common::json::EscapeJson(meta.collection_name)
        << "\""
        << ",\"dimension\":" << meta.dimension
        << ",\"metric\":" << static_cast<int>(meta.metric_type)
@@ -1852,13 +1852,13 @@ void Coordinator::PersistRegistryLocked() const {
   {
     std::ofstream out(tmp_path, std::ios::trunc);
     if (!out.is_open()) {
-      utils::Logger::Instance().Error(
+      common::Logger::Instance().Error(
           "Failed to open registry temp file for write: {}", tmp_path);
       return;
     }
     out << ss.str();
     if (!out.good()) {
-      utils::Logger::Instance().Error(
+      common::Logger::Instance().Error(
           "Failed to write registry temp file: {}", tmp_path);
       return;
     }
@@ -1866,7 +1866,7 @@ void Coordinator::PersistRegistryLocked() const {
   std::error_code ec;
   std::filesystem::rename(tmp_path, registry_path_, ec);
   if (ec) {
-    utils::Logger::Instance().Error(
+    common::Logger::Instance().Error(
         "Failed to replace registry file {}: {}", registry_path_,
         ec.message());
   }
@@ -1881,7 +1881,7 @@ absl::Status Coordinator::LoadRegistry() {
 
   std::ifstream in(registry_path_);
   if (!in.is_open()) {
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "No coordinator registry at {} (first boot)", registry_path_);
     return absl::OkStatus();
   }
@@ -1890,20 +1890,20 @@ absl::Status Coordinator::LoadRegistry() {
   const std::string doc = buffer.str();
 
   uint32_t next_id = 0;
-  if (utils::json::ParseUint32(doc, "next_collection_id", next_id) &&
+  if (common::json::ParseUint32(doc, "next_collection_id", next_id) &&
       next_id > 0) {
     next_collection_id_.store(next_id, std::memory_order_relaxed);
   }
 
   auto collections_body =
-      utils::json::ExtractArrayBody(doc, "collections");
+      common::json::ExtractArrayBody(doc, "collections");
   size_t loaded = 0;
   for (const auto& obj :
-       utils::json::SplitObjects(collections_body)) {
+       common::json::SplitObjects(collections_body)) {
     uint32_t cid = 0;
     std::string name;
-    if (!utils::json::ParseUint32(obj, "collection_id", cid) ||
-        !utils::json::ParseString(obj, "name", name)) {
+    if (!common::json::ParseUint32(obj, "collection_id", cid) ||
+        !common::json::ParseString(obj, "name", name)) {
       return absl::DataLossError(absl::StrCat(
           "Malformed collection entry in ", registry_path_, ": ", obj));
     }
@@ -1912,29 +1912,29 @@ absl::Status Coordinator::LoadRegistry() {
     meta.collection_id = core::MakeCollectionId(cid);
     meta.collection_name = name;
     uint32_t dim = 0;
-    if (utils::json::ParseUint32(obj, "dimension", dim)) {
+    if (common::json::ParseUint32(obj, "dimension", dim)) {
       meta.dimension = static_cast<core::Dimension>(dim);
     }
     int32_t metric = 0;
-    if (utils::json::ParseInt32(obj, "metric", metric)) {
+    if (common::json::ParseInt32(obj, "metric", metric)) {
       meta.metric_type = static_cast<core::MetricType>(metric);
     }
     int32_t index_type = 0;
-    if (utils::json::ParseInt32(obj, "index_type", index_type)) {
+    if (common::json::ParseInt32(obj, "index_type", index_type)) {
       meta.index_type = static_cast<core::IndexType>(index_type);
     }
     uint64_t num_shards = 1;
-    if (utils::json::ParseUint64(obj, "num_shards", num_shards)) {
+    if (common::json::ParseUint64(obj, "num_shards", num_shards)) {
       meta.num_shards = static_cast<size_t>(num_shards);
     }
     uint64_t replication = 1;
-    if (utils::json::ParseUint64(obj, "replication_factor", replication)) {
+    if (common::json::ParseUint64(obj, "replication_factor", replication)) {
       meta.replication_factor = static_cast<size_t>(replication);
     }
-    (void)utils::json::ParseUint64(obj, "created_at", meta.created_at);
-    (void)utils::json::ParseUint64(obj, "updated_at", meta.updated_at);
+    (void)common::json::ParseUint64(obj, "created_at", meta.created_at);
+    (void)common::json::ParseUint64(obj, "updated_at", meta.updated_at);
 
-    auto shard_ids_body = utils::json::ExtractArrayBody(obj, "shard_ids");
+    auto shard_ids_body = common::json::ExtractArrayBody(obj, "shard_ids");
     if (shard_ids_body.size() >= 2) {
       std::string inner(shard_ids_body.substr(1, shard_ids_body.size() - 2));
       for (absl::string_view piece :
@@ -1952,15 +1952,15 @@ absl::Status Coordinator::LoadRegistry() {
     ++loaded;
   }
 
-  auto shards_body = utils::json::ExtractArrayBody(doc, "shards");
+  auto shards_body = common::json::ExtractArrayBody(doc, "shards");
   size_t restored_shards = 0;
-  for (const auto& obj : utils::json::SplitObjects(shards_body)) {
+  for (const auto& obj : common::json::SplitObjects(shards_body)) {
     uint32_t shard_raw = 0;
     uint32_t primary_raw = 0;
     uint64_t term = 0;
-    if (!utils::json::ParseUint32(obj, "shard_id", shard_raw) ||
-        !utils::json::ParseUint32(obj, "primary_node", primary_raw) ||
-        !utils::json::ParseUint64(obj, "primary_term", term)) {
+    if (!common::json::ParseUint32(obj, "shard_id", shard_raw) ||
+        !common::json::ParseUint32(obj, "primary_node", primary_raw) ||
+        !common::json::ParseUint64(obj, "primary_term", term)) {
       continue;
     }
     if (term == 0) continue;
@@ -1970,12 +1970,12 @@ absl::Status Coordinator::LoadRegistry() {
     auto status = shard_manager_->SetPrimaryNode(
         shard_id, core::MakeNodeId(primary_raw), term);
     if (!status.ok()) {
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Registry: could not restore primary for shard {}: {}",
           shard_raw, status.message());
       continue;
     }
-    auto replicas_body = utils::json::ExtractArrayBody(obj, "replicas");
+    auto replicas_body = common::json::ExtractArrayBody(obj, "replicas");
     if (replicas_body.size() >= 2) {
       std::string inner(replicas_body.substr(1, replicas_body.size() - 2));
       for (absl::string_view piece :
@@ -1989,7 +1989,7 @@ absl::Status Coordinator::LoadRegistry() {
     ++restored_shards;
   }
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Loaded coordinator registry from {}: {} collection(s), {} shard "
       "assignment(s), next_collection_id={}",
       registry_path_, loaded, restored_shards,

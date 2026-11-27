@@ -1,4 +1,4 @@
-#include "network/internal_service.h"
+#include "service/internal_service.h"
 #include "cluster/coordinator.h"
 #include "cluster/shard_manager.h"
 #include "cluster/node_registry.h"
@@ -13,7 +13,7 @@
 #include <vector>
 
 using namespace gvdb;
-using namespace gvdb::network;
+using namespace gvdb::service;
 using namespace gvdb::cluster;
 
 class InternalServiceMetadataTest {

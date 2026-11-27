@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "cluster/node_registry.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 
 #include <utility>
 
@@ -11,12 +11,12 @@ namespace cluster {
 
 NodeRegistry::NodeRegistry(std::chrono::milliseconds heartbeat_timeout, Clock clock)
     : heartbeat_timeout_(heartbeat_timeout), clock_(std::move(clock)) {
-  utils::Logger::Instance().Info("NodeRegistry initialized (timeout={}ms)",
+  common::Logger::Instance().Info("NodeRegistry initialized (timeout={}ms)",
                                   heartbeat_timeout.count());
 }
 
 NodeRegistry::~NodeRegistry() {
-  utils::Logger::Instance().Info("NodeRegistry shutting down ({} registered nodes)",
+  common::Logger::Instance().Info("NodeRegistry shutting down ({} registered nodes)",
                                   nodes_.size());
 }
 
@@ -62,12 +62,12 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
     it->second.total_heartbeats++;
 
     if (is_draining && !was_draining) {
-      utils::Logger::Instance().Info(
+      common::Logger::Instance().Info(
           "Node {} entered DRAINING state (type={}, address={})",
           node_id, static_cast<int>(node_info.node_type()),
           node_info.grpc_address());
     } else {
-      utils::Logger::Instance().Debug(
+      common::Logger::Instance().Debug(
           "Updated node {} (type={}, total_heartbeats={})", node_id,
           static_cast<int>(node_info.node_type()),
           it->second.total_heartbeats);
@@ -83,7 +83,7 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
 
     nodes_[node_id] = std::move(node);
 
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "Registered new node {} (type={}, address={}{})", node_id,
         static_cast<int>(node_info.node_type()), node_info.grpc_address(),
         is_draining ? ", DRAINING" : "");
@@ -191,7 +191,7 @@ void NodeRegistry::RemoveNode(uint32_t node_id) {
 
   auto it = nodes_.find(node_id);
   if (it != nodes_.end()) {
-    utils::Logger::Instance().Info("Removed node {} from registry", node_id);
+    common::Logger::Instance().Info("Removed node {} from registry", node_id);
     nodes_.erase(it);
   }
 }
@@ -242,7 +242,7 @@ std::vector<uint32_t> NodeRegistry::DetectFailedNodes() {
       failed_node_ids.push_back(id);
       node.missed_heartbeats++;
 
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Node {} appears to have failed (last heartbeat {}ms ago, missed={})",
           id,
           node.TimeSinceLastHeartbeat(now).count(),

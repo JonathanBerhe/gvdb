@@ -3,7 +3,7 @@
 
 #include "storage/backup/backup_manifest.h"
 
-#include "utils/json_util.h"
+#include "common/json_util.h"
 
 #include <sstream>
 #include <string_view>
@@ -22,14 +22,14 @@ namespace {
 // in a third-party JSON library).
 // ============================================================================
 
-using utils::json::EscapeJson;
-using utils::json::ExtractArrayBody;
-using utils::json::ParseInt32;
-using utils::json::ParseInt64;
-using utils::json::ParseString;
-using utils::json::ParseUint32;
-using utils::json::ParseUint64;
-using utils::json::SplitObjects;
+using common::json::EscapeJson;
+using common::json::ExtractArrayBody;
+using common::json::ParseInt32;
+using common::json::ParseInt64;
+using common::json::ParseString;
+using common::json::ParseUint32;
+using common::json::ParseUint64;
+using common::json::SplitObjects;
 
 // ============================================================================
 // Object writers

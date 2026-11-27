@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "consensus/metadata_state_machine.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 #include <cstring>
 
 namespace gvdb {
@@ -12,7 +12,7 @@ namespace consensus {
 using nuraft::ulong;
 
 MetadataStateMachine::MetadataStateMachine() {
-  utils::Logger::Instance().Info("MetadataStateMachine initialized");
+  common::Logger::Instance().Info("MetadataStateMachine initialized");
 }
 
 // ============================================================================
@@ -40,7 +40,7 @@ void MetadataStateMachine::create_snapshot(
     nuraft::snapshot& s,
     nuraft::async_result<bool>::handler_type& when_done) {
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Creating snapshot at log index {} (term {})",
       s.get_last_log_idx(), s.get_last_log_term());
 
@@ -58,13 +58,13 @@ void MetadataStateMachine::create_snapshot(
   bool ret = true;
   when_done(ret, except);
 
-  utils::Logger::Instance().Info("Snapshot created successfully");
+  common::Logger::Instance().Info("Snapshot created successfully");
 }
 
 bool MetadataStateMachine::apply_snapshot(nuraft::snapshot& s) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Applying snapshot at log index {} (term {})",
       s.get_last_log_idx(), s.get_last_log_term());
 
@@ -76,7 +76,7 @@ bool MetadataStateMachine::apply_snapshot(nuraft::snapshot& s) {
 
   last_committed_idx_ = s.get_last_log_idx();
 
-  utils::Logger::Instance().Info("Snapshot applied successfully");
+  common::Logger::Instance().Info("Snapshot applied successfully");
   return true;
 }
 

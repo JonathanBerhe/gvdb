@@ -16,9 +16,9 @@
 #include "cluster/primary_term_tracker.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "network/internal_service.h"
-#include "network/vectordb_service.h"
-#include "network/collection_resolver.h"
+#include "service/internal_service.h"
+#include "service/vectordb_service.h"
+#include "service/collection_resolver.h"
 #include "storage/segment/segment_manager.h"
 #include "internal.grpc.pb.h"
 #include "support/temp_dir.h"
@@ -82,7 +82,7 @@ class DistributedDataNodeTest {
         dn_segment_store_.get());
     auto dn_shard_manager = std::make_shared<cluster::ShardManager>(
         8, cluster::ShardingStrategy::HASH);
-    dn_internal_service_ = std::make_unique<network::InternalService>(
+    dn_internal_service_ = std::make_unique<service::InternalService>(
         dn_shard_manager, dn_segment_store_, dn_query_executor_);
     dn_server_ = StartServer({dn_internal_service_.get()}, &dn_server_address_);
 
@@ -95,13 +95,13 @@ class DistributedDataNodeTest {
         shard_manager_, node_registry_, client_factory);
 
     // Create coordinator's InternalService (serves GetCollectionMetadata)
-    coord_internal_service_ = std::make_unique<network::InternalService>(
+    coord_internal_service_ = std::make_unique<service::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
         node_registry_, coordinator_);
 
     // Create coordinator's VectorDBService
-    auto coord_resolver = network::MakeCoordinatorResolver(coordinator_);
-    coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
+    auto coord_resolver = service::MakeCoordinatorResolver(coordinator_);
+    coord_vectordb_service_ = std::make_unique<service::VectorDBService>(
         coord_segment_store_, coord_query_executor_, std::move(coord_resolver));
 
     // Start coordinator gRPC server (InternalService + VectorDBService)
@@ -110,8 +110,8 @@ class DistributedDataNodeTest {
         &coord_server_address_);
 
     // Create data node VectorDBService pointing at coordinator
-    auto dn_resolver = network::MakeCachedCoordinatorResolver(coord_server_address_);
-    dn_vectordb_service_ = std::make_unique<network::VectorDBService>(
+    auto dn_resolver = service::MakeCachedCoordinatorResolver(coord_server_address_);
+    dn_vectordb_service_ = std::make_unique<service::VectorDBService>(
         dn_segment_store_, dn_query_executor_, std::move(dn_resolver));
   }
 
@@ -139,7 +139,7 @@ class DistributedDataNodeTest {
         dn2_segment_store_.get());
     auto dn2_shard_manager = std::make_shared<cluster::ShardManager>(
         8, cluster::ShardingStrategy::HASH);
-    dn2_internal_service_ = std::make_unique<network::InternalService>(
+    dn2_internal_service_ = std::make_unique<service::InternalService>(
         dn2_shard_manager, dn2_segment_store_, dn2_query_executor_);
     if (tracker != nullptr) {
       dn2_internal_service_->SetPrimaryTermTracker(tracker);
@@ -171,16 +171,16 @@ class DistributedDataNodeTest {
   std::shared_ptr<cluster::Coordinator> coordinator_;
   std::shared_ptr<storage::ISegmentStore> coord_segment_store_;
   std::shared_ptr<compute::QueryExecutor> coord_query_executor_;
-  std::unique_ptr<network::InternalService> coord_internal_service_;
-  std::unique_ptr<network::VectorDBService> coord_vectordb_service_;
+  std::unique_ptr<service::InternalService> coord_internal_service_;
+  std::unique_ptr<service::VectorDBService> coord_vectordb_service_;
   std::unique_ptr<grpc::Server> coord_server_;
   std::string coord_server_address_;
 
   // Data node components
   std::shared_ptr<storage::ISegmentStore> dn_segment_store_;
   std::shared_ptr<compute::QueryExecutor> dn_query_executor_;
-  std::unique_ptr<network::InternalService> dn_internal_service_;
-  std::unique_ptr<network::VectorDBService> dn_vectordb_service_;
+  std::unique_ptr<service::InternalService> dn_internal_service_;
+  std::unique_ptr<service::VectorDBService> dn_vectordb_service_;
   std::unique_ptr<grpc::Server> dn_server_;
   std::string dn_server_address_;
 
@@ -188,7 +188,7 @@ class DistributedDataNodeTest {
   cluster::PrimaryTermTracker dn2_tracker_;
   std::shared_ptr<storage::ISegmentStore> dn2_segment_store_;
   std::shared_ptr<compute::QueryExecutor> dn2_query_executor_;
-  std::unique_ptr<network::InternalService> dn2_internal_service_;
+  std::unique_ptr<service::InternalService> dn2_internal_service_;
   std::unique_ptr<grpc::Server> dn2_server_;
 };
 
@@ -465,8 +465,8 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "DistributedSearchAcrossDataNodes" * 
       (dir_ / "query_node").string(), index_factory_.get());
   auto qn_query_executor = std::make_shared<compute::QueryExecutor>(
       qn_segment_manager.get());
-  auto qn_resolver = network::MakeCachedCoordinatorResolver(coord_server_address_);
-  auto qn_service = std::make_unique<network::VectorDBService>(
+  auto qn_resolver = service::MakeCachedCoordinatorResolver(coord_server_address_);
+  auto qn_service = std::make_unique<service::VectorDBService>(
       qn_segment_manager, qn_query_executor, std::move(qn_resolver));
 
   // Search from query node -- should trigger distributed fan-out to data node

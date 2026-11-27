@@ -15,7 +15,7 @@ gvdb_add_library(consensus
     NuRaft::static_lib
     rocksdb
   PRIVATE_DEPS
-    gvdb::utils
+    gvdb::common
     # The startup peer probe and AnnounceJoinToCluster call the internal
     # gRPC API (raft_node.cpp).
     gvdb::proto

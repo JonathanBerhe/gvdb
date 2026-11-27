@@ -3,7 +3,7 @@
 
 #include "cluster/heartbeat_sender.h"
 #include "cluster/primary_term_tracker.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 #include <grpcpp/grpcpp.h>
 #include <chrono>
 
@@ -32,7 +32,7 @@ void HeartbeatSender::Start() {
 void HeartbeatSender::Stop() {
   if (thread_ && thread_->joinable()) {
     thread_->join();
-    utils::Logger::Instance().Info("Heartbeat thread stopped");
+    common::Logger::Instance().Info("Heartbeat thread stopped");
   }
 }
 
@@ -56,11 +56,11 @@ bool HeartbeatSender::SendDrainHeartbeatOnce() {
   auto status = stub->Heartbeat(&context, request, &response);
 
   if (status.ok() && response.acknowledged()) {
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "Drain heartbeat acknowledged (node_id={})", node_id_);
     return true;
   }
-  utils::Logger::Instance().Warn(
+  common::Logger::Instance().Warn(
       "Drain heartbeat failed (node_id={}): {}", node_id_,
       status.error_message());
   return false;
@@ -85,7 +85,7 @@ void HeartbeatSender::SendLoop() {
                                       grpc::InsecureChannelCredentials());
   auto stub = proto::internal::InternalService::NewStub(channel);
 
-  utils::Logger::Instance().Info("Heartbeat sender started (coordinator={})",
+  common::Logger::Instance().Info("Heartbeat sender started (coordinator={})",
                                   coordinator_address_);
 
   while (!shutdown_flag_.load()) {
@@ -105,7 +105,7 @@ void HeartbeatSender::SendLoop() {
       auto status = stub->Heartbeat(&context, request, &response);
 
       if (status.ok() && response.acknowledged()) {
-        utils::Logger::Instance().Debug("Heartbeat acknowledged by coordinator");
+        common::Logger::Instance().Debug("Heartbeat acknowledged by coordinator");
         // Sync the local primary-term view from the coordinator's
         // authoritative shard_primaries list. Coordinator pushes one
         // entry per shard this node is involved with (primary or
@@ -130,7 +130,7 @@ void HeartbeatSender::SendLoop() {
             // at warn so a persistent stream surfaces in operator dashboards
             // without dropping the steady-state debug log spam threshold.
             if (!ok) {
-              utils::Logger::Instance().Warn(
+              common::Logger::Instance().Warn(
                   "Heartbeat: rejected term regression for shard {} "
                   "(received {}, role primary={})",
                   sp.shard_id(), sp.term(), is_primary_here);
@@ -138,11 +138,11 @@ void HeartbeatSender::SendLoop() {
           }
         }
       } else {
-        utils::Logger::Instance().Warn("Heartbeat failed: {}",
+        common::Logger::Instance().Warn("Heartbeat failed: {}",
                                         status.error_message());
       }
     } catch (const std::exception& e) {
-      utils::Logger::Instance().Error("Heartbeat error: {}", e.what());
+      common::Logger::Instance().Error("Heartbeat error: {}", e.what());
     }
 
     // Wait 10 seconds (100ms intervals for fast shutdown)
@@ -151,7 +151,7 @@ void HeartbeatSender::SendLoop() {
     }
   }
 
-  utils::Logger::Instance().Info("Heartbeat sender stopped");
+  common::Logger::Instance().Info("Heartbeat sender stopped");
 }
 
 }  // namespace cluster

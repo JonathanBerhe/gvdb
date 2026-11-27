@@ -11,15 +11,15 @@
 
 #include "support/temp_dir.h"
 #include "support/wait.h"
-#include "utils/config.h"
-#include "utils/logger.h"
-#include "utils/thread_pool.h"
-#include "utils/timer.h"
+#include "config/config.h"
+#include "common/logger.h"
+#include "common/thread_pool.h"
+#include "common/timer.h"
 
 namespace fs = std::filesystem;
 
 namespace gvdb {
-namespace utils {
+namespace common {
 namespace test {
 
 // ============================================================================
@@ -281,14 +281,14 @@ TEST_CASE("TimerTest - MeasureElapsedTime") {
 // temporary folder, which is removed afterwards.
 class ConfigFileTest {
  public:
-  absl::StatusOr<GVDBConfig> Load(const std::string& yaml) {
+  absl::StatusOr<config::GVDBConfig> Load(const std::string& yaml) {
     const auto path = dir_ / "config.yaml";
     {
       std::ofstream out(path);
       REQUIRE(out.is_open());
       out << yaml;
     }
-    return Config::load_from_file(path.string());
+    return config::Config::load_from_file(path.string());
   }
 
   gvdb::test::ScopedTempDir dir_{"gvdb_config_test"};
@@ -361,16 +361,16 @@ storage:
 
   const auto& storage = config->storage;
   CHECK_EQ(storage.local_backup_dir, "/var/lib/gvdb/backups");
-  CHECK_EQ(storage.object_store_type, "minio");
-  CHECK_EQ(storage.object_store_endpoint, "localhost:9000");
-  CHECK_EQ(storage.object_store_access_key, "test-access-key");
-  CHECK_EQ(storage.object_store_secret_key, "test-secret-key");
-  CHECK_EQ(storage.object_store_bucket, "gvdb-test");
-  CHECK_EQ(storage.object_store_region, "eu-west-1");
-  CHECK_EQ(storage.object_store_prefix, "cluster-a");
-  CHECK_EQ(storage.object_store_project, "test-project");
-  CHECK_EQ(storage.object_store_credentials_path, "/etc/gvdb/gcs.json");
-  CHECK_FALSE(storage.object_store_use_ssl);
+  CHECK_EQ(storage.object_store.type, "minio");
+  CHECK_EQ(storage.object_store.endpoint, "localhost:9000");
+  CHECK_EQ(storage.object_store.access_key, "test-access-key");
+  CHECK_EQ(storage.object_store.secret_key, "test-secret-key");
+  CHECK_EQ(storage.object_store.bucket, "gvdb-test");
+  CHECK_EQ(storage.object_store.region, "eu-west-1");
+  CHECK_EQ(storage.object_store.prefix, "cluster-a");
+  CHECK_EQ(storage.object_store.project, "test-project");
+  CHECK_EQ(storage.object_store.credentials_path, "/etc/gvdb/gcs.json");
+  CHECK_FALSE(storage.object_store.use_ssl);
   CHECK_EQ(storage.object_store_cache_size_mb, 512);
   CHECK_EQ(storage.object_store_upload_threads, 4);
 }
@@ -387,16 +387,16 @@ storage:
   REQUIRE(config.ok());
 
   const auto& storage = config->storage;
-  CHECK_EQ(storage.object_store_type, "s3");
-  CHECK_EQ(storage.object_store_endpoint, "s3.example.com");
-  CHECK_EQ(storage.object_store_bucket, "gvdb-data");
-  CHECK(storage.object_store_access_key.empty());
-  CHECK(storage.object_store_secret_key.empty());
-  CHECK(storage.object_store_project.empty());
-  CHECK(storage.object_store_credentials_path.empty());
-  CHECK_EQ(storage.object_store_region, "us-east-1");
-  CHECK_EQ(storage.object_store_prefix, "gvdb");
-  CHECK(storage.object_store_use_ssl);
+  CHECK_EQ(storage.object_store.type, "s3");
+  CHECK_EQ(storage.object_store.endpoint, "s3.example.com");
+  CHECK_EQ(storage.object_store.bucket, "gvdb-data");
+  CHECK(storage.object_store.access_key.empty());
+  CHECK(storage.object_store.secret_key.empty());
+  CHECK(storage.object_store.project.empty());
+  CHECK(storage.object_store.credentials_path.empty());
+  CHECK_EQ(storage.object_store.region, "us-east-1");
+  CHECK_EQ(storage.object_store.prefix, "gvdb");
+  CHECK(storage.object_store.use_ssl);
   CHECK_EQ(storage.object_store_cache_size_mb, 256);
   CHECK_EQ(storage.object_store_upload_threads, 2);
 
@@ -458,5 +458,5 @@ TEST_CASE("UtilsIntegrationTest - ThreadPoolWithTimerAndLogger") {
 }
 
 }  // namespace test
-}  // namespace utils
+}  // namespace common
 }  // namespace gvdb

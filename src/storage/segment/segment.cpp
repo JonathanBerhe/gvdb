@@ -11,7 +11,7 @@
 
 #include "absl/strings/str_cat.h"
 #include "core/filter.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 
 namespace gvdb {
 namespace storage {
@@ -506,7 +506,7 @@ size_t Segment::SweepExpired() {
 
   auto result = DeleteVectorsUnlocked(to_delete);
   if (!result.ok()) {
-    utils::Logger::Instance().Error("TTL sweep delete failed for segment {}: {}",
+    common::Logger::Instance().Error("TTL sweep delete failed for segment {}: {}",
                                      core::ToUInt32(id_), result.status().message());
     return 0;
   }
@@ -928,7 +928,7 @@ core::Status Segment::BuildTextIndex(
 
   text_index_ = std::move(text_index);
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Built text index for segment {} ({} documents from '{}' field)",
       core::ToUInt32(id_), indexed, text_field);
 
@@ -1252,7 +1252,7 @@ core::StatusOr<std::string> Segment::SerializeToBytes() const {
     ss.write(reinterpret_cast<const char*>(&expiry), sizeof(expiry));
   }
 
-  utils::Logger::Instance().Info("Serialized segment {} ({} vectors, {} bytes)",
+  common::Logger::Instance().Info("Serialized segment {} ({} vectors, {} bytes)",
                                   core::ToUInt32(id_), vector_count, ss.str().size());
 
   return ss.str();
@@ -1431,7 +1431,7 @@ core::StatusOr<std::unique_ptr<Segment>> Segment::DeserializeFromBytes(
     }
   }
 
-  utils::Logger::Instance().Info("Deserialized segment {} ({} vectors, {} bytes)",
+  common::Logger::Instance().Info("Deserialized segment {} ({} vectors, {} bytes)",
                                   seg_id, vector_count, bytes_data.size());
 
   return segment;

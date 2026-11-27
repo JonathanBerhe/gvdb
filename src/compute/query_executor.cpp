@@ -9,14 +9,14 @@
 
 #include "absl/strings/str_format.h"
 
-#include "utils/logger.h"
-#include "utils/timer.h"
+#include "common/logger.h"
+#include "common/timer.h"
 
 namespace gvdb {
 namespace compute {
 
 QueryExecutor::QueryExecutor(storage::ISegmentStore* segment_store,
-                             utils::ThreadPool* thread_pool)
+                             common::ThreadPool* thread_pool)
     : segment_store_(segment_store), thread_pool_(thread_pool) {
   if (segment_store_ == nullptr) {
     throw std::invalid_argument("ISegmentStore cannot be null");
@@ -24,7 +24,7 @@ QueryExecutor::QueryExecutor(storage::ISegmentStore* segment_store,
 
   // Create thread pool if not provided
   if (thread_pool_ == nullptr) {
-    owned_thread_pool_ = std::make_unique<utils::ThreadPool>();
+    owned_thread_pool_ = std::make_unique<common::ThreadPool>();
     thread_pool_ = owned_thread_pool_.get();
   }
 }
@@ -36,7 +36,7 @@ core::StatusOr<core::SearchResult> QueryExecutor::Search(
     const core::Vector& query,
     int top_k,
     const std::string& filter) {
-  utils::Timer timer;
+  common::Timer timer;
 
   if (top_k <= 0) {
     return core::InvalidArgumentError("top_k must be positive");
@@ -55,11 +55,11 @@ core::StatusOr<core::SearchResult> QueryExecutor::Search(
 
   // Check cache
   if (cache_) {
-    auto cache_key = utils::MakeCacheKey(
+    auto cache_key = compute::MakeCacheKey(
         collection_id, query.data(), query.dimension(), top_k, filter);
     auto cached = cache_->Get(cache_key, core::ToUInt32(collection_id));
     if (cached.has_value()) {
-      utils::Logger::Instance().Debug(
+      common::Logger::Instance().Debug(
           "Cache hit for collection {} (top_k={}, filter={})",
           core::ToUInt32(collection_id), top_k, filter.empty() ? "none" : "yes");
       return *cached;
@@ -90,7 +90,7 @@ core::StatusOr<core::SearchResult> QueryExecutor::Search(
   }
 
   if (result.ok()) {
-    utils::Logger::Instance().Debug(
+    common::Logger::Instance().Debug(
         "Search completed in {} us for collection {} (top_k={}, results={})",
         timer.elapsed_micros(),
         core::ToUInt32(collection_id),
@@ -99,7 +99,7 @@ core::StatusOr<core::SearchResult> QueryExecutor::Search(
 
     // Store in cache
     if (cache_) {
-      auto cache_key = utils::MakeCacheKey(
+      auto cache_key = compute::MakeCacheKey(
           collection_id, query.data(), query.dimension(), top_k, filter);
       cache_->Put(cache_key, *result, core::ToUInt32(collection_id));
     }

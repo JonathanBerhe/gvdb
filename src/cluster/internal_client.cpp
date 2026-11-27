@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "cluster/internal_client.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 
 namespace gvdb {
 namespace cluster {
@@ -105,7 +105,7 @@ std::unique_ptr<IInternalServiceClient> GrpcInternalServiceClientFactory::Create
   // Create stub
   auto stub = proto::internal::InternalService::NewStub(channel);
 
-  utils::Logger::Instance().Info("Created gRPC client for node {} at {}",
+  common::Logger::Instance().Info("Created gRPC client for node {} at {}",
                                   core::ToUInt32(node_id), address);
 
   // Wrap in our interface

@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "network/collection_resolver.h"
+#include "service/collection_resolver.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_manager.h"
 #include "index/index_factory.h"
@@ -27,7 +27,7 @@ struct LocalResolverTest {
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
         test_dir_, index_factory_.get());
-    resolver_ = network::MakeLocalResolver(segment_store_);
+    resolver_ = service::MakeLocalResolver(segment_store_);
   }
 
   ~LocalResolverTest() {
@@ -41,7 +41,7 @@ struct LocalResolverTest {
   std::string test_dir_ = temp_dir_.str();
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
-  std::unique_ptr<network::ICollectionResolver> resolver_;
+  std::unique_ptr<service::ICollectionResolver> resolver_;
 };
 
 // ---------------------------------------------------------------------------
@@ -287,7 +287,7 @@ struct CoordinatorResolverTest {
     proto_node.set_disk_used_bytes(0);
     node_registry_->UpdateNode(proto_node);
 
-    resolver_ = network::MakeCoordinatorResolver(coordinator_);
+    resolver_ = service::MakeCoordinatorResolver(coordinator_);
   }
 
   ~CoordinatorResolverTest() {
@@ -300,7 +300,7 @@ struct CoordinatorResolverTest {
   std::shared_ptr<cluster::ShardManager> shard_manager_;
   std::shared_ptr<cluster::NodeRegistry> node_registry_;
   std::shared_ptr<cluster::Coordinator> coordinator_;
-  std::unique_ptr<network::ICollectionResolver> resolver_;
+  std::unique_ptr<service::ICollectionResolver> resolver_;
 };
 
 // ---------------------------------------------------------------------------

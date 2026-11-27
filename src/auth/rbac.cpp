@@ -2,8 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "auth/rbac.h"
-#include "utils/config.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 
 #include "absl/strings/str_cat.h"
 
@@ -77,7 +76,7 @@ absl::StatusOr<Role> RoleFromString(const std::string& role_str) {
 }
 
 absl::StatusOr<std::shared_ptr<RbacStore>> RbacStore::Create(
-    const utils::AuthConfig& config) {
+    const auth::AuthConfig& config) {
   auto store = std::shared_ptr<RbacStore>(new RbacStore());
 
   // Role-based keys
@@ -99,7 +98,7 @@ absl::StatusOr<std::shared_ptr<RbacStore>> RbacStore::Create(
     }
 
     if (store->keys_.contains(r.key)) {
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Duplicate auth key '{}' in config — later entry wins", r.key);
     }
 

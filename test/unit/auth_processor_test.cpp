@@ -5,11 +5,11 @@
 #include <memory>
 #include <string>
 
-#include "network/auth_processor.h"
-#include "network/vectordb_service.h"
-#include "network/collection_resolver.h"
+#include "rpc/interceptors/auth_processor.h"
+#include "service/vectordb_service.h"
+#include "service/collection_resolver.h"
 #include "auth/rbac.h"
-#include "utils/config.h"
+#include "config/config.h"
 #include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
@@ -37,7 +37,7 @@ class AuthIntegrationTest {
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
 
-    utils::AuthConfig auth_config;
+    auth::AuthConfig auth_config;
     auth_config.enabled = true;
     auth_config.api_keys = {"legacy-admin-key"};
     auth_config.roles = {
@@ -51,13 +51,13 @@ class AuthIntegrationTest {
     REQUIRE(rbac_result.ok());
     rbac_store_ = std::move(*rbac_result);
 
-    auto resolver = network::MakeLocalResolver(segment_store_);
-    service_ = std::make_unique<network::VectorDBService>(
+    auto resolver = service::MakeLocalResolver(segment_store_);
+    service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_, std::move(resolver), rbac_store_);
 
     std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> creators;
     creators.push_back(
-        std::make_unique<network::ApiKeyAuthInterceptorFactory>(rbac_store_));
+        std::make_unique<rpc::ApiKeyAuthInterceptorFactory>(rbac_store_));
 
     grpc::ServerBuilder builder;
     int port = 0;
@@ -138,7 +138,7 @@ class AuthIntegrationTest {
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::shared_ptr<auth::RbacStore> rbac_store_;
-  std::unique_ptr<network::VectorDBService> service_;
+  std::unique_ptr<service::VectorDBService> service_;
   std::unique_ptr<grpc::Server> server_;
   std::string address_;
 };

@@ -1,0 +1,535 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
+#include "service/collection_resolver.h"
+#include "service/collection_metadata_cache.h"
+#include "core/type_names.h"
+#include "rpc/proto_conversions.h"
+#include "storage/segment/segment_store.h"
+#include "cluster/coordinator.h"
+#include "absl/strings/numbers.h"
+#include "absl/strings/str_split.h"
+#include "common/json_util.h"
+#include "common/logger.h"
+#include "common/metrics.h"
+#include "internal.grpc.pb.h"
+#include <grpcpp/grpcpp.h>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <mutex>
+#include <shared_mutex>
+#include <unordered_map>
+
+namespace gvdb {
+namespace service {
+
+// ============================================================================
+// LocalCollectionResolver — single-node mode
+// ============================================================================
+
+// Internal metadata for single-node mode
+struct LocalEntry {
+  core::CollectionId id;
+  std::string name;
+  uint32_t dimension;
+  core::MetricType metric;
+  core::IndexType index_type;
+  size_t num_shards = 1;
+  std::vector<core::SegmentId> segment_ids;  // One per shard
+};
+
+class LocalCollectionResolver : public ICollectionResolver {
+ public:
+  LocalCollectionResolver(
+      std::shared_ptr<storage::ISegmentStore> segment_store,
+      const std::string& registry_dir)
+      : segment_store_(std::move(segment_store)),
+        next_id_(1) {
+    if (!registry_dir.empty()) {
+      registry_path_ = registry_dir + "/collections.json";
+      LoadRegistry();
+    }
+  }
+
+  absl::StatusOr<core::CollectionId> GetCollectionId(
+      const std::string& name) override {
+    std::shared_lock lock(mutex_);
+    auto it = entries_.find(name);
+    if (it == entries_.end()) {
+      return absl::NotFoundError("Collection not found: " + name);
+    }
+    return it->second.id;
+  }
+
+  absl::StatusOr<core::CollectionId> CreateCollection(
+      const std::string& name,
+      core::Dimension dimension,
+      core::MetricType metric_type,
+      core::IndexType index_type,
+      size_t num_shards = 1) override {
+    std::unique_lock lock(mutex_);
+    if (entries_.count(name) > 0) {
+      return absl::AlreadyExistsError("Collection already exists: " + name);
+    }
+    if (num_shards == 0) num_shards = 1;
+
+    core::CollectionId id = core::CollectionId(next_id_++);
+
+    LocalEntry entry;
+    entry.id = id;
+    entry.name = name;
+    entry.dimension = dimension;
+    entry.metric = metric_type;
+    entry.index_type = index_type;
+    entry.num_shards = num_shards;
+
+    // Create one segment per shard
+    for (uint32_t i = 0; i < num_shards; ++i) {
+      core::SegmentId seg_id = core::ShardSegmentId(id, i);
+      auto status = segment_store_->CreateSegmentWithId(
+          seg_id, id, dimension, metric_type, index_type);
+      if (!status.ok()) {
+        // Rollback already-created segments
+        for (const auto& created : entry.segment_ids) {
+          (void)segment_store_->DropSegment(created, false);
+        }
+        return status;
+      }
+      entry.segment_ids.push_back(seg_id);
+    }
+
+    entries_[name] = entry;
+    common::MetricsRegistry::Instance().SetCollectionCount(entries_.size());
+    PersistRegistryLocked();
+    return id;
+  }
+
+  absl::Status DropCollection(const std::string& name) override {
+    std::unique_lock lock(mutex_);
+    auto it = entries_.find(name);
+    if (it == entries_.end()) {
+      return absl::NotFoundError("Collection not found: " + name);
+    }
+
+    for (const auto& seg_id : it->second.segment_ids) {
+      (void)segment_store_->DropSegment(seg_id, true);
+    }
+
+    entries_.erase(it);
+    common::MetricsRegistry::Instance().SetCollectionCount(entries_.size());
+    PersistRegistryLocked();
+    return absl::OkStatus();
+  }
+
+  std::vector<CollectionInfo> ListCollections() override {
+    std::shared_lock lock(mutex_);
+    std::vector<CollectionInfo> result;
+    result.reserve(entries_.size());
+    for (const auto& [name, entry] : entries_) {
+      CollectionInfo info;
+      info.collection_id = entry.id;
+      info.collection_name = entry.name;
+      info.dimension = entry.dimension;
+      info.metric_type = entry.metric;
+      info.index_type = entry.index_type;
+      uint64_t total_vectors = 0;
+      for (const auto& seg_id : entry.segment_ids) {
+        auto* segment = segment_store_->GetSegment(seg_id);
+        if (segment) total_vectors += segment->GetVectorCount();
+      }
+      info.vector_count = total_vectors;
+      result.push_back(info);
+    }
+    return result;
+  }
+
+  size_t CollectionCount() override {
+    std::shared_lock lock(mutex_);
+    return entries_.size();
+  }
+
+  absl::StatusOr<std::vector<core::SegmentId>> GetSegmentIds(
+      const std::string& name) override {
+    std::shared_lock lock(mutex_);
+    auto it = entries_.find(name);
+    if (it == entries_.end()) {
+      return absl::NotFoundError("Collection not found: " + name);
+    }
+    return it->second.segment_ids;
+  }
+
+  bool SupportsDataOps() const override { return true; }
+
+ private:
+  // Registry persistence for single-node mode: entries_ and next_id_ live
+  // only in memory, so without this a restart orphans every collection even
+  // though the segments reload from disk.
+  void PersistRegistryLocked() const {
+    if (registry_path_.empty()) return;
+    std::ostringstream ss;
+    ss << "{\"version\":1,\"next_id\":" << next_id_
+       << ",\"collections\":[";
+    bool first = true;
+    for (const auto& [name, entry] : entries_) {
+      if (!first) ss << ",";
+      first = false;
+      ss << "{\"collection_id\":" << core::ToUInt32(entry.id)
+         << ",\"name\":\"" << common::json::EscapeJson(name) << "\""
+         << ",\"dimension\":" << entry.dimension
+         << ",\"metric\":" << static_cast<int>(entry.metric)
+         << ",\"index_type\":" << static_cast<int>(entry.index_type)
+         << ",\"num_shards\":" << entry.num_shards
+         << ",\"segment_ids\":[";
+      for (size_t i = 0; i < entry.segment_ids.size(); ++i) {
+        if (i) ss << ",";
+        ss << core::ToUInt32(entry.segment_ids[i]);
+      }
+      ss << "]}";
+    }
+    ss << "]}";
+
+    const std::string tmp_path = registry_path_ + ".tmp";
+    {
+      std::ofstream out(tmp_path, std::ios::trunc);
+      if (!out.is_open()) {
+        common::Logger::Instance().Error(
+            "Failed to open collection registry temp file: {}", tmp_path);
+        return;
+      }
+      out << ss.str();
+      if (!out.good()) {
+        common::Logger::Instance().Error(
+            "Failed to write collection registry temp file: {}", tmp_path);
+        return;
+      }
+    }
+    std::error_code ec;
+    std::filesystem::rename(tmp_path, registry_path_, ec);
+    if (ec) {
+      common::Logger::Instance().Error(
+          "Failed to replace collection registry {}: {}", registry_path_,
+          ec.message());
+    }
+  }
+
+  void LoadRegistry() {
+    std::ifstream in(registry_path_);
+    if (!in.is_open()) {
+      common::Logger::Instance().Info(
+          "No collection registry at {} (first boot)", registry_path_);
+      return;
+    }
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    const std::string doc = buffer.str();
+
+    uint32_t next_id = 0;
+    if (common::json::ParseUint32(doc, "next_id", next_id) && next_id > 0) {
+      next_id_ = next_id;
+    }
+    auto body = common::json::ExtractArrayBody(doc, "collections");
+    size_t loaded = 0;
+    for (const auto& obj : common::json::SplitObjects(body)) {
+      uint32_t cid = 0;
+      std::string name;
+      if (!common::json::ParseUint32(obj, "collection_id", cid) ||
+          !common::json::ParseString(obj, "name", name)) {
+        common::Logger::Instance().Error(
+            "Skipping malformed collection registry entry: {}", obj);
+        continue;
+      }
+      LocalEntry entry;
+      entry.id = core::MakeCollectionId(cid);
+      entry.name = name;
+      (void)common::json::ParseUint32(obj, "dimension", entry.dimension);
+      int32_t metric = 0;
+      if (common::json::ParseInt32(obj, "metric", metric)) {
+        entry.metric = static_cast<core::MetricType>(metric);
+      }
+      int32_t index_type = 0;
+      if (common::json::ParseInt32(obj, "index_type", index_type)) {
+        entry.index_type = static_cast<core::IndexType>(index_type);
+      }
+      uint64_t num_shards = 1;
+      if (common::json::ParseUint64(obj, "num_shards", num_shards)) {
+        entry.num_shards = static_cast<size_t>(num_shards);
+      }
+      auto segs = common::json::ExtractArrayBody(obj, "segment_ids");
+      if (segs.size() >= 2) {
+        std::string inner(segs.substr(1, segs.size() - 2));
+        for (absl::string_view piece :
+             absl::StrSplit(inner, ',', absl::SkipEmpty())) {
+          uint32_t sid = 0;
+          if (absl::SimpleAtoi(piece, &sid)) {
+            entry.segment_ids.push_back(core::MakeSegmentId(sid));
+          }
+        }
+      }
+      entries_[name] = std::move(entry);
+      ++loaded;
+    }
+    common::MetricsRegistry::Instance().SetCollectionCount(entries_.size());
+    common::Logger::Instance().Info(
+        "Loaded collection registry from {}: {} collection(s), next_id={}",
+        registry_path_, loaded, next_id_);
+  }
+
+  std::string registry_path_;
+  std::shared_ptr<storage::ISegmentStore> segment_store_;
+  mutable std::shared_mutex mutex_;
+  std::unordered_map<std::string, LocalEntry> entries_;
+  uint32_t next_id_;
+};
+
+// ============================================================================
+// CoordinatorCollectionResolver — coordinator mode
+// ============================================================================
+
+class CoordinatorCollectionResolver : public ICollectionResolver {
+ public:
+  explicit CoordinatorCollectionResolver(
+      std::shared_ptr<cluster::Coordinator> coordinator)
+      : coordinator_(std::move(coordinator)) {}
+
+  absl::StatusOr<core::CollectionId> GetCollectionId(
+      const std::string& name) override {
+    auto result = coordinator_->GetCollectionMetadata(name);
+    if (!result.ok()) return result.status();
+    return result->collection_id;
+  }
+
+  absl::StatusOr<core::CollectionId> CreateCollection(
+      const std::string& name,
+      core::Dimension dimension,
+      core::MetricType metric_type,
+      core::IndexType index_type,
+      size_t num_shards = 1) override {
+    return coordinator_->CreateCollection(name, dimension, metric_type, index_type, 1, num_shards);
+  }
+
+  absl::Status DropCollection(const std::string& name) override {
+    return coordinator_->DropCollection(name);
+  }
+
+  std::vector<CollectionInfo> ListCollections() override {
+    auto collections = coordinator_->ListCollections();
+    std::vector<CollectionInfo> result;
+    result.reserve(collections.size());
+    for (const auto& meta : collections) {
+      CollectionInfo info;
+      info.collection_id = meta.collection_id;
+      info.collection_name = meta.collection_name;
+      info.dimension = meta.dimension;
+      info.metric_type = meta.metric_type;
+      info.index_type = meta.index_type;
+      info.vector_count = meta.total_vectors;
+      result.push_back(info);
+    }
+    return result;
+  }
+
+  size_t CollectionCount() override {
+    return coordinator_->ListCollections().size();
+  }
+
+  absl::StatusOr<std::vector<core::SegmentId>> GetSegmentIds(
+      const std::string&) override {
+    return absl::UnimplementedError(
+        "Data operations not supported on coordinator nodes");
+  }
+
+  bool SupportsDataOps() const override { return false; }
+
+ private:
+  std::shared_ptr<cluster::Coordinator> coordinator_;
+};
+
+// ============================================================================
+// CachedCoordinatorResolver — distributed data/query nodes
+// ============================================================================
+
+class CachedCoordinatorResolver : public ICollectionResolver {
+ public:
+  explicit CachedCoordinatorResolver(const std::string& coordinator_address)
+      : cache_(std::make_unique<CollectionMetadataCache>()) {
+    auto channel = grpc::CreateChannel(coordinator_address,
+                                        grpc::InsecureChannelCredentials());
+    stub_ = proto::internal::InternalService::NewStub(channel);
+    common::Logger::Instance().Info(
+        "CachedCoordinatorResolver connected to {}", coordinator_address);
+  }
+
+  absl::StatusOr<core::CollectionId> GetCollectionId(
+      const std::string& name) override {
+    // Check cache first
+    auto cached = cache_->GetByName(name);
+    if (cached.ok()) return cached->collection_id;
+
+    // Cache miss — pull from coordinator
+    return FetchFromCoordinator(name);
+  }
+
+  absl::StatusOr<core::CollectionId> CreateCollection(
+      const std::string&, core::Dimension, core::MetricType, core::IndexType,
+      size_t) override {
+    return absl::UnimplementedError(
+        "CreateCollection not supported on distributed data/query nodes. "
+        "Send to coordinator instead.");
+  }
+
+  absl::Status DropCollection(const std::string&) override {
+    return absl::UnimplementedError(
+        "DropCollection not supported on distributed data/query nodes. "
+        "Send to coordinator instead.");
+  }
+
+  std::vector<CollectionInfo> ListCollections() override {
+    // Distributed nodes don't have a full collection list
+    return {};
+  }
+
+  size_t CollectionCount() override { return cache_->Size(); }
+
+  absl::StatusOr<std::vector<core::SegmentId>> GetSegmentIds(
+      const std::string& name) override {
+    auto id_result = GetCollectionId(name);
+    if (!id_result.ok()) return id_result.status();
+
+    size_t shards = GetNumShards(name);
+    std::vector<core::SegmentId> ids;
+    ids.reserve(shards);
+    for (size_t i = 0; i < shards; ++i) {
+      ids.push_back(core::ShardSegmentId(*id_result, i));
+    }
+    return ids;
+  }
+
+  bool SupportsDataOps() const override { return true; }
+
+  proto::internal::InternalService::Stub* GetCoordinatorStub() override {
+    return stub_.get();
+  }
+
+  absl::StatusOr<std::vector<ShardTarget>> GetShardTargets(
+      const std::string& collection_name) override {
+    grpc::ClientContext context;
+    proto::internal::RouteQueryRequest request;
+    request.set_collection_name(collection_name);
+    // GetShardTargets is only invoked from read-paths today
+    // (SearchDistributed, RangeSearchDistributed), so it's safe to opt
+    // into routable-replica fallback unconditionally — the coordinator
+    // returns a richer per_shard_options list when this is set.
+    request.set_prefer_routable_replica(true);
+    proto::internal::RouteQueryResponse response;
+
+    auto status = stub_->RouteQuery(&context, request, &response);
+    if (!status.ok()) {
+      return rpc::fromGrpcStatus(status);
+    }
+
+    // Index per_shard_options by shard_id so we can pair with the legacy
+    // parallel arrays without assuming the coordinator emits them in the
+    // same order — proto repeated semantics don't guarantee a fixed order
+    // across coordinator releases.
+    std::map<uint32_t, const proto::internal::RouteQueryShardOptions*> by_shard;
+    for (const auto& shard_opts : response.per_shard_options()) {
+      by_shard[shard_opts.shard_id()] = &shard_opts;
+    }
+
+    std::vector<ShardTarget> targets;
+    int n = response.target_shard_ids_size();
+    targets.reserve(n);
+    for (int i = 0; i < n; ++i) {
+      ShardTarget t;
+      t.shard_id = response.target_shard_ids(i);
+      t.collection_id = response.collection_id();
+      t.node_address = i < response.target_node_addresses_size()
+                           ? response.target_node_addresses(i) : "";
+
+      // Populate the fallback options list.
+      auto it = by_shard.find(t.shard_id);
+      if (it != by_shard.end()) {
+        const auto& opts = *it->second;
+        t.options.reserve(opts.options_size());
+        for (const auto& o : opts.options()) {
+          t.options.push_back(ShardNodeOption{
+              o.node_id(), o.node_address(), o.is_primary()});
+        }
+      }
+      targets.push_back(std::move(t));
+    }
+    return targets;
+  }
+
+ private:
+  size_t GetNumShards(const std::string& name) {
+    auto cached = cache_->GetByName(name);
+    if (cached.ok()) {
+      return cached->num_shards > 0 ? cached->num_shards : 1;
+    }
+    return 1;
+  }
+
+  absl::StatusOr<core::CollectionId> FetchFromCoordinator(const std::string& name) {
+    grpc::ClientContext context;
+    proto::internal::GetCollectionMetadataRequest request;
+    request.set_collection_name(name);
+    proto::internal::GetCollectionMetadataResponse response;
+
+    auto status = stub_->GetCollectionMetadata(&context, request, &response);
+    if (!status.ok()) {
+      return rpc::fromGrpcStatus(status);
+    }
+
+    if (!response.found()) {
+      return absl::NotFoundError("Collection not found: " + name);
+    }
+
+    const auto& pm = response.metadata();
+    meta::CollectionMetadata metadata;
+    metadata.collection_id = core::MakeCollectionId(pm.collection_id());
+    metadata.collection_name = pm.collection_name();
+    metadata.dimension = pm.dimension();
+
+    auto metric = core::metricTypeFromString(pm.metric_type());
+    if (!metric.ok()) return metric.status();
+    metadata.metric_type = *metric;
+
+    auto index = core::indexTypeFromString(pm.index_type());
+    if (!index.ok()) return index.status();
+    metadata.index_type = *index;
+
+    metadata.num_shards = pm.shard_count() > 0 ? pm.shard_count() : 1;
+
+    cache_->Put(metadata);
+    return metadata.collection_id;
+  }
+
+  std::unique_ptr<CollectionMetadataCache> cache_;
+  std::unique_ptr<proto::internal::InternalService::Stub> stub_;
+};
+
+// ============================================================================
+// Factory functions
+// ============================================================================
+
+std::unique_ptr<ICollectionResolver> MakeLocalResolver(
+    std::shared_ptr<storage::ISegmentStore> segment_store,
+    const std::string& registry_dir) {
+  return std::make_unique<LocalCollectionResolver>(std::move(segment_store),
+                                                   registry_dir);
+}
+
+std::unique_ptr<ICollectionResolver> MakeCoordinatorResolver(
+    std::shared_ptr<cluster::Coordinator> coordinator) {
+  return std::make_unique<CoordinatorCollectionResolver>(std::move(coordinator));
+}
+
+std::unique_ptr<ICollectionResolver> MakeCachedCoordinatorResolver(
+    const std::string& coordinator_address) {
+  return std::make_unique<CachedCoordinatorResolver>(coordinator_address);
+}
+
+}  // namespace service
+}  // namespace gvdb

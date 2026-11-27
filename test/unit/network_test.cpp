@@ -8,8 +8,8 @@
 
 #include "core/type_names.h"
 #include "rpc/proto_conversions.h"
-#include "network/vectordb_service.h"
-#include "network/collection_resolver.h"
+#include "service/vectordb_service.h"
+#include "service/collection_resolver.h"
 #include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
@@ -237,8 +237,8 @@ class VectorDBServiceTest {
         segment_store_.get());
 
     // Create service with local resolver
-    auto resolver = network::MakeLocalResolver(segment_store_);
-    service_ = std::make_unique<network::VectorDBService>(
+    auto resolver = service::MakeLocalResolver(segment_store_);
+    service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_, std::move(resolver));
   }
 
@@ -331,7 +331,7 @@ class VectorDBServiceTest {
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
-  std::unique_ptr<network::VectorDBService> service_;
+  std::unique_ptr<service::VectorDBService> service_;
 };
 
 TEST_CASE_FIXTURE(VectorDBServiceTest, "HealthCheck") {
@@ -1489,8 +1489,8 @@ class SmallSegmentServiceTest {
         test_dir_.str(), index_factory_.get(), kMaxSegmentBytes);
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
-    auto resolver = network::MakeLocalResolver(segment_store_);
-    service_ = std::make_unique<network::VectorDBService>(
+    auto resolver = service::MakeLocalResolver(segment_store_);
+    service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_, std::move(resolver));
   }
 
@@ -1544,7 +1544,7 @@ class SmallSegmentServiceTest {
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::SegmentManager> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
-  std::unique_ptr<network::VectorDBService> service_;
+  std::unique_ptr<service::VectorDBService> service_;
 };
 
 TEST_CASE_FIXTURE(SmallSegmentServiceTest,
