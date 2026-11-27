@@ -231,473 +231,17 @@ TEST_CASE_FIXTURE(AuthIntegrationTest, "BadFormatRejected") {
 // Admin role: full access
 // ============================================================================
 
-TEST_CASE_FIXTURE(AuthIntegrationTest, "AdminCanCreateAndDropCollection") {
-  auto stub = MakeStub();
-  // Create
-  {
-    proto::CreateCollectionRequest req;
-    req.set_collection_name("admin_coll");
-    req.set_dimension(4);
-    req.set_metric(proto::CreateCollectionRequest::L2);
-    req.set_index_type(proto::CreateCollectionRequest::FLAT);
-    proto::CreateCollectionResponse resp;
-    grpc::ClientContext ctx;
-    ctx.AddMetadata("authorization", "Bearer admin-key");
-    auto status = stub->CreateCollection(&ctx, req, &resp);
-    CHECK(status.ok());
-  }
-  // Drop
-  {
-    proto::DropCollectionRequest req;
-    req.set_collection_name("admin_coll");
-    proto::DropCollectionResponse resp;
-    grpc::ClientContext ctx;
-    ctx.AddMetadata("authorization", "Bearer admin-key");
-    auto status = stub->DropCollection(&ctx, req, &resp);
-    CHECK(status.ok());
-  }
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "LegacyApiKeyIsAdmin") {
-  auto stub = MakeStub();
-  proto::CreateCollectionRequest req;
-  req.set_collection_name("legacy_test");
-  req.set_dimension(4);
-  req.set_metric(proto::CreateCollectionRequest::L2);
-  req.set_index_type(proto::CreateCollectionRequest::FLAT);
-  proto::CreateCollectionResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer legacy-admin-key");
-
-  auto status = stub->CreateCollection(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "AdminCanAccessAnyCollection") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::SearchRequest req;
-  req.set_collection_name("test_collection");
-  req.set_top_k(5);
-  *req.mutable_query_vector() = MakeQueryVector();
-  proto::SearchResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer admin-key");
-
-  auto status = stub->Search(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
 // ============================================================================
 // Readwrite role: insert/search/delete/upsert/update but not create/drop
 // ============================================================================
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadwriteCannotCreateCollection") {
-  auto stub = MakeStub();
-  proto::CreateCollectionRequest req;
-  req.set_collection_name("rw_blocked");
-  req.set_dimension(4);
-  req.set_metric(proto::CreateCollectionRequest::L2);
-  req.set_index_type(proto::CreateCollectionRequest::FLAT);
-  proto::CreateCollectionResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer rw-key");
-
-  auto status = stub->CreateCollection(&ctx, req, &resp);
-  CHECK_EQ(status.error_code(), grpc::StatusCode::PERMISSION_DENIED);
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadwriteCannotDropCollection") {
-  CreateCollectionAsAdmin("test_collection");
-
-  auto stub = MakeStub();
-  proto::DropCollectionRequest req;
-  req.set_collection_name("test_collection");
-  proto::DropCollectionResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer rw-key");
-
-  auto status = stub->DropCollection(&ctx, req, &resp);
-  CHECK_EQ(status.error_code(), grpc::StatusCode::PERMISSION_DENIED);
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadwriteCanInsertOnAllowedCollection") {
-  CreateCollectionAsAdmin("test_collection");
-
-  auto stub = MakeStub();
-  proto::InsertRequest req;
-  req.set_collection_name("test_collection");
-  *req.add_vectors() = MakeVectorWithId(100);
-  proto::InsertResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer rw-key");
-
-  auto status = stub->Insert(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadwriteCanUpsertOnAllowedCollection") {
-  CreateCollectionAsAdmin("test_collection");
-
-  auto stub = MakeStub();
-  proto::UpsertRequest req;
-  req.set_collection_name("test_collection");
-  *req.add_vectors() = MakeVectorWithId(200);
-  proto::UpsertResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer rw-key");
-
-  auto status = stub->Upsert(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadwriteCanDeleteOnAllowedCollection") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::DeleteRequest req;
-  req.set_collection_name("test_collection");
-  req.add_ids(1);
-  proto::DeleteResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer rw-key");
-
-  auto status = stub->Delete(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadwriteCanSearchOnAllowedCollection") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::SearchRequest req;
-  req.set_collection_name("test_collection");
-  req.set_top_k(3);
-  *req.mutable_query_vector() = MakeQueryVector();
-  proto::SearchResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer rw-key");
-
-  auto status = stub->Search(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadwriteCanGetOnAllowedCollection") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::GetRequest req;
-  req.set_collection_name("test_collection");
-  req.add_ids(1);
-  proto::GetResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer rw-key");
-
-  auto status = stub->Get(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadwriteDeniedOnWrongCollection") {
-  CreateCollectionAsAdmin("forbidden_coll");
-
-  auto stub = MakeStub();
-  proto::InsertRequest req;
-  req.set_collection_name("forbidden_coll");
-  *req.add_vectors() = MakeVectorWithId(1);
-  proto::InsertResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer rw-key");
-
-  auto status = stub->Insert(&ctx, req, &resp);
-  CHECK_EQ(status.error_code(), grpc::StatusCode::PERMISSION_DENIED);
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadwriteCanAccessSecondAllowedCollection") {
-  CreateCollectionAsAdmin("second_collection");
-
-  auto stub = MakeStub();
-  proto::InsertRequest req;
-  req.set_collection_name("second_collection");
-  *req.add_vectors() = MakeVectorWithId(1);
-  proto::InsertResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer rw-key");
-
-  auto status = stub->Insert(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadwriteCanListCollections") {
-  auto stub = MakeStub();
-  proto::ListCollectionsRequest req;
-  proto::ListCollectionsResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer rw-key");
-
-  auto status = stub->ListCollections(&ctx, req, &resp);
-  CHECK(status.ok());
-}
 
 // ============================================================================
 // Readonly role: search/get/range_search/hybrid_search/list only
 // ============================================================================
 
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadonlyCannotInsert") {
-  CreateCollectionAsAdmin("test_collection");
-
-  auto stub = MakeStub();
-  proto::InsertRequest req;
-  req.set_collection_name("test_collection");
-  *req.add_vectors() = MakeVectorWithId(1);
-  proto::InsertResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ro-key");
-
-  auto status = stub->Insert(&ctx, req, &resp);
-  CHECK_EQ(status.error_code(), grpc::StatusCode::PERMISSION_DENIED);
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadonlyCannotUpsert") {
-  CreateCollectionAsAdmin("test_collection");
-
-  auto stub = MakeStub();
-  proto::UpsertRequest req;
-  req.set_collection_name("test_collection");
-  *req.add_vectors() = MakeVectorWithId(1);
-  proto::UpsertResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ro-key");
-
-  auto status = stub->Upsert(&ctx, req, &resp);
-  CHECK_EQ(status.error_code(), grpc::StatusCode::PERMISSION_DENIED);
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadonlyCannotDelete") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::DeleteRequest req;
-  req.set_collection_name("test_collection");
-  req.add_ids(1);
-  proto::DeleteResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ro-key");
-
-  auto status = stub->Delete(&ctx, req, &resp);
-  CHECK_EQ(status.error_code(), grpc::StatusCode::PERMISSION_DENIED);
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadonlyCannotUpdateMetadata") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::UpdateMetadataRequest req;
-  req.set_collection_name("test_collection");
-  req.set_id(1);
-  proto::UpdateMetadataResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ro-key");
-
-  auto status = stub->UpdateMetadata(&ctx, req, &resp);
-  CHECK_EQ(status.error_code(), grpc::StatusCode::PERMISSION_DENIED);
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadonlyCanSearch") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::SearchRequest req;
-  req.set_collection_name("test_collection");
-  req.set_top_k(3);
-  *req.mutable_query_vector() = MakeQueryVector();
-  proto::SearchResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ro-key");
-
-  auto status = stub->Search(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadonlyCanGet") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::GetRequest req;
-  req.set_collection_name("test_collection");
-  req.add_ids(1);
-  proto::GetResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ro-key");
-
-  auto status = stub->Get(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadonlyCanRangeSearch") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::RangeSearchRequest req;
-  req.set_collection_name("test_collection");
-  req.set_radius(100.0f);
-  *req.mutable_query_vector() = MakeQueryVector();
-  proto::RangeSearchResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ro-key");
-
-  auto status = stub->RangeSearch(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadonlyCanHybridSearch") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::HybridSearchRequest req;
-  req.set_collection_name("test_collection");
-  req.set_top_k(3);
-  *req.mutable_query_vector() = MakeQueryVector();
-  proto::HybridSearchResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ro-key");
-
-  auto status = stub->HybridSearch(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadonlyCanListVectors") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::ListVectorsRequest req;
-  req.set_collection_name("test_collection");
-  req.set_limit(10);
-  proto::ListVectorsResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ro-key");
-
-  auto status = stub->ListVectors(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "ReadonlyCanListCollections") {
-  auto stub = MakeStub();
-  proto::ListCollectionsRequest req;
-  proto::ListCollectionsResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ro-key");
-
-  auto status = stub->ListCollections(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
 // ============================================================================
 // Collection admin role: all ops on allowed collection, no create/drop
 // ============================================================================
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "CollectionAdminCannotCreateCollection") {
-  auto stub = MakeStub();
-  proto::CreateCollectionRequest req;
-  req.set_collection_name("ca_blocked");
-  req.set_dimension(4);
-  req.set_metric(proto::CreateCollectionRequest::L2);
-  req.set_index_type(proto::CreateCollectionRequest::FLAT);
-  proto::CreateCollectionResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ca-key");
-
-  auto status = stub->CreateCollection(&ctx, req, &resp);
-  CHECK_EQ(status.error_code(), grpc::StatusCode::PERMISSION_DENIED);
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "CollectionAdminCannotDropCollection") {
-  CreateCollectionAsAdmin("test_collection");
-
-  auto stub = MakeStub();
-  proto::DropCollectionRequest req;
-  req.set_collection_name("test_collection");
-  proto::DropCollectionResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ca-key");
-
-  auto status = stub->DropCollection(&ctx, req, &resp);
-  CHECK_EQ(status.error_code(), grpc::StatusCode::PERMISSION_DENIED);
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "CollectionAdminCanInsertOnOwnCollection") {
-  CreateCollectionAsAdmin("test_collection");
-
-  auto stub = MakeStub();
-  proto::InsertRequest req;
-  req.set_collection_name("test_collection");
-  *req.add_vectors() = MakeVectorWithId(1);
-  proto::InsertResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ca-key");
-
-  auto status = stub->Insert(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "CollectionAdminCanDeleteOnOwnCollection") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::DeleteRequest req;
-  req.set_collection_name("test_collection");
-  req.add_ids(1);
-  proto::DeleteResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ca-key");
-
-  auto status = stub->Delete(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "CollectionAdminCanSearchOnOwnCollection") {
-  CreateCollectionAsAdmin("test_collection");
-  InsertAsAdmin("test_collection", 5);
-
-  auto stub = MakeStub();
-  proto::SearchRequest req;
-  req.set_collection_name("test_collection");
-  req.set_top_k(3);
-  *req.mutable_query_vector() = MakeQueryVector();
-  proto::SearchResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ca-key");
-
-  auto status = stub->Search(&ctx, req, &resp);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(AuthIntegrationTest, "CollectionAdminDeniedOnOtherCollection") {
-  CreateCollectionAsAdmin("other_coll");
-
-  auto stub = MakeStub();
-  proto::InsertRequest req;
-  req.set_collection_name("other_coll");
-  *req.add_vectors() = MakeVectorWithId(1);
-  proto::InsertResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer ca-key");
-
-  auto status = stub->Insert(&ctx, req, &resp);
-  CHECK_EQ(status.error_code(), grpc::StatusCode::PERMISSION_DENIED);
-}
 
 // ============================================================================
 // Role x RPC x collection matrix
@@ -706,6 +250,8 @@ TEST_CASE_FIXTURE(AuthIntegrationTest, "CollectionAdminDeniedOnOtherCollection")
 enum class Rpc {
   kCreateCollection,
   kDropCollection,
+  kListCollections,
+  kInsert,
   kSearch,
   kRangeSearch,
   kHybridSearch,
@@ -722,6 +268,10 @@ const char* RpcName(Rpc rpc) {
       return "CreateCollection";
     case Rpc::kDropCollection:
       return "DropCollection";
+    case Rpc::kListCollections:
+      return "ListCollections";
+    case Rpc::kInsert:
+      return "Insert";
     case Rpc::kSearch:
       return "Search";
     case Rpc::kRangeSearch:
@@ -770,6 +320,18 @@ grpc::Status CallAs(proto::VectorDBService::Stub& stub, const std::string& key, 
       req.set_collection_name(collection);
       proto::DropCollectionResponse resp;
       return stub.DropCollection(&ctx, req, &resp);
+    }
+    case Rpc::kListCollections: {
+      proto::ListCollectionsRequest req;
+      proto::ListCollectionsResponse resp;
+      return stub.ListCollections(&ctx, req, &resp);
+    }
+    case Rpc::kInsert: {
+      proto::InsertRequest req;
+      req.set_collection_name(collection);
+      *req.add_vectors() = AuthIntegrationTest::MakeVectorWithId(100);
+      proto::InsertResponse resp;
+      return stub.Insert(&ctx, req, &resp);
     }
     case Rpc::kSearch: {
       proto::SearchRequest req;
@@ -864,11 +426,12 @@ class AuthMatrixTest : public AuthIntegrationTest {
     return snapshot;
   }
 
-  // Recreates test_collection and other_coll, each holding the vectors 1..5.
+  // Recreates test_collection, second_collection and other_coll, each holding
+  // the vectors 1..5.
   void ResetCollections() {
     auto snapshot = AdminSnapshot();
     auto stub = MakeStub();
-    for (const char* name : {"test_collection", "other_coll"}) {
+    for (const char* name : {"test_collection", "second_collection", "other_coll"}) {
       if (snapshot.contains(name)) {
         proto::DropCollectionRequest req;
         req.set_collection_name(name);
@@ -883,24 +446,55 @@ class AuthMatrixTest : public AuthIntegrationTest {
   }
 };
 
-// rw-key and ca-key may use test_collection but not other_coll; ro-key may
-// read every collection. Every row starts from freshly seeded collections.
+// rw-key may use test_collection and second_collection, ca-key only
+// test_collection, and neither other_coll. ro-key may read every collection
+// but write none. admin-key and the legacy key may do everything. Every row
+// starts from freshly seeded collections, and each create row uses a new name.
 TEST_CASE_FIXTURE(AuthMatrixTest, "RoleRpcCollectionMatrix") {
   using grpc::StatusCode;
   const AccessCase kCases[] = {
+      {"rw-key", Rpc::kInsert, "test_collection", StatusCode::OK},
+      {"rw-key", Rpc::kInsert, "second_collection", StatusCode::OK},
+      {"rw-key", Rpc::kUpsert, "test_collection", StatusCode::OK},
+      {"rw-key", Rpc::kDelete, "test_collection", StatusCode::OK},
+      {"rw-key", Rpc::kSearch, "test_collection", StatusCode::OK},
+      {"rw-key", Rpc::kGet, "test_collection", StatusCode::OK},
+      {"rw-key", Rpc::kListCollections, "", StatusCode::OK},
+      {"rw-key", Rpc::kCreateCollection, "rw_blocked", StatusCode::PERMISSION_DENIED},
+      {"rw-key", Rpc::kDropCollection, "test_collection", StatusCode::PERMISSION_DENIED},
+      {"rw-key", Rpc::kInsert, "other_coll", StatusCode::PERMISSION_DENIED},
       {"rw-key", Rpc::kUpdateMetadata, "test_collection", StatusCode::OK},
       {"rw-key", Rpc::kSearch, "other_coll", StatusCode::PERMISSION_DENIED},
       {"rw-key", Rpc::kDelete, "other_coll", StatusCode::PERMISSION_DENIED},
 
+      {"ro-key", Rpc::kSearch, "test_collection", StatusCode::OK},
+      {"ro-key", Rpc::kGet, "test_collection", StatusCode::OK},
+      {"ro-key", Rpc::kRangeSearch, "test_collection", StatusCode::OK},
+      {"ro-key", Rpc::kHybridSearch, "test_collection", StatusCode::OK},
+      {"ro-key", Rpc::kListVectors, "test_collection", StatusCode::OK},
+      {"ro-key", Rpc::kListCollections, "", StatusCode::OK},
+      {"ro-key", Rpc::kInsert, "test_collection", StatusCode::PERMISSION_DENIED},
+      {"ro-key", Rpc::kUpsert, "test_collection", StatusCode::PERMISSION_DENIED},
+      {"ro-key", Rpc::kDelete, "test_collection", StatusCode::PERMISSION_DENIED},
+      {"ro-key", Rpc::kUpdateMetadata, "test_collection", StatusCode::PERMISSION_DENIED},
       {"ro-key", Rpc::kCreateCollection, "ro_new_coll", StatusCode::PERMISSION_DENIED},
       {"ro-key", Rpc::kDropCollection, "test_collection", StatusCode::PERMISSION_DENIED},
 
+      {"ca-key", Rpc::kInsert, "test_collection", StatusCode::OK},
+      {"ca-key", Rpc::kDelete, "test_collection", StatusCode::OK},
+      {"ca-key", Rpc::kSearch, "test_collection", StatusCode::OK},
+      {"ca-key", Rpc::kCreateCollection, "ca_blocked", StatusCode::PERMISSION_DENIED},
+      {"ca-key", Rpc::kDropCollection, "test_collection", StatusCode::PERMISSION_DENIED},
+      {"ca-key", Rpc::kInsert, "other_coll", StatusCode::PERMISSION_DENIED},
       {"ca-key", Rpc::kUpsert, "test_collection", StatusCode::OK},
       {"ca-key", Rpc::kGet, "test_collection", StatusCode::OK},
       {"ca-key", Rpc::kUpdateMetadata, "test_collection", StatusCode::OK},
       {"ca-key", Rpc::kSearch, "other_coll", StatusCode::PERMISSION_DENIED},
       {"ca-key", Rpc::kDelete, "other_coll", StatusCode::PERMISSION_DENIED},
 
+      {"admin-key", Rpc::kCreateCollection, "admin_coll", StatusCode::OK},
+      {"admin-key", Rpc::kDropCollection, "test_collection", StatusCode::OK},
+      {"admin-key", Rpc::kSearch, "test_collection", StatusCode::OK},
       {"admin-key", Rpc::kGet, "other_coll", StatusCode::OK},
       {"admin-key", Rpc::kUpsert, "other_coll", StatusCode::OK},
       {"admin-key", Rpc::kUpdateMetadata, "other_coll", StatusCode::OK},
@@ -909,6 +503,7 @@ TEST_CASE_FIXTURE(AuthMatrixTest, "RoleRpcCollectionMatrix") {
       {"admin-key", Rpc::kListVectors, "other_coll", StatusCode::OK},
 
       // Keys from the legacy api_keys list act as admin.
+      {"legacy-admin-key", Rpc::kCreateCollection, "legacy_test", StatusCode::OK},
       {"legacy-admin-key", Rpc::kDropCollection, "other_coll", StatusCode::OK},
   };
 

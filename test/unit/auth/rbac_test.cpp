@@ -73,33 +73,35 @@ TEST_CASE("HasPermission - every role against every permission") {
 // Collection access tests
 // ============================================================================
 
-TEST_CASE("HasCollectionAccess - admin always has access") {
-  auth::ApiKeyRole role{"key", auth::Role::ADMIN, {}};
-  CHECK(auth::HasCollectionAccess(role, "anything"));
-}
-
-TEST_CASE("HasCollectionAccess - wildcard grants all") {
-  auth::ApiKeyRole role{"key", auth::Role::READWRITE, {"*"}};
-  CHECK(auth::HasCollectionAccess(role, "products"));
-  CHECK(auth::HasCollectionAccess(role, "embeddings"));
-}
-
-TEST_CASE("HasCollectionAccess - specific collection") {
-  auth::ApiKeyRole role{"key", auth::Role::READWRITE, {"products"}};
-  CHECK(auth::HasCollectionAccess(role, "products"));
-  CHECK_FALSE(auth::HasCollectionAccess(role, "embeddings"));
-}
-
-TEST_CASE("HasCollectionAccess - multiple collections") {
-  auth::ApiKeyRole role{"key", auth::Role::READWRITE, {"products", "embeddings"}};
-  CHECK(auth::HasCollectionAccess(role, "products"));
-  CHECK(auth::HasCollectionAccess(role, "embeddings"));
-  CHECK_FALSE(auth::HasCollectionAccess(role, "other"));
-}
-
-TEST_CASE("HasCollectionAccess - empty collection name always passes") {
-  auth::ApiKeyRole role{"key", auth::Role::READWRITE, {"products"}};
-  CHECK(auth::HasCollectionAccess(role, ""));
+TEST_CASE("HasCollectionAccess") {
+  struct Row {
+    const char* name;
+    auth::Role role;
+    std::vector<std::string> collections;
+    std::string collection;
+    bool allowed;
+  };
+  const std::vector<Row> rows = {
+      {"admin always has access", auth::Role::ADMIN, {}, "anything", true},
+      {"wildcard grants all", auth::Role::READWRITE, {"*"}, "products", true},
+      {"wildcard grants all", auth::Role::READWRITE, {"*"}, "embeddings", true},
+      {"specific collection", auth::Role::READWRITE, {"products"}, "products", true},
+      {"specific collection", auth::Role::READWRITE, {"products"}, "embeddings", false},
+      {"multiple collections", auth::Role::READWRITE, {"products", "embeddings"}, "products", true},
+      {"multiple collections",
+       auth::Role::READWRITE,
+       {"products", "embeddings"},
+       "embeddings",
+       true},
+      {"multiple collections", auth::Role::READWRITE, {"products", "embeddings"}, "other", false},
+      {"empty collection name always passes", auth::Role::READWRITE, {"products"}, "", true},
+  };
+  for (const Row& row : rows) {
+    CAPTURE(row.name);
+    CAPTURE(row.collection);
+    const auth::ApiKeyRole role{"key", row.role, row.collections};
+    CHECK_EQ(auth::HasCollectionAccess(role, row.collection), row.allowed);
+  }
 }
 
 // ============================================================================
@@ -193,67 +195,46 @@ TEST_CASE("RbacStore - size") {
 // RbacStore::Create: invalid configs (validation)
 // ============================================================================
 
-TEST_CASE("RbacStore rejects unknown role string") {
-  auth::AuthConfig config;
-  config.roles = {{"key1", "readwritee", {"*"}}};
-  auto result = auth::RbacStore::Create(config);
-  CHECK_FALSE(result.ok());
-  CHECK(result.status().message().find("Unknown role") != std::string::npos);
-}
-
-TEST_CASE("RbacStore rejects empty key") {
-  auth::AuthConfig config;
-  config.roles = {{"", "admin", {}}};
-  auto result = auth::RbacStore::Create(config);
-  CHECK_FALSE(result.ok());
-  CHECK(result.status().message().find("empty key") != std::string::npos);
-}
-
-TEST_CASE("RbacStore rejects empty legacy key") {
-  auth::AuthConfig config;
-  config.api_keys = {""};
-  auto result = auth::RbacStore::Create(config);
-  CHECK_FALSE(result.ok());
-  CHECK(result.status().message().find("empty key") != std::string::npos);
-}
-
-TEST_CASE("RbacStore rejects readwrite with empty collections") {
-  auth::AuthConfig config;
-  config.roles = {{"key1", "readwrite", {}}};
-  auto result = auth::RbacStore::Create(config);
-  CHECK_FALSE(result.ok());
-  CHECK(result.status().message().find("must specify collections") != std::string::npos);
-}
-
-TEST_CASE("RbacStore rejects readonly with empty collections") {
-  auth::AuthConfig config;
-  config.roles = {{"key1", "readonly", {}}};
-  auto result = auth::RbacStore::Create(config);
-  CHECK_FALSE(result.ok());
-  CHECK(result.status().message().find("must specify collections") != std::string::npos);
-}
-
-TEST_CASE("RbacStore rejects collection_admin with empty collections") {
-  auth::AuthConfig config;
-  config.roles = {{"key1", "collection_admin", {}}};
-  auto result = auth::RbacStore::Create(config);
-  CHECK_FALSE(result.ok());
-  CHECK(result.status().message().find("must specify collections") != std::string::npos);
-}
-
-TEST_CASE("RbacStore accepts admin with empty collections") {
-  auth::AuthConfig config;
-  config.roles = {{"key1", "admin", {}}};
-  auto result = auth::RbacStore::Create(config);
-  CHECK(result.ok());
-}
-
-TEST_CASE("RbacStore rejects enabled auth with no keys") {
-  auth::AuthConfig config;
-  // enabled but no api_keys and no roles
-  auto result = auth::RbacStore::Create(config);
-  CHECK_FALSE(result.ok());
-  CHECK(result.status().message().find("no API keys configured") != std::string::npos);
+TEST_CASE("RbacStore::Create validates the auth configuration") {
+  struct Row {
+    const char* name;
+    std::vector<std::string> api_keys;
+    std::vector<auth::ApiKeyConfig> roles;
+    // A substring of the error message, or empty when the configuration is valid.
+    std::string error;
+  };
+  const std::vector<Row> rows = {
+      {"unknown role string", {}, {{"key1", "readwritee", {"*"}}}, "Unknown role"},
+      {"empty key", {}, {{"", "admin", {}}}, "empty key"},
+      {"empty legacy key", {""}, {}, "empty key"},
+      {"readwrite with empty collections",
+       {},
+       {{"key1", "readwrite", {}}},
+       "must specify collections"},
+      {"readonly with empty collections",
+       {},
+       {{"key1", "readonly", {}}},
+       "must specify collections"},
+      {"collection_admin with empty collections",
+       {},
+       {{"key1", "collection_admin", {}}},
+       "must specify collections"},
+      {"admin with empty collections", {}, {{"key1", "admin", {}}}, ""},
+      {"enabled auth with no keys", {}, {}, "no API keys configured"},
+  };
+  for (const Row& row : rows) {
+    CAPTURE(row.name);
+    auth::AuthConfig config;
+    config.api_keys = row.api_keys;
+    config.roles = row.roles;
+    auto result = auth::RbacStore::Create(config);
+    if (row.error.empty()) {
+      CHECK(result.ok());
+    } else {
+      REQUIRE_FALSE(result.ok());
+      CHECK(result.status().message().find(row.error) != std::string::npos);
+    }
+  }
 }
 
 // ============================================================================
