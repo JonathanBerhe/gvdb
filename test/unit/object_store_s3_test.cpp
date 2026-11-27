@@ -24,7 +24,7 @@
 #include <string_view>
 
 #include "object_store_contract.h"
-#include "storage/s3_object_store.h"
+#include "storage/objstore/s3_object_store.h"
 #include "support/temp_dir.h"
 
 namespace gvdb {

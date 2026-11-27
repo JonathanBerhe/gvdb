@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "turboquant_codec.h"
+#include "index/turboquant/turboquant_codec.h"
 
 #include <algorithm>
 #include <cmath>

@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "storage/segment_manifest.h"
+#include "storage/segment/segment_manifest.h"
 
 #include <doctest/doctest.h>
 

@@ -3,8 +3,8 @@
 
 #ifdef GVDB_HAS_METAL
 
-#include "metal_flat_index.h"
-#include "metal_compute.h"
+#include "index/metal/metal_flat_index.h"
+#include "index/metal/metal_compute.h"
 
 #include <Metal/Metal.hpp>
 

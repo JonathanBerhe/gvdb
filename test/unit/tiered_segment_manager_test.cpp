@@ -1,8 +1,8 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "storage/tiered_segment_manager.h"
-#include "storage/object_store.h"
+#include "storage/segment/tiered_segment_manager.h"
+#include "storage/objstore/object_store.h"
 #include "index/index_factory.h"
 #include "support/temp_dir.h"
 #include "support/vectors.h"

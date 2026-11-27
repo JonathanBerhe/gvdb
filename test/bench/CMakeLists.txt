@@ -11,7 +11,6 @@ if(GVDB_WITH_METAL)
   gvdb_add_executable(gvdb-metal-bench
     SOURCES metal_bench.cpp
     DEPS gvdb::index gvdb::core gvdb::metal_cpp faiss
-    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/src/index
   )
 endif()
 
@@ -21,6 +20,5 @@ if(GVDB_WITH_CUDA)
   gvdb_add_executable(gvdb-cuda-bench
     SOURCES cuda_bench.cpp
     DEPS gvdb::index gvdb::core faiss CUDA::cudart CUDA::cublas
-    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/src/index
   )
 endif()

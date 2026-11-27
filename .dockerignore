@@ -1,6 +1,5 @@
-# The image builds only the C++ server (deploy/Dockerfile): src, include,
-# proto, cmake, the CMake files, config.example.yaml and the LLVM install
-# script.
+# The image builds only the C++ server (deploy/Dockerfile): src, proto,
+# cmake, the CMake files, config.example.yaml and the LLVM install script.
 build/
 .git/
 .claude/

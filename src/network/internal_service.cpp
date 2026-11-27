@@ -9,7 +9,7 @@
 #include "cluster/primary_term_tracker.h"
 #include "cluster/shard_write_gate.h"
 #include "consensus/raft_node.h"
-#include "storage/backup_manager.h"
+#include "storage/backup/backup_manager.h"
 #include "utils/logger.h"
 #include "core/types.h"
 

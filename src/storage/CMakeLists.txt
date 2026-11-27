@@ -2,21 +2,21 @@
 # backup.
 gvdb_add_library(storage
   SOURCES
-    batch_splitter.cpp
-    segment.cpp
-    segment_manager.cpp
-    scalar_index.cpp
-    object_store.cpp
-    object_store_factory.cpp
-    filesystem_object_store.cpp
-    segment_cache.cpp
-    segment_manifest.cpp
-    tiered_segment_manager.cpp
-    npy_reader.cpp
-    bulk_importer.cpp
-    backup_manifest.cpp
-    segment_export.cpp
-    backup_manager.cpp
+    segment/batch_splitter.cpp
+    segment/segment.cpp
+    segment/segment_manager.cpp
+    segment/scalar_index.cpp
+    segment/segment_cache.cpp
+    segment/segment_manifest.cpp
+    segment/tiered_segment_manager.cpp
+    objstore/object_store.cpp
+    objstore/object_store_factory.cpp
+    objstore/filesystem_object_store.cpp
+    import/npy_reader.cpp
+    import/bulk_importer.cpp
+    backup/backup_manifest.cpp
+    backup/segment_export.cpp
+    backup/backup_manager.cpp
   PUBLIC_DEPS
     gvdb::core
     gvdb::index
@@ -27,13 +27,13 @@ gvdb_add_library(storage
 )
 
 if(GVDB_WITH_S3)
-  target_sources(gvdb_storage PRIVATE s3_object_store.cpp)
+  target_sources(gvdb_storage PRIVATE objstore/s3_object_store.cpp)
   target_link_libraries(gvdb_storage PUBLIC aws-cpp-sdk-s3 aws-cpp-sdk-core)
   target_compile_definitions(gvdb_storage PUBLIC GVDB_HAS_S3=1)
 endif()
 
 if(GVDB_WITH_GCS)
-  target_sources(gvdb_storage PRIVATE gcs_object_store.cpp)
+  target_sources(gvdb_storage PRIVATE objstore/gcs_object_store.cpp)
   target_link_libraries(gvdb_storage PUBLIC google-cloud-cpp::storage)
   target_compile_definitions(gvdb_storage PUBLIC GVDB_HAS_GCS=1)
 endif()

@@ -20,7 +20,7 @@
 #include <string>
 
 #include "object_store_contract.h"
-#include "storage/gcs_object_store.h"
+#include "storage/objstore/gcs_object_store.h"
 #include "support/temp_dir.h"
 
 namespace gvdb {

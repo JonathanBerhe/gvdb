@@ -16,12 +16,12 @@
 #include "index/index_factory.h"
 
 #ifdef GVDB_HAS_METAL
-#include "metal/metal_compute.h"
-#include "metal/metal_flat_index.h"
+#include "index/metal/metal_compute.h"
+#include "index/metal/metal_flat_index.h"
 #endif
 
 // Directly include faiss flat to bypass Metal selection in IndexFactory
-#include "faiss_flat.h"
+#include "index/faiss/faiss_flat.h"
 
 using namespace gvdb;
 

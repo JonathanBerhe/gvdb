@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "storage/segment_cache.h"
+#include "storage/segment/segment_cache.h"
 
 #include <doctest/doctest.h>
 

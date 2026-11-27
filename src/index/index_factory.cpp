@@ -3,14 +3,14 @@
 
 #include "index/index_factory.h"
 
-#include "faiss_flat.h"
-#include "faiss_hnsw.h"
-#include "faiss_ivf.h"
-#include "turboquant/turboquant_index.h"
-#include "turboquant/ivf_turboquant_index.h"
+#include "index/faiss/faiss_flat.h"
+#include "index/faiss/faiss_hnsw.h"
+#include "index/faiss/faiss_ivf.h"
+#include "index/turboquant/turboquant_index.h"
+#include "index/turboquant/ivf_turboquant_index.h"
 #ifdef GVDB_HAS_METAL
-#include "metal/metal_compute.h"
-#include "metal/metal_flat_index.h"
+#include "index/metal/metal_compute.h"
+#include "index/metal/metal_flat_index.h"
 #endif
 
 namespace gvdb {

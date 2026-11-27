@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Runs every test of a coverage build and reports line coverage of GVDB's own
-# sources (src/ and include/), per file and per module.
+# sources (src/), per file and per module.
 #
 # Usage: tools/coverage.sh <build-dir>
 #
 # The build directory must come from the coverage preset (GVDB_COVERAGE=ON).
 # Results go to <build-dir>/coverage:
 #   report.txt    llvm-cov report, one line per file
-#   modules.txt   line coverage per module (src/<module> and include/<module>)
+#   modules.txt   line coverage per module (src/<module>)
 #   summary.json  llvm-cov export -summary-only, for comparing two runs
 #
 # The script exits with the status of the test run, so a failing test still
@@ -60,7 +60,7 @@ if [[ ${#objects[@]} -eq 0 ]]; then
   exit 1
 fi
 
-cov_args=("${objects[@]}" "-instr-profile=$out_dir/gvdb.profdata" "$repo_root/src" "$repo_root/include")
+cov_args=("${objects[@]}" "-instr-profile=$out_dir/gvdb.profdata" "$repo_root/src")
 
 "$llvm_cov" report "${cov_args[@]}" > "$out_dir/report.txt"
 "$llvm_cov" export -summary-only "${cov_args[@]}" > "$out_dir/summary.json"

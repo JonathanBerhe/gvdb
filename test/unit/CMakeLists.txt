@@ -11,9 +11,6 @@ gvdb_add_test(core_tests
 gvdb_add_test(index_tests
   SOURCES index_test.cpp
   DEPS gvdb::index gvdb::core
-  # Checks that adaptive parameters reach the FAISS wrappers
-  # (FaissHNSWIndex::GetEfSearch and others), which are private to the module.
-  INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/src/index
   TIMEOUT 120 LABELS unit)
 
 gvdb_add_test(sparse_index_tests
@@ -30,7 +27,6 @@ if(GVDB_WITH_CUDA)
   gvdb_add_test(cuda_smoke_tests
     SOURCES cuda_smoke_test.cpp
     DEPS gvdb::index gvdb::core faiss
-    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/src/index
     TIMEOUT 120 LABELS unit gpu cuda)
 endif()
 
@@ -38,7 +34,6 @@ if(GVDB_WITH_METAL)
   gvdb_add_test(metal_distance_tests
     SOURCES metal_distance_test.cpp
     DEPS gvdb::index gvdb::core gvdb::metal_cpp faiss
-    INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/src/index ${PROJECT_SOURCE_DIR}/src/index/metal
     # Loads the kernel source from <build>/kernels.
     WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
     TIMEOUT 120 LABELS unit gpu metal)

@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "cuda/cuda_compute.h"
+#include "index/cuda/cuda_compute.h"
 
 #ifdef GVDB_HAS_CUDA
 #include <cuda_runtime.h>

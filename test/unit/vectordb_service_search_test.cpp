@@ -19,7 +19,7 @@
 #include "index/index_factory.h"
 #include "network/collection_resolver.h"
 #include "network/vectordb_service.h"
-#include "storage/segment_manager.h"
+#include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 #include "support/vectors.h"
 #include "utils/query_cache.h"

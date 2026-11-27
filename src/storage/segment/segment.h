@@ -1,0 +1,293 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
+#pragma once
+
+#include <memory>
+#include <shared_mutex>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "core/interfaces.h"
+#include "core/metadata.h"
+#include "core/status.h"
+#include "core/types.h"
+#include "core/sparse_vector.h"
+#include "core/vector.h"
+#include "index/sparse_index.h"
+#include "index/text_index.h"
+#include "storage/segment/scalar_index.h"
+
+namespace gvdb {
+namespace storage {
+
+// Forward declarations
+class Segment;
+
+// ============================================================================
+// Segment - Manages vector data for a single segment
+// ============================================================================
+// A segment represents a unit of data storage that goes through lifecycle:
+// GROWING -> SEALING -> SEALED -> (optionally) FLUSHED
+//
+// Thread-safety: All operations are thread-safe using shared_mutex
+class Segment {
+ public:
+  // Constructor
+  Segment(core::SegmentId id, core::CollectionId collection_id,
+          core::Dimension dimension, core::MetricType metric,
+          size_t max_segment_size = kMaxSegmentSize);
+
+  // Disable copy and move (contains mutex)
+  Segment(const Segment&) = delete;
+  Segment& operator=(const Segment&) = delete;
+  Segment(Segment&&) = delete;
+  Segment& operator=(Segment&&) = delete;
+
+  ~Segment() = default;
+
+  // ========== Data Operations ==========
+
+  // Add vectors to segment (only valid for GROWING state)
+  [[nodiscard]] core::Status AddVectors(
+      const std::vector<core::Vector>& vectors,
+      const std::vector<core::VectorId>& ids,
+      const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
+
+  // Add vectors with metadata to segment (only valid for GROWING state)
+  [[nodiscard]] core::Status AddVectorsWithMetadata(
+      const std::vector<core::Vector>& vectors,
+      const std::vector<core::VectorId>& ids,
+      const std::vector<core::Metadata>& metadata,
+      const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
+
+  // Read specific vectors by ID (fails if any ID not found)
+  [[nodiscard]] core::StatusOr<std::vector<core::Vector>> ReadVectors(
+      const std::vector<core::VectorId>& ids) const;
+
+  // Get vectors by ID with metadata (returns partial results)
+  struct GetVectorsResult {
+    std::vector<core::VectorId> found_ids;
+    std::vector<core::Vector> found_vectors;
+    std::vector<core::Metadata> found_metadata;
+    std::vector<core::VectorId> not_found_ids;
+  };
+  [[nodiscard]] GetVectorsResult GetVectors(
+      const std::vector<core::VectorId>& ids, bool include_metadata) const;
+
+  // Delete vectors by ID (only valid for GROWING state)
+  struct DeleteVectorsResult {
+    uint64_t deleted_count;
+    std::vector<core::VectorId> not_found_ids;
+  };
+  [[nodiscard]] core::StatusOr<DeleteVectorsResult> DeleteVectors(
+      const std::vector<core::VectorId>& ids);
+
+  // Update metadata for a vector (only valid for GROWING state)
+  [[nodiscard]] core::Status UpdateMetadata(
+      core::VectorId id, const core::Metadata& metadata, bool merge);
+
+  // Search for nearest neighbors (requires index to be built)
+  [[nodiscard]] core::StatusOr<core::SearchResult> Search(
+      const core::Vector& query, int k) const;
+
+  // Search with metadata filtering (requires index to be built)
+  [[nodiscard]] core::StatusOr<core::SearchResult> SearchWithFilter(
+      const core::Vector& query, int k, const std::string& filter_expr) const;
+
+  // Hybrid search combining vector similarity and BM25 text relevance
+  // Uses Reciprocal Rank Fusion to combine ranked results
+  [[nodiscard]] core::StatusOr<core::SearchResult> SearchHybrid(
+      const core::Vector& query_vector,
+      const std::string& text_query,
+      int k,
+      float vector_weight = 0.5f,
+      float text_weight = 0.5f,
+      const std::string& text_field = "text",
+      const core::SparseVector* sparse_query = nullptr,
+      float sparse_weight = 0.0f) const;
+
+  // Upsert: insert or replace vector (only valid for GROWING state)
+  struct UpsertResult {
+    uint64_t inserted_count;
+    uint64_t updated_count;
+  };
+  [[nodiscard]] core::StatusOr<UpsertResult> UpsertVectors(
+      const std::vector<core::Vector>& vectors,
+      const std::vector<core::VectorId>& ids,
+      const std::vector<core::Metadata>& metadata,
+      const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
+
+  // Range search: find all vectors within distance radius
+  [[nodiscard]] core::StatusOr<core::SearchResult> SearchRange(
+      const core::Vector& query, float radius, int max_results = 1000) const;
+
+  // Range search with metadata filter
+  [[nodiscard]] core::StatusOr<core::SearchResult> SearchRangeWithFilter(
+      const core::Vector& query, float radius, const std::string& filter_expr,
+      int max_results = 1000) const;
+
+  // Get metadata for a vector
+  [[nodiscard]] core::StatusOr<core::Metadata> GetMetadata(core::VectorId id) const;
+
+  // ========== State Management ==========
+
+  // Build a BM25 text index from a metadata field across all vectors in this segment
+  core::Status BuildTextIndex(std::unique_ptr<index::ITextIndex> text_index,
+                               const std::string& text_field = "text");
+
+  // Build sparse index from stored sparse vectors
+  core::Status BuildSparseIndex(std::unique_ptr<index::SparseIndex> sparse_index);
+
+  // TTL: set expiry timestamp for a vector
+  void SetExpiry(core::VectorId id, int64_t expiry_timestamp);
+
+  // TTL: sweep expired vectors from GROWING segment (returns count deleted)
+  size_t SweepExpired();
+
+  // Add vectors with sparse data alongside dense vectors and metadata
+  [[nodiscard]] core::Status AddVectorsWithSparse(
+      const std::vector<core::Vector>& vectors,
+      const std::vector<core::VectorId>& ids,
+      const std::vector<core::Metadata>& metadata,
+      const std::unordered_map<uint64_t, core::SparseVector>& sparse,
+      const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
+
+  // Seal the segment (transition from GROWING to SEALED)
+  // This builds the index and makes the segment immutable
+  [[nodiscard]] core::Status Seal(core::IVectorIndex* index);
+
+  // Flush segment data to persistent storage
+  [[nodiscard]] core::Status Flush(const std::string& base_path);
+
+  // Load segment from persistent storage
+  [[nodiscard]] static core::StatusOr<std::unique_ptr<Segment>> Load(
+      const std::string& base_path, core::SegmentId id);
+
+  // ========== Serialization for Replication ==========
+
+  // Serialize segment data to bytes (for network transfer)
+  [[nodiscard]] core::StatusOr<std::string> SerializeToBytes() const;
+
+  // Deserialize segment data from bytes and create segment
+  [[nodiscard]] static core::StatusOr<std::unique_ptr<Segment>> DeserializeFromBytes(
+      const std::string& bytes_data);
+
+  // Rebind this segment to a different collection_id. ONLY valid in the
+  // restore path, where a freshly-recreated target collection has a
+  // different collection_id than the one captured in the backup. Must
+  // be called before AddReplicatedSegment (segment is not yet installed
+  // anywhere), and must not be called on a SEALED segment that already
+  // serves queries.
+  void SetCollectionIdForRestore(core::CollectionId collection_id);
+
+  // Rebind this segment to a different segment_id. Same restore-only
+  // contract as SetCollectionIdForRestore: callable on a yet-uninstalled
+  // segment so a restored backup doesn't collide with segment_ids that
+  // are still in use on the target node (a different live collection
+  // can occupy the original id space).
+  void SetSegmentIdForRestore(core::SegmentId segment_id);
+
+  // Get all vector IDs in this segment
+  [[nodiscard]] std::vector<core::VectorId> GetAllVectorIds() const;
+
+  // ========== Accessors ==========
+
+  [[nodiscard]] core::SegmentId GetId() const { return id_; }
+  [[nodiscard]] core::CollectionId GetCollectionId() const {
+    return collection_id_;
+  }
+  [[nodiscard]] core::SegmentState GetState() const;
+  [[nodiscard]] core::Dimension GetDimension() const { return dimension_; }
+  [[nodiscard]] core::MetricType GetMetric() const { return metric_; }
+  [[nodiscard]] core::IndexType GetIndexType() const { return index_type_; }
+  [[nodiscard]] size_t GetVectorCount() const;
+  [[nodiscard]] size_t GetMemoryUsage() const;
+
+  // Check if segment can accept more vectors
+  [[nodiscard]] bool CanAcceptWrites() const;
+
+  // Whether a live in-memory index is attached. Segments deserialized from
+  // disk or import staging carry vectors but no index until it is rebuilt.
+  [[nodiscard]] bool HasIndex() const;
+
+  // Check if a specific batch of additional_bytes would fit
+  [[nodiscard]] bool CanFit(size_t additional_bytes) const;
+
+  // Get maximum segment size (512 MB default)
+  static constexpr size_t kMaxSegmentSize = 512 * 1024 * 1024;  // 512 MB
+
+  // Per-vector metadata cost charged against the segment size cap. The
+  // capacity checks in AddVectorsWithMetadata/AddVectorsWithSparse and any
+  // caller pre-computing batch costs must use this same figure.
+  static constexpr size_t kMetadataBytesEstimate = 1024;
+
+  // TTL sweep interval for background sweep loops
+  static constexpr int kTTLSweepIntervalSeconds = 30;
+
+  friend class SegmentManager;
+
+ private:
+  // Segment identification
+  core::SegmentId id_;
+  core::CollectionId collection_id_;
+  core::Dimension dimension_;
+  core::MetricType metric_;
+  core::IndexType index_type_ = core::IndexType::FLAT;
+
+  // State management
+  mutable std::shared_mutex mutex_;
+  core::SegmentState state_;
+
+  // Vector storage (for GROWING state)
+  std::vector<core::Vector> vectors_;
+  std::vector<core::VectorId> vector_ids_;
+  size_t memory_usage_;
+  size_t max_segment_size_;
+
+  // Metadata storage (maps VectorId to Metadata)
+  std::unordered_map<uint64_t, core::Metadata> metadata_map_;
+
+  // Index (for SEALED state)
+  std::unique_ptr<core::IVectorIndex> index_;
+
+  // Text index for BM25 hybrid search (built during seal from metadata text fields)
+  std::unique_ptr<index::ITextIndex> text_index_;
+
+  // Sparse index and storage for sparse vector hybrid search
+  std::unique_ptr<index::SparseIndex> sparse_index_;
+  std::unordered_map<uint64_t, core::SparseVector> sparse_vectors_;
+
+  // TTL: maps VectorId → Unix epoch expiry time (seconds)
+  std::unordered_map<uint64_t, int64_t> expiry_map_;
+
+  // Scalar indexes on metadata fields (built incrementally + during seal)
+  ScalarIndexSet scalar_indexes_;
+
+  // Helper methods
+  [[nodiscard]] bool IsFull() const;
+  [[nodiscard]] bool IsExpired(uint64_t vector_id_uint, int64_t now) const;
+  [[nodiscard]] core::Status ValidateVectors(
+      const std::vector<core::Vector>& vectors,
+      const std::vector<core::VectorId>& ids) const;
+
+  // Delete vectors without acquiring the lock. Caller must hold unique_lock.
+  [[nodiscard]] core::StatusOr<DeleteVectorsResult> DeleteVectorsUnlocked(
+      const std::vector<core::VectorId>& ids);
+
+  // Get current epoch seconds
+  [[nodiscard]] static int64_t NowEpochSeconds();
+
+  // Compute distance between two vectors using the segment's metric
+  [[nodiscard]] float ComputeDistance(const core::Vector& a,
+                                      const core::Vector& b) const;
+
+  // Brute-force search over in-memory vectors. Caller must hold the lock.
+  [[nodiscard]] core::StatusOr<core::SearchResult> BruteForceSearchUnlocked(
+      const core::Vector& query, int k) const;
+};
+
+}  // namespace storage
+}  // namespace gvdb
+

@@ -18,10 +18,10 @@
 
 #include "core/types.h"
 #include "core/vector.h"
-#include "faiss_ivf.h"
+#include "index/faiss/faiss_ivf.h"
 
 #ifdef GVDB_HAS_CUDA
-#include "cuda/cuda_compute.h"
+#include "index/cuda/cuda_compute.h"
 #endif
 
 using namespace gvdb;

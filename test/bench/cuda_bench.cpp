@@ -30,7 +30,7 @@
 #include <faiss/gpu/GpuCloner.h>
 #include <faiss/gpu/StandardGpuResources.h>
 
-#include "cuda/cuda_compute.h"
+#include "index/cuda/cuda_compute.h"
 #endif
 
 using namespace gvdb;

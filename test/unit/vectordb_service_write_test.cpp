@@ -14,7 +14,7 @@
 
 #include "network/vectordb_service.h"
 #include "network/collection_resolver.h"
-#include "storage/segment_manager.h"
+#include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "support/grpc_server.h"
