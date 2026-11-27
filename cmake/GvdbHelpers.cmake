@@ -49,17 +49,21 @@ function(gvdb_add_executable name)
 endfunction()
 
 # gvdb_add_test(<name> SOURCES <file>... DEPS <dep>... TIMEOUT <seconds>
-#               LABELS <label>... [WORKING_DIRECTORY <dir>]
+#               LABELS <label>... [DISCOVER] [WORKING_DIRECTORY <dir>]
 #               [ENVIRONMENT <VAR=value>...] [CUSTOM_MAIN] [SKIP_RETURN_CODE <code>])
 #
 # Creates a doctest executable and registers it with CTest under the same name.
+# With DISCOVER, CTest instead runs each test case of the executable as its own
+# test, named "<name>:<test case>", so CTest can run the cases in parallel.
+# The build lists the cases after it links the executable. TIMEOUT, LABELS,
+# WORKING_DIRECTORY and ENVIRONMENT then apply to each case.
 # Every test links gvdb::test_support, so it can include "support/...".
 # CUSTOM_MAIN links doctest without its main(), for tests that define their
 # own (for example to skip when a required service is not configured).
 # SKIP_RETURN_CODE makes CTest report that exit code as skipped. ENVIRONMENT
 # sets variables for the test process when CTest runs it.
 function(gvdb_add_test name)
-  cmake_parse_arguments(PARSE_ARGV 1 arg "CUSTOM_MAIN" "TIMEOUT;WORKING_DIRECTORY;SKIP_RETURN_CODE" "SOURCES;DEPS;LABELS;ENVIRONMENT")
+  cmake_parse_arguments(PARSE_ARGV 1 arg "CUSTOM_MAIN;DISCOVER" "TIMEOUT;WORKING_DIRECTORY;SKIP_RETURN_CODE" "SOURCES;DEPS;LABELS;ENVIRONMENT")
   if(NOT arg_TIMEOUT OR NOT arg_LABELS)
     message(FATAL_ERROR "gvdb_add_test(${name}): TIMEOUT and LABELS are required")
   endif()
@@ -76,6 +80,22 @@ function(gvdb_add_test name)
     target_link_libraries(${name} PRIVATE gvdb::test_support)
   endif()
   _gvdb_configure_target(${name})
+
+  if(arg_DISCOVER)
+    set(properties TIMEOUT ${arg_TIMEOUT} LABELS "${arg_LABELS}")
+    if(arg_ENVIRONMENT)
+      list(APPEND properties ENVIRONMENT "${arg_ENVIRONMENT}")
+    endif()
+    set(working_directory "${CMAKE_CURRENT_BINARY_DIR}")
+    if(arg_WORKING_DIRECTORY)
+      set(working_directory "${arg_WORKING_DIRECTORY}")
+    endif()
+    doctest_discover_tests(${name}
+      TEST_PREFIX "${name}:"
+      WORKING_DIRECTORY "${working_directory}"
+      PROPERTIES ${properties})
+    return()
+  endif()
 
   add_test(NAME ${name} COMMAND ${name})
   set_tests_properties(${name} PROPERTIES TIMEOUT ${arg_TIMEOUT} LABELS "${arg_LABELS}")

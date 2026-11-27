@@ -1,18 +1,19 @@
 # Tests
 
 ```bash
-# All tests of the dev build, eight test binaries at a time
+# All tests of the dev build, eight at a time
 ctest --preset dev --parallel 8
 
 # One kind of test
 ctest --preset dev -L unit
 ctest --preset dev -L integration
 
-# Single suite (CTest names equal the executable names)
-ctest --preset dev -R storage_tests
+# The unit tests of one module, or one test case
+ctest --preset dev -R '^storage_tests:'
+ctest --preset dev -R '^storage_tests:rejects unset target$'
 ```
 
-The test binaries are isolated: each test writes to its own temp folder and starts its servers on free ports, so CTest can run them in parallel. `make test` does that.
+CTest runs each unit test case as its own test, named `<module>_tests:<test case>`. An integration test binary is one CTest test, named after the binary. The tests are isolated: each test writes to its own temp folder and starts its servers on free ports, so CTest can run them in parallel. `make test` does that.
 
 ## Shared helpers (`support/`)
 
@@ -27,34 +28,31 @@ Header-only helpers that every test links (`#include "support/<file>.h"`, namesp
 
 ## Unit (`unit/`)
 
-C++ / doctest. One file per module.
+C++ / doctest. One folder per module of `src/`, and each folder builds one binary, `<module>_tests`. The test files of a folder share that binary, so each file keeps its helpers and fixtures in an anonymous namespace.
 
-| File | Covers |
-|------|--------|
-| `core_test.cpp` | Types, vectors, status, metadata, filters |
-| `index_test.cpp` | FLAT, HNSW, IVF index operations |
-| `storage_test.cpp` | Segment lifecycle, persistence round-trip |
-| `compute_test.cpp` | Parallel query execution |
-| `utils_test.cpp` | Logger, thread pool, timer, YAML configuration |
-| `network_test.cpp` | Proto conversions, VectorDBService CRUD |
-| `cluster_simple_test.cpp` | ShardManager, Coordinator |
-| `consensus_test.cpp` | Timestamp oracle, Raft peer parsing, single-node Raft |
-| `consensus_persistence_test.cpp` | RocksDB log store |
-| `proxy_service_test.cpp` | Proxy routing |
-| `auth_processor_test.cpp` | API key authentication, role by RPC by collection matrix |
-| `collection_metadata_cache_test.cpp` | Metadata cache |
-| `internal_client_test.cpp` | gRPC client abstraction |
-| `internal_service_metadata_test.cpp` | Metadata sync RPCs, in process and over gRPC |
-| `vectordb_service_distributed_test.cpp` | Distributed mode with mock coordinator |
-| `vectordb_service_coordinator_test.cpp` | Coordinator mode |
-| `vectordb_service_write_test.cpp` | Upsert, StreamInsert over gRPC, TTL expiry |
-| `vectordb_service_search_test.cpp` | RangeSearch, HybridSearch, sparse search, filters, index types and metrics, concurrent search |
-| `vectordb_service_import_test.cpp` | BulkImport, GetImportStatus, CancelImport |
-| `vectordb_service_backup_test.cpp` | Backup and restore in single-node mode (S3 and local targets) |
-| `object_store_test.cpp` | Object store contract (in-memory, filesystem), CreateObjectStore |
-| `object_store_s3_test.cpp` | Object store contract against S3 (needs `GVDB_TEST_S3_ENDPOINT`, see `make test-s3`) |
-| `object_store_gcs_test.cpp` | Object store contract against a GCS emulator (needs `GVDB_TEST_GCS_ENDPOINT`) |
-| `server_flags_test.cpp` | Flag table of the server programs: values, lists, environment variables, usage text |
+| Folder | Files | Covers |
+|--------|-------|--------|
+| `core/` | `core_test.cpp` | Types, vectors, status, metadata, filters |
+| `common/` | `common_test.cpp` | Logger, thread pool, timer, file helpers |
+| `config/` | `config_test.cpp` | YAML configuration |
+| `auth/` | `rbac_test.cpp` | API keys, roles, permissions |
+| `index/` | `index_test.cpp`, `sparse_index_test.cpp`, `turboquant_test.cpp` | FLAT, HNSW, IVF, sparse and TurboQuant indexes |
+| `storage/` | `storage_test.cpp`, `object_store_test.cpp`, `segment_cache_test.cpp`, `segment_manifest_test.cpp`, `tiered_segment_manager_test.cpp`, `bulk_import_test.cpp`, `backup_manifest_test.cpp`, `backup_manager_test.cpp` | Segment lifecycle and persistence, object store contract (in-memory, filesystem), `CreateObjectStore`, segment cache, tiered storage, bulk import, backup and restore engines |
+| `compute/` | `compute_test.cpp` | Parallel query execution |
+| `cluster/` | `cluster_simple_test.cpp`, `node_registry_test.cpp`, `coordinator_backup_test.cpp`, `internal_client_test.cpp`, `data_node_test.cpp`, `query_node_test.cpp`, `primary_term_tracker_test.cpp`, `shard_write_gate_test.cpp` | ShardManager, Coordinator, node registry, backup fan-out, gRPC client, data and query nodes, primary terms, write fence |
+| `consensus/` | `consensus_test.cpp`, `consensus_persistence_test.cpp` | Timestamp oracle, Raft peer parsing, single-node Raft, RocksDB log store |
+| `rpc/` | `auth_processor_test.cpp`, `audit_interceptor_test.cpp`, `replica_fallback_test.cpp`, `dns_channel_args_test.cpp` | API key authentication by RPC and collection, audit log, replica fallback, DNS channel arguments |
+| `service/` | `network_test.cpp`, `vectordb_service_*_test.cpp`, `collection_resolver_test.cpp`, `collection_metadata_cache_test.cpp`, `internal_service_*_test.cpp`, `proxy_service_test.cpp` | Proto conversions, VectorDBService in local, distributed and coordinator mode, resolvers, metadata cache, InternalService RPCs, proxy routing |
+| `server/` | `server_flags_test.cpp` | Flag table of the server programs: values, lists, environment variables, usage text |
+
+Four binaries stay outside this scheme, because they need special hardware or a service and run as one CTest test each:
+
+| Binary | File | Runs when |
+|--------|------|-----------|
+| `cuda_smoke_tests` | `index/cuda_smoke_test.cpp` | The build has CUDA (label `gpu`) |
+| `metal_distance_tests` | `index/metal_distance_test.cpp` | The build has Metal (label `gpu`) |
+| `object_store_s3_tests` | `storage/object_store_s3_test.cpp` | `GVDB_TEST_S3_ENDPOINT` is set, see `make test-s3` |
+| `object_store_gcs_tests` | `storage/object_store_gcs_test.cpp` | `GVDB_TEST_GCS_ENDPOINT` is set |
 
 ## Integration (`integration/`)
 

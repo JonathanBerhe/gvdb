@@ -70,7 +70,8 @@ See the [changelog](changelog.md) for the version-bump rules.
 - CI builds and tests the `ci` preset (`cmake --preset ci`, `cmake --build --preset ci`, `ctest --preset ci`) and must pass.
 - If you add a module or change the modules that a module uses, update the module order under Coding conventions.
 - Add tests for new features and bug fixes (TDD welcome).
-- Tests must be isolated, because CI runs the test binaries in parallel. Use the helpers in `test/support` for temp folders, gRPC servers on free ports and bounded waits. Do not use a fixed path, a fixed port or a fixed sleep.
+- Tests must be isolated, because CI runs the test cases in parallel, each in its own process. Use the helpers in `test/support` for temp folders, gRPC servers on free ports and bounded waits. Do not use a fixed path, a fixed port or a fixed sleep.
+- A unit test file goes into `test/unit/<module>/`, the folder of the module that it tests, and into the `SOURCES` of that folder's `CMakeLists.txt`. The files of a folder share one binary, so keep the helpers and fixtures of a file in an anonymous namespace, and give each test case a name that is unique in the module.
 - After a change to a file in `proto/`, run `make proto` and commit the regenerated stubs. CI fails when a stub differs from `proto/`.
 - Before you commit C++ changes, run `make format`. CI runs `make check-format` and fails when a file in `src/` or `test/` does not match `.clang-format`.
 - `.git-blame-ignore-revs` lists the commits that only reformat code. GitHub skips them in its blame view. For a local `git blame`, run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
