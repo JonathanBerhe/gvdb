@@ -23,6 +23,7 @@
 #include "service/vectordb/collection_resolver.h"
 #include "service/vectordb/vectordb_service.h"
 #include "storage/backup/backup_manager.h"
+#include "storage/backup/restore_manager.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_cache.h"
 #include "storage/segment/segment_manager.h"

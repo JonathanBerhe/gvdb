@@ -9,6 +9,7 @@
 #include "auth/audit_context.h"
 #include "cluster/coordinator/coordinator.h"
 #include "storage/backup/backup_manager.h"
+#include "storage/backup/restore_manager.h"
 #include <grpcpp/grpcpp.h>
 
 namespace gvdb {

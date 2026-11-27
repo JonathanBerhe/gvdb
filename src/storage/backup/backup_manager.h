@@ -10,48 +10,21 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
-#include <variant>
 #include <vector>
 
+#include "common/thread_pool.h"
 #include "core/status.h"
 #include "core/types.h"
 #include "storage/backup/backup_manifest.h"
+#include "storage/backup/backup_target.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_store.h"
-#include "common/thread_pool.h"
 
 namespace gvdb {
 namespace storage {
 
-// ============================================================================
-// Backup / Restore types (C++ mirror of the proto enums + oneof)
-// ============================================================================
-
-enum class BackupState {
-  PENDING = 0,
-  RUNNING = 1,
-  COMPLETED = 2,
-  FAILED = 3,
-  CANCELLED = 4,
-};
-
-struct S3BackupTarget {
-  std::string bucket;
-  std::string prefix;
-};
-
-struct LocalBackupTarget {
-  std::string path;
-};
-
-// Mirrors proto BackupTarget oneof; std::monostate represents "unset".
-using BackupTarget =
-    std::variant<std::monostate, S3BackupTarget, LocalBackupTarget>;
-
-// ============================================================================
-// BackupJob / RestoreJob — shared atomic-progress shape with BulkImporter
-// ============================================================================
-
+// Progress of one backup job. The atomics have the same shape as the
+// RestoreJob and BulkImporter jobs.
 struct BackupJob {
   std::string id;
   std::string collection_name;
@@ -88,57 +61,25 @@ struct BackupJobStatus {
   std::string manifest_uri;
 };
 
-struct RestoreJob {
-  std::string id;
-  BackupTarget source;
-  std::string backup_id;
-  uint32_t target_collection_id = 0;
-  std::atomic<BackupState> state{BackupState::PENDING};
-  std::atomic<uint32_t> shards_total{0};
-  std::atomic<uint32_t> shards_completed{0};
-  std::atomic<bool> cancelled{false};
-  mutable std::mutex error_mutex;
-  std::string error_message;
-  std::chrono::steady_clock::time_point start_time;
-
-  void SetError(const std::string& msg) {
-    std::lock_guard<std::mutex> lk(error_mutex);
-    error_message = msg;
-  }
-  std::string GetError() const {
-    std::lock_guard<std::mutex> lk(error_mutex);
-    return error_message;
-  }
-};
-
-struct RestoreJobStatus {
-  std::string restore_id;
-  BackupState state = BackupState::PENDING;
-  uint32_t shards_total = 0;
-  uint32_t shards_completed = 0;
-  std::string error_message;
-  float elapsed_seconds = 0.0f;
-};
-
 // ============================================================================
 // BackupManagerOptions
 // ============================================================================
 //
-// One BackupManager (and one RestoreManager) is created per server. It
+// One BackupManager (and one RestoreManager) runs per server. It
 // is configured at startup; per-request behavior is parameterized by the
 // BackupTarget on each call.
 //
 // `default_object_store` is the IObjectStore the server uses for S3
 // targets. The pointer is owned by the caller (typically the same
 // object the segment manager uses) and must outlive the manager. May
-// be nullptr — in that case requests with S3BackupTarget are rejected.
+// be nullptr: then requests with S3BackupTarget are rejected.
 //
 // `local_root_allowlist` gates LocalBackupTarget requests: a request
 // whose path does not lie under this root is rejected. Empty disables
 // local targets entirely.
 //
 // `flushed_segments_root` points at the directory where the segment
-// manager flushes sealed segments — i.e. the value such that flushed
+// manager flushes sealed segments, that is the value such that flushed
 // segment N lives under <flushed_segments_root>/segment_N/.
 struct BackupManagerOptions {
   IObjectStore* default_object_store = nullptr;
@@ -151,18 +92,7 @@ struct BackupManagerOptions {
   uint32_t node_id = 0;
 };
 
-struct RestoreManagerOptions {
-  IObjectStore* default_object_store = nullptr;
-  std::string s3_bucket;
-  std::string local_root_allowlist;
-  std::string staging_dir = "/tmp/gvdb-restore";
-  int max_concurrent_jobs = 2;
-};
-
-// ============================================================================
-// Per-shard executor results (used by the RPC handler in commits 3/4)
-// ============================================================================
-
+// Per-shard backup results.
 struct ShardBackupSegmentResult {
   uint64_t segment_id = 0;
   bool is_growing = false;
@@ -181,11 +111,10 @@ struct ShardBackupResult {
 // BackupManager
 // ============================================================================
 //
-// Orchestrates one or more shards' worth of backup work into a single
-// IObjectStore target. In commit 2 the manager handles single-shard
-// (single-node) backups inline; multi-shard fan-out via the
-// Coordinator is added in a later commit and re-uses the same per-shard
-// executor (`RunShardBackup`).
+// Runs backups into one IObjectStore target. StartBackupSingleShard backs
+// up the local segment store of a single node. StartBackupDistributed runs
+// one executor call per shard: the coordinator passes a call to the
+// BackupShard RPC, and each data node runs RunShardBackup.
 class BackupManager {
  public:
   explicit BackupManager(BackupManagerOptions opts);
@@ -246,8 +175,8 @@ class BackupManager {
   [[nodiscard]] core::Status Cancel(const std::string& backup_id);
 
   // Pure synchronous per-shard executor. Uploads every segment of the
-  // collection belonging to `shard_id` (in commit 2 single-shard mode
-  // this is every segment of the collection on the local store), writes
+  // collection belonging to `shard_id` (on a single node, every segment
+  // of the collection on the local store), writes
   // a per-shard manifest, and returns the manifest's object key. Does
   // NOT write the top-level manifest.
   [[nodiscard]] core::StatusOr<ShardBackupResult> RunShardBackup(
@@ -320,90 +249,5 @@ class BackupManager {
   std::unordered_map<std::string, std::shared_ptr<BackupJob>> jobs_;
 };
 
-// ============================================================================
-// RestoreManager
-// ============================================================================
-class RestoreManager {
- public:
-  explicit RestoreManager(RestoreManagerOptions opts);
-  ~RestoreManager() = default;
-
-  RestoreManager(const RestoreManager&) = delete;
-  RestoreManager& operator=(const RestoreManager&) = delete;
-
-  // Read the top-level manifest of a backup without restoring it.
-  // Caller uses this to learn the original collection metadata (so the
-  // coordinator can CreateCollection before issuing per-shard restores).
-  [[nodiscard]] core::StatusOr<BackupManifestV1> ReadManifest(
-      const BackupTarget& source,
-      const std::string& backup_id);
-
-  // Schedule a single-shard restore asynchronously.
-  // The restored segments keep their original collection_id from the
-  // backup manifest. The caller MUST ensure `target_collection_id`
-  // matches that id (the single-node path does not remap).
-  [[nodiscard]] core::StatusOr<std::string> StartRestoreSingleShard(
-      const BackupTarget& source,
-      const std::string& backup_id,
-      core::CollectionId target_collection_id,
-      core::ShardId shard_id,
-      std::shared_ptr<ISegmentStore> segment_store);
-
-  // Per-shard restore executor used by the multi-shard orchestration
-  // path. Caller (Coordinator) dispatches RestoreShard to the data-node
-  // hosting each shard's primary.
-  using ShardRestoreExecutor = std::function<core::Status(
-      const BackupTarget& source, const std::string& backup_id,
-      core::CollectionId target_collection_id, core::ShardId shard_id)>;
-
-  // Schedule a distributed restore asynchronously. Each shard is
-  // restored in sequence via `executor`; partial successes are tolerated
-  // only inasmuch as the restore is repeatable (segments are installed
-  // idempotently via AddReplicatedSegment), but the job's terminal
-  // state reflects the first failure.
-  [[nodiscard]] core::StatusOr<std::string> StartRestoreDistributed(
-      const BackupTarget& source,
-      const std::string& backup_id,
-      core::CollectionId target_collection_id,
-      const std::vector<core::ShardId>& shard_ids,
-      ShardRestoreExecutor executor);
-
-  [[nodiscard]] core::StatusOr<RestoreJobStatus> GetStatus(
-      const std::string& restore_id) const;
-
-  // Pure synchronous per-shard executor.
-  [[nodiscard]] core::Status RunShardRestore(
-      const BackupTarget& source,
-      const std::string& backup_id,
-      core::CollectionId target_collection_id,
-      core::ShardId shard_id,
-      std::shared_ptr<ISegmentStore> segment_store);
-
- private:
-  struct ResolvedTarget {
-    IObjectStore* store = nullptr;
-    std::unique_ptr<IObjectStore> owned;
-    std::string display_prefix;
-  };
-  [[nodiscard]] core::StatusOr<ResolvedTarget> ResolveTarget(
-      const BackupTarget& source);
-
-  void ExecuteSingleShardJob(std::shared_ptr<RestoreJob> job,
-                             core::ShardId shard_id,
-                             std::shared_ptr<ISegmentStore> segment_store);
-
-  void ExecuteDistributedJob(std::shared_ptr<RestoreJob> job,
-                             std::vector<core::ShardId> shard_ids,
-                             ShardRestoreExecutor executor);
-
-  static std::string AllocateRestoreId();
-
-  RestoreManagerOptions opts_;
-  std::unique_ptr<common::ThreadPool> pool_;
-  mutable std::mutex jobs_mutex_;
-  std::unordered_map<std::string, std::shared_ptr<RestoreJob>> jobs_;
-};
-
 }  // namespace storage
 }  // namespace gvdb
-

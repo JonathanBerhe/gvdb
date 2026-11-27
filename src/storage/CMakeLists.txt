@@ -4,11 +4,14 @@ gvdb_add_library(storage
   SOURCES
     segment/batch_splitter.cpp
     segment/segment.cpp
+    segment/segment_search.cpp
+    segment/segment_io.cpp
     segment/segment_manager.cpp
     segment/scalar_index.cpp
     segment/segment_cache.cpp
     segment/segment_manifest.cpp
     segment/tiered_segment_manager.cpp
+    segment/tiered_segment_sync.cpp
     objstore/object_store.cpp
     objstore/object_store_factory.cpp
     objstore/filesystem_object_store.cpp
@@ -17,6 +20,8 @@ gvdb_add_library(storage
     backup/backup_manifest.cpp
     backup/segment_export.cpp
     backup/backup_manager.cpp
+    backup/restore_manager.cpp
+    backup/backup_util.cpp
   PUBLIC_DEPS
     gvdb::core
     gvdb::index

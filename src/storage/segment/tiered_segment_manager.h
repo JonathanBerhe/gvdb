@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <memory>
@@ -111,6 +112,11 @@ class TieredSegmentManager : public ISegmentStore {
   [[nodiscard]] std::vector<core::SegmentId> GetFailedUploads() const;
 
  private:
+  // Files produced by Segment::Flush(), used for object store upload,
+  // download and delete.
+  static constexpr std::array<const char*, 3> kSegmentFiles = {"metadata.txt", "vectors.bin",
+                                                               "index.faiss"};
+
   // Mutable: const methods may trigger lazy segment loading from S3,
   // which mutates the local SegmentManager's in-memory segment map.
   mutable std::unique_ptr<SegmentManager> local_;

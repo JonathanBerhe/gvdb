@@ -267,7 +267,12 @@ class Segment {
 
   // Helper methods
   [[nodiscard]] bool IsFull() const;
-  [[nodiscard]] bool IsExpired(uint64_t vector_id_uint, int64_t now) const;
+  // Defined here because the search loops call it once per vector.
+  [[nodiscard]] bool IsExpired(uint64_t vector_id_uint, int64_t now) const {
+    auto it = expiry_map_.find(vector_id_uint);
+    if (it == expiry_map_.end()) return false;
+    return now >= it->second;
+  }
   [[nodiscard]] core::Status ValidateVectors(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) const;
