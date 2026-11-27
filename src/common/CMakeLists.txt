@@ -1,10 +1,12 @@
-# Common module: logging, metrics, timers, the thread pool and JSON helpers.
+# Common module: logging, metrics, timers, the thread pool, JSON helpers and
+# file helpers.
 gvdb_add_library(common
   SOURCES
     logger.cpp
     metrics.cpp
     thread_pool.cpp
     json_util.cpp
+    file_util.cpp
   PUBLIC_DEPS
     gvdb::core
     spdlog::spdlog

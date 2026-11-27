@@ -9,8 +9,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
 #include "common/json_util.h"
-#include <filesystem>
-#include <fstream>
+#include "common/file_util.h"
 #include <mutex>
 #include <sstream>
 
@@ -83,29 +82,9 @@ void Coordinator::PersistRegistryLocked() const {
   }
   ss << "]}";
 
-  // Atomic replace: write a sibling temp file, then rename over the target,
-  // so a crash mid-write can never leave a truncated registry.
-  const std::string tmp_path = registry_path_ + ".tmp";
-  {
-    std::ofstream out(tmp_path, std::ios::trunc);
-    if (!out.is_open()) {
-      common::Logger::Instance().Error(
-          "Failed to open registry temp file for write: {}", tmp_path);
-      return;
-    }
-    out << ss.str();
-    if (!out.good()) {
-      common::Logger::Instance().Error(
-          "Failed to write registry temp file: {}", tmp_path);
-      return;
-    }
-  }
-  std::error_code ec;
-  std::filesystem::rename(tmp_path, registry_path_, ec);
-  if (ec) {
-    common::Logger::Instance().Error(
-        "Failed to replace registry file {}: {}", registry_path_,
-        ec.message());
+  if (auto status = common::WriteFileAtomically(registry_path_, ss.str()); !status.ok()) {
+    common::Logger::Instance().Error("Failed to persist the coordinator registry: {}",
+                                     status.message());
   }
 }
 
@@ -116,15 +95,14 @@ absl::Status Coordinator::LoadRegistry() {
         "SetRegistryDir must be called before LoadRegistry");
   }
 
-  std::ifstream in(registry_path_);
-  if (!in.is_open()) {
+  auto read = common::ReadFileToString(registry_path_);
+  if (absl::IsNotFound(read.status())) {
     common::Logger::Instance().Info(
         "No coordinator registry at {} (first boot)", registry_path_);
     return absl::OkStatus();
   }
-  std::stringstream buffer;
-  buffer << in.rdbuf();
-  const std::string doc = buffer.str();
+  if (!read.ok()) return read.status();
+  const std::string doc = std::move(*read);
 
   uint32_t next_id = 0;
   if (common::json::ParseUint32(doc, "next_collection_id", next_id) &&

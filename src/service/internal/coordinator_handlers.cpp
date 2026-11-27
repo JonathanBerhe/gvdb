@@ -129,23 +129,7 @@ grpc::Status InternalService::GetCollectionMetadata(
     proto_metadata->set_collection_name(metadata.collection_name);
     proto_metadata->set_dimension(metadata.dimension);
 
-    // Convert MetricType enum to string
-    switch (metadata.metric_type) {
-      case core::MetricType::L2:
-        proto_metadata->set_metric_type("L2");
-        break;
-      case core::MetricType::INNER_PRODUCT:
-        proto_metadata->set_metric_type("INNER_PRODUCT");
-        break;
-      case core::MetricType::COSINE:
-        proto_metadata->set_metric_type("COSINE");
-        break;
-      default:
-        proto_metadata->set_metric_type("UNKNOWN");
-        break;
-    }
-
-    // Convert IndexType enum to string (reuse proto_conversions toString)
+    proto_metadata->set_metric_type(core::toString(metadata.metric_type));
     proto_metadata->set_index_type(core::toString(metadata.index_type));
 
     proto_metadata->set_shard_count(metadata.shard_ids.size());

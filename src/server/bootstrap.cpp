@@ -9,13 +9,12 @@
 #include <cctype>
 #include <chrono>
 #include <exception>
-#include <fstream>
 #include <iostream>
-#include <iterator>
 #include <thread>
 #include <utility>
 
 #include "absl/strings/str_cat.h"
+#include "common/file_util.h"
 #include "common/metrics.h"
 
 namespace gvdb {
@@ -34,10 +33,10 @@ void SignalHandler(int signal) {
   }
 }
 
+// An unreadable file gives an empty string, which the callers treat as
+// missing.
 std::string ReadFile(const std::string& path) {
-  std::ifstream file(path);
-  if (!file.is_open()) return "";
-  return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+  return common::ReadFileToString(path).value_or("");
 }
 
 }  // namespace

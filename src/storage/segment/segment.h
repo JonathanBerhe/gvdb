@@ -226,6 +226,11 @@ class Segment {
   // TTL sweep interval for background sweep loops
   static constexpr int kTTLSweepIntervalSeconds = 30;
 
+  // The clock of TTL expiry, in seconds since the epoch. A writer that turns
+  // a TTL into an expiry timestamp must use it, so that the timestamp
+  // compares with the time the segment checks.
+  [[nodiscard]] static int64_t NowEpochSeconds();
+
   friend class SegmentManager;
 
  private:
@@ -281,8 +286,6 @@ class Segment {
   [[nodiscard]] core::StatusOr<DeleteVectorsResult> DeleteVectorsUnlocked(
       const std::vector<core::VectorId>& ids);
 
-  // Get current epoch seconds
-  [[nodiscard]] static int64_t NowEpochSeconds();
 
   // Compute distance between two vectors using the segment's metric
   [[nodiscard]] float ComputeDistance(const core::Vector& a,
