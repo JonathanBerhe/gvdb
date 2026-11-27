@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "absl/status/statusor.h"
+
 // Forward declare RocksDB types
 namespace rocksdb {
 class DB;
@@ -32,12 +34,9 @@ namespace consensus {
  */
 class GvdbLogStore : public nuraft::log_store {
  public:
-  /**
-   * Create a persistent log store backed by RocksDB.
-   *
-   * @param db_path Directory path for RocksDB data
-   */
-  explicit GvdbLogStore(const std::string& db_path);
+  // Opens or creates the RocksDB log store in `db_path`. Internal when
+  // RocksDB cannot be opened.
+  static absl::StatusOr<std::shared_ptr<GvdbLogStore>> Create(const std::string& db_path);
 
   ~GvdbLogStore() override;
 
@@ -141,6 +140,8 @@ class GvdbLogStore : public nuraft::log_store {
   bool flush() override;
 
  private:
+  explicit GvdbLogStore(const std::string& db_path);
+
   // Mutex protecting all data structures
   mutable std::mutex mutex_;
 

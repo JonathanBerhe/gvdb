@@ -144,7 +144,7 @@ class SearchServiceTest {
     segment_store_ = std::make_shared<storage::SegmentManager>(
         test_dir_.str(), index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
-        segment_store_.get());
+        *segment_store_);
 
     auto resolver = service::MakeLocalResolver(segment_store_);
     service_ = std::make_unique<service::VectorDBService>(

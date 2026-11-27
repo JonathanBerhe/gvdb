@@ -33,7 +33,7 @@ struct VectorDBServiceCoordinatorTest {
     segment_store_ = std::make_shared<storage::SegmentManager>(
         test_dir_.str(), index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
-        segment_store_.get());
+        *segment_store_);
 
     // Create cluster components
     shard_manager_ = std::make_shared<cluster::ShardManager>(

@@ -23,12 +23,15 @@ using nuraft::log_entry;
 using nuraft::ptr;
 using nuraft::ulong;
 
-GvdbLogStore::GvdbLogStore(const std::string& db_path)
-    : db_path_(db_path) {
-  if (!InitRocksDb()) {
-    throw std::runtime_error("Failed to initialize RocksDB at " + db_path);
+GvdbLogStore::GvdbLogStore(const std::string& db_path) : db_path_(db_path) {}
+
+absl::StatusOr<std::shared_ptr<GvdbLogStore>> GvdbLogStore::Create(const std::string& db_path) {
+  std::shared_ptr<GvdbLogStore> store(new GvdbLogStore(db_path));
+  if (!store->InitRocksDb()) {
+    return absl::InternalError("Failed to initialize RocksDB at " + db_path);
   }
-  common::Logger::Instance().Info("GvdbLogStore initialized (persistent mode, path={})", db_path_);
+  common::Logger::Instance().Info("GvdbLogStore initialized (persistent mode, path={})", db_path);
+  return store;
 }
 
 GvdbLogStore::~GvdbLogStore() {

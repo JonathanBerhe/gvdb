@@ -15,13 +15,9 @@
 namespace gvdb {
 namespace compute {
 
-QueryExecutor::QueryExecutor(storage::ISegmentStore* segment_store,
+QueryExecutor::QueryExecutor(storage::ISegmentStore& segment_store,
                              common::ThreadPool* thread_pool)
-    : segment_store_(segment_store), thread_pool_(thread_pool) {
-  if (segment_store_ == nullptr) {
-    throw std::invalid_argument("ISegmentStore cannot be null");
-  }
-
+    : segment_store_(&segment_store), thread_pool_(thread_pool) {
   // Create thread pool if not provided
   if (thread_pool_ == nullptr) {
     owned_thread_pool_ = std::make_unique<common::ThreadPool>();

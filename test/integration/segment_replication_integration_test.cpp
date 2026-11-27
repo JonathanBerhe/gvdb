@@ -53,7 +53,7 @@ class SegmentReplicationIntegrationTest {
         (dir_ / "coordinator").string(), index_factory_.get());
 
     coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        coord_segment_store_.get());
+        *coord_segment_store_);
 
     // Create InternalService (serves GetSegment RPC)
     internal_service_ = std::make_unique<service::InternalService>(
@@ -80,7 +80,7 @@ class SegmentReplicationIntegrationTest {
         (dir_ / "data_node").string(), index_factory_.get());
 
     data_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        data_segment_store_.get());
+        *data_segment_store_);
 
     // Create data node's VectorDBService in distributed mode
     auto resolver = service::MakeCachedCoordinatorResolver(server_address_);
@@ -337,9 +337,9 @@ class ReadRepairIntegrationTest {
         (dir_ / "replica").string(), index_factory_.get());
 
     auto primary_qe = std::make_shared<compute::QueryExecutor>(
-        primary_segment_store_.get());
+        *primary_segment_store_);
     auto replica_qe = std::make_shared<compute::QueryExecutor>(
-        replica_segment_store_.get());
+        *replica_segment_store_);
 
     // Shard manager and node registry
     shard_manager_ = std::make_shared<cluster::ShardManager>(

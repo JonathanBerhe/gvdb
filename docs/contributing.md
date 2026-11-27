@@ -80,6 +80,7 @@ The C++ code follows these conventions:
 - C++23, set in one place (`GVDB_CXX_STANDARD` in `cmake/GvdbCompilerSettings.cmake`). The fetched dependencies build at the same standard.
 - RAII + smart pointers (no raw `new`/`delete`)
 - `absl::Status` and `absl::StatusOr<T>` for fallible operations, used directly. `core/status.h` includes both and adds `RETURN_IF_ERROR` and `ASSIGN_OR_RETURN`, which return an error to the caller.
+- A class whose construction can fail has a private constructor and a static `Create()` that returns `absl::StatusOr` (for example `RaftNode::Create`). Constructors do not throw. Two exceptions stay: value types such as `core::Vector` throw on a precondition violation like a standard container, and the NuRaft log store throws from its overrides, because that interface has no other way to report an error.
 - Functions and methods have UpperCamel names (`ToProto`, `LoadFromFile`). Two kinds keep lower case: accessors that only return a member (`dimension()`, `is_negated()`), and overrides of a third-party interface, such as the NuRaft log store and state machine.
 - Every source and test file starts with the two-line license header (`// Copyright 2026 jonathanberhe` and `// Licensed under the Apache License, Version 2.0`).
 - `-Wall -Wextra -Wpedantic` on every GVDB target, and warnings are errors in every preset

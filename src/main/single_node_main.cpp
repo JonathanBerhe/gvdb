@@ -68,7 +68,7 @@ absl::Status Run(const Args& args) {
   ASSIGN_OR_RETURN(server::SegmentStoreParts storage,
                    server::BuildSegmentStore(config.storage, data_dir, server::ObjectStoreFailure::kStop));
   auto segment_store = storage.segment_store;
-  auto query_executor = std::make_shared<compute::QueryExecutor>(segment_store.get());
+  auto query_executor = std::make_shared<compute::QueryExecutor>(*segment_store);
   query_executor->SetCache(std::make_shared<compute::QueryCache>(10000));
   server::SealFullSegmentsInline(segment_store);
 
