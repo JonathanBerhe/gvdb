@@ -397,7 +397,7 @@ jobs:
       # factory tests with GCS compiled in.
       - name: Build the object store tests
         if: steps.filter.outputs.gcs == 'true'
-        run: cmake --build --preset gcs --target object_store_tests object_store_gcs_tests
+        run: cmake --build --preset gcs --target storage_tests object_store_gcs_tests
 
       - name: Start the GCS emulator
         if: steps.filter.outputs.gcs == 'true'
