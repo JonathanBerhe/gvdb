@@ -259,7 +259,7 @@ logging:
   level: info
 ```
 
-All binaries support environment variables (`GVDB_BIND_ADDRESS`, `GVDB_ADVERTISE_ADDRESS`, `GVDB_DATA_DIR`) for cloud-native deployments.
+The cluster programs read environment variables such as `GVDB_BIND_ADDRESS` and `GVDB_DATA_DIR` for cloud-native deployments. `gvdb-single-node` reads none. See the [CLI reference](docs/reference/cli.md).
 
 ## Build Requirements
 

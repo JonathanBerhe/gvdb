@@ -1,179 +1,97 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
+//
+// gvdb-proxy: the client entry point of a cluster. It checks API keys and
+// forwards each call to the coordinators, the data nodes or the query nodes.
 
 #include <iostream>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "service/proxy_service.h"
-#include "rpc/interceptors/auth_processor.h"
-#include "rpc/interceptors/audit_interceptor.h"
-#include "auth/audit_logger.h"
-#include "auth/rbac.h"
-#include "server/bootstrap.h"
+#include "common/logger.h"
 #include "config/config.h"
-#include "common/env_flags.h"
+#include "server/bootstrap.h"
+#include "server/builders.h"
+#include "server/flags.h"
+#include "service/proxy_service.h"
 
-struct ProxyArgs {
+namespace gvdb {
+namespace {
+
+struct Args {
   int node_id = 1;
   std::string bind_address = "0.0.0.0:50050";
   std::string data_dir = "/tmp/gvdb/proxy";
   std::string config_file;
   std::vector<std::string> coordinator_addresses;
-  // Single URI pointing at the query-node headless service. Use a dns:///
-  // prefix (e.g. dns:///prod-query-node.gvdb.svc.cluster.local:50070) in
-  // K8s so gRPC round-robins across all A records and picks up scale-up
-  // pods without a proxy restart. Bare host:port is accepted for single-
-  // node / non-K8s deployments.
+  // One URI for all query nodes. In Kubernetes, a dns:/// URI of the
+  // headless service makes gRPC balance across every pod and pick up new
+  // pods without a proxy restart. A bare host:port also works.
   std::string query_node_uri;
 };
 
-void PrintUsage(const char* program_name) {
-  std::cout << "Usage: " << program_name << " [options]\n"
-            << "Options:\n"
-            << "  --node-id ID                Proxy node ID (default: 1)\n"
-            << "  --bind-address ADDR         gRPC bind address (default: 0.0.0.0:50050)\n"
-            << "  --data-dir PATH             Data directory (default: /tmp/gvdb/proxy)\n"
-            << "  --config FILE               YAML config file (optional, for auth)\n"
-            << "  --coordinators ADDRS        Coordinator addresses (comma-separated)\n"
-            << "  --query-nodes URI           Query node target URI (dns:///svc:port or host:port)\n"
-            << "  --help                      Show this help message\n";
+absl::Status Run(const Args& args) {
+  server::InstallSignalHandlers();
+  server::StartLogging(args.data_dir, "proxy.log");
+  common::Logger::Instance().Info("Starting GVDB Proxy (ID: {})", args.node_id);
+  const int metrics_port = 9050;
+  server::StartMetricsServer(metrics_port);
+
+  const config::GVDBConfig config = server::LoadConfigOrDefault(args.config_file);
+  server::InterceptorFactories interceptors;
+  if (auto rbac_store = server::AddAuthInterceptor(config.server.auth, interceptors);
+      !rbac_store.ok()) {
+    return rbac_store.status();
+  }
+  server::AddAuditInterceptor(config.logging.audit, interceptors);
+
+  auto proxy_service =
+      std::make_unique<service::ProxyService>(args.coordinator_addresses, args.query_node_uri);
+  auto grpc_server =
+      server::StartGrpcServer(args.bind_address, {proxy_service.get()},
+                              server::MakeServerCredentials(config.server.tls), std::move(interceptors));
+  if (!grpc_server.ok()) return grpc_server.status();
+
+  std::vector<std::string> banner_lines = {
+      "Node ID: " + std::to_string(args.node_id),
+      "gRPC Service: " + args.bind_address,
+      "Metrics: http://0.0.0.0:" + std::to_string(metrics_port) + "/metrics",
+      "Coordinators: " + std::to_string(args.coordinator_addresses.size()) + " node(s)",
+  };
+  if (!args.query_node_uri.empty()) {
+    banner_lines.push_back("Query Nodes URI: " + args.query_node_uri);
+  }
+  server::PrintBanner("GVDB Proxy", banner_lines);
+
+  server::WaitForShutdown();
+  server::StopServing(**grpc_server);
+  return absl::OkStatus();
 }
 
-std::vector<std::string> ParseAddresses(const std::string& addrs_str) {
-  std::vector<std::string> addrs;
-  size_t start = 0;
-  size_t end = addrs_str.find(',');
-  while (end != std::string::npos) {
-    addrs.push_back(addrs_str.substr(start, end - start));
-    start = end + 1;
-    end = addrs_str.find(',', start);
-  }
-  addrs.push_back(addrs_str.substr(start));
-  return addrs;
-}
-
-bool ParseArgs(int argc, char** argv, ProxyArgs& args) {
-  for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
-    if (arg == "--help" || arg == "-h") {
-      PrintUsage(argv[0]);
-      return false;
-    } else if (arg == "--node-id" && i + 1 < argc) {
-      args.node_id = std::stoi(argv[++i]);
-    } else if (arg == "--bind-address" && i + 1 < argc) {
-      args.bind_address = argv[++i];
-    } else if (arg == "--data-dir" && i + 1 < argc) {
-      args.data_dir = argv[++i];
-    } else if (arg == "--config" && i + 1 < argc) {
-      args.config_file = argv[++i];
-    } else if (arg == "--coordinators" && i + 1 < argc) {
-      args.coordinator_addresses = ParseAddresses(argv[++i]);
-    } else if (arg == "--query-nodes" && i + 1 < argc) {
-      // Accepts a single URI (dns:///host:port or bare host:port). Not
-      // comma-split: a dns:/// URI has no commas, and we no longer need
-      // static multi-address fanout — gRPC's built-in round_robin on the
-      // dns resolver handles per-request load balancing.
-      args.query_node_uri = argv[++i];
-    } else {
-      std::cerr << "Unknown argument: " << arg << std::endl;
-      PrintUsage(argv[0]);
-      return false;
-    }
-  }
-  if (args.coordinator_addresses.empty()) {
-    std::cerr << "Error: At least one coordinator address must be specified" << std::endl;
-    return false;
-  }
-  return true;
-}
+}  // namespace
+}  // namespace gvdb
 
 int main(int argc, char** argv) {
-  ProxyArgs args;
-  if (!ParseArgs(argc, argv, args)) return 1;
-
-  using namespace gvdb;
-
-  // Env vars override CLI flags
-  args.bind_address = common::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
-  args.data_dir = common::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
-  server::ServerBootstrap::InstallSignalHandlers();
-
-  auto log_status = server::ServerBootstrap::InitializeLogger(
-      args.data_dir, "proxy.log");
-  if (!log_status.ok()) {
-    std::cerr << "Warning: Failed to initialize logger: " << log_status.message() << std::endl;
-  }
-
-  common::Logger::Instance().Info("Starting GVDB Proxy (ID: {})", args.node_id);
-
-  int metrics_port = 9050;
-  server::ServerBootstrap::StartMetricsServer(metrics_port);
-
-  try {
-    // Load config for auth (optional)
-    config::GVDBConfig config = config::Config::get_default();
-    if (!args.config_file.empty()) {
-      auto cfg_result = config::Config::load_from_file(args.config_file);
-      if (cfg_result.ok()) config = std::move(*cfg_result);
-    }
-
-    // RBAC
-    std::shared_ptr<auth::RbacStore> rbac_store;
-    std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors;
-    if (config.server.auth.enabled) {
-      auto rbac_result = auth::RbacStore::Create(config.server.auth);
-      if (!rbac_result.ok()) {
-        std::cerr << "Invalid auth config: " << rbac_result.status().message() << std::endl;
-        return 1;
-      }
-      rbac_store = std::move(*rbac_result);
-      interceptors.push_back(
-          std::make_unique<rpc::ApiKeyAuthInterceptorFactory>(rbac_store));
-    }
-
-    // Audit logging
-    if (config.logging.audit.enabled) {
-      auth::AuditLogger::Initialize(config.logging.audit);
-      interceptors.push_back(
-          std::make_unique<rpc::AuditInterceptorFactory>());
-    }
-
-    auto proxy_service = std::make_unique<service::ProxyService>(
-        args.coordinator_addresses,
-        args.query_node_uri);
-
-    auto credentials = server::ServerBootstrap::MakeServerCredentials(config.server.tls);
-    auto grpc_server = server::ServerBootstrap::StartGrpcServer(
-        args.bind_address, {proxy_service.get()}, credentials, std::move(interceptors));
-    if (!grpc_server) {
-      std::cerr << "Failed to start gRPC server on " << args.bind_address << std::endl;
-      return 1;
-    }
-
-    std::vector<std::string> banner_lines = {
-        "Node ID: " + std::to_string(args.node_id),
-        "gRPC Service: " + args.bind_address,
-        "Metrics: http://0.0.0.0:" + std::to_string(metrics_port) + "/metrics",
-        "Coordinators: " + std::to_string(args.coordinator_addresses.size()) + " node(s)",
-    };
-    if (!args.query_node_uri.empty()) {
-      banner_lines.push_back("Query Nodes URI: " + args.query_node_uri);
-    }
-    server::ServerBootstrap::PrintBanner("GVDB Proxy", banner_lines);
-
-    server::ServerBootstrap::WaitForShutdown();
-
-    // Graceful shutdown
-    std::cout << "\nShutting down gracefully..." << std::endl;
-    grpc_server->Shutdown();
-    server::ServerBootstrap::StopMetricsServer();
-    std::cout << "Shutdown complete. Goodbye!" << std::endl;
-    return 0;
-
-  } catch (const std::exception& e) {
-    std::cerr << "Fatal error: " << e.what() << std::endl;
+  gvdb::Args args;
+  gvdb::server::FlagSet flags;
+  flags.AddInt("--node-id", "ID", "Proxy node ID (default: 1)", &args.node_id);
+  flags.AddString("--bind-address", "ADDR", "gRPC bind address (default: 0.0.0.0:50050)",
+                  &args.bind_address, "GVDB_BIND_ADDRESS");
+  flags.AddString("--data-dir", "PATH", "Data directory (default: /tmp/gvdb/proxy)",
+                  &args.data_dir, "GVDB_DATA_DIR");
+  flags.AddString("--config", "FILE", "YAML config file (optional, for auth)", &args.config_file);
+  flags.AddList("--coordinators", "ADDRS", "Coordinator addresses (comma-separated)",
+                &args.coordinator_addresses);
+  // One URI, not a list: a dns:/// URI has no commas, and gRPC round robin
+  // on the DNS resolver balances the calls.
+  flags.AddString("--query-nodes", "URI", "Query node target URI (dns:///svc:port or host:port)",
+                  &args.query_node_uri);
+  if (auto exit_code = flags.Parse(argc, argv)) return *exit_code;
+  if (args.coordinator_addresses.empty()) {
+    std::cerr << "Error: At least one coordinator address must be specified" << std::endl;
     return 1;
   }
+  return gvdb::server::RunMain([&] { return gvdb::Run(args); });
 }

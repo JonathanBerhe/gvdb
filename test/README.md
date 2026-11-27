@@ -54,10 +54,11 @@ C++ / doctest. One file per module.
 | `object_store_test.cpp` | Object store contract (in-memory, filesystem), CreateObjectStore |
 | `object_store_s3_test.cpp` | Object store contract against S3 (needs `GVDB_TEST_S3_ENDPOINT`, see `make test-s3`) |
 | `object_store_gcs_test.cpp` | Object store contract against a GCS emulator (needs `GVDB_TEST_GCS_ENDPOINT`) |
+| `server_flags_test.cpp` | Flag table of the server programs: values, lists, environment variables, usage text |
 
 ## Integration (`integration/`)
 
-C++ / doctest. Spin up in-process gRPC servers to test multi-component flows.
+C++ / doctest. Most files start in-process gRPC servers to test multi-component flows. `server_programs_test.cpp` starts the five server programs as real processes.
 
 | File | Covers |
 |------|--------|
@@ -68,6 +69,7 @@ C++ / doctest. Spin up in-process gRPC servers to test multi-component flows.
 | `backup_restore_integration_test.cpp` | Backup and restore over gRPC |
 | `drain_read_fallback_test.cpp` | Proxy reads while a data node drains |
 | `primary_swap_integration_test.cpp` | Upsert retries across a primary swap |
+| `server_programs_test.cpp` | The five programs: `--help` and bad flags, startup, a collection round trip through the single node and through a cluster behind the proxy, exit 0 on SIGTERM |
 
 ## Python SDK (`clients/python/tests`)
 

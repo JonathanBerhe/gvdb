@@ -17,16 +17,9 @@ The image publishes both GVDB binaries and supporting libraries. The same image 
 
 ## Environment variables
 
-The clustered binaries honor a handful of env vars:
+The cluster programs read environment variables such as `GVDB_BIND_ADDRESS` and `GVDB_DATA_DIR`. A variable that is set and not empty replaces its flag. The [CLI reference](../reference/cli.md#environment-variables) lists each variable and the programs that read it.
 
-| Var | Honored by | Replaces |
-|-----|------------|----------|
-| `GVDB_BIND_ADDRESS` | coordinator, data-node, query-node, proxy | `--bind-address` |
-| `GVDB_ADVERTISE_ADDRESS` | coordinator, data-node, query-node | `--advertise-address` |
-| `GVDB_DATA_DIR` | all clustered binaries | `--data-dir` |
-| `GVDB_RAFT_ADDRESS` | coordinator | `--raft-address` |
-
-`gvdb-single-node` does not read env vars — use `--config`, `--port`, `--data-dir`, `--node-id` flags.
+`gvdb-single-node` reads no environment variable. Use the `--config`, `--port`, `--data-dir` and `--node-id` flags.
 
 Example:
 

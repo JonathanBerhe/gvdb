@@ -1,40 +1,38 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
+//
+// gvdb-data-node: stores the segments of its shards, builds their indexes
+// and runs the shard-local part of searches, backups and restores.
 
 #include <chrono>
-#include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
-#include <grpcpp/grpcpp.h>
-
-#include "internal.grpc.pb.h"
-
 #include "cluster/data_node.h"
-#include "cluster/shard_manager.h"
-#include "cluster/heartbeat_sender.h"
 #include "cluster/primary_term_tracker.h"
-#include "storage/segment/segment_manager.h"
-#include "storage/segment/tiered_segment_manager.h"
-#include "storage/segment/segment_cache.h"
-#include "storage/backup/backup_manager.h"
-#include "storage/import/bulk_importer.h"
+#include "cluster/shard_manager.h"
 #include "cluster/shard_write_gate.h"
-#include "storage/objstore/object_store_factory.h"
+#include "common/logger.h"
+#include "compute/query_cache.h"
 #include "compute/query_executor.h"
-#include "index/index_factory.h"
-#include "service/vectordb_service.h"
-#include "service/internal_service.h"
-#include "service/collection_resolver.h"
-#include "server/bootstrap.h"
-#include "common/env_flags.h"
 #include "config/config.h"
-#include "auth/audit_logger.h"
-#include "rpc/interceptors/audit_interceptor.h"
+#include "core/types.h"
+#include "internal.pb.h"
+#include "server/bootstrap.h"
+#include "server/builders.h"
+#include "server/cluster_steps.h"
+#include "server/flags.h"
+#include "service/collection_resolver.h"
+#include "service/internal_service.h"
+#include "service/vectordb_service.h"
 
-struct DataNodeArgs {
+namespace gvdb {
+namespace {
+
+struct Args {
   int node_id = 101;
   std::string bind_address = "0.0.0.0:50060";
   std::string advertise_address;
@@ -42,406 +40,137 @@ struct DataNodeArgs {
   std::string config_file;
   std::vector<std::string> coordinator_addresses;
   size_t memory_limit_gb = 8;
-  // Max seconds to wait after sending DRAINING for the coordinator to
-  // migrate shards off this node before we shut down the gRPC server.
-  // Bounded by terminationGracePeriodSeconds in K8s.
+  // How long shutdown waits for the coordinator to move the shards off this
+  // node. In Kubernetes, terminationGracePeriodSeconds bounds it.
   int drain_wait_seconds = 15;
 };
 
-namespace {
+absl::Status Run(const Args& args) {
+  server::InstallSignalHandlers();
+  server::StartLogging(args.data_dir, "data_node.log");
+  common::Logger::Instance().Info("Starting GVDB Data Node (ID: {})", args.node_id);
+  const int metrics_port = 9100 + (args.node_id - 100);
+  server::StartMetricsServer(metrics_port);
 
-// Poll the coordinator for our remaining shard assignments. Returns when
-// either no shards remain assigned to this node or the timeout elapses.
-// Used during graceful shutdown so the gRPC server stays up long enough
-// for the coordinator to promote replicas via Coordinator::HandleDrainingNode.
-//
-// Transient RPC failures do NOT cause us to exit the wait early: the whole
-// point of the drain budget is to let the coordinator catch up. We retry
-// with short backoff and only give up when the overall deadline is reached.
-void WaitForDrainCompletion(const std::string& coordinator_address,
-                            int node_id,
-                            std::chrono::seconds timeout) {
-  using namespace gvdb;
-  if (coordinator_address.empty() || timeout.count() <= 0) return;
+  const config::GVDBConfig config = server::LoadConfigOrDefault(args.config_file);
+  const bool in_cluster = !args.coordinator_addresses.empty();
 
-  auto channel = grpc::CreateChannel(coordinator_address,
-                                      grpc::InsecureChannelCredentials());
-  auto stub = proto::internal::InternalService::NewStub(channel);
+  auto built_storage = server::BuildSegmentStore(config.storage, args.data_dir,
+                                                 server::ObjectStoreFailure::kLocalOnly);
+  if (!built_storage.ok()) return built_storage.status();
+  server::SegmentStoreParts storage = std::move(*built_storage);
+  auto segment_store = storage.segment_store;
+  auto bulk_importer = server::MakeBulkImporter(storage, args.data_dir);
+  auto data_node =
+      std::make_shared<cluster::DataNode>(std::move(storage.index_factory), segment_store);
+  // A full segment goes to the background index builder.
+  segment_store->SetSealCallback([data_node](core::SegmentId sid, core::IndexType idx_type) {
+    (void)data_node->ScheduleBuildTask({sid, idx_type, 100});
+  });
+  auto query_executor = std::make_shared<compute::QueryExecutor>(segment_store.get());
+  query_executor->SetCache(std::make_shared<compute::QueryCache>(10000));
 
-  const auto deadline = std::chrono::steady_clock::now() + timeout;
-  // 1s poll aligns with coordinator HealthCheckLoop period so we don't spin
-  // before DetectDrainingNodes has had a chance to run.
-  const auto poll_interval = std::chrono::milliseconds(1000);
-  int consecutive_rpc_failures = 0;
+  // Both services and the heartbeat keep raw pointers to the write fence and
+  // to the primary-term tracker, so these two outlive all three. The fence
+  // blocks writes to a shard while the coordinator backs it up. The tracker
+  // tells the write path whether this node is the primary of a shard and at
+  // which term. The heartbeat fills it from the coordinator, and the primary
+  // swap RPCs change it.
+  cluster::ShardWriteGate shard_write_gate;
+  cluster::PrimaryTermTracker primary_term_tracker;
 
-  while (std::chrono::steady_clock::now() < deadline) {
-    proto::internal::GetShardAssignmentsRequest req;
-    req.set_collection_id(0);  // all collections
-    proto::internal::GetShardAssignmentsResponse resp;
-    grpc::ClientContext ctx;
-    ctx.set_deadline(std::chrono::system_clock::now() +
-                     std::chrono::seconds(2));
+  auto backup = server::BuildBackupEngines(config.storage, {.object_store = storage.object_store,
+                                                            .data_dir = args.data_dir,
+                                                            .version = "data-node",
+                                                            .node_id = args.node_id});
+  auto internal_service = std::make_unique<service::InternalService>(
+      std::make_shared<cluster::ShardManager>(16, cluster::ShardingStrategy::HASH), segment_store,
+      query_executor);
+  internal_service->SetShardWriteGate(&shard_write_gate);
+  internal_service->SetBackupManager(backup.backup);
+  internal_service->SetRestoreManager(backup.restore);
 
-    auto status = stub->GetShardAssignments(&ctx, req, &resp);
-    if (!status.ok()) {
-      // Transient: retry rather than fail open. Failing open here would
-      // let the data-node shut down its gRPC server before migration
-      // completes, defeating the drain-wait budget and risking data loss.
-      ++consecutive_rpc_failures;
-      common::Logger::Instance().Warn(
-          "Drain wait: GetShardAssignments failed (attempt {}): {}",
-          consecutive_rpc_failures, status.error_message());
-      // Short exponential backoff, capped so we still poll within budget.
-      auto backoff = std::chrono::milliseconds(
-          std::min(2000, 250 * (1 << std::min(3, consecutive_rpc_failures - 1))));
-      if (std::chrono::steady_clock::now() + backoff >= deadline) break;
-      std::this_thread::sleep_for(backoff);
-      continue;
-    }
-    consecutive_rpc_failures = 0;
-
-    bool still_assigned = false;
-    for (const auto& a : resp.assignments()) {
-      if (a.primary_node_id() == static_cast<uint32_t>(node_id)) {
-        still_assigned = true;
-        break;
-      }
-      for (uint32_t replica : a.node_ids()) {
-        if (replica == static_cast<uint32_t>(node_id)) {
-          still_assigned = true;
-          break;
-        }
-      }
-      if (still_assigned) break;
-    }
-
-    if (!still_assigned) {
-      common::Logger::Instance().Info(
-          "Drain wait: node {} has no remaining shard assignments", node_id);
-      return;
-    }
-    // Check deadline BEFORE sleeping so we don't overshoot by a full
-    // poll interval when close to timeout.
-    if (std::chrono::steady_clock::now() + poll_interval >= deadline) break;
-    std::this_thread::sleep_for(poll_interval);
+  auto resolver = in_cluster
+                      ? service::MakeCachedCoordinatorResolver(args.coordinator_addresses[0])
+                      : service::MakeLocalResolver(segment_store, args.data_dir);
+  auto vectordb_service = std::make_unique<service::VectorDBService>(
+      segment_store, query_executor, std::move(resolver), nullptr, bulk_importer, backup.backup,
+      backup.restore);
+  vectordb_service->SetShardWriteGate(&shard_write_gate);
+  // Only in a cluster: without a coordinator no heartbeat fills the tracker,
+  // and every shard would be unknown to it.
+  if (in_cluster) {
+    vectordb_service->SetPrimaryTermTracker(&primary_term_tracker);
+    internal_service->SetPrimaryTermTracker(&primary_term_tracker);
   }
-  common::Logger::Instance().Warn(
-      "Drain wait: timeout reached with shards still assigned to node {} "
-      "(coordinator will fall back to heartbeat-timeout eviction)",
-      node_id);
+
+  server::InterceptorFactories interceptors;
+  server::AddAuditInterceptor(config.logging.audit, interceptors);
+  auto grpc_server = server::StartGrpcServer(
+      args.bind_address, {internal_service.get(), vectordb_service.get()},
+      grpc::InsecureServerCredentials(), std::move(interceptors));
+  if (!grpc_server.ok()) return grpc_server.status();
+
+  std::thread build_thread([data_node] { data_node->RunBuildLoop(server::ShutdownFlag()); });
+  std::thread ttl_sweep_thread(
+      [data_node] { data_node->RunTTLSweepLoop(server::ShutdownFlag()); });
+
+  server::PrintBanner("GVDB Data Node",
+                      {
+                          "Node ID: " + std::to_string(args.node_id),
+                          "gRPC Service: " + args.bind_address,
+                          "Metrics: http://0.0.0.0:" + std::to_string(metrics_port) + "/metrics",
+                          "Data Directory: " + args.data_dir,
+                          "Memory Limit: " + std::to_string(args.memory_limit_gb) + " GB",
+                      });
+
+  auto heartbeat = server::StartHeartbeat(
+      args.coordinator_addresses, args.node_id, args.bind_address, args.advertise_address,
+      proto::internal::NodeType::NODE_TYPE_DATA_NODE, &primary_term_tracker);
+  server::WaitForShutdown();
+
+  // Tell the coordinator that this node drains, so it stops routing new
+  // work at once. DrainAndStop joins the heartbeat loop first, so no READY
+  // heartbeat can overwrite the DRAINING one.
+  if (heartbeat) heartbeat->DrainAndStop();
+  build_thread.join();
+  ttl_sweep_thread.join();
+  heartbeat.reset();
+
+  // Keep serving until the coordinator moved the shards off this node:
+  // other data nodes still pull segments from it to promote replicas. After
+  // the timeout the coordinator evicts the node when its heartbeat times out.
+  if (in_cluster) {
+    server::WaitForDrainCompletion(args.coordinator_addresses[0], args.node_id,
+                                   std::chrono::seconds(args.drain_wait_seconds));
+  }
+  server::StopServing(**grpc_server);
+  return absl::OkStatus();
 }
 
 }  // namespace
-
-void PrintUsage(const char* program_name) {
-  std::cout << "Usage: " << program_name << " [options]\n"
-            << "Options:\n"
-            << "  --node-id ID                Data node ID (default: 101)\n"
-            << "  --bind-address ADDR         gRPC bind address (default: 0.0.0.0:50060)\n"
-            << "  --advertise-address ADDR    Address advertised to coordinator (default: bind-address)\n"
-            << "  --data-dir PATH             Data directory (default: /tmp/gvdb/data_node)\n"
-            << "  --coordinator ADDR          Coordinator addresses (comma-separated)\n"
-            << "  --config FILE               YAML config file (for S3/MinIO settings)\n"
-            << "  --memory-limit-gb SIZE      Memory limit in GB (default: 8)\n"
-            << "  --drain-wait-seconds SEC    Max seconds to wait for shard drain on shutdown (default: 15)\n"
-            << "  --help                      Show this help message\n";
-}
-
-bool ParseArgs(int argc, char** argv, DataNodeArgs& args) {
-  for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
-    if (arg == "--help" || arg == "-h") {
-      PrintUsage(argv[0]);
-      return false;
-    } else if (arg == "--node-id" && i + 1 < argc) {
-      args.node_id = std::stoi(argv[++i]);
-    } else if (arg == "--bind-address" && i + 1 < argc) {
-      args.bind_address = argv[++i];
-    } else if (arg == "--advertise-address" && i + 1 < argc) {
-      args.advertise_address = argv[++i];
-    } else if (arg == "--data-dir" && i + 1 < argc) {
-      args.data_dir = argv[++i];
-    } else if (arg == "--coordinator" && i + 1 < argc) {
-      std::string coords_str = argv[++i];
-      size_t start = 0;
-      size_t end = coords_str.find(',');
-      while (end != std::string::npos) {
-        args.coordinator_addresses.push_back(coords_str.substr(start, end - start));
-        start = end + 1;
-        end = coords_str.find(',', start);
-      }
-      args.coordinator_addresses.push_back(coords_str.substr(start));
-    } else if (arg == "--config" && i + 1 < argc) {
-      args.config_file = argv[++i];
-    } else if (arg == "--memory-limit-gb" && i + 1 < argc) {
-      args.memory_limit_gb = std::stoull(argv[++i]);
-    } else if (arg == "--drain-wait-seconds" && i + 1 < argc) {
-      args.drain_wait_seconds = std::stoi(argv[++i]);
-    } else {
-      std::cerr << "Unknown argument: " << arg << std::endl;
-      PrintUsage(argv[0]);
-      return false;
-    }
-  }
-  return true;
-}
+}  // namespace gvdb
 
 int main(int argc, char** argv) {
-  DataNodeArgs args;
-  if (!ParseArgs(argc, argv, args)) return 1;
-
-  using namespace gvdb;
-
-  // Env vars override CLI flags
-  args.bind_address = common::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
-  args.advertise_address = common::ResolveFlag("GVDB_ADVERTISE_ADDRESS", args.advertise_address);
-  args.data_dir = common::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
-  server::ServerBootstrap::InstallSignalHandlers();
-
-  auto log_status = server::ServerBootstrap::InitializeLogger(
-      args.data_dir, "data_node.log");
-  if (!log_status.ok()) {
-    std::cerr << "Warning: Failed to initialize logger: " << log_status.message() << std::endl;
-  }
-
-  common::Logger::Instance().Info("Starting GVDB Data Node (ID: {})", args.node_id);
-
-  int metrics_port = 9100 + (args.node_id - 100);
-  server::ServerBootstrap::StartMetricsServer(metrics_port);
-
-  try {
-    // 1. Storage + compute
-    // Load YAML config for S3 settings if provided
-    config::GVDBConfig config = config::Config::get_default();
-    if (!args.config_file.empty()) {
-      auto yaml_result = config::Config::load_from_file(args.config_file);
-      if (yaml_result.ok()) {
-        config = std::move(*yaml_result);
-      }
-    }
-
-    auto index_factory = std::make_unique<index::IndexFactory>();
-    // Honor storage.segment_max_size_mb from config (previously ignored, so
-    // every segment used the 512 MB default and never rotated). Clamp to
-    // >=1 MB so a 0 value can't seal a segment on its first insert.
-    const size_t segment_max_bytes =
-        (config.storage.segment_max_size_mb ? config.storage.segment_max_size_mb : 1)
-        * 1024 * 1024;
-    auto local_manager = std::make_unique<storage::SegmentManager>(
-        args.data_dir + "/segments", index_factory.get(), segment_max_bytes);
-
-    // Optionally wrap in tiered storage. Backend (S3 / MinIO / GCS) selected
-    // from config by the shared factory. An object-store creation failure is
-    // non-fatal here: the data-node degrades to local-only rather than
-    // refusing to start.
-    std::shared_ptr<storage::ISegmentStore> segment_store;
-    storage::IObjectStore* object_store_ptr = nullptr;  // for BulkImporter
-    auto object_store_or = storage::CreateObjectStore(config.storage.object_store);
-    if (!object_store_or.ok()) {
-      common::Logger::Instance().Warn(
-          "Object store creation failed ({}); falling back to local-only "
-          "storage", object_store_or.status().message());
-    }
-    if (object_store_or.ok() && *object_store_or) {
-      auto cache_dir = args.data_dir + "/cache";
-      auto cache_size = static_cast<size_t>(
-          config.storage.object_store_cache_size_mb) * 1024 * 1024;
-      auto cache = std::make_unique<storage::SegmentCache>(
-          cache_dir, cache_size);
-      auto prefix = config.storage.object_store.prefix.empty()
-          ? "gvdb" : config.storage.object_store.prefix;
-      object_store_ptr = object_store_or->get();
-      segment_store = std::make_shared<storage::TieredSegmentManager>(
-          std::move(local_manager), std::move(*object_store_or),
-          std::move(cache), prefix,
-          config.storage.object_store_upload_threads);
-    } else {
-      segment_store = std::shared_ptr<storage::SegmentManager>(
-          std::move(local_manager));
-    }
-
-    if (auto load_status = segment_store->LoadAllSegments(); !load_status.ok()) {
-      common::Logger::Instance().Warn(
-          "Failed to load existing segments on startup: {}",
-          load_status.message());
-    }
-    auto data_node = std::make_shared<cluster::DataNode>(std::move(index_factory), segment_store);
-
-    // Wire auto-seal: when a segment fills up, queue it for background index building
-    segment_store->SetSealCallback(
-        [data_node](core::SegmentId sid, core::IndexType idx_type) {
-          (void)data_node->ScheduleBuildTask({sid, idx_type, 100});
-        });
-
-    // Background thread to process build queue (seals segments + builds indexes)
-    std::thread build_thread([data_node]() {
-      data_node->RunBuildLoop(server::ServerBootstrap::ShutdownFlag());
-    });
-
-    // Background thread to sweep expired TTL vectors
-    std::thread ttl_sweep_thread([data_node]() {
-      data_node->RunTTLSweepLoop(server::ServerBootstrap::ShutdownFlag());
-    });
-
-    auto query_executor = std::make_shared<compute::QueryExecutor>(
-        segment_store.get());
-    query_executor->SetCache(std::make_shared<compute::QueryCache>(10000));
-
-    // 2. ShardManager + InternalService
-    auto shard_manager = std::make_shared<cluster::ShardManager>(
-        16, cluster::ShardingStrategy::HASH);
-    auto internal_service = std::make_unique<service::InternalService>(
-        shard_manager, segment_store, query_executor);
-
-    // 3. Bulk importer (optional — requires object store)
-    std::shared_ptr<storage::BulkImporter> bulk_importer;
-    if (object_store_ptr) {
-      bulk_importer = std::make_shared<storage::BulkImporter>(
-          segment_store, object_store_ptr, args.data_dir + "/tmp", 2);
-    }
-
-    // 3.1. Backup / restore engines + per-shard write fence. The fence
-    // is consulted by the write path (VectorDBService::EvaluateWriteGate)
-    // and toggled by the coordinator's BackupShard fan-out via the
-    // FreezeWrites / UnfreezeWrites RPCs hosted on InternalService.
-    //
-    // LIFETIME ORDER MATTERS: shard_write_gate is held by two services
-    // via raw pointer; declare it before either service.
-    auto shard_write_gate = std::make_unique<cluster::ShardWriteGate>();
-    std::shared_ptr<storage::BackupManager> backup_manager;
-    std::shared_ptr<storage::RestoreManager> restore_manager;
-    {
-      storage::BackupManagerOptions bopts;
-      bopts.default_object_store = object_store_ptr;
-      bopts.s3_bucket = config.storage.object_store.bucket;
-      bopts.local_root_allowlist = config.storage.local_backup_dir;
-      bopts.flushed_segments_root = args.data_dir + "/segments";
-      bopts.tmp_dir = args.data_dir + "/tmp/backup";
-      bopts.gvdb_version = "data-node";
-      bopts.node_id = args.node_id;
-      backup_manager = std::make_shared<storage::BackupManager>(std::move(bopts));
-
-      storage::RestoreManagerOptions ropts;
-      ropts.default_object_store = object_store_ptr;
-      ropts.s3_bucket = config.storage.object_store.bucket;
-      ropts.local_root_allowlist = config.storage.local_backup_dir;
-      ropts.staging_dir = args.data_dir + "/tmp/restore";
-      restore_manager = std::make_shared<storage::RestoreManager>(
-          std::move(ropts));
-    }
-    internal_service->SetShardWriteGate(shard_write_gate.get());
-    internal_service->SetBackupManager(backup_manager);
-    internal_service->SetRestoreManager(restore_manager);
-
-    // 3.5. Primary-term tracker — local view of "am I primary for shard
-    // X at term T?". Populated by HeartbeatSender each cycle from the
-    // coordinator's authoritative shard_primaries list. The write-path
-    // enforcement in VectorDBService and the explicit two-phase swap
-    // RPCs (PausePrimary / PreparePromote on InternalService) read
-    // from / write to this same tracker.
-    //
-    // LIFETIME ORDER MATTERS: this declaration MUST precede both the
-    // VectorDBService AND the HeartbeatSender below — both store raw
-    // pointers and may invoke methods on the tracker concurrently from
-    // request-handling threads (writes) and the heartbeat background
-    // loop. Reversing the declaration order would let the tracker be
-    // destroyed while either is still touching it during shutdown.
-    auto primary_term_tracker = std::make_unique<cluster::PrimaryTermTracker>();
-
-    // 4. VectorDBService
-    std::unique_ptr<service::ICollectionResolver> resolver;
-    if (!args.coordinator_addresses.empty()) {
-      resolver = service::MakeCachedCoordinatorResolver(args.coordinator_addresses[0]);
-    } else {
-      resolver = service::MakeLocalResolver(segment_store, args.data_dir);
-    }
-    auto service = std::make_unique<service::VectorDBService>(
-        segment_store, query_executor, std::move(resolver), nullptr,
-        bulk_importer, backup_manager, restore_manager);
-    service->SetShardWriteGate(shard_write_gate.get());
-    // Wire the tracker so write paths consult it AND so the two-phase
-    // swap RPCs (PausePrimary / PreparePromote, hosted on InternalService)
-    // can mutate it. Distributed mode only — single-node has no
-    // coordinator pushing assignments and would see UnknownShard for
-    // everything.
-    if (!args.coordinator_addresses.empty()) {
-      service->SetPrimaryTermTracker(primary_term_tracker.get());
-      internal_service->SetPrimaryTermTracker(primary_term_tracker.get());
-    }
-
-    // 4. Audit logging + Start server
-    std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors;
-    if (config.logging.audit.enabled) {
-      auth::AuditLogger::Initialize(config.logging.audit);
-      interceptors.push_back(
-          std::make_unique<rpc::AuditInterceptorFactory>());
-    }
-
-    auto server = server::ServerBootstrap::StartGrpcServer(
-        args.bind_address,
-        {internal_service.get(), service.get()},
-        grpc::InsecureServerCredentials(),
-        std::move(interceptors));
-    if (!server) {
-      std::cerr << "Failed to start gRPC server on " << args.bind_address << std::endl;
-      return 1;
-    }
-
-    server::ServerBootstrap::PrintBanner("GVDB Data Node", {
-        "Node ID: " + std::to_string(args.node_id),
-        "gRPC Service: " + args.bind_address,
-        "Metrics: http://0.0.0.0:" + std::to_string(metrics_port) + "/metrics",
-        "Data Directory: " + args.data_dir,
-        "Memory Limit: " + std::to_string(args.memory_limit_gb) + " GB",
-    });
-
-    // 5. Heartbeat sender
-
-    std::unique_ptr<cluster::HeartbeatSender> heartbeat;
-    if (!args.coordinator_addresses.empty()) {
-      std::string heartbeat_addr = args.advertise_address.empty()
-          ? args.bind_address : args.advertise_address;
-      heartbeat = std::make_unique<cluster::HeartbeatSender>(
-          args.coordinator_addresses[0], args.node_id, heartbeat_addr,
-          proto::internal::NodeType::NODE_TYPE_DATA_NODE,
-          server::ServerBootstrap::ShutdownFlag());
-      heartbeat->SetPrimaryTermTracker(primary_term_tracker.get());
-      heartbeat->Start();
-    }
-
-    server::ServerBootstrap::WaitForShutdown();
-
-    // Graceful shutdown
-    std::cout << "\nShutting down gracefully..." << std::endl;
-
-    // Notify coordinator that we're draining so it stops routing new work
-    // immediately instead of waiting for heartbeat timeout. DrainAndStop()
-    // joins the heartbeat loop first so no racing READY heartbeat can
-    // overwrite the DRAINING signal at the coordinator.
-    if (heartbeat) heartbeat->DrainAndStop();
-
-    if (build_thread.joinable()) build_thread.join();
-    if (ttl_sweep_thread.joinable()) ttl_sweep_thread.join();
-    heartbeat.reset();  // no-op join (already stopped above)
-
-    // Keep the gRPC server up until the coordinator has migrated our shards
-    // off. If we close the server immediately, in-flight ReplicateSegment
-    // pulls from other data nodes would fail and HandleDrainingNode would
-    // be unable to promote replicas. Bounded by
-    // drain_wait_seconds so a wedged coordinator can't block shutdown
-    // forever — on timeout we fall back to heartbeat-timeout eviction.
-    if (!args.coordinator_addresses.empty() && args.drain_wait_seconds > 0) {
-      WaitForDrainCompletion(args.coordinator_addresses[0], args.node_id,
-                             std::chrono::seconds(args.drain_wait_seconds));
-    }
-
-    server->Shutdown();
-    server::ServerBootstrap::StopMetricsServer();
-    std::cout << "Shutdown complete. Goodbye!" << std::endl;
-    return 0;
-
-  } catch (const std::exception& e) {
-    std::cerr << "Fatal error: " << e.what() << std::endl;
-    return 1;
-  }
+  gvdb::Args args;
+  gvdb::server::FlagSet flags;
+  flags.AddInt("--node-id", "ID", "Data node ID (default: 101)", &args.node_id);
+  flags.AddString("--bind-address", "ADDR", "gRPC bind address (default: 0.0.0.0:50060)",
+                  &args.bind_address, "GVDB_BIND_ADDRESS");
+  flags.AddString("--advertise-address", "ADDR",
+                  "Address advertised to coordinator (default: bind-address)",
+                  &args.advertise_address, "GVDB_ADVERTISE_ADDRESS");
+  flags.AddString("--data-dir", "PATH", "Data directory (default: /tmp/gvdb/data_node)",
+                  &args.data_dir, "GVDB_DATA_DIR");
+  flags.AddList("--coordinator", "ADDR", "Coordinator addresses (comma-separated)",
+                &args.coordinator_addresses);
+  flags.AddString("--config", "FILE", "YAML config file (for S3/MinIO settings)",
+                  &args.config_file);
+  flags.AddSize("--memory-limit-gb", "SIZE", "Memory limit in GB (default: 8)",
+                &args.memory_limit_gb);
+  flags.AddInt("--drain-wait-seconds", "SEC",
+               "Max seconds to wait for shard drain on shutdown (default: 15)",
+               &args.drain_wait_seconds);
+  if (auto exit_code = flags.Parse(argc, argv)) return *exit_code;
+  return gvdb::server::RunMain([&] { return gvdb::Run(args); });
 }

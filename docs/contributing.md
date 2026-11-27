@@ -83,6 +83,7 @@ The C++ code follows these conventions:
 - `-Wall -Wextra -Wpedantic` on every GVDB target, and warnings are errors in every preset
 - Each module is a folder in `src/`. Its headers sit next to its sources, and code includes a header by its path below `src/`, for example `#include "storage/segment/segment.h"`. Headers use `#pragma once`.
 - A module includes and links only the modules before it in this order: `core`, `common`, `auth`, `index`, `storage`, `compute`, `meta`, `rpc`, `consensus`, `cluster`, `service`, `config`, `server`. The programs in `src/main` can use all of them. `make check-layers` (`tools/check_layers.py`) finds a forbidden include, and CI runs it.
+- A program in `src/main` declares its flags with `server::FlagSet` and builds its parts with the builders in `src/server`. Code that two programs share goes in `src/server`, not in a second main.
 - A lower module does not read the YAML configuration. It defines its own configuration struct (for example `storage::ObjectStoreConfig`), and `config` fills it from the YAML file.
 - When a header of a module includes a header of another module, the `CMakeLists.txt` of the module lists that module in `PUBLIC_DEPS`. A module that only its sources include goes in `PRIVATE_DEPS`.
 
