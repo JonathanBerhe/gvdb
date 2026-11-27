@@ -73,17 +73,22 @@ jobs:
         if: steps.filter.outputs.cpp == 'true'
         run: tools/ci/install-llvm.sh --tidy
 
+      # Only pushes to main save the cache. A PR can read the caches of main
+      # but not those of another PR, so PR copies only crowd the 10 GB cache
+      # store until GitHub evicts the main entries. The key is stable, and
+      # ccache itself detects changed compile commands.
       - name: Set up ccache
         if: steps.filter.outputs.cpp == 'true'
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ccache-clang-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**') }}
-          restore-keys: |
-            ccache-clang-
+          key: clang
+          max-size: 1G
+          evict-old-files: job
+          save: ${{ github.event_name == 'push' }}
 
-      - name: Cache FetchContent sources
+      - name: Restore FetchContent sources
         if: steps.filter.outputs.cpp == 'true'
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         id: fc-cache
         with:
           path: |
@@ -98,6 +103,15 @@ jobs:
         run: >
           cmake --preset ci
           ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}
+
+      - name: Save FetchContent sources
+        if: steps.filter.outputs.cpp == 'true' && github.event_name == 'push' && steps.fc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            build/ci/_deps/*-src
+            build/ci/_deps/*-subbuild
+          key: ${{ steps.fc-cache.outputs.cache-primary-key }}
 
       - name: Build
         if: steps.filter.outputs.cpp == 'true'
@@ -164,17 +178,22 @@ jobs:
         if: steps.filter.outputs.cpp == 'true'
         run: brew install ninja ccache libomp zlib
 
+      # Only pushes to main save the cache. A PR can read the caches of main
+      # but not those of another PR, so PR copies only crowd the 10 GB cache
+      # store until GitHub evicts the main entries. The key is stable, and
+      # ccache itself detects changed compile commands.
       - name: Set up ccache
         if: steps.filter.outputs.cpp == 'true'
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ccache-macos-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**') }}
-          restore-keys: |
-            ccache-macos-
+          key: macos
+          max-size: 1G
+          evict-old-files: job
+          save: ${{ github.event_name == 'push' }}
 
-      - name: Cache FetchContent sources
+      - name: Restore FetchContent sources
         if: steps.filter.outputs.cpp == 'true'
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         id: fc-cache
         with:
           path: |
@@ -190,6 +209,15 @@ jobs:
           cmake --preset metal
           -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}
+
+      - name: Save FetchContent sources
+        if: steps.filter.outputs.cpp == 'true' && github.event_name == 'push' && steps.fc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            build/metal/_deps/*-src
+            build/metal/_deps/*-subbuild
+          key: ${{ steps.fc-cache.outputs.cache-primary-key }}
 
       - name: Build
         if: steps.filter.outputs.cpp == 'true'
@@ -218,15 +246,17 @@ jobs:
         uses: dorny/paths-filter@v4
         id: filter
         with:
+          # The image build has no cache on a fresh runner and compiles every
+          # dependency, about 40 minutes. It runs only for changes that only
+          # the image build tests. build-and-test already compiles CMake and
+          # source changes with the same Clang, libc++ and static linking.
           filters: |
             image:
               - 'deploy/Dockerfile'
               - '.dockerignore'
-              - 'CMakeLists.txt'
               - 'CMakePresets.json'
-              - 'cmake/**'
+              - 'cmake/toolchains/**'
               - 'tools/ci/install-llvm.sh'
-              - '.github/workflows/ci.yml'
 
       - name: Build the release image
         if: steps.filter.outputs.image == 'true'
@@ -320,14 +350,21 @@ jobs:
         if: steps.filter.outputs.gcs == 'true'
         run: tools/ci/install-llvm.sh
 
+      # Only pushes to main save the cache. A PR can read the caches of main
+      # but not those of another PR, so PR copies only crowd the 10 GB cache
+      # store until GitHub evicts the main entries. The key is stable, and
+      # ccache itself detects changed compile commands.
+      # Without a GCS entry, the lane starts from the Linux cache.
       - name: Set up ccache
         if: steps.filter.outputs.gcs == 'true'
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ccache-gcs-clang-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**') }}
+          key: gcs-clang
           restore-keys: |
-            ccache-gcs-clang-
-            ccache-clang-
+            clang
+          max-size: 1G
+          evict-old-files: job
+          save: ${{ github.event_name == 'push' }}
 
       - name: Set up vcpkg
         if: steps.filter.outputs.gcs == 'true'
@@ -357,9 +394,9 @@ jobs:
             --triplet x64-linux-clang-libcxx \
             --overlay-triplets "$GITHUB_WORKSPACE/tools/vcpkg/triplets"
 
-      - name: Cache FetchContent sources
+      - name: Restore FetchContent sources
         if: steps.filter.outputs.gcs == 'true'
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         id: fc-cache
         with:
           path: |
@@ -375,6 +412,15 @@ jobs:
         run: >
           cmake --preset gcs
           ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}
+
+      - name: Save FetchContent sources
+        if: steps.filter.outputs.gcs == 'true' && github.event_name == 'push' && steps.fc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            build/gcs/_deps/*-src
+            build/gcs/_deps/*-subbuild
+          key: ${{ steps.fc-cache.outputs.cache-primary-key }}
 
       # Stage 1, compile-check: builds gvdb_storage (a static lib), which
       # compiles gcs_object_store.cpp against the real google-cloud-cpp
