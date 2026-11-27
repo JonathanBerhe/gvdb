@@ -5,6 +5,7 @@
 
 #include <mutex>
 #include <sstream>
+#include <utility>
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
@@ -38,8 +39,8 @@ void Coordinator::PersistRegistryLocked() const {
     ss << "{\"collection_id\":" << core::ToUInt32(id) << ",\"name\":\""
        << common::json::EscapeJson(meta.collection_name) << "\""
        << ",\"dimension\":" << meta.dimension
-       << ",\"metric\":" << static_cast<int>(meta.metric_type)
-       << ",\"index_type\":" << static_cast<int>(meta.index_type)
+       << ",\"metric\":" << std::to_underlying(meta.metric_type)
+       << ",\"index_type\":" << std::to_underlying(meta.index_type)
        << ",\"num_shards\":" << meta.num_shards
        << ",\"replication_factor\":" << meta.replication_factor
        << ",\"created_at\":" << meta.created_at << ",\"updated_at\":" << meta.updated_at

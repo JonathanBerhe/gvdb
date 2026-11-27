@@ -83,7 +83,7 @@ class SegmentRejectingObjectStore : public InMemoryObjectStore {
 
   absl::Status PutObjectFromFile(const std::string& key,
                                  const std::string& local_file_path) override {
-    if (!rejected_key_part_.empty() && key.find(rejected_key_part_) != std::string::npos) {
+    if (!rejected_key_part_.empty() && key.contains(rejected_key_part_)) {
       return absl::InternalError("injected put failure for a rejected segment");
     }
     return InMemoryObjectStore::PutObjectFromFile(key, local_file_path);

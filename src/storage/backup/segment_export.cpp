@@ -6,6 +6,7 @@
 #include <fstream>
 #include <sstream>
 #include <system_error>
+#include <utility>
 
 #include "absl/strings/str_cat.h"
 #include "common/file_util.h"
@@ -34,9 +35,9 @@ std::string RenderGrowingMetadata(const Segment& segment) {
   ss << "segment_id=" << core::ToUInt32(segment.GetId()) << "\n";
   ss << "collection_id=" << core::ToUInt32(segment.GetCollectionId()) << "\n";
   ss << "dimension=" << segment.GetDimension() << "\n";
-  ss << "metric=" << static_cast<int>(segment.GetMetric()) << "\n";
+  ss << "metric=" << std::to_underlying(segment.GetMetric()) << "\n";
   ss << "vector_count=" << segment.GetVectorCount() << "\n";
-  ss << "index_type=" << static_cast<int>(segment.GetIndexType()) << "\n";
+  ss << "index_type=" << std::to_underlying(segment.GetIndexType()) << "\n";
   ss << "state=growing\n";
   return ss.str();
 }

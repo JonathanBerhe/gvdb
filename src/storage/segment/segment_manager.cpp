@@ -57,7 +57,7 @@ absl::Status SegmentManager::CreateSegmentWithId(core::SegmentId segment_id,
   std::unique_lock lock(mutex_);
 
   // Check if segment already exists
-  if (segments_.find(segment_id) != segments_.end()) {
+  if (segments_.contains(segment_id)) {
     return absl::AlreadyExistsError(
         absl::StrCat("Segment already exists: ", core::ToUInt32(segment_id)));
   }
@@ -218,7 +218,7 @@ absl::Status SegmentManager::LoadSegment(core::SegmentId id) {
   std::unique_lock lock(mutex_);
 
   // Check if already loaded
-  if (segments_.find(id) != segments_.end()) {
+  if (segments_.contains(id)) {
     return absl::AlreadyExistsError(absl::StrCat("Segment already loaded: ", core::ToUInt32(id)));
   }
 
@@ -259,7 +259,7 @@ absl::Status SegmentManager::LoadAllSegments() {
       // Skip if already loaded
       {
         std::shared_lock lock(mutex_);
-        if (segments_.find(seg_id) != segments_.end()) continue;
+        if (segments_.contains(seg_id)) continue;
       }
 
       auto status = LoadSegment(seg_id);
@@ -297,7 +297,7 @@ absl::Status SegmentManager::AddReplicatedSegment(std::unique_ptr<Segment> segme
   std::unique_lock lock(mutex_);
 
   // Check if segment already exists
-  if (segments_.find(id) != segments_.end()) {
+  if (segments_.contains(id)) {
     return absl::AlreadyExistsError(absl::StrCat("Segment already exists: ", core::ToUInt32(id)));
   }
 
@@ -508,12 +508,7 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
 
 std::vector<core::SegmentId> SegmentManager::GetAllSegmentIds() const {
   std::shared_lock lock(mutex_);
-  std::vector<core::SegmentId> ids;
-  ids.reserve(segments_.size());
-  for (const auto& [seg_id, _] : segments_) {
-    ids.push_back(seg_id);
-  }
-  return ids;
+  return segments_ | std::views::keys | std::ranges::to<std::vector>();
 }
 
 void SegmentManager::RunTTLSweepLoop(const std::atomic<bool>& shutdown) {

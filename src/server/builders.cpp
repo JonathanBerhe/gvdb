@@ -81,7 +81,7 @@ void SealFullSegmentsInline(const std::shared_ptr<storage::ISegmentStore>& segme
                                                seg->GetMetric());
     common::Logger::Instance().Info("Auto-sealing segment {} ({} vectors, index={})",
                                     core::ToUInt32(sid), seg->GetVectorCount(),
-                                    static_cast<int>(config.index_type));
+                                    std::to_underlying(config.index_type));
     auto status = segment_store->SealSegment(sid, config);
     if (!status.ok()) {
       common::Logger::Instance().Error("Auto-seal failed: {}", status.message());

@@ -5,6 +5,8 @@
 // nodes.
 
 #include <mutex>
+#include <ranges>
+#include <utility>
 #include "absl/strings/str_cat.h"
 #include "cluster/coordinator/coordinator.h"
 #include "cluster/coordinator/internal_client.h"
@@ -41,7 +43,7 @@ absl::Status Coordinator::RegisterNode(const meta::NodeInfo& node_info) {
 
   common::Logger::Instance().Info("Registered node {} (type: {}, address: {})",
                                   core::ToUInt32(node_info.node_id),
-                                  static_cast<int>(node_info.type), node_info.address);
+                                  std::to_underlying(node_info.type), node_info.address);
 
   return absl::OkStatus();
 }
@@ -73,15 +75,13 @@ std::vector<meta::NodeInfo> Coordinator::GetHealthyNodes(meta::NodeType type) co
   auto registered_nodes = node_registry_->GetRoutableNodesByType(proto_type);
 
   // Convert to Coordinator::NodeInfo
-  std::vector<meta::NodeInfo> result;
-  result.reserve(registered_nodes.size());
-
-  for (const auto& reg_node : registered_nodes) {
-    result.push_back(ConvertRegisteredNode(reg_node));
-  }
+  auto result =
+      registered_nodes |
+      std::views::transform([](const auto& node) { return ConvertRegisteredNode(node); }) |
+      std::ranges::to<std::vector>();
 
   common::Logger::Instance().Debug("GetHealthyNodes(type={}) returned {} nodes",
-                                   static_cast<int>(type), result.size());
+                                   std::to_underlying(type), result.size());
 
   return result;
 }

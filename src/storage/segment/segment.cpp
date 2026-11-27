@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <chrono>
 #include <mutex>
+#include <utility>
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 #include "core/status.h"
@@ -40,7 +41,7 @@ absl::Status Segment::AddVectors(const std::vector<core::Vector>& vectors,
   // Validate state
   if (state_ != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot add vectors to segment in state: ", static_cast<int>(state_)));
+        absl::StrCat("Cannot add vectors to segment in state: ", std::to_underlying(state_)));
   }
 
   // Validate inputs
@@ -154,7 +155,7 @@ absl::StatusOr<Segment::DeleteVectorsResult> Segment::DeleteVectorsUnlocked(
   // Validate state - can only delete from GROWING segments
   if (state_ != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot delete vectors from segment in state: ", static_cast<int>(state_)));
+        absl::StrCat("Cannot delete vectors from segment in state: ", std::to_underlying(state_)));
   }
 
   DeleteVectorsResult result;
@@ -226,7 +227,7 @@ absl::Status Segment::UpdateMetadata(core::VectorId id, const core::Metadata& me
   // Validate state - can only update metadata in GROWING segments
   if (state_ != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot update metadata in segment state: ", static_cast<int>(state_)));
+        absl::StrCat("Cannot update metadata in segment state: ", std::to_underlying(state_)));
   }
 
   // Find vector with matching ID
@@ -274,7 +275,7 @@ absl::Status Segment::AddVectorsWithMetadata(
   // Validate state
   if (state_ != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot add vectors to segment in state: ", static_cast<int>(state_)));
+        absl::StrCat("Cannot add vectors to segment in state: ", std::to_underlying(state_)));
   }
 
   // Validate inputs
@@ -387,7 +388,7 @@ absl::StatusOr<Segment::UpsertResult> Segment::UpsertVectors(
 
   if (state_ != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot upsert in segment state: ", static_cast<int>(state_)));
+        absl::StrCat("Cannot upsert in segment state: ", std::to_underlying(state_)));
   }
 
   RETURN_IF_ERROR(ValidateVectors(vectors, ids));
@@ -474,7 +475,7 @@ absl::Status Segment::Seal(core::IVectorIndex* index) {
   // Validate state transition
   if (state_ != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot seal segment in state: ", static_cast<int>(state_)));
+        absl::StrCat("Cannot seal segment in state: ", std::to_underlying(state_)));
   }
 
   if (vectors_.empty()) {

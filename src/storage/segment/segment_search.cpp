@@ -232,7 +232,7 @@ absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(const core::Vector&
 
       // Fast path: scalar index pre-filter
       if (indexed_candidates) {
-        if (indexed_candidates->count(id_uint) == 0) {
+        if (!indexed_candidates->contains(id_uint)) {
           continue;  // Not in candidate set from scalar index
         }
         // Still need to evaluate full filter for partial index coverage
@@ -300,7 +300,7 @@ absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(const core::Vector&
     if (IsExpired(id_uint, now)) continue;
 
     // Fast path: check scalar index first
-    if (indexed_candidates && indexed_candidates->count(id_uint) == 0) {
+    if (indexed_candidates && !indexed_candidates->contains(id_uint)) {
       continue;
     }
 

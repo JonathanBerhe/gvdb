@@ -506,7 +506,7 @@ TEST_CASE_FIXTURE(BackupRestoreIntegrationTest,
   std::vector<uint32_t> restored_ids;
   for (auto sid : dn_segment_store_->GetAllSegmentIds()) {
     auto key = core::ToUInt32(sid);
-    if (before_restore.count(key) > 0) continue;
+    if (before_restore.contains(key)) continue;
     auto* seg = dn_segment_store_->GetSegment(sid);
     if (!seg || seg->GetState() == core::SegmentState::GROWING) continue;
     restored_ids.push_back(key);

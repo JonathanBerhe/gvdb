@@ -7,6 +7,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
+#include <utility>
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_split.h"
 #include "cluster/coordinator/coordinator.h"
@@ -63,7 +64,7 @@ class LocalCollectionResolver : public ICollectionResolver {
                                                       core::IndexType index_type,
                                                       size_t num_shards = 1) override {
     std::unique_lock lock(mutex_);
-    if (entries_.count(name) > 0) {
+    if (entries_.contains(name)) {
       return absl::AlreadyExistsError("Collection already exists: " + name);
     }
     if (num_shards == 0) num_shards = 1;
@@ -168,8 +169,9 @@ class LocalCollectionResolver : public ICollectionResolver {
       first = false;
       ss << "{\"collection_id\":" << core::ToUInt32(entry.id) << ",\"name\":\""
          << common::json::EscapeJson(name) << "\""
-         << ",\"dimension\":" << entry.dimension << ",\"metric\":" << static_cast<int>(entry.metric)
-         << ",\"index_type\":" << static_cast<int>(entry.index_type)
+         << ",\"dimension\":" << entry.dimension
+         << ",\"metric\":" << std::to_underlying(entry.metric)
+         << ",\"index_type\":" << std::to_underlying(entry.index_type)
          << ",\"num_shards\":" << entry.num_shards << ",\"segment_ids\":[";
       for (size_t i = 0; i < entry.segment_ids.size(); ++i) {
         if (i) ss << ",";

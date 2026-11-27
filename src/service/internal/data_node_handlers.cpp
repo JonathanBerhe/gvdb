@@ -6,6 +6,8 @@
 // backup write fence.
 
 #include "cluster/datanode/primary_term_tracker.h"
+
+#include <utility>
 #include "cluster/datanode/shard_write_gate.h"
 #include "common/logger.h"
 #include "core/type_names.h"
@@ -208,7 +210,7 @@ grpc::Status InternalService::DeleteSegment(grpc::ServerContext* /*context*/,
     // Check segment state before deletion
     auto state = segment->GetState();
     common::Logger::Instance().Info("DeleteSegment: segment={} state={}", segment_id,
-                                    static_cast<int>(state));
+                                    std::to_underlying(state));
 
     // Delete segment from memory and disk
     auto drop_status = segment_store_->DropSegment(seg_id, true /* delete_files */);

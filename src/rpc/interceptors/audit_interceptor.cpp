@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <string>
+#include <utility>
 
 namespace gvdb::rpc {
 
@@ -145,7 +146,7 @@ void AuditInterceptor::Intercept(grpc::experimental::InterceptorBatchMethods* me
     std::string json = fmt::format(
         R"({{"timestamp":"{}","api_key_id":"{}","operation":"{}","collection":"{}","status":"{}","grpc_code":{},"latency_ms":{},"item_count":{}}})",
         NowISO8601(), JsonEscape(api_key_), JsonEscape(operation), JsonEscape(collection),
-        StatusCodeName(code), static_cast<int>(code), elapsed.count(), item_count);
+        StatusCodeName(code), std::to_underlying(code), elapsed.count(), item_count);
 
     auth::AuditLogger::Log(json);
   }

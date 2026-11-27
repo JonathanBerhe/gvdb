@@ -869,7 +869,7 @@ class AuthMatrixTest : public AuthIntegrationTest {
     auto snapshot = AdminSnapshot();
     auto stub = MakeStub();
     for (const char* name : {"test_collection", "other_coll"}) {
-      if (snapshot.count(name) > 0) {
+      if (snapshot.contains(name)) {
         proto::DropCollectionRequest req;
         req.set_collection_name(name);
         proto::DropCollectionResponse resp;

@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "rpc/proto_conversions.h"
+
+#include <utility>
 #include "absl/strings/str_format.h"
 #include "core/status.h"
 
@@ -47,7 +49,7 @@ absl::StatusOr<core::MetricType> FromProto(proto::CreateCollectionRequest::Metri
       return core::MetricType::COSINE;
     default:
       return absl::InvalidArgumentError(
-          absl::StrFormat("Unknown metric type: %d", static_cast<int>(metric)));
+          absl::StrFormat("Unknown metric type: %d", std::to_underlying(metric)));
   }
 }
 
@@ -71,7 +73,7 @@ absl::StatusOr<core::IndexType> FromProto(proto::CreateCollectionRequest::IndexT
       return core::IndexType::AUTO;
     default:
       return absl::InvalidArgumentError(
-          absl::StrFormat("Unknown index type: %d", static_cast<int>(index_type)));
+          absl::StrFormat("Unknown index type: %d", std::to_underlying(index_type)));
   }
 }
 
