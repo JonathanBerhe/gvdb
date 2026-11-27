@@ -34,6 +34,7 @@
 #include "service/proxy/proxy_service.h"
 #include "service/vectordb/vectordb_service.h"
 #include "storage/backup/backup_manager.h"
+#include "storage/backup/restore_manager.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"

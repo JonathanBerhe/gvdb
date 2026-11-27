@@ -11,6 +11,7 @@
 #include "cluster/datanode/primary_term_tracker.h"
 #include "cluster/datanode/shard_write_gate.h"
 #include "storage/backup/backup_manager.h"
+#include "storage/backup/restore_manager.h"
 #include "common/logger.h"
 #include "core/types.h"
 

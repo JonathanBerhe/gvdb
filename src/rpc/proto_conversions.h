@@ -8,7 +8,7 @@
 #include "core/types.h"
 #include "core/vector.h"
 #include "meta/node_info.h"
-#include "storage/backup/backup_manager.h"
+#include "storage/backup/backup_target.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "internal.pb.h"

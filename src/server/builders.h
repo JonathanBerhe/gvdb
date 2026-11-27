@@ -13,6 +13,7 @@
 #include "index/index_factory.h"
 #include "server/bootstrap.h"
 #include "storage/backup/backup_manager.h"
+#include "storage/backup/restore_manager.h"
 #include "storage/import/bulk_importer.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_store.h"

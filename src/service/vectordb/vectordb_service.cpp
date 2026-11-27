@@ -11,6 +11,7 @@
 #include "cluster/datanode/shard_write_gate.h"
 #include "auth/auth_context.h"
 #include "storage/backup/backup_manager.h"
+#include "storage/backup/restore_manager.h"
 #include "common/logger.h"
 #include "absl/strings/str_cat.h"
 #include "internal.grpc.pb.h"
