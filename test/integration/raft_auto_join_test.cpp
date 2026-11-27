@@ -15,6 +15,7 @@
 //   3. Graceful scale-down — simulate SIGTERM on node 4 by calling
 //      RemovePeer on the leader. Verify cluster_config returns to 3.
 
+#include "cluster/coordinator/raft_peer_client.h"
 #include "consensus/raft_node.h"
 #include "consensus/raft_config.h"
 #include "service/internal/internal_service.h"
@@ -145,7 +146,7 @@ std::unique_ptr<TestCoordinator> StartCoordinator(
   cfg.coordinator_grpc_peers = layout.coordinator_grpc_peers;
   cfg.data_dir = c->data_dir.string();
 
-  c->raft = std::make_shared<RaftNode>(cfg);
+  c->raft = std::make_shared<RaftNode>(cfg, std::make_shared<cluster::GrpcRaftPeerClient>());
   auto status = c->raft->Start();
   if (!status.ok()) return nullptr;
 
