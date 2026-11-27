@@ -110,44 +110,6 @@ TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetCollectionMetadataByName") {
   CHECK_EQ(response.metadata().collection_id(), core::ToUInt32(collection_id.value()));
 }
 
-// Test getting collection metadata by ID
-TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetCollectionMetadataById") {
-  // Create a collection in the coordinator
-  auto collection_id = coordinator_->CreateCollection(
-      "test_collection2", 256, core::MetricType::INNER_PRODUCT, core::IndexType::IVF_FLAT, 1);
-  REQUIRE(collection_id.ok());
-
-  // Query metadata by ID via InternalService
-  grpc::ServerContext context;
-  proto::internal::GetCollectionMetadataRequest request;
-  request.set_collection_id(core::ToUInt32(collection_id.value()));
-  proto::internal::GetCollectionMetadataResponse response;
-
-  auto status = internal_service_->GetCollectionMetadata(&context, &request, &response);
-
-  // Verify success
-  CHECK(status.ok());
-  CHECK(response.found());
-  CHECK_EQ(response.metadata().collection_name(), "test_collection2");
-  CHECK_EQ(response.metadata().dimension(), 256);
-  CHECK_EQ(response.metadata().metric_type(), "INNER_PRODUCT");
-  CHECK_EQ(response.metadata().index_type(), "IVF_FLAT");
-}
-
-// Test getting non-existent collection by name
-TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetNonExistentCollectionByName") {
-  grpc::ServerContext context;
-  proto::internal::GetCollectionMetadataRequest request;
-  request.set_collection_name("nonexistent");
-  proto::internal::GetCollectionMetadataResponse response;
-
-  auto status = internal_service_->GetCollectionMetadata(&context, &request, &response);
-
-  // Should succeed but not found
-  CHECK(status.ok());
-  CHECK_FALSE(response.found());
-}
-
 // Test getting non-existent collection by ID
 TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetNonExistentCollectionById") {
   grpc::ServerContext context;
@@ -245,20 +207,6 @@ TEST_CASE_FIXTURE(InternalServiceMetadataTest, "DifferentIndexTypes") {
     CHECK(response.found());
     CHECK_EQ(response.metadata().index_type(), tc.expected_index_str);
   }
-}
-
-// Test invalid request (no collection_id or collection_name)
-TEST_CASE_FIXTURE(InternalServiceMetadataTest, "InvalidRequest") {
-  grpc::ServerContext context;
-  proto::internal::GetCollectionMetadataRequest request;
-  // Don't set collection_id or collection_name
-  proto::internal::GetCollectionMetadataResponse response;
-
-  auto status = internal_service_->GetCollectionMetadata(&context, &request, &response);
-
-  // Should return error
-  CHECK_FALSE(status.ok());
-  CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
 }
 
 // The by-id lookup, the not-found answer and the empty-request error, sent

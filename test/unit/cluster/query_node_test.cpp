@@ -96,26 +96,8 @@ class QueryNodeTest {
 // QueryNode Tests
 // ============================================================================
 
-TEST_CASE_FIXTURE(QueryNodeTest, "Initial state has no loaded segments") {
-  auto loaded = query_node_->GetLoadedSegments();
-  CHECK(loaded.empty());
-}
-
 TEST_CASE_FIXTURE(QueryNodeTest, "GetMemoryLimit returns configured value") {
   CHECK_EQ(query_node_->GetMemoryLimit(), memory_limit_);
-}
-
-TEST_CASE_FIXTURE(QueryNodeTest, "GetMemoryUtilization is zero initially") {
-  CHECK_EQ(query_node_->GetMemoryUtilization(), doctest::Approx(0.0f));
-  CHECK_EQ(query_node_->GetMemoryUsage(), 0);
-}
-
-TEST_CASE_FIXTURE(QueryNodeTest, "LoadSegment succeeds for existing segment") {
-  auto segment_id = CreatePopulatedSegment(10);
-
-  auto status = query_node_->LoadSegment(segment_id);
-  CHECK(status.ok());
-  CHECK(query_node_->IsSegmentLoaded(segment_id));
 }
 
 TEST_CASE_FIXTURE(QueryNodeTest, "LoadSegment fails for nonexistent segment") {

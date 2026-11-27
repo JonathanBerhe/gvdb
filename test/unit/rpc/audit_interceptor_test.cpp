@@ -161,6 +161,7 @@ TEST_CASE_FIXTURE(AuditIntegrationTest, "CreateCollection produces valid audit J
   CHECK(JsonContains(entry, "status", "OK"));
   CHECK(entry.find("\"timestamp\"") != std::string::npos);
   CHECK(entry.find("\"latency_ms\"") != std::string::npos);
+  CHECK(JsonContainsInt(entry, "grpc_code", 0));
 }
 
 TEST_CASE_FIXTURE(AuditIntegrationTest, "Insert logs collection and item_count") {
@@ -306,27 +307,6 @@ TEST_CASE_FIXTURE(AuditIntegrationTest, "Multiple RPCs produce multiple audit li
   CHECK(lines.size() == 2);  // CreateCollection + DropCollection (no HealthCheck)
   CHECK(JsonContains(lines[0], "operation", "CreateCollection"));
   CHECK(JsonContains(lines[1], "operation", "DropCollection"));
-}
-
-TEST_CASE_FIXTURE(AuditIntegrationTest, "Latency is greater than zero") {
-  auto stub = MakeStub();
-  proto::CreateCollectionRequest req;
-  req.set_collection_name("latency_test");
-  req.set_dimension(4);
-  req.set_metric(proto::CreateCollectionRequest::L2);
-  req.set_index_type(proto::CreateCollectionRequest::FLAT);
-  proto::CreateCollectionResponse resp;
-  grpc::ClientContext ctx;
-  ctx.AddMetadata("authorization", "Bearer admin-key");
-  stub->CreateCollection(&ctx, req, &resp);
-
-  auto lines = GetAuditLines();
-  REQUIRE(!lines.empty());
-  auto& entry = lines.back();
-  // latency_ms should be present and >= 0
-  CHECK(entry.find("\"latency_ms\":") != std::string::npos);
-  // grpc_code:0 for OK
-  CHECK(JsonContainsInt(entry, "grpc_code", 0));
 }
 
 TEST_CASE_FIXTURE(AuditIntegrationTest, "Permission denied is audited") {

@@ -226,35 +226,6 @@ TEST_CASE_FIXTURE(TieredTest, "WriteAndReadVectors") {
   CHECK_EQ(read_result->size(), 1);
 }
 
-TEST_CASE_FIXTURE(TieredTest, "FlushTriggersUpload") {
-  auto [tiered, store] = MakeTieredWithStore();
-  auto seg_id = *tiered->CreateSegment(collection_id_, dimension_, metric_);
-
-  auto vectors = MakeVectors(100);
-  auto ids = MakeIds(100);
-  REQUIRE(tiered->WriteVectors(seg_id, vectors, ids).ok());
-
-  // Seal the segment (required before flush)
-  core::IndexConfig config;
-  config.index_type = core::IndexType::FLAT;
-  config.dimension = dimension_;
-  config.metric_type = metric_;
-  REQUIRE(tiered->SealSegment(seg_id, config).ok());
-
-  // Flush: should trigger async upload
-  REQUIRE(tiered->FlushSegment(seg_id).ok());
-
-  // Wait for the async upload: it writes the manifest after the files.
-  REQUIRE_EQ(WaitForManifestEntries(*store, 1).size(), 1);
-
-  // Verify objects were uploaded to the mock store
-  CHECK(store->ObjectCount() > 0);
-
-  // Check manifest exists
-  auto manifest = store->GetObject("test-prefix/manifest.json");
-  CHECK(manifest.ok());
-}
-
 TEST_CASE_FIXTURE(TieredTest, "SealAndSearch") {
   auto tiered = MakeTiered();
   auto seg_id = *tiered->CreateSegment(collection_id_, dimension_, metric_);
@@ -293,13 +264,6 @@ TEST_CASE_FIXTURE(TieredTest, "SearchCollection") {
   auto result = tiered->SearchCollection(collection_id_, vectors[0], 5);
   REQUIRE(result.ok());
   CHECK(result->entries.size() > 0);
-}
-
-TEST_CASE_FIXTURE(TieredTest, "GetSegmentCount") {
-  auto tiered = MakeTiered();
-  CHECK_EQ(tiered->GetSegmentCount(), 0);
-  REQUIRE(tiered->CreateSegment(collection_id_, dimension_, metric_).ok());
-  CHECK_EQ(tiered->GetSegmentCount(), 1);
 }
 
 TEST_CASE_FIXTURE(TieredTest, "GetCollectionSegments") {

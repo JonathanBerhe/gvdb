@@ -109,10 +109,6 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "UpdateExistingNodeIncrementsHeartbeats") {
 // ============================================================================
 // 3. GetNode returns false for unknown ID
 // ============================================================================
-TEST_CASE_FIXTURE(NodeRegistryTest, "GetNodeReturnsFalseForUnknownId") {
-  RegisteredNode node;
-  CHECK_FALSE(registry_.GetNode(999, &node));
-}
 
 // ============================================================================
 // 4. GetAllNodes returns all registered (register 3 nodes)

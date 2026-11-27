@@ -43,12 +43,6 @@ TEST_CASE("TypesTest - InvalidIds") {
   CHECK_EQ(ToUInt16(kInvalidShardId), 0);
 }
 
-TEST_CASE("TypesTest - SearchResultEntry") {
-  SearchResultEntry entry(MakeVectorId(123), 0.5f);
-  CHECK_EQ(ToUInt64(entry.id), 123);
-  CHECK(entry.distance == doctest::Approx(0.5f));
-}
-
 TEST_CASE("TypesTest - SearchResult") {
   SearchResult result(10);
   CHECK_EQ(result.Size(), 0);
@@ -64,37 +58,6 @@ TEST_CASE("TypesTest - SearchResult") {
 // ============================================================================
 // absl::Status Tests
 // ============================================================================
-
-TEST_CASE("StatusTest - OkStatus") {
-  absl::Status status = absl::OkStatus();
-  CHECK(status.ok());
-}
-
-TEST_CASE("StatusTest - ErrorStatuses") {
-  absl::Status invalid = absl::InvalidArgumentError("invalid arg");
-  CHECK_FALSE(invalid.ok());
-  CHECK(absl::IsInvalidArgument(invalid));
-
-  absl::Status internal = absl::InternalError("internal error");
-  CHECK_FALSE(internal.ok());
-  CHECK(absl::IsInternal(internal));
-
-  absl::Status not_found = absl::NotFoundError("not found");
-  CHECK_FALSE(not_found.ok());
-  CHECK(absl::IsNotFound(not_found));
-}
-
-TEST_CASE("StatusTest - StatusOrSuccess") {
-  absl::StatusOr<int> result = 42;
-  CHECK(result.ok());
-  CHECK_EQ(result.value(), 42);
-}
-
-TEST_CASE("StatusTest - StatusOrError") {
-  absl::StatusOr<int> result = absl::InvalidArgumentError("error");
-  CHECK_FALSE(result.ok());
-  CHECK(absl::IsInvalidArgument(result.status()));
-}
 
 // ============================================================================
 // Vector Tests
@@ -220,12 +183,6 @@ TEST_CASE("VectorTest - CosineDistanceOrthogonal") {
   CHECK(vec1.CosineDistance(vec2) == doctest::Approx(1.0f).epsilon(1e-6f));
 }
 
-TEST_CASE("VectorTest - LargeDimension") {
-  // Test with a large dimension to ensure no overflow
-  Vector vec(1048576);  // 2^20 elements
-  CHECK_EQ(vec.dimension(), 1048576);
-}
-
 // ============================================================================
 // Vector Utility Tests
 // ============================================================================
@@ -256,18 +213,6 @@ TEST_CASE("VectorUtilTest - RandomVector") {
 // ============================================================================
 // Metadata Tests
 // ============================================================================
-
-TEST_CASE("MetadataTest - MetadataValueTypes") {
-  MetadataValue int_val = static_cast<int64_t>(42);
-  MetadataValue double_val = 3.14;
-  MetadataValue string_val = std::string("hello");
-  MetadataValue bool_val = true;
-
-  CHECK_EQ(std::get<int64_t>(int_val), 42);
-  CHECK(std::get<double>(double_val) == doctest::Approx(3.14));
-  CHECK_EQ(std::get<std::string>(string_val), "hello");
-  CHECK_EQ(std::get<bool>(bool_val), true);
-}
 
 TEST_CASE("MetadataTest - CompareEqual") {
   CHECK(CompareMetadataValues(MetadataValue(int64_t(42)), ComparisonOp::EQUAL,

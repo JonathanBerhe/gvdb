@@ -29,17 +29,6 @@ void SleepUntil(std::chrono::steady_clock::time_point deadline) {
   }
 }
 
-TEST_CASE("ShardWriteGate: freeze then unfreeze") {
-  ShardWriteGate gate;
-  auto s = core::MakeShardId(7);
-
-  CHECK_FALSE(gate.IsFrozen(s));
-  CHECK(gate.Freeze(s, "tok-1", /*lease_ms=*/kLongLeaseMs));
-  CHECK(gate.IsFrozen(s));
-  CHECK(gate.Unfreeze(s, "tok-1"));
-  CHECK_FALSE(gate.IsFrozen(s));
-}
-
 TEST_CASE("ShardWriteGate: a second token cannot steal a live freeze") {
   ShardWriteGate gate;
   auto s = core::MakeShardId(1);

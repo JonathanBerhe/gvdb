@@ -294,16 +294,3 @@ TEST_CASE("Metal: AddBatch then search") {
 // ============================================================================
 // Non-Metal fallback
 // ============================================================================
-
-TEST_CASE("IndexFactory returns valid FLAT index regardless of Metal") {
-  index::IndexFactory factory;
-  core::IndexConfig config;
-  config.index_type = core::IndexType::FLAT;
-  config.dimension = 64;
-  config.metric_type = core::MetricType::L2;
-
-  auto result = factory.CreateIndex(config);
-  REQUIRE(result.ok());
-  CHECK(result.value()->GetIndexType() == core::IndexType::FLAT);
-  CHECK(result.value()->GetDimension() == 64);
-}

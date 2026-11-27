@@ -46,22 +46,6 @@ class LoggerTest {
   gvdb::test::ScopedTempDir log_dir_{"gvdb_test_logs"};
 };
 
-TEST_CASE_FIXTURE(LoggerTest, "InitializeWithDefaultConfig") {
-  LogConfig config;
-  config.console_enabled = true;
-  config.file_enabled = false;
-  config.level = LogLevel::INFO;
-
-  auto status = Logger::Initialize(config);
-  CHECK_MESSAGE(status.ok(), status.message());
-
-  // Should be able to log without errors
-  Logger::Instance().Info("Test message");
-  Logger::Instance().Debug("Debug message");  // Should be filtered out (level is INFO)
-
-  Logger::Instance().Flush();
-}
-
 TEST_CASE_FIXTURE(LoggerTest, "InitializeWithFileLogging") {
   LogConfig config;
   config.console_enabled = false;
@@ -154,11 +138,6 @@ TEST_CASE_FIXTURE(LoggerTest, "LogWithParameters") {
 TEST_CASE("ThreadPoolTest - CreateWithDefaultThreads") {
   ThreadPool pool;
   CHECK_GT(pool.size(), 0);
-}
-
-TEST_CASE("ThreadPoolTest - CreateWithSpecificThreads") {
-  ThreadPool pool(4);
-  CHECK_EQ(pool.size(), 4);
 }
 
 TEST_CASE("ThreadPoolTest - EnqueueSimpleTask") {

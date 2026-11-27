@@ -66,23 +66,10 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "UpdateCollection") {
   CHECK_EQ(result->index_type, core::IndexType::HNSW);
 }
 
-// Test size
-TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "Size") {
-  CHECK_EQ(cache_->Size(), 0);
-
-  meta::CollectionMetadata metadata1(static_cast<core::CollectionId>(1), "collection1", 128,
-                                     core::MetricType::L2, core::IndexType::FLAT);
-  cache_->Put(metadata1);
-  CHECK_EQ(cache_->Size(), 1);
-
-  meta::CollectionMetadata metadata2(static_cast<core::CollectionId>(2), "collection2", 256,
-                                     core::MetricType::COSINE, core::IndexType::HNSW);
-  cache_->Put(metadata2);
-  CHECK_EQ(cache_->Size(), 2);
-}
-
 // Test multiple collections
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "MultipleCollections") {
+  CHECK_EQ(cache_->Size(), 0);
+
   std::vector<meta::CollectionMetadata> collections;
   for (int i = 1; i <= 10; ++i) {
     collections.emplace_back(static_cast<core::CollectionId>(i), "collection_" + std::to_string(i),

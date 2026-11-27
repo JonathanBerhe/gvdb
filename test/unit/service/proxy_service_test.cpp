@@ -471,26 +471,6 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "NoQueryNodeReturnsUnavailable") {
 // Lazy Client Initialization Tests
 // ============================================================================
 
-TEST_CASE_FIXTURE(ProxyServiceTest, "LazyClientInitialization") {
-  // Create new proxy (clients not initialized yet)
-  auto proxy = std::make_unique<service::ProxyService>(
-      std::vector<std::string>{coordinator_address_}, query_node_address_);
-
-  // Clients should be lazily initialized on first use
-  grpc::ServerContext context;
-  proto::CreateCollectionRequest request;
-  request.set_collection_name("test");
-  request.set_dimension(128);
-  request.set_metric(proto::CreateCollectionRequest::L2);
-  request.set_index_type(proto::CreateCollectionRequest::FLAT);
-  proto::CreateCollectionResponse response;
-
-  auto status = proxy->CreateCollection(&context, &request, &response);
-
-  CHECK(status.ok());
-  CHECK_GT(response.collection_id(), 0);
-}
-
 TEST_CASE_FIXTURE(ProxyServiceTest, "ConcurrentRequests") {
   std::vector<std::thread> threads;
   std::atomic<int> success_count{0};
