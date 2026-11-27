@@ -32,36 +32,32 @@ class IndexFactory : public core::IIndexFactory {
       const core::IndexConfig& config) override;
 
   // Create a specific index type with dimension and metric
-  [[nodiscard]] static absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
-  CreateFlatIndex(core::Dimension dimension, core::MetricType metric);
+  [[nodiscard]] static absl::StatusOr<std::unique_ptr<core::IVectorIndex>> CreateFlatIndex(
+      core::Dimension dimension, core::MetricType metric);
 
-  [[nodiscard]] static absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
-  CreateHNSWIndex(core::Dimension dimension, core::MetricType metric,
-                  int M = 32, int ef_construction = 200, int ef_search = 50);
+  [[nodiscard]] static absl::StatusOr<std::unique_ptr<core::IVectorIndex>> CreateHNSWIndex(
+      core::Dimension dimension, core::MetricType metric, int M = 32, int ef_construction = 200,
+      int ef_search = 50);
 
-  [[nodiscard]] static absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
-  CreateIVFIndex(core::Dimension dimension, core::MetricType metric,
-                 int nlist = 100,
-                 IVFQuantizationType quantization = IVFQuantizationType::NONE,
-                 int pq_m = 8, int pq_nbits = 8, int nprobe = 10);
+  [[nodiscard]] static absl::StatusOr<std::unique_ptr<core::IVectorIndex>> CreateIVFIndex(
+      core::Dimension dimension, core::MetricType metric, int nlist = 100,
+      IVFQuantizationType quantization = IVFQuantizationType::NONE, int pq_m = 8, int pq_nbits = 8,
+      int nprobe = 10);
 
-  [[nodiscard]] static absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
-  CreateTurboQuantIndex(core::Dimension dimension, core::MetricType metric,
-                        int bit_width = 4, bool use_qjl = true,
-                        int qjl_dim = 0);
+  [[nodiscard]] static absl::StatusOr<std::unique_ptr<core::IVectorIndex>> CreateTurboQuantIndex(
+      core::Dimension dimension, core::MetricType metric, int bit_width = 4, bool use_qjl = true,
+      int qjl_dim = 0);
 
-  [[nodiscard]] static absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
-  CreateIVFTurboQuantIndex(const core::IndexConfig& config);
+  [[nodiscard]] static absl::StatusOr<std::unique_ptr<core::IVectorIndex>> CreateIVFTurboQuantIndex(
+      const core::IndexConfig& config);
 
   // Check if GPU is available for GPU indexes
   [[nodiscard]] static bool IsGPUAvailable();
 
  private:
   // Helper to validate config
-  [[nodiscard]] static absl::Status ValidateConfig(
-      const core::IndexConfig& config);
+  [[nodiscard]] static absl::Status ValidateConfig(const core::IndexConfig& config);
 };
 
 }  // namespace index
 }  // namespace gvdb
-

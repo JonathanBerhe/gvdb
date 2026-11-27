@@ -64,8 +64,7 @@ TEST_CASE("ShardWriteGate: same-token Freeze refreshes the lease") {
   CHECK(gate.Freeze(s, "tok", 30));
   // The original lease ends 30 ms after Freeze() read the clock, so no
   // later than this.
-  const auto original_lease_end =
-      std::chrono::steady_clock::now() + std::chrono::milliseconds(30);
+  const auto original_lease_end = std::chrono::steady_clock::now() + std::chrono::milliseconds(30);
   // Refresh well before expiry.
   CHECK(gate.Freeze(s, "tok", kLongLeaseMs));
   SleepUntil(original_lease_end);

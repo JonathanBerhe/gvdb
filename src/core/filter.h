@@ -144,8 +144,7 @@ class FilterParser {
    * @param expression SQL-like filter expression
    * @return AST root node, or InvalidArgument for any malformed input
    */
-  static absl::StatusOr<std::unique_ptr<FilterNode>> parse(
-      const std::string& expression);
+  static absl::StatusOr<std::unique_ptr<FilterNode>> parse(const std::string& expression);
 
  private:
   FilterParser(const std::string& expression);
@@ -157,8 +156,8 @@ class FilterParser {
   absl::StatusOr<std::unique_ptr<FilterNode>> ParseNotExpression();
   absl::StatusOr<std::unique_ptr<FilterNode>> ParsePrimaryExpression();
   absl::StatusOr<std::unique_ptr<FilterNode>> ParseComparison();
-  absl::StatusOr<std::unique_ptr<FilterNode>> ParseInExpression(
-      const std::string& field, bool negate);
+  absl::StatusOr<std::unique_ptr<FilterNode>> ParseInExpression(const std::string& field,
+                                                                bool negate);
 
   // Token management
   void SkipWhitespace();

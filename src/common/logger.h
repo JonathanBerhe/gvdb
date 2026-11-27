@@ -18,12 +18,12 @@ namespace common {
 // LogLevel - Log severity levels
 // ============================================================================
 enum class LogLevel {
-  TRACE,     // Very detailed debug information
-  DEBUG,     // Debug information
-  INFO,      // Informational messages
-  WARN,      // Warning messages
-  ERROR,     // Error messages
-  CRITICAL   // Critical/fatal errors
+  TRACE,    // Very detailed debug information
+  DEBUG,    // Debug information
+  INFO,     // Informational messages
+  WARN,     // Warning messages
+  ERROR,    // Error messages
+  CRITICAL  // Critical/fatal errors
 };
 
 // ============================================================================
@@ -49,9 +49,7 @@ struct LogConfig {
   // Log pattern
   std::string pattern = "[%Y-%m-%d %H:%M:%S.%e] [%l] [%t] %v";
 
-  [[nodiscard]] bool IsValid() const {
-    return max_file_size > 0 && max_files > 0;
-  }
+  [[nodiscard]] bool IsValid() const { return max_file_size > 0 && max_files > 0; }
 };
 
 // ============================================================================
@@ -118,4 +116,3 @@ class Logger {
 
 }  // namespace common
 }  // namespace gvdb
-

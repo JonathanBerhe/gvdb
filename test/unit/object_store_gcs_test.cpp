@@ -35,8 +35,7 @@ std::string EnvOr(const char* name, const char* fallback) {
 }
 
 struct GcsObjectStoreFixture {
-  GcsObjectStoreFixture()
-      : tmp_dir("gvdb_gcs_objstore") {
+  GcsObjectStoreFixture() : tmp_dir("gvdb_gcs_objstore") {
     GcsConfig config;
     config.endpoint = EnvOr("GVDB_TEST_GCS_ENDPOINT", "");
     config.bucket = EnvOr("GVDB_TEST_GCS_BUCKET", "gvdb-test");

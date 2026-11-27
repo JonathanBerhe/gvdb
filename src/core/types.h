@@ -47,29 +47,29 @@ inline NodeId MakeNodeId(uint32_t value) { return NodeId{value}; }
 
 // Distance metric types for vector similarity search
 enum class MetricType {
-  L2,              // Euclidean distance
-  INNER_PRODUCT,   // Inner product (for normalized vectors, equivalent to cosine)
-  COSINE           // Cosine similarity
+  L2,             // Euclidean distance
+  INNER_PRODUCT,  // Inner product (for normalized vectors, equivalent to cosine)
+  COSINE          // Cosine similarity
 };
 
 // Index types supported by the system
 enum class IndexType {
-  FLAT,      // Brute-force exact search
-  HNSW,      // Hierarchical Navigable Small World
-  IVF_FLAT,  // Inverted File with exhaustive search
-  IVF_PQ,    // Inverted File with Product Quantization
-  IVF_SQ,    // Inverted File with Scalar Quantization
-  TURBOQUANT,     // TurboQuant online quantization (data-oblivious)
-  IVF_TURBOQUANT, // IVF partitioning + TurboQuant compression
+  FLAT,            // Brute-force exact search
+  HNSW,            // Hierarchical Navigable Small World
+  IVF_FLAT,        // Inverted File with exhaustive search
+  IVF_PQ,          // Inverted File with Product Quantization
+  IVF_SQ,          // Inverted File with Scalar Quantization
+  TURBOQUANT,      // TurboQuant online quantization (data-oblivious)
+  IVF_TURBOQUANT,  // IVF partitioning + TurboQuant compression
   AUTO             // Automatically select based on vector count at seal time
 };
 
 // Auto-index tier boundaries (vector count thresholds)
-constexpr size_t kAutoTierFlatMax = 10'000;        // <10K → FLAT
-constexpr size_t kAutoTierHnswMax = 500'000;       // 10K–500K → HNSW
-constexpr size_t kAutoTierSqMax = 1'000'000;       // 500K–1M → IVF_SQ
-constexpr size_t kAutoTierTQ4Max = 100'000'000;    // 1M–100M → IVF_TURBOQUANT 4-bit
-                                                    // ≥100M → IVF_TURBOQUANT 2-bit
+constexpr size_t kAutoTierFlatMax = 10'000;      // <10K → FLAT
+constexpr size_t kAutoTierHnswMax = 500'000;     // 10K–500K → HNSW
+constexpr size_t kAutoTierSqMax = 1'000'000;     // 500K–1M → IVF_SQ
+constexpr size_t kAutoTierTQ4Max = 100'000'000;  // 1M–100M → IVF_TURBOQUANT 4-bit
+                                                 // ≥100M → IVF_TURBOQUANT 2-bit
 
 // Resolve AUTO index type to a concrete type based on vector count.
 // Returns the input unchanged if it is not AUTO.
@@ -83,10 +83,10 @@ inline IndexType ResolveAutoIndexType(IndexType type, size_t vector_count) {
 
 // Segment states in the storage lifecycle
 enum class SegmentState {
-  GROWING,   // Accepting new vectors
-  SEALED,    // Read-only, optimized for queries
-  FLUSHED,   // Persisted to storage
-  DROPPED    // Marked for deletion
+  GROWING,  // Accepting new vectors
+  SEALED,   // Read-only, optimized for queries
+  FLUSHED,  // Persisted to storage
+  DROPPED   // Marked for deletion
 };
 
 // Search result entry containing a vector ID and its distance
@@ -103,13 +103,9 @@ struct SearchResult {
   std::vector<SearchResultEntry> entries;
 
   SearchResult() = default;
-  explicit SearchResult(size_t reserve_size) {
-    entries.reserve(reserve_size);
-  }
+  explicit SearchResult(size_t reserve_size) { entries.reserve(reserve_size); }
 
-  void AddEntry(VectorId id, float distance) {
-    entries.emplace_back(id, distance);
-  }
+  void AddEntry(VectorId id, float distance) { entries.emplace_back(id, distance); }
 
   size_t Size() const { return entries.size(); }
 };
@@ -127,4 +123,3 @@ constexpr NodeId kInvalidNodeId = NodeId{0};
 
 }  // namespace core
 }  // namespace gvdb
-

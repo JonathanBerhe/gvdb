@@ -10,8 +10,8 @@
 #include <doctest/doctest.h>
 
 using namespace gvdb::rpc;
-using gvdb::proto::internal::RouteQueryNodeOption;
 using google::protobuf::RepeatedPtrField;
+using gvdb::proto::internal::RouteQueryNodeOption;
 
 namespace {
 
@@ -38,8 +38,7 @@ struct StatusSequence {
   std::vector<std::string> dialed;
   size_t index = 0;
 
-  grpc::Status operator()(grpc::ClientContext* /*ctx*/,
-                           const std::string& addr) {
+  grpc::Status operator()(grpc::ClientContext* /*ctx*/, const std::string& addr) {
     dialed.push_back(addr);
     if (index >= sequence.size()) {
       // Default: succeed so a too-short sequence doesn't loop forever.
@@ -55,8 +54,8 @@ TEST_CASE("CallWithReplicaFallback succeeds on the first option when it returns 
   auto options = MakeOptions({{101, "addr-101", true}, {102, "addr-102", false}});
   StatusSequence seq{{grpc::Status::OK}, {}, 0};
 
-  auto result = CallWithReplicaFallback(options, std::chrono::milliseconds(500),
-                                         "test_op", std::ref(seq));
+  auto result =
+      CallWithReplicaFallback(options, std::chrono::milliseconds(500), "test_op", std::ref(seq));
 
   CHECK(result.final_status.ok());
   CHECK(result.attempts == 1);
@@ -68,13 +67,10 @@ TEST_CASE("CallWithReplicaFallback succeeds on the first option when it returns 
 TEST_CASE("CallWithReplicaFallback falls over to a replica on UNAVAILABLE") {
   auto options = MakeOptions({{101, "addr-101", true}, {102, "addr-102", false}});
   StatusSequence seq{
-      {grpc::Status(grpc::StatusCode::UNAVAILABLE, "primary down"),
-       grpc::Status::OK},
-      {},
-      0};
+      {grpc::Status(grpc::StatusCode::UNAVAILABLE, "primary down"), grpc::Status::OK}, {}, 0};
 
-  auto result = CallWithReplicaFallback(options, std::chrono::milliseconds(500),
-                                         "test_op", std::ref(seq));
+  auto result =
+      CallWithReplicaFallback(options, std::chrono::milliseconds(500), "test_op", std::ref(seq));
 
   CHECK(result.final_status.ok());
   CHECK(result.attempts == 2);
@@ -92,13 +88,12 @@ TEST_CASE("CallWithReplicaFallback walks past multiple unhealthy candidates") {
   });
   StatusSequence seq{
       {grpc::Status(grpc::StatusCode::UNAVAILABLE, "p down"),
-       grpc::Status(grpc::StatusCode::DEADLINE_EXCEEDED, "r1 slow"),
-       grpc::Status::OK},
+       grpc::Status(grpc::StatusCode::DEADLINE_EXCEEDED, "r1 slow"), grpc::Status::OK},
       {},
       0};
 
-  auto result = CallWithReplicaFallback(options, std::chrono::milliseconds(500),
-                                         "test_op", std::ref(seq));
+  auto result =
+      CallWithReplicaFallback(options, std::chrono::milliseconds(500), "test_op", std::ref(seq));
 
   CHECK(result.final_status.ok());
   CHECK(result.attempts == 3);
@@ -118,13 +113,10 @@ TEST_CASE("CallWithReplicaFallback returns immediately on a non-transient error"
       {103, "addr-103", false},
   });
   StatusSequence seq{
-      {grpc::Status(grpc::StatusCode::INTERNAL, "bad payload"),
-       grpc::Status::OK},
-      {},
-      0};
+      {grpc::Status(grpc::StatusCode::INTERNAL, "bad payload"), grpc::Status::OK}, {}, 0};
 
-  auto result = CallWithReplicaFallback(options, std::chrono::milliseconds(500),
-                                         "test_op", std::ref(seq));
+  auto result =
+      CallWithReplicaFallback(options, std::chrono::milliseconds(500), "test_op", std::ref(seq));
 
   CHECK_FALSE(result.final_status.ok());
   CHECK(result.final_status.error_code() == grpc::StatusCode::INTERNAL);
@@ -137,14 +129,13 @@ TEST_CASE("CallWithReplicaFallback exhausts every option and surfaces last error
       {101, "addr-101", true},
       {102, "addr-102", false},
   });
-  StatusSequence seq{
-      {grpc::Status(grpc::StatusCode::UNAVAILABLE, "p down"),
-       grpc::Status(grpc::StatusCode::UNAVAILABLE, "r down")},
-      {},
-      0};
+  StatusSequence seq{{grpc::Status(grpc::StatusCode::UNAVAILABLE, "p down"),
+                      grpc::Status(grpc::StatusCode::UNAVAILABLE, "r down")},
+                     {},
+                     0};
 
-  auto result = CallWithReplicaFallback(options, std::chrono::milliseconds(500),
-                                         "test_op", std::ref(seq));
+  auto result =
+      CallWithReplicaFallback(options, std::chrono::milliseconds(500), "test_op", std::ref(seq));
 
   CHECK_FALSE(result.final_status.ok());
   CHECK(result.final_status.error_code() == grpc::StatusCode::UNAVAILABLE);
@@ -155,12 +146,11 @@ TEST_CASE("CallWithReplicaFallback returns FAILED_PRECONDITION on empty options"
   RepeatedPtrField<RouteQueryNodeOption> options;  // empty
   StatusSequence seq{{}, {}, 0};
 
-  auto result = CallWithReplicaFallback(options, std::chrono::milliseconds(500),
-                                         "test_op", std::ref(seq));
+  auto result =
+      CallWithReplicaFallback(options, std::chrono::milliseconds(500), "test_op", std::ref(seq));
 
   CHECK_FALSE(result.final_status.ok());
-  CHECK(result.final_status.error_code() ==
-        grpc::StatusCode::FAILED_PRECONDITION);
+  CHECK(result.final_status.error_code() == grpc::StatusCode::FAILED_PRECONDITION);
   CHECK(result.attempts == 0);
   CHECK(seq.dialed.empty());
 }

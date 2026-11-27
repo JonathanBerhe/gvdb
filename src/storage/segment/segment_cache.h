@@ -33,16 +33,14 @@ class SegmentCache {
   [[nodiscard]] std::string GetSegmentPath(core::SegmentId id) const;
 
   // Register a downloaded segment in the cache (after download completes)
-  [[nodiscard]] absl::Status RegisterSegment(
-      core::SegmentId id, size_t size_bytes);
+  [[nodiscard]] absl::Status RegisterSegment(core::SegmentId id, size_t size_bytes);
 
   // Touch a segment to update its LRU position (most recently used)
   void Touch(core::SegmentId id);
 
   // Evict least-recently-used segments to free at least needed_bytes.
   // Returns the IDs of evicted segments.
-  [[nodiscard]] absl::StatusOr<std::vector<core::SegmentId>> Evict(
-      size_t needed_bytes);
+  [[nodiscard]] absl::StatusOr<std::vector<core::SegmentId>> Evict(size_t needed_bytes);
 
   // Get total size of all cached segments in bytes
   [[nodiscard]] size_t GetCachedSize() const;
@@ -74,4 +72,3 @@ class SegmentCache {
 
 }  // namespace storage
 }  // namespace gvdb
-

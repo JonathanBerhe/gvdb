@@ -2,8 +2,8 @@
 // Licensed under the Apache License, Version 2.0
 
 #include <doctest/doctest.h>
-#include "consensus/timestamp_oracle.h"
 #include "consensus/raft_node.h"
+#include "consensus/timestamp_oracle.h"
 #include "core/types.h"
 #include "support/temp_dir.h"
 
@@ -16,9 +16,7 @@ using namespace gvdb::consensus;
 
 class TimestampOracleTest {
  public:
-  TimestampOracleTest() {
-    tso_ = std::make_unique<TimestampOracle>();
-  }
+  TimestampOracleTest() { tso_ = std::make_unique<TimestampOracle>(); }
 
   std::unique_ptr<TimestampOracle> tso_;
 };
@@ -103,8 +101,7 @@ TEST_CASE("ParseRaftPeerSpec rejects whitespace inside endpoint") {
 }
 
 TEST_CASE("PrepareRaftPeerList happy path with self present and fresh config") {
-  std::vector<std::string> peers = {
-      "1:host1:8300", "2:host2:8300", "3:host3:8300"};
+  std::vector<std::string> peers = {"1:host1:8300", "2:host2:8300", "3:host3:8300"};
   auto plan = PrepareRaftPeerList(2, peers, 1);
   REQUIRE(plan.ok());
   CHECK(plan->needs_seed);
@@ -112,15 +109,13 @@ TEST_CASE("PrepareRaftPeerList happy path with self present and fresh config") {
 }
 
 TEST_CASE("PrepareRaftPeerList rejects missing self in declared peers") {
-  std::vector<std::string> peers = {
-      "1:host1:8300", "2:host2:8300", "3:host3:8300"};
+  std::vector<std::string> peers = {"1:host1:8300", "2:host2:8300", "3:host3:8300"};
   auto plan = PrepareRaftPeerList(99, peers, 1);
   CHECK_FALSE(plan.ok());
 }
 
 TEST_CASE("PrepareRaftPeerList rejects duplicate peer ids") {
-  std::vector<std::string> peers = {
-      "1:host1:8300", "1:host2:8300", "3:host3:8300"};
+  std::vector<std::string> peers = {"1:host1:8300", "1:host2:8300", "3:host3:8300"};
   auto plan = PrepareRaftPeerList(1, peers, 1);
   CHECK_FALSE(plan.ok());
 }
@@ -134,16 +129,14 @@ TEST_CASE("PrepareRaftPeerList propagates parser errors") {
 TEST_CASE("PrepareRaftPeerList does not seed when persisted size > 1") {
   // Simulates restart: the persisted cluster_config already has 3 servers
   // from a prior run. We should trust it and not reseed.
-  std::vector<std::string> peers = {
-      "1:host1:8300", "2:host2:8300", "3:host3:8300"};
+  std::vector<std::string> peers = {"1:host1:8300", "2:host2:8300", "3:host3:8300"};
   auto plan = PrepareRaftPeerList(2, peers, 3);
   REQUIRE(plan.ok());
   CHECK_FALSE(plan->needs_seed);
 }
 
 TEST_CASE("PrepareRaftPeerList seeds when persisted size is 0 (corruption)") {
-  std::vector<std::string> peers = {
-      "1:host1:8300", "2:host2:8300", "3:host3:8300"};
+  std::vector<std::string> peers = {"1:host1:8300", "2:host2:8300", "3:host3:8300"};
   auto plan = PrepareRaftPeerList(1, peers, 0);
   REQUIRE(plan.ok());
   CHECK(plan->needs_seed);

@@ -37,8 +37,7 @@ using namespace gvdb;
 
 namespace {
 
-std::vector<core::Vector> RandomVectors(size_t n, core::Dimension dim,
-                                        unsigned seed = 42) {
+std::vector<core::Vector> RandomVectors(size_t n, core::Dimension dim, unsigned seed = 42) {
   std::mt19937 rng(seed);
   std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
   std::vector<core::Vector> vecs;
@@ -64,8 +63,7 @@ double BenchFaissRaw(faiss::Index* idx, const float* query, int k, int runs) {
     auto start = std::chrono::steady_clock::now();
     idx->search(1, query, k, distances.data(), labels.data());
     auto end = std::chrono::steady_clock::now();
-    times.push_back(
-        std::chrono::duration<double, std::milli>(end - start).count());
+    times.push_back(std::chrono::duration<double, std::milli>(end - start).count());
   }
   std::sort(times.begin(), times.end());
   return times[runs / 2];
@@ -74,24 +72,23 @@ double BenchFaissRaw(faiss::Index* idx, const float* query, int k, int runs) {
 void PrintRow(const char* label, double cpu_ms, double gpu_ms) {
   double speedup = (gpu_ms > 0) ? cpu_ms / gpu_ms : 0;
   const char* arrow = (speedup < 1.0) ? " <-- CPU faster" : "";
-  std::printf("  %12s  |  %8.2f ms  |  %8.2f ms  |  %5.1fx%s\n",
-              label, cpu_ms, gpu_ms, speedup, arrow);
+  std::printf("  %12s  |  %8.2f ms  |  %8.2f ms  |  %5.1fx%s\n", label, cpu_ms, gpu_ms, speedup,
+              arrow);
 }
 
 #ifdef GVDB_HAS_CUDA
 // Runs one sweep point: builds a CPU FLAT index and its GPU clone over `n`
 // random `dim`-D vectors, benchmarks both, prints the row. Frees intermediate
 // buffers aggressively so the 2M-vector point stays within host/device memory.
-void BenchPoint(const char* label, size_t n, core::Dimension dim, int k,
-                int runs, faiss::gpu::StandardGpuResources* res) {
+void BenchPoint(const char* label, size_t n, core::Dimension dim, int k, int runs,
+                faiss::gpu::StandardGpuResources* res) {
   auto vectors = RandomVectors(n, dim);
   auto query = RandomVectors(1, dim, 99)[0];
 
   // Pack into a contiguous buffer, then release the per-vector copies.
   std::vector<float> flat(n * static_cast<size_t>(dim));
   for (size_t i = 0; i < n; ++i) {
-    std::memcpy(flat.data() + i * dim, vectors[i].data(),
-                static_cast<size_t>(dim) * sizeof(float));
+    std::memcpy(flat.data() + i * dim, vectors[i].data(), static_cast<size_t>(dim) * sizeof(float));
   }
   vectors.clear();
   vectors.shrink_to_fit();
@@ -103,8 +100,7 @@ void BenchPoint(const char* label, size_t n, core::Dimension dim, int k,
 
   double cpu_ms = BenchFaissRaw(&cpu_flat, query.data(), k, runs);
 
-  std::unique_ptr<faiss::Index> gpu_idx(
-      faiss::gpu::index_cpu_to_gpu(res, 0, &cpu_flat));
+  std::unique_ptr<faiss::Index> gpu_idx(faiss::gpu::index_cpu_to_gpu(res, 0, &cpu_flat));
   double gpu_ms = BenchFaissRaw(gpu_idx.get(), query.data(), k, runs);
 
   PrintRow(label, cpu_ms, gpu_ms);
@@ -130,10 +126,10 @@ int main() {
   {
     const core::Dimension DIM = 768;
     std::printf("FLAT L2 Search (top-k=%d, dim=%d)\n", K, DIM);
-    std::printf("  %12s  |  %13s  |  %11s  |  %s\n",
-                "Vectors", "CPU (faiss)", "CUDA GPU", "Speedup");
-    std::printf("  %12s--+--%13s--+--%11s--+--%s\n",
-                "------------", "-------------", "-----------", "-------");
+    std::printf("  %12s  |  %13s  |  %11s  |  %s\n", "Vectors", "CPU (faiss)", "CUDA GPU",
+                "Speedup");
+    std::printf("  %12s--+--%13s--+--%11s--+--%s\n", "------------", "-------------", "-----------",
+                "-------");
 
     size_t counts[] = {1000, 10000, 50000, 100000, 500000, 1000000, 2000000};
     for (size_t n : counts) {
@@ -148,10 +144,10 @@ int main() {
   {
     const size_t N = 100000;
     std::printf("FLAT L2 Search (top-k=%d, vectors=%zu, varying dim)\n", K, N);
-    std::printf("  %12s  |  %13s  |  %11s  |  %s\n",
-                "Dimension", "CPU (faiss)", "CUDA GPU", "Speedup");
-    std::printf("  %12s--+--%13s--+--%11s--+--%s\n",
-                "------------", "-------------", "-----------", "-------");
+    std::printf("  %12s  |  %13s  |  %11s  |  %s\n", "Dimension", "CPU (faiss)", "CUDA GPU",
+                "Speedup");
+    std::printf("  %12s--+--%13s--+--%11s--+--%s\n", "------------", "-------------", "-----------",
+                "-------");
 
     core::Dimension dims[] = {128, 384, 768, 1536};
     for (core::Dimension dim : dims) {

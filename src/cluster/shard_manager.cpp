@@ -2,10 +2,10 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "cluster/shard_manager.h"
-#include "common/logger.h"
-#include "absl/strings/str_cat.h"
 #include <algorithm>
 #include <mutex>
+#include "absl/strings/str_cat.h"
+#include "common/logger.h"
 
 namespace gvdb {
 namespace cluster {
@@ -31,7 +31,7 @@ ShardManager::ShardManager(size_t num_shards, ShardingStrategy strategy)
     : num_shards_(num_shards), strategy_(strategy) {
   InitializeShards();
   common::Logger::Instance().Info("ShardManager initialized with {} shards, strategy: {}",
-                                 num_shards, static_cast<int>(strategy));
+                                  num_shards, static_cast<int>(strategy));
 }
 
 void ShardManager::InitializeShards() {
@@ -178,8 +178,7 @@ absl::StatusOr<ShardManager::PrimaryView> ShardManager::GetPrimaryNodeAndTerm(
   std::shared_lock lock(shard_mutex_);
   auto it = shards_.find(shard_id);
   if (it == shards_.end()) {
-    return absl::NotFoundError(
-        absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
+    return absl::NotFoundError(absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
   }
   if (it->second.primary_node == core::kInvalidNodeId) {
     return absl::FailedPreconditionError(
@@ -192,13 +191,11 @@ absl::StatusOr<ShardManager::PrimaryView> ShardManager::GetPrimaryNodeAndTerm(
 // always at least the prior term + 1; callers that want full control
 // over the term value (e.g. the two-phase swap orchestrator) should
 // use the explicit-term overload.
-absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id,
-                                           core::NodeId node_id) {
+absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id, core::NodeId node_id) {
   std::unique_lock lock(shard_mutex_);
   auto it = shards_.find(shard_id);
   if (it == shards_.end()) {
-    return absl::NotFoundError(
-        absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
+    return absl::NotFoundError(absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
   }
 
   // Bump term unconditionally so any in-flight write tagged with the
@@ -208,10 +205,9 @@ absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id,
   // the stale-write rejection horizon.
   it->second.primary_node = node_id;
   it->second.primary_term += 1;
-  common::Logger::Instance().Info(
-      "Set primary node for shard {} to node {} (term={})",
-      core::ToUInt16(shard_id), core::ToUInt32(node_id),
-      it->second.primary_term);
+  common::Logger::Instance().Info("Set primary node for shard {} to node {} (term={})",
+                                  core::ToUInt16(shard_id), core::ToUInt32(node_id),
+                                  it->second.primary_term);
   return absl::OkStatus();
 }
 
@@ -220,29 +216,24 @@ absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id,
 // so writing a term ≤ existing term is a coordinator bug — never
 // silently apply it (would let a stale-routing client win against a
 // later promotion).
-absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id,
-                                           core::NodeId node_id,
-                                           uint64_t primary_term) {
+absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id, core::NodeId node_id,
+                                          uint64_t primary_term) {
   std::unique_lock lock(shard_mutex_);
   auto it = shards_.find(shard_id);
   if (it == shards_.end()) {
-    return absl::NotFoundError(
-        absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
+    return absl::NotFoundError(absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
   }
 
   if (primary_term <= it->second.primary_term) {
     return absl::FailedPreconditionError(absl::StrCat(
-        "Refusing to set primary for shard ", core::ToUInt16(shard_id),
-        ": new term ", primary_term,
-        " must be strictly greater than current term ",
-        it->second.primary_term));
+        "Refusing to set primary for shard ", core::ToUInt16(shard_id), ": new term ", primary_term,
+        " must be strictly greater than current term ", it->second.primary_term));
   }
 
   it->second.primary_node = node_id;
   it->second.primary_term = primary_term;
-  common::Logger::Instance().Info(
-      "Set primary node for shard {} to node {} (explicit term={})",
-      core::ToUInt16(shard_id), core::ToUInt32(node_id), primary_term);
+  common::Logger::Instance().Info("Set primary node for shard {} to node {} (explicit term={})",
+                                  core::ToUInt16(shard_id), core::ToUInt32(node_id), primary_term);
   return absl::OkStatus();
 }
 
@@ -256,16 +247,15 @@ absl::Status ShardManager::AddReplica(core::ShardId shard_id, core::NodeId node_
   // Check if already a replica
   for (const auto& replica : it->second.replica_nodes) {
     if (replica == node_id) {
-      return absl::AlreadyExistsError(
-          absl::StrCat("Node ", core::ToUInt32(node_id),
-                      " is already a replica for shard ", core::ToUInt16(shard_id)));
+      return absl::AlreadyExistsError(absl::StrCat("Node ", core::ToUInt32(node_id),
+                                                   " is already a replica for shard ",
+                                                   core::ToUInt16(shard_id)));
     }
   }
 
   it->second.replica_nodes.push_back(node_id);
-  common::Logger::Instance().Info("Added replica node {} for shard {}",
-                                 core::ToUInt32(node_id),
-                                 core::ToUInt16(shard_id));
+  common::Logger::Instance().Info("Added replica node {} for shard {}", core::ToUInt32(node_id),
+                                  core::ToUInt16(shard_id));
   return absl::OkStatus();
 }
 
@@ -279,15 +269,14 @@ absl::Status ShardManager::RemoveReplica(core::ShardId shard_id, core::NodeId no
   auto& replicas = it->second.replica_nodes;
   auto replica_it = std::find(replicas.begin(), replicas.end(), node_id);
   if (replica_it == replicas.end()) {
-    return absl::NotFoundError(
-        absl::StrCat("Node ", core::ToUInt32(node_id),
-                    " is not a replica for shard ", core::ToUInt16(shard_id)));
+    return absl::NotFoundError(absl::StrCat("Node ", core::ToUInt32(node_id),
+                                            " is not a replica for shard ",
+                                            core::ToUInt16(shard_id)));
   }
 
   replicas.erase(replica_it);
-  common::Logger::Instance().Info("Removed replica node {} from shard {}",
-                                 core::ToUInt32(node_id),
-                                 core::ToUInt16(shard_id));
+  common::Logger::Instance().Info("Removed replica node {} from shard {}", core::ToUInt32(node_id),
+                                  core::ToUInt16(shard_id));
   return absl::OkStatus();
 }
 
@@ -306,8 +295,7 @@ absl::Status ShardManager::RegisterNode(core::NodeId node_id) {
 absl::Status ShardManager::UnregisterNode(core::NodeId node_id, bool graceful) {
   std::unique_lock node_lock(node_mutex_);
   if (assigned_nodes_.count(node_id) == 0) {
-    return absl::NotFoundError(
-        absl::StrCat("Node not found: ", core::ToUInt32(node_id)));
+    return absl::NotFoundError(absl::StrCat("Node not found: ", core::ToUInt32(node_id)));
   }
 
   assigned_nodes_.erase(node_id);
@@ -317,11 +305,9 @@ absl::Status ShardManager::UnregisterNode(core::NodeId node_id, bool graceful) {
     // before reaching here — see Coordinator::HandleDrainingNode which
     // promotes replicas / drops replica entries and only then calls this
     // with graceful=true.
-    common::Logger::Instance().Info("Gracefully unregistering node {}",
-                                   core::ToUInt32(node_id));
+    common::Logger::Instance().Info("Gracefully unregistering node {}", core::ToUInt32(node_id));
   } else {
-    common::Logger::Instance().Warn("Force unregistering node {}",
-                                   core::ToUInt32(node_id));
+    common::Logger::Instance().Warn("Force unregistering node {}", core::ToUInt32(node_id));
   }
 
   return absl::OkStatus();
@@ -336,8 +322,7 @@ absl::Status ShardManager::SetShardState(core::ShardId shard_id, ShardState stat
   std::unique_lock lock(shard_mutex_);
   auto it = shards_.find(shard_id);
   if (it == shards_.end()) {
-    return absl::NotFoundError(
-        absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
+    return absl::NotFoundError(absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
   }
   it->second.state = state;
   return absl::OkStatus();
@@ -347,8 +332,7 @@ absl::StatusOr<ShardState> ShardManager::GetShardState(core::ShardId shard_id) c
   std::shared_lock lock(shard_mutex_);
   auto it = shards_.find(shard_id);
   if (it == shards_.end()) {
-    return absl::NotFoundError(
-        absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
+    return absl::NotFoundError(absl::StrCat("Shard not found: ", core::ToUInt16(shard_id)));
   }
   return it->second.state;
 }
@@ -438,17 +422,14 @@ std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() 
       }
     }
     std::sort(source_shards.begin(), source_shards.end(),
-              [](const auto* a, const auto* b) {
-                return a->data_size_bytes > b->data_size_bytes;
-              });
+              [](const auto* a, const auto* b) { return a->data_size_bytes > b->data_size_bytes; });
 
     for (const auto* shard : source_shards) {
       if (shard->state != ShardState::ACTIVE) continue;
       if (sim_loads[source] <= avg_load * kOverloadNum / kOverloadDen) break;
 
       bool is_primary = (shard->primary_node == source);
-      size_t weight = is_primary ? shard->data_size_bytes
-                                 : shard->data_size_bytes / 2;
+      size_t weight = is_primary ? shard->data_size_bytes : shard->data_size_bytes / 2;
       if (weight == 0) continue;
 
       // Don't make source underloaded
@@ -463,7 +444,10 @@ std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() 
         bool already_hosts = (shard->primary_node == target);
         if (!already_hosts) {
           for (const auto& r : shard->replica_nodes) {
-            if (r == target) { already_hosts = true; break; }
+            if (r == target) {
+              already_hosts = true;
+              break;
+            }
           }
         }
         if (already_hosts) continue;
@@ -474,8 +458,7 @@ std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() 
 
       if (best_target == core::kInvalidNodeId) continue;
 
-      moves.push_back(RebalanceMove{
-          shard->shard_id, source, best_target, is_primary});
+      moves.push_back(RebalanceMove{shard->shard_id, source, best_target, is_primary});
 
       sim_loads[source] -= weight;
       sim_loads[best_target] += weight;
@@ -485,10 +468,8 @@ std::vector<ShardManager::RebalanceMove> ShardManager::CalculateRebalancePlan() 
   return moves;
 }
 
-absl::Status ShardManager::UpdateShardMetrics(core::ShardId shard_id,
-                                               size_t data_size,
-                                               size_t vector_count,
-                                               uint64_t query_count) {
+absl::Status ShardManager::UpdateShardMetrics(core::ShardId shard_id, size_t data_size,
+                                              size_t vector_count, uint64_t query_count) {
   std::unique_lock lock(shard_mutex_);
   auto it = shards_.find(shard_id);
   if (it == shards_.end()) {

@@ -52,8 +52,7 @@ absl::StatusOr<core::MetricType> MetricTypeFromString(const std::string& metric_
   } else if (metric_str == "COSINE") {
     return core::MetricType::COSINE;
   } else {
-    return absl::InvalidArgumentError(
-        absl::StrFormat("Unknown metric type: %s", metric_str));
+    return absl::InvalidArgumentError(absl::StrFormat("Unknown metric type: %s", metric_str));
   }
 }
 
@@ -75,8 +74,7 @@ absl::StatusOr<core::IndexType> IndexTypeFromString(const std::string& index_str
   } else if (index_str == "AUTO") {
     return core::IndexType::AUTO;
   } else {
-    return absl::InvalidArgumentError(
-        absl::StrFormat("Unknown index type: %s", index_str));
+    return absl::InvalidArgumentError(absl::StrFormat("Unknown index type: %s", index_str));
   }
 }
 

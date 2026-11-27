@@ -8,14 +8,14 @@
 #include <memory>
 #include <string>
 
-#include "rpc/interceptors/auth_processor.h"
-#include "service/vectordb/vectordb_service.h"
-#include "service/vectordb/collection_resolver.h"
 #include "auth/rbac.h"
-#include "config/config.h"
-#include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
+#include "config/config.h"
 #include "index/index_factory.h"
+#include "rpc/interceptors/auth_processor.h"
+#include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
+#include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 
@@ -35,10 +35,9 @@ class AuthIntegrationTest {
  public:
   AuthIntegrationTest() {
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_.str(), index_factory_.get());
-    query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *segment_store_);
+    segment_store_ =
+        std::make_shared<storage::SegmentManager>(test_dir_.str(), index_factory_.get());
+    query_executor_ = std::make_shared<compute::QueryExecutor>(*segment_store_);
 
     auth::AuthConfig auth_config;
     auth_config.enabled = true;
@@ -60,8 +59,7 @@ class AuthIntegrationTest {
         service::VectorDBServiceOptions{.rbac_store = rbac_store_});
 
     std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> creators;
-    creators.push_back(
-        std::make_unique<rpc::ApiKeyAuthInterceptorFactory>(rbac_store_));
+    creators.push_back(std::make_unique<rpc::ApiKeyAuthInterceptorFactory>(rbac_store_));
 
     grpc::ServerBuilder builder;
     int port = 0;
@@ -74,7 +72,10 @@ class AuthIntegrationTest {
   }
 
   ~AuthIntegrationTest() {
-    if (server_) { server_->Shutdown(); server_->Wait(); }
+    if (server_) {
+      server_->Shutdown();
+      server_->Wait();
+    }
   }
 
   std::unique_ptr<proto::VectorDBService::Stub> MakeStub() {
@@ -108,8 +109,10 @@ class AuthIntegrationTest {
       vec->set_id(i + 1);
       auto* v = vec->mutable_vector();
       v->set_dimension(4);
-      v->add_values(static_cast<float>(i)); v->add_values(0.0f);
-      v->add_values(0.0f); v->add_values(1.0f);
+      v->add_values(static_cast<float>(i));
+      v->add_values(0.0f);
+      v->add_values(0.0f);
+      v->add_values(1.0f);
     }
     proto::InsertResponse resp;
     grpc::ClientContext ctx;
@@ -122,7 +125,10 @@ class AuthIntegrationTest {
   static proto::Vector MakeQueryVector() {
     proto::Vector v;
     v.set_dimension(4);
-    v.add_values(1.0f); v.add_values(0.0f); v.add_values(0.0f); v.add_values(0.0f);
+    v.add_values(1.0f);
+    v.add_values(0.0f);
+    v.add_values(0.0f);
+    v.add_values(0.0f);
     return v;
   }
 
@@ -132,7 +138,10 @@ class AuthIntegrationTest {
     vwi.set_id(id);
     auto* v = vwi.mutable_vector();
     v->set_dimension(4);
-    v->add_values(1.0f); v->add_values(0.0f); v->add_values(0.0f); v->add_values(0.0f);
+    v->add_values(1.0f);
+    v->add_values(0.0f);
+    v->add_values(0.0f);
+    v->add_values(0.0f);
     return vwi;
   }
 
@@ -709,16 +718,26 @@ enum class Rpc {
 
 const char* RpcName(Rpc rpc) {
   switch (rpc) {
-    case Rpc::kCreateCollection: return "CreateCollection";
-    case Rpc::kDropCollection: return "DropCollection";
-    case Rpc::kSearch: return "Search";
-    case Rpc::kRangeSearch: return "RangeSearch";
-    case Rpc::kHybridSearch: return "HybridSearch";
-    case Rpc::kGet: return "Get";
-    case Rpc::kListVectors: return "ListVectors";
-    case Rpc::kDelete: return "Delete";
-    case Rpc::kUpsert: return "Upsert";
-    case Rpc::kUpdateMetadata: return "UpdateMetadata";
+    case Rpc::kCreateCollection:
+      return "CreateCollection";
+    case Rpc::kDropCollection:
+      return "DropCollection";
+    case Rpc::kSearch:
+      return "Search";
+    case Rpc::kRangeSearch:
+      return "RangeSearch";
+    case Rpc::kHybridSearch:
+      return "HybridSearch";
+    case Rpc::kGet:
+      return "Get";
+    case Rpc::kListVectors:
+      return "ListVectors";
+    case Rpc::kDelete:
+      return "Delete";
+    case Rpc::kUpsert:
+      return "Upsert";
+    case Rpc::kUpdateMetadata:
+      return "UpdateMetadata";
   }
   return "unknown";
 }
@@ -732,8 +751,8 @@ struct AccessCase {
 
 // Calls `rpc` on `collection` with `key`. Each request is valid for a 4D
 // collection that holds the vectors 1..5, so an allowed call returns OK.
-grpc::Status CallAs(proto::VectorDBService::Stub& stub, const std::string& key,
-                    Rpc rpc, const std::string& collection) {
+grpc::Status CallAs(proto::VectorDBService::Stub& stub, const std::string& key, Rpc rpc,
+                    const std::string& collection) {
   grpc::ClientContext ctx;
   ctx.AddMetadata("authorization", "Bearer " + key);
   switch (rpc) {
@@ -808,8 +827,7 @@ grpc::Status CallAs(proto::VectorDBService::Stub& stub, const std::string& key,
       proto::UpdateMetadataRequest req;
       req.set_collection_name(collection);
       req.set_id(1);
-      (*req.mutable_metadata()->mutable_fields())["tag"].set_string_value(
-          "updated");
+      (*req.mutable_metadata()->mutable_fields())["tag"].set_string_value("updated");
       proto::UpdateMetadataResponse resp;
       return stub.UpdateMetadata(&ctx, req, &resp);
     }
@@ -876,10 +894,8 @@ TEST_CASE_FIXTURE(AuthMatrixTest, "RoleRpcCollectionMatrix") {
       {"rw-key", Rpc::kSearch, "other_coll", StatusCode::PERMISSION_DENIED},
       {"rw-key", Rpc::kDelete, "other_coll", StatusCode::PERMISSION_DENIED},
 
-      {"ro-key", Rpc::kCreateCollection, "ro_new_coll",
-       StatusCode::PERMISSION_DENIED},
-      {"ro-key", Rpc::kDropCollection, "test_collection",
-       StatusCode::PERMISSION_DENIED},
+      {"ro-key", Rpc::kCreateCollection, "ro_new_coll", StatusCode::PERMISSION_DENIED},
+      {"ro-key", Rpc::kDropCollection, "test_collection", StatusCode::PERMISSION_DENIED},
 
       {"ca-key", Rpc::kUpsert, "test_collection", StatusCode::OK},
       {"ca-key", Rpc::kGet, "test_collection", StatusCode::OK},
@@ -905,8 +921,7 @@ TEST_CASE_FIXTURE(AuthMatrixTest, "RoleRpcCollectionMatrix") {
     const auto before = AdminSnapshot();
 
     auto status = CallAs(*stub, c.key, c.rpc, c.collection);
-    INFO("got code " << static_cast<int>(status.error_code()) << ": "
-                     << status.error_message());
+    INFO("got code " << static_cast<int>(status.error_code()) << ": " << status.error_message());
     CHECK_EQ(status.error_code(), c.expected);
 
     // A denied call changes nothing.

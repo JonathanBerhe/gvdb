@@ -5,15 +5,15 @@
 #include <string>
 #include <vector>
 
-#include "service/vectordb/collection_resolver.h"
-#include "storage/segment/segment.h"
-#include "storage/segment/segment_manager.h"
-#include "index/index_factory.h"
 #include "cluster/coordinator/coordinator.h"
 #include "cluster/coordinator/node_registry.h"
 #include "cluster/shard_manager.h"
 #include "core/types.h"
 #include "core/vector.h"
+#include "index/index_factory.h"
+#include "service/vectordb/collection_resolver.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 
 using namespace gvdb;
@@ -25,8 +25,7 @@ using namespace gvdb;
 struct LocalResolverTest {
   LocalResolverTest() {
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_, index_factory_.get());
+    segment_store_ = std::make_shared<storage::SegmentManager>(test_dir_, index_factory_.get());
     resolver_ = service::MakeLocalResolver(segment_store_);
   }
 
@@ -49,19 +48,19 @@ struct LocalResolverTest {
 // ---------------------------------------------------------------------------
 
 TEST_CASE_FIXTURE(LocalResolverTest, "Local_CreateCollection") {
-  auto result = resolver_->CreateCollection(
-      "vectors", 128, core::MetricType::L2, core::IndexType::FLAT);
+  auto result =
+      resolver_->CreateCollection("vectors", 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(result.ok());
   CHECK_NE(*result, core::kInvalidCollectionId);
 }
 
 TEST_CASE_FIXTURE(LocalResolverTest, "Local_CreateCollectionDuplicate") {
-  auto first = resolver_->CreateCollection(
-      "vectors", 128, core::MetricType::L2, core::IndexType::FLAT);
+  auto first =
+      resolver_->CreateCollection("vectors", 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(first.ok());
 
-  auto second = resolver_->CreateCollection(
-      "vectors", 64, core::MetricType::COSINE, core::IndexType::HNSW);
+  auto second =
+      resolver_->CreateCollection("vectors", 64, core::MetricType::COSINE, core::IndexType::HNSW);
   CHECK_FALSE(second.ok());
   CHECK_EQ(second.status().code(), absl::StatusCode::kAlreadyExists);
 }
@@ -71,8 +70,8 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_CreateCollectionDuplicate") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetCollectionIdSuccess") {
-  auto created = resolver_->CreateCollection(
-      "my_col", 64, core::MetricType::L2, core::IndexType::FLAT);
+  auto created =
+      resolver_->CreateCollection("my_col", 64, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(created.ok());
 
   auto id = resolver_->GetCollectionId("my_col");
@@ -91,8 +90,8 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetCollectionIdUnknown") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE_FIXTURE(LocalResolverTest, "Local_DropCollectionSuccess") {
-  auto created = resolver_->CreateCollection(
-      "drop_me", 32, core::MetricType::L2, core::IndexType::FLAT);
+  auto created =
+      resolver_->CreateCollection("drop_me", 32, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(created.ok());
 
   auto status = resolver_->DropCollection("drop_me");
@@ -112,9 +111,8 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_DropCollectionUnknown") {
 
 TEST_CASE_FIXTURE(LocalResolverTest, "Local_DropAndRecreateGetsNewIdAndParams") {
   constexpr size_t kOldShards = 2;
-  auto old_id = resolver_->CreateCollection(
-      "recreated", 128, core::MetricType::L2, core::IndexType::FLAT,
-      kOldShards);
+  auto old_id = resolver_->CreateCollection("recreated", 128, core::MetricType::L2,
+                                            core::IndexType::FLAT, kOldShards);
   REQUIRE(old_id.ok());
   auto old_segments = resolver_->GetSegmentIds("recreated");
   REQUIRE(old_segments.ok());
@@ -123,14 +121,13 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_DropAndRecreateGetsNewIdAndParams") 
   // Give the old collection data, so a leak into the new one would show up
   // in its vector count.
   std::vector<core::Vector> vectors = {core::Vector(128), core::Vector(128)};
-  std::vector<core::VectorId> ids = {core::MakeVectorId(1),
-                                     core::MakeVectorId(2)};
+  std::vector<core::VectorId> ids = {core::MakeVectorId(1), core::MakeVectorId(2)};
   REQUIRE(segment_store_->WriteVectors((*old_segments)[0], vectors, ids).ok());
 
   REQUIRE(resolver_->DropCollection("recreated").ok());
 
-  auto new_id = resolver_->CreateCollection(
-      "recreated", 1024, core::MetricType::COSINE, core::IndexType::HNSW);
+  auto new_id = resolver_->CreateCollection("recreated", 1024, core::MetricType::COSINE,
+                                            core::IndexType::HNSW);
   REQUIRE(new_id.ok());
   CHECK_NE(*new_id, *old_id);
 
@@ -179,10 +176,8 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_ListCollectionsEmpty") {
 }
 
 TEST_CASE_FIXTURE(LocalResolverTest, "Local_ListCollectionsMultiple") {
-  (void)resolver_->CreateCollection(
-      "col_a", 64, core::MetricType::L2, core::IndexType::FLAT);
-  (void)resolver_->CreateCollection(
-      "col_b", 128, core::MetricType::COSINE, core::IndexType::HNSW);
+  (void)resolver_->CreateCollection("col_a", 64, core::MetricType::L2, core::IndexType::FLAT);
+  (void)resolver_->CreateCollection("col_b", 128, core::MetricType::COSINE, core::IndexType::HNSW);
 
   auto list = resolver_->ListCollections();
   CHECK_EQ(list.size(), 2);
@@ -212,12 +207,10 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_ListCollectionsMultiple") {
 TEST_CASE_FIXTURE(LocalResolverTest, "Local_CollectionCount") {
   CHECK_EQ(resolver_->CollectionCount(), 0);
 
-  (void)resolver_->CreateCollection(
-      "c1", 32, core::MetricType::L2, core::IndexType::FLAT);
+  (void)resolver_->CreateCollection("c1", 32, core::MetricType::L2, core::IndexType::FLAT);
   CHECK_EQ(resolver_->CollectionCount(), 1);
 
-  (void)resolver_->CreateCollection(
-      "c2", 32, core::MetricType::L2, core::IndexType::FLAT);
+  (void)resolver_->CreateCollection("c2", 32, core::MetricType::L2, core::IndexType::FLAT);
   CHECK_EQ(resolver_->CollectionCount(), 2);
 
   (void)resolver_->DropCollection("c1");
@@ -229,8 +222,8 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_CollectionCount") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetSegmentIdsMultiShard") {
-  auto created = resolver_->CreateCollection(
-      "multi_shard", 64, core::MetricType::L2, core::IndexType::FLAT, 3);
+  auto created = resolver_->CreateCollection("multi_shard", 64, core::MetricType::L2,
+                                             core::IndexType::FLAT, 3);
   REQUIRE(created.ok());
 
   auto segs = resolver_->GetSegmentIds("multi_shard");
@@ -266,14 +259,11 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetCoordinatorStubIsNull") {
 
 struct CoordinatorResolverTest {
   CoordinatorResolverTest() {
-    shard_manager_ = std::make_shared<cluster::ShardManager>(
-        16, cluster::ShardingStrategy::HASH);
-    node_registry_ = std::make_shared<cluster::NodeRegistry>(
-        std::chrono::seconds(30));
+    shard_manager_ = std::make_shared<cluster::ShardManager>(16, cluster::ShardingStrategy::HASH);
+    node_registry_ = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
 
     // Create coordinator with no client factory (test mode)
-    coordinator_ = std::make_shared<cluster::Coordinator>(
-        shard_manager_, node_registry_);
+    coordinator_ = std::make_shared<cluster::Coordinator>(shard_manager_, node_registry_);
 
     // Register a fake data node so that CreateCollection succeeds
     proto::internal::NodeInfo proto_node;
@@ -308,19 +298,19 @@ struct CoordinatorResolverTest {
 // ---------------------------------------------------------------------------
 
 TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_CreateCollection") {
-  auto result = resolver_->CreateCollection(
-      "coord_col", 128, core::MetricType::L2, core::IndexType::FLAT);
+  auto result =
+      resolver_->CreateCollection("coord_col", 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(result.ok());
   CHECK_NE(*result, core::kInvalidCollectionId);
 }
 
 TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_CreateCollectionDuplicate") {
-  auto first = resolver_->CreateCollection(
-      "dup_col", 128, core::MetricType::L2, core::IndexType::FLAT);
+  auto first =
+      resolver_->CreateCollection("dup_col", 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(first.ok());
 
-  auto second = resolver_->CreateCollection(
-      "dup_col", 64, core::MetricType::COSINE, core::IndexType::HNSW);
+  auto second =
+      resolver_->CreateCollection("dup_col", 64, core::MetricType::COSINE, core::IndexType::HNSW);
   CHECK_FALSE(second.ok());
   CHECK_EQ(second.status().code(), absl::StatusCode::kAlreadyExists);
 }
@@ -330,8 +320,8 @@ TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_CreateCollectionDuplicate") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_GetCollectionIdSuccess") {
-  auto created = resolver_->CreateCollection(
-      "lookup_col", 64, core::MetricType::COSINE, core::IndexType::FLAT);
+  auto created = resolver_->CreateCollection("lookup_col", 64, core::MetricType::COSINE,
+                                             core::IndexType::FLAT);
   REQUIRE(created.ok());
 
   auto id = resolver_->GetCollectionId("lookup_col");
@@ -350,8 +340,8 @@ TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_GetCollectionIdUnknown") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_DropCollection") {
-  auto created = resolver_->CreateCollection(
-      "drop_coord", 32, core::MetricType::L2, core::IndexType::FLAT);
+  auto created =
+      resolver_->CreateCollection("drop_coord", 32, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(created.ok());
 
   auto status = resolver_->DropCollection("drop_coord");
@@ -367,10 +357,9 @@ TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_DropCollection") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_ListCollections") {
-  (void)resolver_->CreateCollection(
-      "coord_a", 64, core::MetricType::L2, core::IndexType::FLAT);
-  (void)resolver_->CreateCollection(
-      "coord_b", 128, core::MetricType::COSINE, core::IndexType::HNSW);
+  (void)resolver_->CreateCollection("coord_a", 64, core::MetricType::L2, core::IndexType::FLAT);
+  (void)resolver_->CreateCollection("coord_b", 128, core::MetricType::COSINE,
+                                    core::IndexType::HNSW);
 
   auto list = resolver_->ListCollections();
   CHECK_EQ(list.size(), 2);
@@ -383,12 +372,10 @@ TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_ListCollections") {
 TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_CollectionCount") {
   CHECK_EQ(resolver_->CollectionCount(), 0);
 
-  (void)resolver_->CreateCollection(
-      "cc1", 32, core::MetricType::L2, core::IndexType::FLAT);
+  (void)resolver_->CreateCollection("cc1", 32, core::MetricType::L2, core::IndexType::FLAT);
   CHECK_EQ(resolver_->CollectionCount(), 1);
 
-  (void)resolver_->CreateCollection(
-      "cc2", 32, core::MetricType::L2, core::IndexType::FLAT);
+  (void)resolver_->CreateCollection("cc2", 32, core::MetricType::L2, core::IndexType::FLAT);
   CHECK_EQ(resolver_->CollectionCount(), 2);
 }
 
@@ -397,8 +384,7 @@ TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_CollectionCount") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_GetSegmentIdsUnimplemented") {
-  (void)resolver_->CreateCollection(
-      "no_data", 64, core::MetricType::L2, core::IndexType::FLAT);
+  (void)resolver_->CreateCollection("no_data", 64, core::MetricType::L2, core::IndexType::FLAT);
 
   auto segs = resolver_->GetSegmentIds("no_data");
   CHECK_FALSE(segs.ok());

@@ -4,13 +4,13 @@
 // Shard rebalancing: running a rebalance plan, one shard move, and the
 // recovery of moves that a restart interrupted.
 
-#include "cluster/coordinator/coordinator.h"
-#include "core/status.h"
-#include "cluster/coordinator/internal_client.h"
-#include "common/logger.h"
-#include "absl/strings/str_cat.h"
 #include <mutex>
 #include <set>
+#include "absl/strings/str_cat.h"
+#include "cluster/coordinator/coordinator.h"
+#include "cluster/coordinator/internal_client.h"
+#include "common/logger.h"
+#include "core/status.h"
 
 namespace gvdb {
 namespace cluster {
@@ -25,6 +25,7 @@ class ScopeGuard {
   ~ScopeGuard() { fn_(); }
   ScopeGuard(const ScopeGuard&) = delete;
   ScopeGuard& operator=(const ScopeGuard&) = delete;
+
  private:
   Fn fn_;
 };
@@ -35,11 +36,9 @@ class ScopeGuard {
 // Dynamic Shard Rebalancing
 // ============================================================================
 
-absl::StatusOr<uint32_t> Coordinator::ExecuteRebalancePlan(
-    core::CollectionId collection_id) {
+absl::StatusOr<uint32_t> Coordinator::ExecuteRebalancePlan(core::CollectionId collection_id) {
   if (!client_factory_) {
-    return absl::FailedPreconditionError(
-        "Distributed mode not enabled (no client factory)");
+    return absl::FailedPreconditionError("Distributed mode not enabled (no client factory)");
   }
 
   auto moves = shard_manager_->CalculateRebalancePlan();
@@ -79,9 +78,8 @@ absl::StatusOr<uint32_t> Coordinator::ExecuteRebalancePlan(
     }
 
     if (!found) {
-      common::Logger::Instance().Warn(
-          "Rebalance: shard {} not found in any collection, skipping",
-          core::ToUInt16(move.shard_id));
+      common::Logger::Instance().Warn("Rebalance: shard {} not found in any collection, skipping",
+                                      core::ToUInt16(move.shard_id));
       continue;
     }
 
@@ -89,30 +87,26 @@ absl::StatusOr<uint32_t> Coordinator::ExecuteRebalancePlan(
     if (status.ok()) {
       ++success_count;
     } else {
-      common::Logger::Instance().Error(
-          "Rebalance: move shard {} failed: {}",
-          core::ToUInt16(move.shard_id), status.message());
+      common::Logger::Instance().Error("Rebalance: move shard {} failed: {}",
+                                       core::ToUInt16(move.shard_id), status.message());
     }
   }
 
-  common::Logger::Instance().Info(
-      "Rebalance complete: {}/{} moves succeeded", success_count, moves.size());
+  common::Logger::Instance().Info("Rebalance complete: {}/{} moves succeeded", success_count,
+                                  moves.size());
   return success_count;
 }
 
-absl::Status Coordinator::ExecuteSingleMove(
-    const ShardManager::RebalanceMove& move,
-    core::CollectionId collection_id,
-    uint32_t shard_index) {
-
+absl::Status Coordinator::ExecuteSingleMove(const ShardManager::RebalanceMove& move,
+                                            core::CollectionId collection_id,
+                                            uint32_t shard_index) {
   auto shard_key = core::ToUInt16(move.shard_id);
 
   // 1. Check and track migration
   {
     std::lock_guard lock(migration_mutex_);
     if (shards_migrating_.count(move.shard_id) > 0) {
-      return absl::AlreadyExistsError(
-          absl::StrCat("Shard ", shard_key, " already migrating"));
+      return absl::AlreadyExistsError(absl::StrCat("Shard ", shard_key, " already migrating"));
     }
     shards_migrating_.insert(move.shard_id);
   }
@@ -124,24 +118,20 @@ absl::Status Coordinator::ExecuteSingleMove(
   });
 
   // 2. Set shard to MIGRATING
-  RETURN_IF_ERROR(shard_manager_->SetShardState(
-      move.shard_id, ShardState::MIGRATING));
+  RETURN_IF_ERROR(shard_manager_->SetShardState(move.shard_id, ShardState::MIGRATING));
 
   // 3. Compute segment ID
   core::SegmentId seg_id = core::ShardSegmentId(collection_id, shard_index);
 
   common::Logger::Instance().Info(
-      "Rebalance: migrating shard {} (segment {}) from node {} to node {}",
-      shard_key, core::ToUInt32(seg_id),
-      core::ToUInt32(move.source_node), core::ToUInt32(move.target_node));
+      "Rebalance: migrating shard {} (segment {}) from node {} to node {}", shard_key,
+      core::ToUInt32(seg_id), core::ToUInt32(move.source_node), core::ToUInt32(move.target_node));
 
   // 4. Replicate data to target
-  auto rep_status = ReplicateSegmentData(
-      seg_id, move.source_node, move.target_node);
+  auto rep_status = ReplicateSegmentData(seg_id, move.source_node, move.target_node);
   if (!rep_status.ok()) {
-    common::Logger::Instance().Error(
-        "Rebalance: replication failed for shard {}: {}",
-        shard_key, rep_status.message());
+    common::Logger::Instance().Error("Rebalance: replication failed for shard {}: {}", shard_key,
+                                     rep_status.message());
     shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE).IgnoreError();
     return rep_status;
   }
@@ -151,8 +141,7 @@ absl::Status Coordinator::ExecuteSingleMove(
   //    with ABORTED instead of committing on the demoted node.
   //    Replica moves just edit the assignment list.
   if (move.is_primary) {
-    auto xfer_status = TransferPrimary(move.shard_id, move.source_node,
-                                       move.target_node);
+    auto xfer_status = TransferPrimary(move.shard_id, move.source_node, move.target_node);
     if (!xfer_status.ok()) {
       common::Logger::Instance().Warn(
           "Rebalance: primary swap failed for shard {}: {} (will retry next cycle)",
@@ -168,17 +157,15 @@ absl::Status Coordinator::ExecuteSingleMove(
   auto* client = GetOrCreateDataNodeClient(move.source_node);
   if (client) {
     proto::internal::DeleteSegmentRequest del_req;
-    del_req.set_segment_id(
-        static_cast<uint64_t>(core::ToUInt32(seg_id)));
+    del_req.set_segment_id(static_cast<uint64_t>(core::ToUInt32(seg_id)));
     del_req.set_force(true);
     proto::internal::DeleteSegmentResponse del_resp;
     grpc::ClientContext del_ctx;
     auto del_status = client->DeleteSegment(&del_ctx, del_req, &del_resp);
     if (!del_status.ok()) {
       common::Logger::Instance().Warn(
-          "Rebalance: failed to delete segment {} from source node {}: {}",
-          core::ToUInt32(seg_id), core::ToUInt32(move.source_node),
-          del_status.error_message());
+          "Rebalance: failed to delete segment {} from source node {}: {}", core::ToUInt32(seg_id),
+          core::ToUInt32(move.source_node), del_status.error_message());
     }
   }
 
@@ -191,8 +178,7 @@ absl::Status Coordinator::ExecuteSingleMove(
   // 8. Set shard back to ACTIVE
   shard_manager_->SetShardState(move.shard_id, ShardState::ACTIVE).IgnoreError();
 
-  common::Logger::Instance().Info(
-      "Rebalance: shard {} migration complete", shard_key);
+  common::Logger::Instance().Info("Rebalance: shard {} migration complete", shard_key);
   PersistRegistry();
   return absl::OkStatus();
 }
@@ -204,9 +190,8 @@ void Coordinator::RecoverMigratingShards() {
   auto all_shards = shard_manager_->GetAllShards();
   for (const auto& shard : all_shards) {
     if (shard.state == ShardState::MIGRATING) {
-      common::Logger::Instance().Warn(
-          "Recovering shard {} from MIGRATING state (crash recovery)",
-          core::ToUInt16(shard.shard_id));
+      common::Logger::Instance().Warn("Recovering shard {} from MIGRATING state (crash recovery)",
+                                      core::ToUInt16(shard.shard_id));
       shard_manager_->SetShardState(shard.shard_id, ShardState::ACTIVE).IgnoreError();
     }
   }

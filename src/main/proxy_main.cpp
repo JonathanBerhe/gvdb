@@ -51,7 +51,9 @@ absl::Status Run(const Args& args) {
   auto proxy_service =
       std::make_unique<service::ProxyService>(args.coordinator_addresses, args.query_node_uri);
   ASSIGN_OR_RETURN(auto grpc_server,
-                   server::StartGrpcServer(args.bind_address, {proxy_service.get()}, server::MakeServerCredentials(config.server.tls), std::move(interceptors)));
+                   server::StartGrpcServer(args.bind_address, {proxy_service.get()},
+                                           server::MakeServerCredentials(config.server.tls),
+                                           std::move(interceptors)));
 
   std::vector<std::string> banner_lines = {
       "Node ID: " + std::to_string(args.node_id),
@@ -78,8 +80,8 @@ int main(int argc, char** argv) {
   flags.AddInt("--node-id", "ID", "Proxy node ID (default: 1)", &args.node_id);
   flags.AddString("--bind-address", "ADDR", "gRPC bind address (default: 0.0.0.0:50050)",
                   &args.bind_address, "GVDB_BIND_ADDRESS");
-  flags.AddString("--data-dir", "PATH", "Data directory (default: /tmp/gvdb/proxy)",
-                  &args.data_dir, "GVDB_DATA_DIR");
+  flags.AddString("--data-dir", "PATH", "Data directory (default: /tmp/gvdb/proxy)", &args.data_dir,
+                  "GVDB_DATA_DIR");
   flags.AddString("--config", "FILE", "YAML config file (optional, for auth)", &args.config_file);
   flags.AddList("--coordinators", "ADDRS", "Coordinator addresses (comma-separated)",
                 &args.coordinator_addresses);

@@ -19,10 +19,10 @@ absl::StatusOr<std::vector<std::pair<size_t, size_t>>> SplitBatchBySize(
   size_t range_cost = 0;
   for (size_t i = 0; i < item_costs.size(); ++i) {
     if (item_costs[i] > max_bytes) {
-      return absl::InvalidArgumentError(absl::StrCat(
-          "Item at index ", i, " requires ", item_costs[i],
-          " bytes, which exceeds the maximum segment size of ", max_bytes,
-          " bytes; raise storage.segment_max_size_mb or shrink the item"));
+      return absl::InvalidArgumentError(
+          absl::StrCat("Item at index ", i, " requires ", item_costs[i],
+                       " bytes, which exceeds the maximum segment size of ", max_bytes,
+                       " bytes; raise storage.segment_max_size_mb or shrink the item"));
     }
     if (range_cost + item_costs[i] > max_bytes) {
       ranges.emplace_back(begin, i);

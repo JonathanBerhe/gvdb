@@ -13,8 +13,8 @@
 #include "core/types.h"
 #include "core/vector.h"
 #include "index/index_factory.h"
-#include "storage/segment/segment.h"
 #include "storage/segment/batch_splitter.h"
+#include "storage/segment/segment.h"
 #include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 #include "support/vectors.h"
@@ -44,8 +44,7 @@ class StorageTest {
   core::Vector CreateTestVector() { return CreateTestVectors(1).front(); }
 
   // Helper: Create test vector IDs
-  std::vector<core::VectorId> CreateTestVectorIds(size_t count,
-                                                   uint64_t start = 1) {
+  std::vector<core::VectorId> CreateTestVectorIds(size_t count, uint64_t start = 1) {
     return test::SequentialIds(count, start);
   }
 
@@ -100,9 +99,8 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentReadVectors") {
   REQUIRE(segment.AddVectors(vectors, ids).ok());
 
   // Read back specific vectors
-  std::vector<core::VectorId> query_ids = {core::MakeVectorId(1),
-                                             core::MakeVectorId(5),
-                                             core::MakeVectorId(10)};
+  std::vector<core::VectorId> query_ids = {core::MakeVectorId(1), core::MakeVectorId(5),
+                                           core::MakeVectorId(10)};
 
   auto result = segment.ReadVectors(query_ids);
   INFO("ReadVectors failed: " << result.status().message());
@@ -217,11 +215,8 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentKeepsVectorsAfterSeal") {
 
   // CRITICAL TEST: Verify vectors are still readable after sealing
   // This proves Option 1 (in-memory) is active
-  std::vector<core::VectorId> query_ids = {
-      core::MakeVectorId(1),
-      core::MakeVectorId(50),
-      core::MakeVectorId(100)
-  };
+  std::vector<core::VectorId> query_ids = {core::MakeVectorId(1), core::MakeVectorId(50),
+                                           core::MakeVectorId(100)};
 
   auto read_result = segment.ReadVectors(query_ids);
   INFO("ReadVectors after seal failed: " << read_result.status().message());
@@ -255,8 +250,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentAddVectorsWithMetadata") {
     core::Metadata meta = {
         {"price", core::MetadataValue(static_cast<int64_t>(100 + i * 10))},
         {"brand", core::MetadataValue(std::string(i % 2 == 0 ? "Nike" : "Adidas"))},
-        {"in_stock", core::MetadataValue(i % 3 != 0)}
-    };
+        {"in_stock", core::MetadataValue(i % 3 != 0)}};
     metadata.push_back(meta);
   }
 
@@ -276,10 +270,8 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentGetMetadata") {
 
   std::vector<core::Metadata> metadata;
   for (size_t i = 0; i < 5; ++i) {
-    core::Metadata meta = {
-        {"id", core::MetadataValue(static_cast<int64_t>(i))},
-        {"name", core::MetadataValue(std::string("item_") + std::to_string(i))}
-    };
+    core::Metadata meta = {{"id", core::MetadataValue(static_cast<int64_t>(i))},
+                           {"name", core::MetadataValue(std::string("item_") + std::to_string(i))}};
     metadata.push_back(meta);
   }
 
@@ -322,8 +314,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterGrowing") {
   for (size_t i = 0; i < 20; ++i) {
     core::Metadata meta = {
         {"price", core::MetadataValue(static_cast<int64_t>(50 + i * 10))},
-        {"brand", core::MetadataValue(std::string(i % 2 == 0 ? "Nike" : "Adidas"))}
-    };
+        {"brand", core::MetadataValue(std::string(i % 2 == 0 ? "Nike" : "Adidas"))}};
     metadata.push_back(meta);
   }
 
@@ -351,8 +342,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterSealed") {
   for (size_t i = 0; i < 50; ++i) {
     core::Metadata meta = {
         {"category", core::MetadataValue(std::string(i < 25 ? "shoes" : "apparel"))},
-        {"rating", core::MetadataValue(3.0 + (i % 5) * 0.5)}
-    };
+        {"rating", core::MetadataValue(3.0 + (i % 5) * 0.5)}};
     metadata.push_back(meta);
   }
 
@@ -386,11 +376,11 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterComplex") {
 
   std::vector<core::Metadata> metadata;
   for (size_t i = 0; i < 30; ++i) {
-    core::Metadata meta = {
-        {"price", core::MetadataValue(static_cast<int64_t>(100 + i * 20))},
-        {"brand", core::MetadataValue(std::string(i % 3 == 0 ? "Nike" : i % 3 == 1 ? "Adidas" : "Puma"))},
-        {"in_stock", core::MetadataValue(i % 4 != 0)}
-    };
+    core::Metadata meta = {{"price", core::MetadataValue(static_cast<int64_t>(100 + i * 20))},
+                           {"brand", core::MetadataValue(std::string(i % 3 == 0   ? "Nike"
+                                                                     : i % 3 == 1 ? "Adidas"
+                                                                                  : "Puma"))},
+                           {"in_stock", core::MetadataValue(i % 4 != 0)}};
     metadata.push_back(meta);
   }
 
@@ -398,8 +388,8 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterComplex") {
 
   // Complex filter: (price < 300 OR brand = 'Nike') AND in_stock = true
   auto query = CreateTestVector();
-  auto search_result = segment.SearchWithFilter(
-      query, 10, "(price < 300 OR brand = 'Nike') AND in_stock = true");
+  auto search_result =
+      segment.SearchWithFilter(query, 10, "(price < 300 OR brand = 'Nike') AND in_stock = true");
   INFO("Complex filter failed: " << search_result.status().message());
   REQUIRE(search_result.ok());
 
@@ -415,12 +405,9 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterLike") {
 
   std::vector<core::Metadata> metadata;
   for (size_t i = 0; i < 15; ++i) {
-    core::Metadata meta = {
-        {"name", core::MetadataValue(std::string(
-            i < 5 ? "Nike Air Max" :
-            i < 10 ? "Nike Pegasus" :
-            "Adidas Ultra"))}
-    };
+    core::Metadata meta = {{"name", core::MetadataValue(std::string(i < 5    ? "Nike Air Max"
+                                                                    : i < 10 ? "Nike Pegasus"
+                                                                             : "Adidas Ultra"))}};
     metadata.push_back(meta);
   }
 
@@ -446,12 +433,10 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterIn") {
 
   std::vector<core::Metadata> metadata;
   for (size_t i = 0; i < 20; ++i) {
-    core::Metadata meta = {
-        {"brand", core::MetadataValue(std::string(
-            i % 4 == 0 ? "Nike" :
-            i % 4 == 1 ? "Adidas" :
-            i % 4 == 2 ? "Puma" : "Reebok"))}
-    };
+    core::Metadata meta = {{"brand", core::MetadataValue(std::string(i % 4 == 0   ? "Nike"
+                                                                     : i % 4 == 1 ? "Adidas"
+                                                                     : i % 4 == 2 ? "Puma"
+                                                                                  : "Reebok"))}};
     metadata.push_back(meta);
   }
 
@@ -527,9 +512,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterNoMatches") {
 
   std::vector<core::Metadata> metadata;
   for (size_t i = 0; i < 10; ++i) {
-    core::Metadata meta = {
-        {"price", core::MetadataValue(int64_t(100))}
-    };
+    core::Metadata meta = {{"price", core::MetadataValue(int64_t(100))}};
     metadata.push_back(meta);
   }
 
@@ -551,8 +534,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterNoMatches") {
 TEST_CASE_FIXTURE(StorageTest, "SegmentManagerCreate") {
   storage::SegmentManager manager(test_dir_, index_factory_.get());
 
-  auto segment_id =
-      manager.CreateSegment(collection_id_, dimension_, metric_);
+  auto segment_id = manager.CreateSegment(collection_id_, dimension_, metric_);
   INFO("CreateSegment failed: " << segment_id.status().message());
   REQUIRE(segment_id.ok());
 
@@ -566,23 +548,20 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentManagerCreate") {
 TEST_CASE_FIXTURE(StorageTest, "SegmentManagerWriteRead") {
   storage::SegmentManager manager(test_dir_, index_factory_.get());
 
-  auto segment_id =
-      manager.CreateSegment(collection_id_, dimension_, metric_);
+  auto segment_id = manager.CreateSegment(collection_id_, dimension_, metric_);
   REQUIRE(segment_id.ok());
 
   // Write vectors
   auto vectors = CreateTestVectors(50);
   auto ids = CreateTestVectorIds(50);
 
-  auto write_status =
-      manager.WriteVectors(segment_id.value(), vectors, ids);
+  auto write_status = manager.WriteVectors(segment_id.value(), vectors, ids);
   INFO("WriteVectors failed: " << write_status.message());
   REQUIRE(write_status.ok());
 
   // Read back
-  std::vector<core::VectorId> query_ids = {core::MakeVectorId(1),
-                                             core::MakeVectorId(25),
-                                             core::MakeVectorId(50)};
+  std::vector<core::VectorId> query_ids = {core::MakeVectorId(1), core::MakeVectorId(25),
+                                           core::MakeVectorId(50)};
 
   auto* segment = manager.GetSegment(segment_id.value());
   REQUIRE(segment != nullptr);
@@ -596,8 +575,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentManagerWriteRead") {
 TEST_CASE_FIXTURE(StorageTest, "SegmentManagerSealSegment") {
   storage::SegmentManager manager(test_dir_, index_factory_.get());
 
-  auto segment_id =
-      manager.CreateSegment(collection_id_, dimension_, metric_);
+  auto segment_id = manager.CreateSegment(collection_id_, dimension_, metric_);
   REQUIRE(segment_id.ok());
 
   // Add vectors
@@ -641,8 +619,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentManagerMultipleSegments") {
 TEST_CASE_FIXTURE(StorageTest, "SegmentManagerDropSegment") {
   storage::SegmentManager manager(test_dir_, index_factory_.get());
 
-  auto segment_id =
-      manager.CreateSegment(collection_id_, dimension_, metric_);
+  auto segment_id = manager.CreateSegment(collection_id_, dimension_, metric_);
   REQUIRE(segment_id.ok());
 
   CHECK_EQ(manager.GetSegmentCount(), 1);
@@ -692,10 +669,10 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentGetVectorsPartialMatch") {
 
   // Query mix of existing and non-existing IDs
   std::vector<core::VectorId> query_ids = {
-      ids[0],                      // exists
-      core::MakeVectorId(999),     // doesn't exist
-      ids[2],                      // exists
-      core::MakeVectorId(888)      // doesn't exist
+      ids[0],                   // exists
+      core::MakeVectorId(999),  // doesn't exist
+      ids[2],                   // exists
+      core::MakeVectorId(888)   // doesn't exist
   };
 
   auto result = segment.GetVectors(query_ids, false);
@@ -725,8 +702,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentGetVectorsWithMetadata") {
   for (size_t i = 0; i < 5; ++i) {
     core::Metadata meta = {
         {"id", core::MetadataValue(static_cast<int64_t>(i))},
-        {"name", core::MetadataValue(std::string("vector_") + std::to_string(i))}
-    };
+        {"name", core::MetadataValue(std::string("vector_") + std::to_string(i))}};
     metadata.push_back(meta);
   }
 
@@ -757,11 +733,8 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentGetVectorsAllNotFound") {
   REQUIRE(segment.AddVectors(vectors, ids).ok());
 
   // Query only non-existing IDs
-  std::vector<core::VectorId> query_ids = {
-      core::MakeVectorId(999),
-      core::MakeVectorId(888),
-      core::MakeVectorId(777)
-  };
+  std::vector<core::VectorId> query_ids = {core::MakeVectorId(999), core::MakeVectorId(888),
+                                           core::MakeVectorId(777)};
 
   auto result = segment.GetVectors(query_ids, false);
 
@@ -777,10 +750,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentGetVectorsEmpty") {
   // No vectors inserted
 
   // Query should return all as not found
-  std::vector<core::VectorId> query_ids = {
-      core::MakeVectorId(1),
-      core::MakeVectorId(2)
-  };
+  std::vector<core::VectorId> query_ids = {core::MakeVectorId(1), core::MakeVectorId(2)};
 
   auto result = segment.GetVectors(query_ids, false);
 
@@ -830,10 +800,10 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentDeleteVectorsPartialMatch") {
 
   // Try to delete mix of existing and non-existing IDs
   std::vector<core::VectorId> delete_ids = {
-      ids[0],                      // exists
-      core::MakeVectorId(999),     // doesn't exist
-      ids[2],                      // exists
-      core::MakeVectorId(888)      // doesn't exist
+      ids[0],                   // exists
+      core::MakeVectorId(999),  // doesn't exist
+      ids[2],                   // exists
+      core::MakeVectorId(888)   // doesn't exist
   };
 
   auto result = segment.DeleteVectors(delete_ids);
@@ -861,8 +831,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentDeleteVectorsWithMetadata") {
   auto ids = CreateTestVectorIds(3);
   std::vector<core::Metadata> metadata(3);
   for (int i = 0; i < 3; ++i) {
-    metadata[i]["name"] = core::MetadataValue(
-        std::string("vector_") + std::to_string(i));
+    metadata[i]["name"] = core::MetadataValue(std::string("vector_") + std::to_string(i));
   }
   REQUIRE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
 
@@ -891,11 +860,8 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentDeleteVectorsAllNotFound") {
   REQUIRE(segment.AddVectors(vectors, ids).ok());
 
   // Try to delete non-existent IDs
-  std::vector<core::VectorId> delete_ids = {
-      core::MakeVectorId(999),
-      core::MakeVectorId(888),
-      core::MakeVectorId(777)
-  };
+  std::vector<core::VectorId> delete_ids = {core::MakeVectorId(999), core::MakeVectorId(888),
+                                            core::MakeVectorId(777)};
 
   auto result = segment.DeleteVectors(delete_ids);
 
@@ -965,7 +931,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentUpdateMetadataReplace") {
   CHECK_EQ(result->size(), 2);  // Only 2 fields now (price, rating)
   CHECK_EQ(std::get<double>(result->at("price")), 80.0);
   CHECK_EQ(std::get<double>(result->at("rating")), 4.5);
-  CHECK_EQ(result->find("brand"), result->end());  // Old field removed
+  CHECK_EQ(result->find("brand"), result->end());     // Old field removed
   CHECK_EQ(result->find("in_stock"), result->end());  // Old field removed
 }
 
@@ -996,11 +962,11 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentUpdateMetadataMerge") {
   auto result = segment.GetMetadata(ids[0]);
   REQUIRE(result.ok());
 
-  CHECK_EQ(result->size(), 4);  // All 4 fields present
-  CHECK_EQ(std::get<double>(result->at("price")), 80.0);  // Updated
+  CHECK_EQ(result->size(), 4);                                   // All 4 fields present
+  CHECK_EQ(std::get<double>(result->at("price")), 80.0);         // Updated
   CHECK_EQ(std::get<std::string>(result->at("brand")), "Nike");  // Preserved
-  CHECK_EQ(std::get<bool>(result->at("in_stock")), true);  // Preserved
-  CHECK_EQ(std::get<double>(result->at("rating")), 4.5);  // Added
+  CHECK_EQ(std::get<bool>(result->at("in_stock")), true);        // Preserved
+  CHECK_EQ(std::get<double>(result->at("rating")), 4.5);         // Added
 }
 
 TEST_CASE_FIXTURE(StorageTest, "SegmentUpdateMetadataNoExisting") {
@@ -1112,8 +1078,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSerializeDeserializeWithVectors") {
   REQUIRE(serialize_result.ok());
 
   // Deserialize
-  auto deserialize_result =
-      storage::Segment::DeserializeFromBytes(serialize_result.value());
+  auto deserialize_result = storage::Segment::DeserializeFromBytes(serialize_result.value());
   INFO(deserialize_result.status());
   REQUIRE(deserialize_result.ok());
 
@@ -1164,8 +1129,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSerializeDeserializeWithMetadata") {
   REQUIRE(serialize_result.ok());
 
   // Deserialize
-  auto deserialize_result =
-      storage::Segment::DeserializeFromBytes(serialize_result.value());
+  auto deserialize_result = storage::Segment::DeserializeFromBytes(serialize_result.value());
   INFO(deserialize_result.status());
   REQUIRE(deserialize_result.ok());
 
@@ -1180,7 +1144,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSerializeDeserializeWithMetadata") {
     CHECK_EQ(std::get<int64_t>(metadata.at("index")), static_cast<int64_t>(i));
     CHECK(std::get<double>(metadata.at("price")) == doctest::Approx(i * 10.5));
     CHECK_EQ(std::get<std::string>(metadata.at("name")),
-              std::string("vector_") + std::to_string(i));
+             std::string("vector_") + std::to_string(i));
     CHECK_EQ(std::get<bool>(metadata.at("active")), i % 2 == 0);
   }
 }
@@ -1243,8 +1207,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSerializeDeserializeStatePreservation") {
   auto serialize_result = segment.SerializeToBytes();
   REQUIRE(serialize_result.ok());
 
-  auto deserialize_result =
-      storage::Segment::DeserializeFromBytes(serialize_result.value());
+  auto deserialize_result = storage::Segment::DeserializeFromBytes(serialize_result.value());
   REQUIRE(deserialize_result.ok());
 
   auto deserialized = std::move(deserialize_result.value());
@@ -1532,17 +1495,16 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentRangeSearchMaxResults") {
 namespace {
 
 // Checks one ranked position of a search result.
-void CheckRankedEntry(const core::SearchResultEntry& entry,
-                      uint64_t expected_id, float expected_distance) {
+void CheckRankedEntry(const core::SearchResultEntry& entry, uint64_t expected_id,
+                      float expected_distance) {
   CHECK_EQ(core::ToUInt64(entry.id), expected_id);
   CHECK(entry.distance == doctest::Approx(expected_distance));
 }
 
 // Checks two adjacent positions that hold identical vectors. They tie on
 // distance and the search does not order ties, so either id can come first.
-void CheckTiedPair(const core::SearchResultEntry& a,
-                   const core::SearchResultEntry& b, uint64_t lower_id,
-                   uint64_t higher_id, float expected_distance) {
+void CheckTiedPair(const core::SearchResultEntry& a, const core::SearchResultEntry& b,
+                   uint64_t lower_id, uint64_t higher_id, float expected_distance) {
   const uint64_t id_a = core::ToUInt64(a.id);
   const uint64_t id_b = core::ToUInt64(b.id);
   CHECK_EQ(std::min(id_a, id_b), lower_id);
@@ -1680,9 +1642,8 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexInLookup") {
   idx.Add(3, core::MetadataValue(std::string("clothing")));
   idx.Add(4, core::MetadataValue(std::string("shoes")));
 
-  std::vector<core::MetadataValue> values = {
-      core::MetadataValue(std::string("shoes")),
-      core::MetadataValue(std::string("clothing"))};
+  std::vector<core::MetadataValue> values = {core::MetadataValue(std::string("shoes")),
+                                             core::MetadataValue(std::string("clothing"))};
   auto result = idx.LookupIn(values);
   CHECK_EQ(result.size(), 3);  // IDs 1,3,4
 }
@@ -1716,7 +1677,7 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexSetBuildAndEvaluate") {
 
   // Test: brand = 'Nike'
   core::ComparisonNode filter("brand", core::ComparisonOp::EQUAL,
-                               core::MetadataValue(std::string("Nike")));
+                              core::MetadataValue(std::string("Nike")));
   auto result = idx_set.Evaluate(filter);
   REQUIRE(result.has_value());
   CHECK_EQ(result->size(), 2);
@@ -1735,12 +1696,11 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexSearchWithFilterAcceleration") {
   std::vector<core::Metadata> metadata;
 
   for (int i = 0; i < 20; ++i) {
-    vectors.push_back(core::Vector({
-        static_cast<float>(i) * 0.1f, 0.0f, 0.0f, 0.0f}));
+    vectors.push_back(core::Vector({static_cast<float>(i) * 0.1f, 0.0f, 0.0f, 0.0f}));
     ids.push_back(core::MakeVectorId(i + 1));
     core::Metadata md;
     md["category"] = (i < 10) ? core::MetadataValue(std::string("shoes"))
-                               : core::MetadataValue(std::string("electronics"));
+                              : core::MetadataValue(std::string("electronics"));
     md["price"] = core::MetadataValue(int64_t(50 + i * 10));
     metadata.push_back(md);
   }
@@ -1770,13 +1730,11 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexAndFilter") {
   std::vector<core::Metadata> metadata;
 
   for (int i = 0; i < 10; ++i) {
-    vectors.push_back(core::Vector({
-        static_cast<float>(i) * 0.1f, 0.0f, 0.0f, 0.0f}));
+    vectors.push_back(core::Vector({static_cast<float>(i) * 0.1f, 0.0f, 0.0f, 0.0f}));
     ids.push_back(core::MakeVectorId(i + 1));
     core::Metadata md;
-    md["brand"] = (i % 2 == 0)
-                      ? core::MetadataValue(std::string("Nike"))
-                      : core::MetadataValue(std::string("Adidas"));
+    md["brand"] = (i % 2 == 0) ? core::MetadataValue(std::string("Nike"))
+                               : core::MetadataValue(std::string("Adidas"));
     md["price"] = core::MetadataValue(int64_t(100 + i * 50));
     metadata.push_back(md);
   }
@@ -1786,8 +1744,7 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexAndFilter") {
   core::Vector query({0.0f, 0.0f, 0.0f, 0.0f});
 
   // AND filter: brand = 'Nike' AND price < 300
-  auto result = segment.SearchWithFilter(query, 10,
-      "brand = 'Nike' AND price < 300");
+  auto result = segment.SearchWithFilter(query, 10, "brand = 'Nike' AND price < 300");
   REQUIRE(result.ok());
   // Nike: IDs 1,3,5,7,9 (even indices 0,2,4,6,8)
   // Price < 300: IDs with price 100,150,200,250 (indices 0,1,2,3)
@@ -1807,8 +1764,8 @@ class RotationTest {
 
   RotationTest() {
     index_factory_ = std::make_unique<index::IndexFactory>();
-    manager_ = std::make_unique<storage::SegmentManager>(
-        test_dir_, index_factory_.get(), kTinyMaxSize);
+    manager_ =
+        std::make_unique<storage::SegmentManager>(test_dir_, index_factory_.get(), kTinyMaxSize);
 
     collection_id_ = core::MakeCollectionId(1);
     dimension_ = 4;
@@ -1858,8 +1815,8 @@ TEST_CASE_FIXTURE(RotationTest, "CanFit_ChecksCapacity") {
   auto seg_id = core::MakeSegmentId(100);
   storage::Segment segment(seg_id, collection_id_, dimension_, metric_, kTinyMaxSize);
 
-  CHECK(segment.CanFit(16));    // Empty segment, 16 bytes fits
-  CHECK(segment.CanFit(1024));  // Exactly at limit
+  CHECK(segment.CanFit(16));          // Empty segment, 16 bytes fits
+  CHECK(segment.CanFit(1024));        // Exactly at limit
   CHECK_FALSE(segment.CanFit(1025));  // Over limit
 
   // Fill to 960 bytes (60 vectors * 16 bytes)
@@ -1924,11 +1881,10 @@ TEST_CASE_FIXTURE(RotationTest, "SealCallback_InvokedOnRotation") {
   // Track seal callback invocations
   std::vector<core::SegmentId> sealed_ids;
   std::vector<core::IndexType> sealed_types;
-  manager_->SetSealCallback(
-      [&sealed_ids, &sealed_types](core::SegmentId sid, core::IndexType idx) {
-        sealed_ids.push_back(sid);
-        sealed_types.push_back(idx);
-      });
+  manager_->SetSealCallback([&sealed_ids, &sealed_types](core::SegmentId sid, core::IndexType idx) {
+    sealed_ids.push_back(sid);
+    sealed_types.push_back(idx);
+  });
 
   // Fill the segment completely (64 vectors * 16 bytes = 1024 = max)
   auto vecs = MakeVectors(64);
@@ -1991,8 +1947,7 @@ TEST_CASE_FIXTURE(RotationTest, "SetSealCallback_ThreadSafe") {
   // Thread that repeatedly sets the seal callback
   std::thread setter([&]() {
     while (!done.load(std::memory_order_relaxed)) {
-      manager_->SetSealCallback(
-          [](core::SegmentId, core::IndexType) {});
+      manager_->SetSealCallback([](core::SegmentId, core::IndexType) {});
     }
   });
 
@@ -2016,12 +1971,11 @@ TEST_CASE_FIXTURE(RotationTest, "SealCallback_ModifiesMap_NoInvalidation") {
   auto cid = collection_id_;
   auto dim = dimension_;
   auto metric = metric_;
-  manager_->SetSealCallback(
-      [&](core::SegmentId, core::IndexType) {
-        // This calls CreateSegment which appends to collection_segments_[cid]
-        auto new_seg = manager_->CreateSegment(cid, dim, metric);
-        CHECK(new_seg.ok());
-      });
+  manager_->SetSealCallback([&](core::SegmentId, core::IndexType) {
+    // This calls CreateSegment which appends to collection_segments_[cid]
+    auto new_seg = manager_->CreateSegment(cid, dim, metric);
+    CHECK(new_seg.ok());
+  });
 
   // Fill segment completely (64 * 16 = 1024 = max)
   auto vecs = MakeVectors(64);
@@ -2048,7 +2002,8 @@ namespace {
 // run is, so the TTL cases move the expiry instead of waiting for the clock.
 int64_t EpochSecondsNow() {
   return std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
 }
 
 int64_t FutureExpiry() { return EpochSecondsNow() + 3600; }

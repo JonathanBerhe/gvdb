@@ -28,42 +28,40 @@ struct IndexConfig {
 
   // HNSW-specific parameters
   struct HNSWParams {
-    int M = 16;                // Number of connections per layer
-    int ef_construction = 200; // Size of dynamic candidate list during construction
-    int ef_search = 100;       // Size of dynamic candidate list during search
+    int M = 16;                 // Number of connections per layer
+    int ef_construction = 200;  // Size of dynamic candidate list during construction
+    int ef_search = 100;        // Size of dynamic candidate list during search
   } hnsw_params;
 
   // IVF-specific parameters
   struct IVFParams {
-    int nlist = 100;           // Number of clusters/cells
-    int nprobe = 10;           // Number of clusters to search
-    int pq_m = 8;              // Number of subquantizers for PQ
-    int pq_nbits = 8;          // Number of bits per subquantizer
+    int nlist = 100;   // Number of clusters/cells
+    int nprobe = 10;   // Number of clusters to search
+    int pq_m = 8;      // Number of subquantizers for PQ
+    int pq_nbits = 8;  // Number of bits per subquantizer
   } ivf_params;
 
   // TurboQuant-specific parameters
   struct TurboQuantParams {
     int bit_width = 4;           // Bits per dimension (1, 2, 4, or 8)
-    bool use_qjl = true;        // Enable QJL bias correction (Stage 2)
-    int qjl_projection_dim = 0; // QJL projection dimensions (0 = auto: padded_dim/4)
+    bool use_qjl = true;         // Enable QJL bias correction (Stage 2)
+    int qjl_projection_dim = 0;  // QJL projection dimensions (0 = auto: padded_dim/4)
   } turboquant_params;
 
   // IVF + TurboQuant parameters
   struct IVFTurboQuantParams {
-    int nlist = 100;             // Number of IVF clusters
-    int nprobe = 10;             // Clusters to search at query time
-    int bit_width = 4;           // TurboQuant bits per dimension (1, 2, 4, 8)
-    bool use_qjl = true;        // Enable QJL bias correction
-    int qjl_dim = 0;            // QJL projection dim (0 = auto)
+    int nlist = 100;      // Number of IVF clusters
+    int nprobe = 10;      // Clusters to search at query time
+    int bit_width = 4;    // TurboQuant bits per dimension (1, 2, 4, 8)
+    bool use_qjl = true;  // Enable QJL bias correction
+    int qjl_dim = 0;      // QJL projection dim (0 = auto)
   } ivf_turboquant_params;
 
   // General parameters
-  bool use_gpu = false;        // Use GPU acceleration if available
+  bool use_gpu = false;  // Use GPU acceleration if available
 
   // Validation
-  [[nodiscard]] bool IsValid() const {
-    return dimension > 0;
-  }
+  [[nodiscard]] bool IsValid() const { return dimension > 0; }
 };
 
 // ============================================================================
@@ -108,13 +106,12 @@ inline IvfAdaptiveParams ComputeIvfParams(size_t vector_count) {
   constexpr double kIntMax = static_cast<double>(std::numeric_limits<int>::max());
   const double raw_nlist = std::sqrt(static_cast<double>(vector_count));
   const int nlist = std::max(1, static_cast<int>(std::min(raw_nlist, kIntMax)));
-  const int nprobe = std::max(
-      1, static_cast<int>(std::sqrt(static_cast<double>(nlist))));
+  const int nprobe = std::max(1, static_cast<int>(std::sqrt(static_cast<double>(nlist))));
   return {nlist, nprobe};
 }
 
-inline IndexConfig ResolveAutoIndexConfig(IndexType type, size_t vector_count,
-                                          Dimension dimension, MetricType metric) {
+inline IndexConfig ResolveAutoIndexConfig(IndexType type, size_t vector_count, Dimension dimension,
+                                          MetricType metric) {
   IndexConfig config;
   config.index_type = ResolveAutoIndexType(type, vector_count);
   config.dimension = dimension;
@@ -170,4 +167,3 @@ inline IndexConfig ResolveAutoIndexConfig(IndexType type, size_t vector_count,
 
 }  // namespace core
 }  // namespace gvdb
-

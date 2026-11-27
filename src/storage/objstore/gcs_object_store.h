@@ -58,25 +58,20 @@ class GcsObjectStore : public IObjectStore {
 
   ~GcsObjectStore() override;
 
-  absl::Status PutObject(
-      const std::string& key, const std::string& data) override;
+  absl::Status PutObject(const std::string& key, const std::string& data) override;
 
   absl::StatusOr<std::string> GetObject(const std::string& key) override;
 
   absl::Status DeleteObject(const std::string& key) override;
 
-  absl::StatusOr<std::vector<std::string>> ListObjects(
-      const std::string& prefix) override;
+  absl::StatusOr<std::vector<std::string>> ListObjects(const std::string& prefix) override;
 
   absl::StatusOr<bool> ObjectExists(const std::string& key) override;
 
-  absl::Status PutObjectFromFile(
-      const std::string& key,
-      const std::string& local_file_path) override;
+  absl::Status PutObjectFromFile(const std::string& key,
+                                 const std::string& local_file_path) override;
 
-  absl::Status GetObjectToFile(
-      const std::string& key,
-      const std::string& local_file_path) override;
+  absl::Status GetObjectToFile(const std::string& key, const std::string& local_file_path) override;
 
  private:
   // Holds the google::cloud::storage::Client + bucket; defined in the .cpp so

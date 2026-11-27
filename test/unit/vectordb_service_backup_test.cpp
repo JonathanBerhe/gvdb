@@ -45,9 +45,7 @@ constexpr const char* kRestored = "bkp_restored";
 
 // Value of dimension d of the vector with the given id. Vectors are far
 // apart, so the nearest neighbor of a stored vector is the vector itself.
-float VectorValue(uint64_t id, uint32_t d) {
-  return static_cast<float>((id - 1) * 10 + d);
-}
+float VectorValue(uint64_t id, uint32_t d) { return static_cast<float>((id - 1) * 10 + d); }
 
 std::vector<float> VectorFor(uint64_t id) {
   std::vector<float> values(kDim);
@@ -83,8 +81,8 @@ class BackupServiceFixtureBase {
     fs::create_directories(data_dir_);
 
     index_factory_ = std::make_unique<index::IndexFactory>();
-    auto local = std::make_unique<storage::SegmentManager>(
-        data_dir_ + "/segments", index_factory_.get());
+    auto local =
+        std::make_unique<storage::SegmentManager>(data_dir_ + "/segments", index_factory_.get());
     std::string bucket;
     if (with_backup_storage) {
       backup_root_ = (test_dir_ / "backups").string();
@@ -93,16 +91,14 @@ class BackupServiceFixtureBase {
 
       auto object_store = std::make_unique<storage::InMemoryObjectStore>();
       object_store_ = object_store.get();
-      auto cache = std::make_unique<storage::SegmentCache>(
-          data_dir_ + "/cache", size_t{64} * 1024 * 1024);
+      auto cache =
+          std::make_unique<storage::SegmentCache>(data_dir_ + "/cache", size_t{64} * 1024 * 1024);
       segment_store_ = std::make_shared<storage::TieredSegmentManager>(
           std::move(local), std::move(object_store), std::move(cache), "gvdb");
     } else {
-      segment_store_ =
-          std::shared_ptr<storage::SegmentManager>(std::move(local));
+      segment_store_ = std::shared_ptr<storage::SegmentManager>(std::move(local));
     }
-    query_executor_ =
-        std::make_shared<compute::QueryExecutor>(*segment_store_);
+    query_executor_ = std::make_shared<compute::QueryExecutor>(*segment_store_);
 
     storage::BackupManagerOptions backup_options;
     backup_options.default_object_store = object_store_;
@@ -112,20 +108,17 @@ class BackupServiceFixtureBase {
     backup_options.tmp_dir = data_dir_ + "/tmp/backup";
     backup_options.gvdb_version = "single-node";
     backup_options.node_id = 1;
-    backup_manager_ =
-        std::make_shared<storage::BackupManager>(std::move(backup_options));
+    backup_manager_ = std::make_shared<storage::BackupManager>(std::move(backup_options));
 
     storage::RestoreManagerOptions restore_options;
     restore_options.default_object_store = object_store_;
     restore_options.s3_bucket = bucket;
     restore_options.local_root_allowlist = backup_root_;
     restore_options.staging_dir = data_dir_ + "/tmp/restore";
-    restore_manager_ =
-        std::make_shared<storage::RestoreManager>(std::move(restore_options));
+    restore_manager_ = std::make_shared<storage::RestoreManager>(std::move(restore_options));
 
     service_ = std::make_unique<service::VectorDBService>(
-        segment_store_, query_executor_,
-        service::MakeLocalResolver(segment_store_, data_dir_),
+        segment_store_, query_executor_, service::MakeLocalResolver(segment_store_, data_dir_),
         service::VectorDBServiceOptions{.backup_manager = backup_manager_,
                                         .restore_manager = restore_manager_});
   }
@@ -187,8 +180,7 @@ class BackupServiceFixtureBase {
     return service_->DropCollection(&context, &request, &response);
   }
 
-  grpc::Status Backup(const std::string& collection,
-                      const proto::BackupTarget& target,
+  grpc::Status Backup(const std::string& collection, const proto::BackupTarget& target,
                       proto::BackupCollectionResponse* response) {
     grpc::ServerContext context;
     proto::BackupCollectionRequest request;
@@ -197,8 +189,7 @@ class BackupServiceFixtureBase {
     return service_->BackupCollection(&context, &request, response);
   }
 
-  grpc::Status Restore(const proto::BackupTarget& source,
-                       const std::string& backup_id,
+  grpc::Status Restore(const proto::BackupTarget& source, const std::string& backup_id,
                        const std::string& target_collection, bool overwrite,
                        proto::RestoreCollectionResponse* response) {
     grpc::ServerContext context;
@@ -251,8 +242,7 @@ class BackupServiceFixtureBase {
   }
 
   // Starts a backup of the source collection and waits until it completes.
-  proto::GetBackupStatusResponse BackupAndWait(
-      const proto::BackupTarget& target) {
+  proto::GetBackupStatusResponse BackupAndWait(const proto::BackupTarget& target) {
     proto::BackupCollectionResponse backup;
     auto status = Backup(kSource, target, &backup);
     INFO(status.error_message());
@@ -270,8 +260,7 @@ class BackupServiceFixtureBase {
     return done;
   }
 
-  proto::SearchResponse SearchTop1(const std::string& collection,
-                                   uint64_t id) {
+  proto::SearchResponse SearchTop1(const std::string& collection, uint64_t id) {
     grpc::ServerContext context;
     proto::SearchRequest request;
     request.set_collection_name(collection);
@@ -338,8 +327,7 @@ class BackupServiceFixtureBase {
   // restores the backup from `target` under a new name and checks that the
   // restored collection holds the original vectors. Returns the status of
   // the completed backup.
-  proto::GetBackupStatusResponse BackupDropRestoreAndCheck(
-      const proto::BackupTarget& target) {
+  proto::GetBackupStatusResponse BackupDropRestoreAndCheck(const proto::BackupTarget& target) {
     CreatePopulatedSource();
     auto backup = BackupAndWait(target);
 
@@ -387,8 +375,7 @@ class BackupServiceTest : public BackupServiceFixtureBase {
 
 class NoBackupStorageServiceTest : public BackupServiceFixtureBase {
  public:
-  NoBackupStorageServiceTest()
-      : BackupServiceFixtureBase(/*with_backup_storage=*/false) {}
+  NoBackupStorageServiceTest() : BackupServiceFixtureBase(/*with_backup_storage=*/false) {}
 };
 
 }  // namespace
@@ -402,10 +389,9 @@ TEST_CASE_FIXTURE(BackupServiceTest, "S3TargetBackupDropRestoreAndSearch") {
 
   // The backup went to the configured object store, under the requested
   // prefix.
-  const std::string manifest_key = std::string(kS3Prefix) + "/backups/" +
-                                   backup.backup_id() + "/backup.manifest.json";
-  CHECK_EQ(backup.manifest_uri(),
-           std::string("s3://") + kBucket + "/" + manifest_key);
+  const std::string manifest_key =
+      std::string(kS3Prefix) + "/backups/" + backup.backup_id() + "/backup.manifest.json";
+  CHECK_EQ(backup.manifest_uri(), std::string("s3://") + kBucket + "/" + manifest_key);
   auto exists = object_store_->ObjectExists(manifest_key);
   REQUIRE(exists.ok());
   CHECK(*exists);
@@ -485,8 +471,7 @@ TEST_CASE_FIXTURE(BackupServiceTest, "LocalTargetOutsideAllowlistIsRejected") {
     CAPTURE(path);
     fs::create_directories(path);
     fs::copy(backup_root_, path, fs::copy_options::recursive);
-    REQUIRE(fs::is_regular_file(path + "/backups/" + backup.backup_id() +
-                                "/backup.manifest.json"));
+    REQUIRE(fs::is_regular_file(path + "/backups/" + backup.backup_id() + "/backup.manifest.json"));
 
     proto::RestoreCollectionResponse restore;
     auto status = Restore(LocalTarget(path), backup.backup_id(), kRestored,
@@ -502,8 +487,7 @@ TEST_CASE_FIXTURE(BackupServiceTest, "LocalTargetOutsideAllowlistIsRejected") {
 // No backup storage configured
 // ============================================================================
 
-TEST_CASE_FIXTURE(NoBackupStorageServiceTest,
-                  "BackupAndRestoreRejectedWithoutBackupStorage") {
+TEST_CASE_FIXTURE(NoBackupStorageServiceTest, "BackupAndRestoreRejectedWithoutBackupStorage") {
   CreatePopulatedSource();
   const std::string local_path = (test_dir_ / "backups").string();
 

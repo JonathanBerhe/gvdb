@@ -28,8 +28,7 @@ using namespace gvdb;
 
 namespace {
 
-std::vector<core::Vector> RandomVectors(size_t n, core::Dimension dim,
-                                        unsigned seed = 42) {
+std::vector<core::Vector> RandomVectors(size_t n, core::Dimension dim, unsigned seed = 42) {
   std::mt19937 rng(seed);
   std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
   std::vector<core::Vector> vecs;
@@ -126,10 +125,9 @@ TEST_CASE("CUDA IVF_FLAT smoke: serialize/deserialize round-trip") {
   auto query = RandomVectors(1, DIM, /*seed=*/7).front();
 
   // Unique per-process path so parallel ctest runs don't collide.
-  const std::string path =
-      (std::filesystem::temp_directory_path() /
-       ("gvdb-cuda-smoke-" + std::to_string(::getpid()) + ".faiss"))
-          .string();
+  const std::string path = (std::filesystem::temp_directory_path() /
+                            ("gvdb-cuda-smoke-" + std::to_string(::getpid()) + ".faiss"))
+                               .string();
 
   // Build + serialize from a GPU-resident index.
   {

@@ -34,7 +34,6 @@ absl::StatusOr<std::shared_ptr<GvdbStateManager>> GvdbStateManager::Create(
 GvdbStateManager::GvdbStateManager(int32_t server_id, const std::string& endpoint,
                                    const std::string& state_path)
     : state_db_path_(state_path), server_id_(server_id), endpoint_(endpoint) {
-
   // Create this server's configuration
   my_srv_config_ = nuraft::cs_new<srv_config>(server_id, endpoint);
 
@@ -73,8 +72,8 @@ void GvdbStateManager::save_config(const cluster_config& config) {
     common::Logger::Instance().Error("Failed to persist cluster config to disk");
   }
 
-  common::Logger::Instance().Debug(
-      "Saved cluster config ({} servers)", cluster_config_->get_servers().size());
+  common::Logger::Instance().Debug("Saved cluster config ({} servers)",
+                                   cluster_config_->get_servers().size());
 }
 
 void GvdbStateManager::save_state(const srv_state& state) {
@@ -91,8 +90,7 @@ void GvdbStateManager::save_state(const srv_state& state) {
     common::Logger::Instance().Error("Failed to persist server state to disk");
   }
 
-  common::Logger::Instance().Debug(
-      "Saved server state (term={})", server_state_->get_term());
+  common::Logger::Instance().Debug("Saved server state (term={})", server_state_->get_term());
 }
 
 ptr<srv_state> GvdbStateManager::read_state() {
@@ -110,13 +108,10 @@ ptr<log_store> GvdbStateManager::load_log_store() {
   return log_store_;
 }
 
-int32_t GvdbStateManager::server_id() {
-  return server_id_;
-}
+int32_t GvdbStateManager::server_id() { return server_id_; }
 
 void GvdbStateManager::system_exit(const int exit_code) {
-  common::Logger::Instance().Error(
-      "Raft system exit called with code {}", exit_code);
+  common::Logger::Instance().Error("Raft system exit called with code {}", exit_code);
 
   // In production, might want to:
   // - Flush pending writes
@@ -148,7 +143,8 @@ bool GvdbStateManager::LoadConfigFromDb() {
     // Read file
     std::ifstream ifs(config_file, std::ios::binary);
     if (!ifs) {
-      common::Logger::Instance().Error("Failed to open cluster config file: {}", config_file.string());
+      common::Logger::Instance().Error("Failed to open cluster config file: {}",
+                                       config_file.string());
       return false;
     }
 

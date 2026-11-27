@@ -6,8 +6,8 @@
 #include <cstddef>
 #include <iterator>
 
-#include "auth/rbac.h"
 #include "auth/auth_context.h"
+#include "auth/rbac.h"
 #include "config/config.h"
 
 using namespace gvdb;
@@ -63,8 +63,7 @@ TEST_CASE("HasPermission - every role against every permission") {
     CHECK_EQ(auth::HasPermission(Role::ADMIN, row.permission), row.admin);
     CHECK_EQ(auth::HasPermission(Role::READWRITE, row.permission), row.readwrite);
     CHECK_EQ(auth::HasPermission(Role::READONLY, row.permission), row.readonly);
-    CHECK_EQ(auth::HasPermission(Role::COLLECTION_ADMIN, row.permission),
-             row.collection_admin);
+    CHECK_EQ(auth::HasPermission(Role::COLLECTION_ADMIN, row.permission), row.collection_admin);
   }
 }
 

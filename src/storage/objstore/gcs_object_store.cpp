@@ -32,17 +32,15 @@ namespace gcs = ::google::cloud::storage;
 // IObjectStore contract tests rely on via absl::IsNotFound).
 absl::Status ToAbslStatus(const gc::Status& status) {
   if (status.ok()) return absl::OkStatus();
-  return absl::Status(
-      static_cast<absl::StatusCode>(static_cast<int>(status.code())),
-      status.message());
+  return absl::Status(static_cast<absl::StatusCode>(static_cast<int>(status.code())),
+                      status.message());
 }
 
 }  // namespace
 
 // Holds the google-cloud-cpp client so the SDK stays out of the header.
 struct GcsObjectStore::Impl {
-  Impl(gcs::Client c, std::string b)
-      : client(std::move(c)), bucket(std::move(b)) {}
+  Impl(gcs::Client c, std::string b) : client(std::move(c)), bucket(std::move(b)) {}
 
   // A Client is NOT safe for concurrent use by multiple threads, but copies
   // are cheap and share one connection pool. Each public method takes a copy
@@ -54,13 +52,11 @@ struct GcsObjectStore::Impl {
   std::string bucket;
 };
 
-GcsObjectStore::GcsObjectStore(std::unique_ptr<Impl> impl)
-    : impl_(std::move(impl)) {}
+GcsObjectStore::GcsObjectStore(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
 GcsObjectStore::~GcsObjectStore() = default;
 
-absl::StatusOr<std::unique_ptr<GcsObjectStore>> GcsObjectStore::Create(
-    const GcsConfig& config) {
+absl::StatusOr<std::unique_ptr<GcsObjectStore>> GcsObjectStore::Create(const GcsConfig& config) {
   if (config.bucket.empty()) {
     return absl::InvalidArgumentError("GcsConfig.bucket must be set");
   }
@@ -77,35 +73,29 @@ absl::StatusOr<std::unique_ptr<GcsObjectStore>> GcsObjectStore::Create(
     // one store's key leak into another (or clobber the ambient env).
     std::ifstream key_file(config.credentials_path, std::ios::binary);
     if (!key_file.good()) {
-      return absl::NotFoundError(
-          "GCS credentials file not found: " + config.credentials_path);
+      return absl::NotFoundError("GCS credentials file not found: " + config.credentials_path);
     }
     std::string key_json((std::istreambuf_iterator<char>(key_file)),
                          std::istreambuf_iterator<char>());
     if (key_file.bad()) {
-      return absl::InternalError(
-          "Failed reading GCS credentials file: " + config.credentials_path);
+      return absl::InternalError("Failed reading GCS credentials file: " + config.credentials_path);
     }
     options.set<gc::UnifiedCredentialsOption>(
         gc::MakeServiceAccountCredentials(std::move(key_json)));
   } else {
     // Application Default Credentials: Workload Identity on GKE, or the
     // GOOGLE_APPLICATION_CREDENTIALS env var locally.
-    options.set<gc::UnifiedCredentialsOption>(
-        gc::MakeGoogleDefaultCredentials());
+    options.set<gc::UnifiedCredentialsOption>(gc::MakeGoogleDefaultCredentials());
   }
   if (!config.project_id.empty()) {
     options.set<gcs::ProjectIdOption>(config.project_id);
   }
 
-  auto impl = std::make_unique<Impl>(gcs::Client(std::move(options)),
-                                     config.bucket);
-  return std::unique_ptr<GcsObjectStore>(
-      new GcsObjectStore(std::move(impl)));
+  auto impl = std::make_unique<Impl>(gcs::Client(std::move(options)), config.bucket);
+  return std::unique_ptr<GcsObjectStore>(new GcsObjectStore(std::move(impl)));
 }
 
-absl::Status GcsObjectStore::PutObject(
-    const std::string& key, const std::string& data) {
+absl::Status GcsObjectStore::PutObject(const std::string& key, const std::string& data) {
   auto client = impl_->Get();
   auto metadata = client.InsertObject(impl_->bucket, key, data);
   if (!metadata) {
@@ -117,8 +107,7 @@ absl::Status GcsObjectStore::PutObject(
 absl::StatusOr<std::string> GcsObjectStore::GetObject(const std::string& key) {
   auto client = impl_->Get();
   auto reader = client.ReadObject(impl_->bucket, key);
-  std::string body(std::istreambuf_iterator<char>{reader},
-                   std::istreambuf_iterator<char>{});
+  std::string body(std::istreambuf_iterator<char>{reader}, std::istreambuf_iterator<char>{});
   if (!reader.status().ok()) {
     return ToAbslStatus(reader.status());
   }
@@ -136,8 +125,7 @@ absl::Status GcsObjectStore::DeleteObject(const std::string& key) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<std::vector<std::string>> GcsObjectStore::ListObjects(
-    const std::string& prefix) {
+absl::StatusOr<std::vector<std::string>> GcsObjectStore::ListObjects(const std::string& prefix) {
   auto client = impl_->Get();
   std::vector<std::string> keys;
   for (auto&& item : client.ListObjects(impl_->bucket, gcs::Prefix(prefix))) {
@@ -167,8 +155,8 @@ absl::StatusOr<bool> GcsObjectStore::ObjectExists(const std::string& key) {
   return ToAbslStatus(metadata.status());
 }
 
-absl::Status GcsObjectStore::PutObjectFromFile(
-    const std::string& key, const std::string& local_file_path) {
+absl::Status GcsObjectStore::PutObjectFromFile(const std::string& key,
+                                               const std::string& local_file_path) {
   std::ifstream input(local_file_path, std::ios::binary);
   if (!input.good()) {
     return absl::NotFoundError("Local file not found: " + local_file_path);
@@ -189,8 +177,7 @@ absl::Status GcsObjectStore::PutObjectFromFile(
   // here, before Close() commits anything, so a partial read can't be
   // silently finalized into a truncated object.
   if (writer.fail()) {
-    return absl::InternalError(
-        "Failed reading local file while uploading: " + local_file_path);
+    return absl::InternalError("Failed reading local file while uploading: " + local_file_path);
   }
   writer.Close();
   auto metadata = std::move(writer).metadata();
@@ -200,8 +187,8 @@ absl::Status GcsObjectStore::PutObjectFromFile(
   return absl::OkStatus();
 }
 
-absl::Status GcsObjectStore::GetObjectToFile(
-    const std::string& key, const std::string& local_file_path) {
+absl::Status GcsObjectStore::GetObjectToFile(const std::string& key,
+                                             const std::string& local_file_path) {
   auto client = impl_->Get();
   auto reader = client.ReadObject(impl_->bucket, key);
   // Force the request so a missing object is detected before a local file is

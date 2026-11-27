@@ -33,9 +33,10 @@ class GvdbStateManager : public nuraft::state_mgr {
   // `endpoint`. The state lives in a RocksDB at `state_path` and the Raft
   // log in a RocksDB at `log_store_path`. Internal when the log store
   // cannot be opened.
-  static absl::StatusOr<std::shared_ptr<GvdbStateManager>> Create(
-      int32_t server_id, const std::string& endpoint, const std::string& log_store_path,
-      const std::string& state_path);
+  static absl::StatusOr<std::shared_ptr<GvdbStateManager>> Create(int32_t server_id,
+                                                                  const std::string& endpoint,
+                                                                  const std::string& log_store_path,
+                                                                  const std::string& state_path);
 
   ~GvdbStateManager() override = default;
 

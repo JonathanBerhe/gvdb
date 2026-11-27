@@ -12,8 +12,8 @@ namespace consensus {
 // Configuration for a Raft node
 struct RaftConfig {
   // Node identification
-  int node_id = 0;                          // Unique node identifier (0-based)
-  std::vector<std::string> peers;           // Declared Raft peers in "id:host:port" format
+  int node_id = 0;                 // Unique node identifier (0-based)
+  std::vector<std::string> peers;  // Declared Raft peers in "id:host:port" format
   // listen_address is the BIND address. Today NuRaft's launcher extracts
   // only the port and binds on 0.0.0.0:port; the host portion is historical
   // and ignored for binding. Keep default 0.0.0.0:0 (let the caller pick).
@@ -37,7 +37,7 @@ struct RaftConfig {
   std::string data_dir = "/tmp/gvdb/raft";  // Directory for Raft logs and snapshots
 
   // Single-node mode (for testing/development)
-  bool single_node_mode = false;            // Disable leader election, always be leader
+  bool single_node_mode = false;  // Disable leader election, always be leader
 
   // Validate configuration
   bool IsValid() const {
@@ -47,5 +47,5 @@ struct RaftConfig {
   }
 };
 
-} // namespace consensus
-} // namespace gvdb
+}  // namespace consensus
+}  // namespace gvdb

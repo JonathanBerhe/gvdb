@@ -2,20 +2,19 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "cluster/datanode/heartbeat_sender.h"
-#include "cluster/datanode/primary_term_tracker.h"
-#include "common/logger.h"
 #include <grpcpp/grpcpp.h>
 #include <chrono>
+#include "cluster/datanode/primary_term_tracker.h"
+#include "common/logger.h"
 
 namespace gvdb {
 namespace cluster {
 
-HeartbeatSender::HeartbeatSender(const std::string& coordinator_address,
-                                  int node_id,
-                                  const std::string& grpc_address,
-                                  proto::internal::NodeType node_type,
-                                  std::atomic<bool>& shutdown_flag,
-                                  PrimaryTermTracker* primary_term_tracker)
+HeartbeatSender::HeartbeatSender(const std::string& coordinator_address, int node_id,
+                                 const std::string& grpc_address,
+                                 proto::internal::NodeType node_type,
+                                 std::atomic<bool>& shutdown_flag,
+                                 PrimaryTermTracker* primary_term_tracker)
     : coordinator_address_(coordinator_address),
       node_id_(node_id),
       grpc_address_(grpc_address),
@@ -23,9 +22,7 @@ HeartbeatSender::HeartbeatSender(const std::string& coordinator_address,
       shutdown_flag_(shutdown_flag),
       primary_term_tracker_(primary_term_tracker) {}
 
-HeartbeatSender::~HeartbeatSender() {
-  Stop();
-}
+HeartbeatSender::~HeartbeatSender() { Stop(); }
 
 void HeartbeatSender::Start() {
   thread_ = std::make_unique<std::thread>([this] { SendLoop(); });
@@ -39,8 +36,7 @@ void HeartbeatSender::Stop() {
 }
 
 bool HeartbeatSender::SendDrainHeartbeatOnce() {
-  auto channel = grpc::CreateChannel(coordinator_address_,
-                                      grpc::InsecureChannelCredentials());
+  auto channel = grpc::CreateChannel(coordinator_address_, grpc::InsecureChannelCredentials());
   auto stub = proto::internal::InternalService::NewStub(channel);
 
   proto::internal::HeartbeatRequest request;
@@ -51,20 +47,17 @@ bool HeartbeatSender::SendDrainHeartbeatOnce() {
   node_info->set_grpc_address(grpc_address_);
 
   grpc::ClientContext context;
-  context.set_deadline(std::chrono::system_clock::now() +
-                       std::chrono::seconds(2));
+  context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(2));
 
   proto::internal::HeartbeatResponse response;
   auto status = stub->Heartbeat(&context, request, &response);
 
   if (status.ok() && response.acknowledged()) {
-    common::Logger::Instance().Info(
-        "Drain heartbeat acknowledged (node_id={})", node_id_);
+    common::Logger::Instance().Info("Drain heartbeat acknowledged (node_id={})", node_id_);
     return true;
   }
-  common::Logger::Instance().Warn(
-      "Drain heartbeat failed (node_id={}): {}", node_id_,
-      status.error_message());
+  common::Logger::Instance().Warn("Drain heartbeat failed (node_id={}): {}", node_id_,
+                                  status.error_message());
   return false;
 }
 
@@ -83,8 +76,7 @@ bool HeartbeatSender::DrainAndStop() {
 }
 
 void HeartbeatSender::SendLoop() {
-  auto channel = grpc::CreateChannel(coordinator_address_,
-                                      grpc::InsecureChannelCredentials());
+  auto channel = grpc::CreateChannel(coordinator_address_, grpc::InsecureChannelCredentials());
   auto stub = proto::internal::InternalService::NewStub(channel);
 
   common::Logger::Instance().Info("Heartbeat sender started (coordinator={})",
@@ -100,8 +92,7 @@ void HeartbeatSender::SendLoop() {
       node_info->set_grpc_address(grpc_address_);
 
       grpc::ClientContext context;
-      context.set_deadline(std::chrono::system_clock::now() +
-                           std::chrono::seconds(5));
+      context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(5));
 
       proto::internal::HeartbeatResponse response;
       auto status = stub->Heartbeat(&context, request, &response);
@@ -117,14 +108,10 @@ void HeartbeatSender::SendLoop() {
         // that's no longer primary.
         if (primary_term_tracker_ != nullptr) {
           for (const auto& sp : response.shard_primaries()) {
-            const bool is_primary_here =
-                static_cast<int>(sp.primary_node_id()) == node_id_;
-            const bool ok =
-                is_primary_here
-                    ? primary_term_tracker_->RecordPrimary(sp.shard_id(),
-                                                           sp.term())
-                    : primary_term_tracker_->RecordNotPrimary(sp.shard_id(),
-                                                              sp.term());
+            const bool is_primary_here = static_cast<int>(sp.primary_node_id()) == node_id_;
+            const bool ok = is_primary_here
+                                ? primary_term_tracker_->RecordPrimary(sp.shard_id(), sp.term())
+                                : primary_term_tracker_->RecordNotPrimary(sp.shard_id(), sp.term());
             // A false return means a term regression: the heartbeat
             // tried to walk the term backwards, which is contractually
             // impossible (terms are monotonic per shard). Likely cause:
@@ -140,8 +127,7 @@ void HeartbeatSender::SendLoop() {
           }
         }
       } else {
-        common::Logger::Instance().Warn("Heartbeat failed: {}",
-                                        status.error_message());
+        common::Logger::Instance().Warn("Heartbeat failed: {}", status.error_message());
       }
     } catch (const std::exception& e) {
       common::Logger::Instance().Error("Heartbeat error: {}", e.what());

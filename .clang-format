@@ -1,0 +1,8 @@
+# The C++ style of GVDB. `make format` applies it and `make check-format`
+# checks it, both with the clang-format version pinned in the Makefile.
+BasedOnStyle: Google
+ColumnLimit: 100
+DerivePointerAlignment: false
+PointerAlignment: Left
+# Sort the includes inside each block, but keep the blocks as they are.
+IncludeBlocks: Preserve

@@ -12,13 +12,13 @@
 #include <thread>
 #include <vector>
 
-#include "support/temp_dir.h"
-#include "support/wait.h"
-#include "config/config.h"
 #include "common/file_util.h"
 #include "common/logger.h"
 #include "common/thread_pool.h"
 #include "common/timer.h"
+#include "config/config.h"
+#include "support/temp_dir.h"
+#include "support/wait.h"
 
 namespace fs = std::filesystem;
 
@@ -123,8 +123,7 @@ TEST_CASE_FIXTURE(LoggerTest, "SetLogLevel") {
 
   // Read log file and verify only WARN and ERROR messages are present
   std::ifstream log_file(config.file_path);
-  std::string content((std::istreambuf_iterator<char>(log_file)),
-                      std::istreambuf_iterator<char>());
+  std::string content((std::istreambuf_iterator<char>(log_file)), std::istreambuf_iterator<char>());
 
   CHECK_EQ(content.find("Should not appear"), std::string::npos);
   CHECK_NE(content.find("Should appear"), std::string::npos);
@@ -219,8 +218,7 @@ TEST_CASE("ThreadPoolTest - ParallelExecution") {
 
       // Update max concurrent
       int expected = max_concurrent.load();
-      while (expected < current &&
-             !max_concurrent.compare_exchange_weak(expected, current)) {
+      while (expected < current && !max_concurrent.compare_exchange_weak(expected, current)) {
       }
 
       // Stay in the task until four tasks have run at the same time, so the
@@ -298,8 +296,7 @@ class ConfigFileTest {
   gvdb::test::ScopedTempDir dir_{"gvdb_config_test"};
 };
 
-TEST_CASE_FIXTURE(ConfigFileTest,
-                  "ConfigTest - LoadsAuthRolesObjectStoreAndLocalBackupDir") {
+TEST_CASE_FIXTURE(ConfigFileTest, "ConfigTest - LoadsAuthRolesObjectStoreAndLocalBackupDir") {
   auto config = Load(R"(
 server:
   auth:

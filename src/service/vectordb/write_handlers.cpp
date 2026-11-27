@@ -3,18 +3,18 @@
 //
 // Insert, stream insert, upsert, delete and metadata update.
 
-#include "service/vectordb/vectordb_service.h"
+#include <grpcpp/grpcpp.h>
+#include <unordered_map>
+#include <unordered_set>
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
+#include "common/logger.h"
+#include "common/metrics.h"
 #include "core/status.h"
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
 #include "storage/segment/batch_splitter.h"
-#include "common/logger.h"
-#include "common/metrics.h"
-#include "absl/strings/str_cat.h"
-#include "absl/strings/str_format.h"
-#include <unordered_map>
-#include <unordered_set>
-#include <grpcpp/grpcpp.h>
 
 namespace gvdb {
 namespace service {
@@ -23,48 +23,44 @@ namespace service {
 // Vector Operations
 // ============================================================================
 
-grpc::Status VectorDBService::Insert(
-    grpc::ServerContext* context,
-    const proto::InsertRequest* request,
-    proto::InsertResponse* response) {
-  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::INSERT, request->collection_name(), request->vectors().size()));
+grpc::Status VectorDBService::Insert(grpc::ServerContext* context,
+                                     const proto::InsertRequest* request,
+                                     proto::InsertResponse* response) {
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::INSERT, request->collection_name(),
+                                      request->vectors().size()));
 
-  common::Logger::Instance().Info("Insert: {} vectors into {}",
-                                 request->vectors().size(),
-                                 request->collection_name());
+  common::Logger::Instance().Info("Insert: {} vectors into {}", request->vectors().size(),
+                                  request->collection_name());
 
   common::MetricsRegistry::Instance().RecordBatchSize(request->vectors().size());
 
-  common::MetricsTimer timer(
-      common::MetricsRegistry::Instance(),
-      common::MetricsTimer::OperationType::INSERT,
-      request->collection_name());
+  common::MetricsTimer timer(common::MetricsRegistry::Instance(),
+                             common::MetricsTimer::OperationType::INSERT,
+                             request->collection_name());
 
   constexpr size_t MAX_BATCH_SIZE = 50000;
 
   if (static_cast<size_t>(request->vectors().size()) > MAX_BATCH_SIZE) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-        absl::StrCat("Batch size exceeds maximum (", MAX_BATCH_SIZE,
-                     " vectors). Current batch: ", request->vectors().size()));
+                        absl::StrCat("Batch size exceeds maximum (", MAX_BATCH_SIZE,
+                                     " vectors). Current batch: ", request->vectors().size()));
   }
 
   if (request->vectors().empty()) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-        "Cannot insert empty vector batch");
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Cannot insert empty vector batch");
   }
 
   if (!resolver_->SupportsDataOps()) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Insert operations not supported on coordinator nodes. "
-        "Send insert requests to data nodes instead.");
+                        "Insert operations not supported on coordinator nodes. "
+                        "Send insert requests to data nodes instead.");
   }
 
   // Primary-term gate. Use the first vector's id as the shard sample:
   // the proxy splits per-shard before sending so all vectors in an
   // RPC share a shard, but even if a malformed client sends mixed
   // shards the gate at least catches the dominant case.
-  if (auto gate = EvaluateWriteGate(context, request->collection_name(),
-                                     request->vectors(0).id());
+  if (auto gate = EvaluateWriteGate(context, request->collection_name(), request->vectors(0).id());
       !gate.ok()) {
     return gate;
   }
@@ -101,8 +97,8 @@ grpc::Status VectorDBService::Insert(
     if (!vec_result.ok()) return rpc::ToGrpcStatus(vec_result.status());
 
     core::VectorId vid = vec_result->first;
-    uint32_t shard_idx = core::ShardIndexForVector(
-        core::ToUInt64(vid), static_cast<uint32_t>(num_shards));
+    uint32_t shard_idx =
+        core::ShardIndexForVector(core::ToUInt64(vid), static_cast<uint32_t>(num_shards));
 
     auto& batch = shard_batches[shard_idx];
     batch.ids.push_back(vid);
@@ -134,9 +130,8 @@ grpc::Status VectorDBService::Insert(
   for (const auto& batch : shard_batches) {
     for (const auto& vec : batch.vectors) {
       if (static_cast<uint32_t>(vec.dimension()) != dimension) {
-        return rpc::ToGrpcStatus(absl::InvalidArgumentError(
-            absl::StrFormat("Vector dimension mismatch: expected %d, got %d",
-                            dimension, vec.dimension())));
+        return rpc::ToGrpcStatus(absl::InvalidArgumentError(absl::StrFormat(
+            "Vector dimension mismatch: expected %d, got %d", dimension, vec.dimension())));
       }
     }
   }
@@ -159,14 +154,12 @@ grpc::Status VectorDBService::Insert(
     std::vector<size_t> item_costs;
     item_costs.reserve(batch.vectors.size());
     for (const auto& v : batch.vectors) {
-      item_costs.push_back(
-          v.byte_size() +
-          (charges_metadata ? storage::Segment::kMetadataBytesEstimate : 0));
+      item_costs.push_back(v.byte_size() +
+                           (charges_metadata ? storage::Segment::kMetadataBytesEstimate : 0));
     }
     auto ranges_or = storage::SplitBatchBySize(item_costs, max_segment_bytes);
     if (!ranges_or.ok()) {
-      common::MetricsRegistry::Instance().RecordInsert(
-          request->collection_name(), false, 0);
+      common::MetricsRegistry::Instance().RecordInsert(request->collection_name(), false, 0);
       return rpc::ToGrpcStatus(ranges_or.status());
     }
 
@@ -183,12 +176,10 @@ grpc::Status VectorDBService::Insert(
       std::unordered_map<uint64_t, core::SparseVector> sliced_sparse;
       std::unordered_map<uint64_t, int64_t> sliced_expiry;
       if (!single_range) {
-        sliced_vectors.assign(batch.vectors.begin() + begin,
-                              batch.vectors.begin() + end);
+        sliced_vectors.assign(batch.vectors.begin() + begin, batch.vectors.begin() + end);
         sliced_ids.assign(batch.ids.begin() + begin, batch.ids.begin() + end);
         if (batch.metadata.size() == batch.ids.size()) {
-          sliced_metadata.assign(batch.metadata.begin() + begin,
-                                 batch.metadata.begin() + end);
+          sliced_metadata.assign(batch.metadata.begin() + begin, batch.metadata.begin() + end);
         } else {
           // Malformed parallel arrays (metadata missing on leading vectors).
           // Pass as-is so the segment's size-mismatch validation rejects it,
@@ -197,27 +188,22 @@ grpc::Status VectorDBService::Insert(
         }
         for (const auto& vid : sliced_ids) {
           uint64_t key = core::ToUInt64(vid);
-          if (auto it = batch.sparse_map.find(key);
-              it != batch.sparse_map.end()) {
+          if (auto it = batch.sparse_map.find(key); it != batch.sparse_map.end()) {
             sliced_sparse.emplace(key, it->second);
           }
-          if (auto it = batch.expiry_entries.find(key);
-              it != batch.expiry_entries.end()) {
+          if (auto it = batch.expiry_entries.find(key); it != batch.expiry_entries.end()) {
             sliced_expiry.emplace(key, it->second);
           }
         }
       }
       const auto& range_vectors = single_range ? batch.vectors : sliced_vectors;
       const auto& range_ids = single_range ? batch.ids : sliced_ids;
-      const auto& range_metadata =
-          single_range ? batch.metadata : sliced_metadata;
+      const auto& range_metadata = single_range ? batch.metadata : sliced_metadata;
       const auto& range_sparse = single_range ? batch.sparse_map : sliced_sparse;
-      const auto& range_expiry =
-          single_range ? batch.expiry_entries : sliced_expiry;
+      const auto& range_expiry = single_range ? batch.expiry_entries : sliced_expiry;
 
       // Get a writable segment that can fit this range
-      auto* segment =
-          segment_store_->GetWritableSegment(collection_id, range_bytes);
+      auto* segment = segment_store_->GetWritableSegment(collection_id, range_bytes);
       if (!segment) {
         segment = segment_store_->GetSegment(segment_ids[i]);
       }
@@ -225,13 +211,12 @@ grpc::Status VectorDBService::Insert(
 
       auto write_range = [&](storage::Segment* seg) {
         if (batch.has_sparse) {
-          return seg->AddVectorsWithSparse(range_vectors, range_ids,
-                                           range_metadata, range_sparse,
+          return seg->AddVectorsWithSparse(range_vectors, range_ids, range_metadata, range_sparse,
                                            range_expiry);
         }
         if (batch.has_metadata) {
-          return seg->AddVectorsWithMetadata(range_vectors, range_ids,
-                                             range_metadata, range_expiry);
+          return seg->AddVectorsWithMetadata(range_vectors, range_ids, range_metadata,
+                                             range_expiry);
         }
         return seg->AddVectors(range_vectors, range_ids, range_expiry);
       };
@@ -247,8 +232,7 @@ grpc::Status VectorDBService::Insert(
       }
 
       if (!status.ok()) {
-        common::MetricsRegistry::Instance().RecordInsert(
-            request->collection_name(), false, 0);
+        common::MetricsRegistry::Instance().RecordInsert(request->collection_name(), false, 0);
         return rpc::ToGrpcStatus(status);
       }
 
@@ -256,8 +240,8 @@ grpc::Status VectorDBService::Insert(
     }
   }
 
-  common::MetricsRegistry::Instance().RecordInsert(
-      request->collection_name(), true, total_inserted);
+  common::MetricsRegistry::Instance().RecordInsert(request->collection_name(), true,
+                                                   total_inserted);
 
   response->set_inserted_count(total_inserted);
   response->set_message("Vectors inserted successfully");
@@ -271,19 +255,15 @@ grpc::Status VectorDBService::Insert(
   return grpc::Status::OK;
 }
 
-grpc::Status VectorDBService::StreamInsert(
-    grpc::ServerContext* /*context*/,
-    grpc::ServerReader<proto::InsertRequest>* reader,
-    proto::InsertResponse* response) {
-
-  common::MetricsTimer timer(
-      common::MetricsRegistry::Instance(),
-      common::MetricsTimer::OperationType::INSERT,
-      "stream");
+grpc::Status VectorDBService::StreamInsert(grpc::ServerContext* /*context*/,
+                                           grpc::ServerReader<proto::InsertRequest>* reader,
+                                           proto::InsertResponse* response) {
+  common::MetricsTimer timer(common::MetricsRegistry::Instance(),
+                             common::MetricsTimer::OperationType::INSERT, "stream");
 
   if (!resolver_->SupportsDataOps()) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Insert operations not supported on coordinator nodes.");
+                        "Insert operations not supported on coordinator nodes.");
   }
 
   uint64_t total_inserted = 0;
@@ -325,8 +305,8 @@ grpc::Status VectorDBService::StreamInsert(
       if (!vec_result.ok()) return rpc::ToGrpcStatus(vec_result.status());
 
       core::VectorId vid = vec_result->first;
-      uint32_t shard_idx = core::ShardIndexForVector(
-          core::ToUInt64(vid), static_cast<uint32_t>(num_shards));
+      uint32_t shard_idx =
+          core::ShardIndexForVector(core::ToUInt64(vid), static_cast<uint32_t>(num_shards));
 
       auto& batch = shard_batches[shard_idx];
       batch.ids.push_back(vid);
@@ -345,9 +325,8 @@ grpc::Status VectorDBService::StreamInsert(
     for (const auto& batch : shard_batches) {
       for (const auto& vec : batch.vectors) {
         if (static_cast<uint32_t>(vec.dimension()) != dimension) {
-          return rpc::ToGrpcStatus(absl::InvalidArgumentError(
-              absl::StrFormat("Vector dimension mismatch: expected %d, got %d",
-                              dimension, vec.dimension())));
+          return rpc::ToGrpcStatus(absl::InvalidArgumentError(absl::StrFormat(
+              "Vector dimension mismatch: expected %d, got %d", dimension, vec.dimension())));
         }
       }
     }
@@ -374,8 +353,7 @@ grpc::Status VectorDBService::StreamInsert(
     }
   }
 
-  common::MetricsRegistry::Instance().RecordInsert(
-      collection_name, true, total_inserted);
+  common::MetricsRegistry::Instance().RecordInsert(collection_name, true, total_inserted);
   common::MetricsRegistry::Instance().RecordBatchSize(total_inserted);
 
   response->set_inserted_count(total_inserted);
@@ -396,11 +374,11 @@ grpc::Status VectorDBService::StreamInsert(
 // Upsert
 // ============================================================================
 
-grpc::Status VectorDBService::Upsert(
-    grpc::ServerContext* context,
-    const proto::UpsertRequest* request,
-    proto::UpsertResponse* response) {
-  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::UPSERT, request->collection_name(), request->vectors().size()));
+grpc::Status VectorDBService::Upsert(grpc::ServerContext* context,
+                                     const proto::UpsertRequest* request,
+                                     proto::UpsertResponse* response) {
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::UPSERT, request->collection_name(),
+                                      request->vectors().size()));
   if (request->collection_name().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Collection name is required");
   }
@@ -410,13 +388,12 @@ grpc::Status VectorDBService::Upsert(
 
   if (!resolver_->SupportsDataOps()) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Upsert operations not supported on coordinator nodes");
+                        "Upsert operations not supported on coordinator nodes");
   }
 
   // Primary-term gate. See ProxyService::Insert for the full
   // rationale; this matches the contract on every write RPC.
-  if (auto gate = EvaluateWriteGate(context, request->collection_name(),
-                                     request->vectors(0).id());
+  if (auto gate = EvaluateWriteGate(context, request->collection_name(), request->vectors(0).id());
       !gate.ok()) {
     return gate;
   }
@@ -484,58 +461,51 @@ grpc::Status VectorDBService::Upsert(
   response->set_message("Upsert completed");
 
   common::Logger::Instance().Debug("Upsert: {} inserted, {} updated in collection '{}'",
-      upsert_result->inserted_count, upsert_result->updated_count,
-      request->collection_name());
+                                   upsert_result->inserted_count, upsert_result->updated_count,
+                                   request->collection_name());
 
   return grpc::Status::OK;
 }
 
-grpc::Status VectorDBService::Delete(
-    grpc::ServerContext* context,
-    const proto::DeleteRequest* request,
-    proto::DeleteResponse* response) {
-  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::DELETE, request->collection_name(), request->ids().size()));
+grpc::Status VectorDBService::Delete(grpc::ServerContext* context,
+                                     const proto::DeleteRequest* request,
+                                     proto::DeleteResponse* response) {
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::DELETE, request->collection_name(),
+                                      request->ids().size()));
 
-  common::Logger::Instance().Info("Delete: {} IDs from {}",
-                                 request->ids().size(),
-                                 request->collection_name());
+  common::Logger::Instance().Info("Delete: {} IDs from {}", request->ids().size(),
+                                  request->collection_name());
 
-  common::MetricsTimer timer(
-      common::MetricsRegistry::Instance(),
-      common::MetricsTimer::OperationType::DELETE,
-      request->collection_name());
+  common::MetricsTimer timer(common::MetricsRegistry::Instance(),
+                             common::MetricsTimer::OperationType::DELETE,
+                             request->collection_name());
 
   if (request->ids().empty()) {
-    common::MetricsRegistry::Instance().RecordDelete(
-        request->collection_name(), false);
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-        "IDs list cannot be empty");
+    common::MetricsRegistry::Instance().RecordDelete(request->collection_name(), false);
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "IDs list cannot be empty");
   }
 
   constexpr size_t MAX_DELETE_BATCH_SIZE = 10000;
   if (static_cast<size_t>(request->ids().size()) > MAX_DELETE_BATCH_SIZE) {
-    common::MetricsRegistry::Instance().RecordDelete(
-        request->collection_name(), false);
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
+    common::MetricsRegistry::Instance().RecordDelete(request->collection_name(), false);
+    return grpc::Status(
+        grpc::StatusCode::INVALID_ARGUMENT,
         absl::StrCat("Cannot delete more than ", MAX_DELETE_BATCH_SIZE,
                      " vectors in one request. Requested: ", request->ids().size()));
   }
 
   if (!resolver_->SupportsDataOps()) {
-    common::MetricsRegistry::Instance().RecordDelete(
-        request->collection_name(), false);
+    common::MetricsRegistry::Instance().RecordDelete(request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "Delete operations not supported on coordinator nodes. "
-        "Send delete requests to data nodes instead.");
+                        "Delete operations not supported on coordinator nodes. "
+                        "Send delete requests to data nodes instead.");
   }
 
   // Primary-term gate. See ProxyService::Insert for the full
   // rationale; same contract on every write RPC.
-  if (auto gate = EvaluateWriteGate(context, request->collection_name(),
-                                     request->ids(0));
+  if (auto gate = EvaluateWriteGate(context, request->collection_name(), request->ids(0));
       !gate.ok()) {
-    common::MetricsRegistry::Instance().RecordDelete(
-        request->collection_name(), false);
+    common::MetricsRegistry::Instance().RecordDelete(request->collection_name(), false);
     return gate;
   }
 
@@ -543,8 +513,7 @@ grpc::Status VectorDBService::Delete(
   // the segment that actually holds it rather than the resolver's active one.
   auto segments_result = CollectCollectionSegments(request->collection_name());
   if (!segments_result.ok()) {
-    common::MetricsRegistry::Instance().RecordDelete(
-        request->collection_name(), false);
+    common::MetricsRegistry::Instance().RecordDelete(request->collection_name(), false);
     return rpc::ToGrpcStatus(segments_result.status());
   }
   const auto& segments = *segments_result;
@@ -568,8 +537,7 @@ grpc::Status VectorDBService::Delete(
 
     auto result = segment->DeleteVectors(present.found_ids);
     if (!result.ok()) {
-      common::MetricsRegistry::Instance().RecordDelete(
-          request->collection_name(), false);
+      common::MetricsRegistry::Instance().RecordDelete(request->collection_name(), false);
       return rpc::ToGrpcStatus(result.status());
     }
     deleted_count += result->deleted_count;
@@ -593,12 +561,10 @@ grpc::Status VectorDBService::Delete(
   for (const auto& id : remaining) {
     response->add_not_found_ids(core::ToUInt64(id));
   }
-  response->set_message(absl::StrCat(
-      "Deleted ", deleted_count, " vector(s) from collection '",
-      request->collection_name(), "'"));
+  response->set_message(absl::StrCat("Deleted ", deleted_count, " vector(s) from collection '",
+                                     request->collection_name(), "'"));
 
-  common::MetricsRegistry::Instance().RecordDelete(
-      request->collection_name(), true);
+  common::MetricsRegistry::Instance().RecordDelete(request->collection_name(), true);
 
   // Invalidate query cache
   if (auto* cache = query_executor_->GetCache()) {
@@ -609,64 +575,54 @@ grpc::Status VectorDBService::Delete(
   return grpc::Status::OK;
 }
 
-grpc::Status VectorDBService::UpdateMetadata(
-    grpc::ServerContext* context,
-    const proto::UpdateMetadataRequest* request,
-    proto::UpdateMetadataResponse* response) {
-  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::UPDATE_METADATA, request->collection_name()));
+grpc::Status VectorDBService::UpdateMetadata(grpc::ServerContext* context,
+                                             const proto::UpdateMetadataRequest* request,
+                                             proto::UpdateMetadataResponse* response) {
+  RETURN_IF_ERROR(
+      AuthorizeCollection(auth::Permission::UPDATE_METADATA, request->collection_name()));
 
-  common::Logger::Instance().Info("UpdateMetadata: ID {} in {}",
-                                 request->id(), request->collection_name());
+  common::Logger::Instance().Info("UpdateMetadata: ID {} in {}", request->id(),
+                                  request->collection_name());
 
-  common::MetricsTimer timer(
-      common::MetricsRegistry::Instance(),
-      common::MetricsTimer::OperationType::UPDATE_METADATA,
-      request->collection_name());
+  common::MetricsTimer timer(common::MetricsRegistry::Instance(),
+                             common::MetricsTimer::OperationType::UPDATE_METADATA,
+                             request->collection_name());
 
   if (request->id() == 0) {
-    common::MetricsRegistry::Instance().RecordUpdateMetadata(
-        request->collection_name(), false);
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-        "Vector ID cannot be 0");
+    common::MetricsRegistry::Instance().RecordUpdateMetadata(request->collection_name(), false);
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Vector ID cannot be 0");
   }
 
   if (request->metadata().fields().empty()) {
-    common::MetricsRegistry::Instance().RecordUpdateMetadata(
-        request->collection_name(), false);
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-        "Metadata cannot be empty");
+    common::MetricsRegistry::Instance().RecordUpdateMetadata(request->collection_name(), false);
+    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Metadata cannot be empty");
   }
 
   if (!resolver_->SupportsDataOps()) {
-    common::MetricsRegistry::Instance().RecordUpdateMetadata(
-        request->collection_name(), false);
+    common::MetricsRegistry::Instance().RecordUpdateMetadata(request->collection_name(), false);
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-        "UpdateMetadata operations not supported on coordinator nodes. "
-        "Send metadata update requests to data nodes instead.");
+                        "UpdateMetadata operations not supported on coordinator nodes. "
+                        "Send metadata update requests to data nodes instead.");
   }
 
   // Primary-term gate. See ProxyService::Insert for the full
   // rationale; same contract on every write RPC.
-  if (auto gate = EvaluateWriteGate(context, request->collection_name(),
-                                     request->id());
+  if (auto gate = EvaluateWriteGate(context, request->collection_name(), request->id());
       !gate.ok()) {
-    common::MetricsRegistry::Instance().RecordUpdateMetadata(
-        request->collection_name(), false);
+    common::MetricsRegistry::Instance().RecordUpdateMetadata(request->collection_name(), false);
     return gate;
   }
 
   auto segments_result = CollectCollectionSegments(request->collection_name());
   if (!segments_result.ok()) {
-    common::MetricsRegistry::Instance().RecordUpdateMetadata(
-        request->collection_name(), false);
+    common::MetricsRegistry::Instance().RecordUpdateMetadata(request->collection_name(), false);
     return rpc::ToGrpcStatus(segments_result.status());
   }
   const auto& segments = *segments_result;
 
   auto metadata_result = rpc::FromProto(request->metadata());
   if (!metadata_result.ok()) {
-    common::MetricsRegistry::Instance().RecordUpdateMetadata(
-        request->collection_name(), false);
+    common::MetricsRegistry::Instance().RecordUpdateMetadata(request->collection_name(), false);
     return rpc::ToGrpcStatus(metadata_result.status());
   }
 
@@ -687,11 +643,10 @@ grpc::Status VectorDBService::UpdateMetadata(
   }
 
   if (!owner) {
-    common::MetricsRegistry::Instance().RecordUpdateMetadata(
-        request->collection_name(), false);
-    auto not_found = absl::NotFoundError(absl::StrCat(
-        "Vector ID ", request->id(), " not found in collection '",
-        request->collection_name(), "'"));
+    common::MetricsRegistry::Instance().RecordUpdateMetadata(request->collection_name(), false);
+    auto not_found =
+        absl::NotFoundError(absl::StrCat("Vector ID ", request->id(), " not found in collection '",
+                                         request->collection_name(), "'"));
     response->set_updated(false);
     response->set_message(std::string(not_found.message()));
     return rpc::ToGrpcStatus(not_found);
@@ -700,20 +655,17 @@ grpc::Status VectorDBService::UpdateMetadata(
   auto status = owner->UpdateMetadata(vector_id, *metadata_result, request->merge());
 
   if (!status.ok()) {
-    common::MetricsRegistry::Instance().RecordUpdateMetadata(
-        request->collection_name(), false);
+    common::MetricsRegistry::Instance().RecordUpdateMetadata(request->collection_name(), false);
     response->set_updated(false);
     response->set_message(std::string(status.message()));
     return rpc::ToGrpcStatus(status);
   }
 
-  common::MetricsRegistry::Instance().RecordUpdateMetadata(
-      request->collection_name(), true);
+  common::MetricsRegistry::Instance().RecordUpdateMetadata(request->collection_name(), true);
 
   response->set_updated(true);
-  response->set_message(absl::StrCat(
-      "Updated metadata for vector ID ", request->id(),
-      " in collection '", request->collection_name(), "'"));
+  response->set_message(absl::StrCat("Updated metadata for vector ID ", request->id(),
+                                     " in collection '", request->collection_name(), "'"));
 
   return grpc::Status::OK;
 }

@@ -35,8 +35,8 @@ class ComputeTest {
     index_factory_ = std::make_unique<index::IndexFactory>();
 
     // Create segment manager in a unique scratch folder
-    segment_manager_ = std::make_unique<storage::SegmentManager>(
-        data_dir_.str(), index_factory_.get());
+    segment_manager_ =
+        std::make_unique<storage::SegmentManager>(data_dir_.str(), index_factory_.get());
   }
 
   // Helper: Create test vectors
@@ -65,8 +65,7 @@ class ComputeTest {
     auto vectors = CreateTestVectors(num_vectors, dimension_);
     auto ids = CreateTestVectorIds(num_vectors);
 
-    auto segment_result = segment_manager_->CreateSegment(
-        collection_id_, dimension_, metric_);
+    auto segment_result = segment_manager_->CreateSegment(collection_id_, dimension_, metric_);
     REQUIRE(segment_result.ok());
     auto segment_id = segment_result.value();
 
@@ -123,8 +122,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchWithData") {
 
   // Verify results are sorted by distance (ascending)
   for (size_t i = 1; i < result.value().entries.size(); ++i) {
-    CHECK_LE(result.value().entries[i - 1].distance,
-              result.value().entries[i].distance);
+    CHECK_LE(result.value().entries[i - 1].distance, result.value().entries[i].distance);
   }
 }
 
@@ -161,8 +159,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchMultipleSegments") {
     auto vectors = CreateTestVectors(30, dimension_);
     auto ids = CreateTestVectorIds(30, i * 30);
 
-    auto segment_result = segment_manager_->CreateSegment(
-        collection_id_, dimension_, metric_);
+    auto segment_result = segment_manager_->CreateSegment(collection_id_, dimension_, metric_);
     REQUIRE(segment_result.ok());
     auto segment_id = segment_result.value();
 
@@ -189,8 +186,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchMultipleSegments") {
 
   // Verify results are merged and sorted
   for (size_t i = 1; i < result.value().entries.size(); ++i) {
-    CHECK_LE(result.value().entries[i - 1].distance,
-              result.value().entries[i].distance);
+    CHECK_LE(result.value().entries[i - 1].distance, result.value().entries[i].distance);
   }
 }
 
@@ -223,8 +219,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchMergesTopKAcrossFiveSegments") {
     auto vectors = CreateTestVectors(kPerSegment, dimension_);
     auto ids = CreateTestVectorIds(kPerSegment, i * kPerSegment);
 
-    auto segment_result = segment_manager_->CreateSegment(
-        collection_id_, dimension_, metric_);
+    auto segment_result = segment_manager_->CreateSegment(collection_id_, dimension_, metric_);
     REQUIRE(segment_result.ok());
     auto segment_id = segment_result.value();
 
@@ -294,8 +289,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchMergesTopKAcrossFiveSegments") {
 
 TEST_CASE_FIXTURE(ComputeTest, "SearchAfterSegmentDrop") {
   // Create a segment and populate it
-  auto segment_result = segment_manager_->CreateSegment(
-      collection_id_, dimension_, metric_);
+  auto segment_result = segment_manager_->CreateSegment(collection_id_, dimension_, metric_);
   REQUIRE(segment_result.ok());
   auto segment_id = segment_result.value();
 
@@ -335,8 +329,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchDifferentCollections") {
   // Create data for collection 2
   auto collection_id_2 = core::MakeCollectionId(2);
 
-  auto segment_result = segment_manager_->CreateSegment(
-      collection_id_2, dimension_, metric_);
+  auto segment_result = segment_manager_->CreateSegment(collection_id_2, dimension_, metric_);
   REQUIRE(segment_result.ok());
   auto segment_id_2 = segment_result.value();
 

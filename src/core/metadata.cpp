@@ -17,11 +17,7 @@ namespace core {
 // Metadata Value Comparison
 // ============================================================================
 
-bool CompareMetadataValues(
-    const MetadataValue& left,
-    ComparisonOp op,
-    const MetadataValue& right) {
-
+bool CompareMetadataValues(const MetadataValue& left, ComparisonOp op, const MetadataValue& right) {
   // Type must match for most comparisons
   if (left.index() != right.index() && op != ComparisonOp::NOT_EQUAL) {
     return false;
@@ -75,20 +71,14 @@ bool CompareMetadataValues(
       return false;
 
     case ComparisonOp::LIKE:
-      if (std::holds_alternative<std::string>(left) &&
-          std::holds_alternative<std::string>(right)) {
-        return MatchLikePattern(
-            std::get<std::string>(left),
-            std::get<std::string>(right));
+      if (std::holds_alternative<std::string>(left) && std::holds_alternative<std::string>(right)) {
+        return MatchLikePattern(std::get<std::string>(left), std::get<std::string>(right));
       }
       return false;
 
     case ComparisonOp::NOT_LIKE:
-      if (std::holds_alternative<std::string>(left) &&
-          std::holds_alternative<std::string>(right)) {
-        return !MatchLikePattern(
-            std::get<std::string>(left),
-            std::get<std::string>(right));
+      if (std::holds_alternative<std::string>(left) && std::holds_alternative<std::string>(right)) {
+        return !MatchLikePattern(std::get<std::string>(left), std::get<std::string>(right));
       }
       return false;
 
@@ -97,11 +87,8 @@ bool CompareMetadataValues(
   }
 }
 
-bool CompareMetadataValueInList(
-    const MetadataValue& value,
-    bool negate,
-    const std::vector<MetadataValue>& list) {
-
+bool CompareMetadataValueInList(const MetadataValue& value, bool negate,
+                                const std::vector<MetadataValue>& list) {
   bool found = std::find(list.begin(), list.end(), value) != list.end();
   return negate ? !found : found;
 }
@@ -160,12 +147,10 @@ bool MatchLikePattern(const std::string& value, const std::string& pattern) {
   while (v < value.size()) {
     if (t < tokens.size() &&
         (tokens[t].kind == LikeToken::Kind::kAnyByte ||
-         (tokens[t].kind == LikeToken::Kind::kLiteral &&
-          tokens[t].literal == value[v]))) {
+         (tokens[t].kind == LikeToken::Kind::kLiteral && tokens[t].literal == value[v]))) {
       ++v;
       ++t;
-    } else if (t < tokens.size() &&
-               tokens[t].kind == LikeToken::Kind::kAnyRun) {
+    } else if (t < tokens.size() && tokens[t].kind == LikeToken::Kind::kAnyRun) {
       star = t++;
       star_v = v;
     } else if (star != std::string::npos) {
@@ -239,9 +224,8 @@ absl::Status ValidateMetadata(const Metadata& metadata) {
   constexpr size_t MAX_METADATA_FIELDS = 100;
 
   if (metadata.size() > MAX_METADATA_FIELDS) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Too many metadata fields (max ", MAX_METADATA_FIELDS, "): ",
-                     metadata.size()));
+    return absl::InvalidArgumentError(absl::StrCat("Too many metadata fields (max ",
+                                                   MAX_METADATA_FIELDS, "): ", metadata.size()));
   }
 
   // Validate each key-value pair
@@ -270,10 +254,8 @@ MetadataSerializer::TypeTag MetadataSerializer::GetTypeTag(const MetadataValue& 
   }
 }
 
-void MetadataSerializer::SerializeEntry(
-    const std::string& key,
-    const MetadataValue& value,
-    std::ostream& os) {
+void MetadataSerializer::SerializeEntry(const std::string& key, const MetadataValue& value,
+                                        std::ostream& os) {
   // Write key length and key
   uint32_t key_len = static_cast<uint32_t>(key.size());
   os.write(reinterpret_cast<const char*>(&key_len), sizeof(key_len));
@@ -285,25 +267,27 @@ void MetadataSerializer::SerializeEntry(
   os.write(reinterpret_cast<const char*>(&tag_byte), sizeof(tag_byte));
 
   // Write value based on type
-  std::visit([&os](const auto& v) {
-    using T = std::decay_t<decltype(v)>;
-    if constexpr (std::is_same_v<T, int64_t>) {
-      os.write(reinterpret_cast<const char*>(&v), sizeof(int64_t));
-    } else if constexpr (std::is_same_v<T, double>) {
-      os.write(reinterpret_cast<const char*>(&v), sizeof(double));
-    } else if constexpr (std::is_same_v<T, std::string>) {
-      uint32_t str_len = static_cast<uint32_t>(v.size());
-      os.write(reinterpret_cast<const char*>(&str_len), sizeof(str_len));
-      os.write(v.data(), str_len);
-    } else if constexpr (std::is_same_v<T, bool>) {
-      uint8_t bool_byte = v ? 1 : 0;
-      os.write(reinterpret_cast<const char*>(&bool_byte), sizeof(bool_byte));
-    }
-  }, value);
+  std::visit(
+      [&os](const auto& v) {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, int64_t>) {
+          os.write(reinterpret_cast<const char*>(&v), sizeof(int64_t));
+        } else if constexpr (std::is_same_v<T, double>) {
+          os.write(reinterpret_cast<const char*>(&v), sizeof(double));
+        } else if constexpr (std::is_same_v<T, std::string>) {
+          uint32_t str_len = static_cast<uint32_t>(v.size());
+          os.write(reinterpret_cast<const char*>(&str_len), sizeof(str_len));
+          os.write(v.data(), str_len);
+        } else if constexpr (std::is_same_v<T, bool>) {
+          uint8_t bool_byte = v ? 1 : 0;
+          os.write(reinterpret_cast<const char*>(&bool_byte), sizeof(bool_byte));
+        }
+      },
+      value);
 }
 
-absl::StatusOr<std::pair<std::string, MetadataValue>>
-MetadataSerializer::DeserializeEntry(std::istream& is) {
+absl::StatusOr<std::pair<std::string, MetadataValue>> MetadataSerializer::DeserializeEntry(
+    std::istream& is) {
   // Read key length and key
   uint32_t key_len;
   is.read(reinterpret_cast<char*>(&key_len), sizeof(key_len));

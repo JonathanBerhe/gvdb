@@ -61,8 +61,7 @@ S3Config ConfigFromEnv() {
 }
 
 struct S3ObjectStoreFixture {
-  S3ObjectStoreFixture()
-      : tmp_dir("gvdb_s3_objstore") {
+  S3ObjectStoreFixture() : tmp_dir("gvdb_s3_objstore") {
     auto created = S3ObjectStore::Create(ConfigFromEnv());
     REQUIRE(created.ok());
     store = std::make_unique<contract::PrefixedObjectStore>(

@@ -6,11 +6,11 @@
 #include <thread>
 
 #include "auth/audit_context.h"
+#include "common/logger.h"
 #include "core/types.h"
 #include "rpc/dns_channel_args.h"
 #include "rpc/primary_term_header.h"
 #include "rpc/replica_fallback.h"
-#include "common/logger.h"
 
 namespace gvdb {
 namespace service {
@@ -22,7 +22,7 @@ constexpr char kNoQueryNode[] = "No query node or data node available";
 
 template <typename Request, typename Response>
 using StubMethod = grpc::Status (proto::VectorDBService::Stub::*)(grpc::ClientContext*,
-                                                                   const Request&, Response*);
+                                                                  const Request&, Response*);
 
 // Sends the request unchanged through `client` with a new client context.
 // Returns UNAVAILABLE with `unavailable` as the message when `client` is
@@ -40,11 +40,9 @@ grpc::Status Forward(proto::VectorDBService::Stub* client, const char* unavailab
 
 }  // namespace
 
-ProxyService::ProxyService(
-    const std::vector<std::string>& coordinator_addrs,
-    const std::string& query_node_uri)
-    : coordinator_addrs_(coordinator_addrs),
-      query_node_uri_(query_node_uri) {}
+ProxyService::ProxyService(const std::vector<std::string>& coordinator_addrs,
+                           const std::string& query_node_uri)
+    : coordinator_addrs_(coordinator_addrs), query_node_uri_(query_node_uri) {}
 
 proto::VectorDBService::Stub* ProxyService::GetCoordinatorClient() {
   // Hot-path: lock-free load. clients_mutex_ is only taken for first-time
@@ -60,8 +58,7 @@ proto::VectorDBService::Stub* ProxyService::GetCoordinatorClient() {
   if (coordinator_addrs_.empty()) {
     return nullptr;
   }
-  auto channel = grpc::CreateChannel(coordinator_addrs_[0],
-                                    grpc::InsecureChannelCredentials());
+  auto channel = grpc::CreateChannel(coordinator_addrs_[0], grpc::InsecureChannelCredentials());
   coordinator_client_ = proto::VectorDBService::NewStub(channel);
   coordinator_client_ready_.store(true, std::memory_order_release);
   return coordinator_client_.get();
@@ -86,12 +83,10 @@ proto::VectorDBService::Stub* ProxyService::GetQueryNodeClient() {
   // channel without the extra args.
   std::shared_ptr<grpc::Channel> channel;
   if (rpc::IsDnsUri(query_node_uri_)) {
-    channel = grpc::CreateCustomChannel(
-        query_node_uri_, grpc::InsecureChannelCredentials(),
-        rpc::BuildDnsChannelArgs());
+    channel = grpc::CreateCustomChannel(query_node_uri_, grpc::InsecureChannelCredentials(),
+                                        rpc::BuildDnsChannelArgs());
   } else {
-    channel = grpc::CreateChannel(
-        query_node_uri_, grpc::InsecureChannelCredentials());
+    channel = grpc::CreateChannel(query_node_uri_, grpc::InsecureChannelCredentials());
   }
   query_node_client_ = proto::VectorDBService::NewStub(channel);
   query_node_client_ready_.store(true, std::memory_order_release);
@@ -109,16 +104,14 @@ proto::internal::InternalService::Stub* ProxyService::GetCoordinatorInternalClie
   if (coordinator_addrs_.empty()) {
     return nullptr;
   }
-  auto channel = grpc::CreateChannel(coordinator_addrs_[0],
-                                    grpc::InsecureChannelCredentials());
+  auto channel = grpc::CreateChannel(coordinator_addrs_[0], grpc::InsecureChannelCredentials());
   coordinator_internal_client_ = proto::internal::InternalService::NewStub(channel);
   coordinator_internal_client_ready_.store(true, std::memory_order_release);
   return coordinator_internal_client_.get();
 }
 
 proto::VectorDBService::Stub* ProxyService::GetDataNodeClientForCollection(
-    const std::string& collection_name, bool read_only,
-    uint64_t* out_primary_term) {
+    const std::string& collection_name, bool read_only, uint64_t* out_primary_term) {
   // Ask the coordinator which data node owns this collection's shard
   auto* internal_client = GetCoordinatorInternalClient();
   if (!internal_client) {
@@ -148,8 +141,7 @@ proto::VectorDBService::Stub* ProxyService::GetDataNodeClientForCollection(
     *out_primary_term = 0;
     if (route_resp.per_shard_options_size() > 0 &&
         route_resp.per_shard_options(0).options_size() > 0) {
-      *out_primary_term =
-          route_resp.per_shard_options(0).options(0).primary_term();
+      *out_primary_term = route_resp.per_shard_options(0).options(0).primary_term();
     }
   }
 
@@ -157,8 +149,7 @@ proto::VectorDBService::Stub* ProxyService::GetDataNodeClientForCollection(
   return GetOrCreateDataClient(addr);
 }
 
-proto::VectorDBService::Stub* ProxyService::GetOrCreateDataClient(
-    const std::string& address) {
+proto::VectorDBService::Stub* ProxyService::GetOrCreateDataClient(const std::string& address) {
   std::lock_guard<std::mutex> lock(clients_mutex_);
   auto it = data_client_by_addr_.find(address);
   if (it == data_client_by_addr_.end()) {
@@ -169,20 +160,17 @@ proto::VectorDBService::Stub* ProxyService::GetOrCreateDataClient(
   return it->second.get();
 }
 
-grpc::Status ProxyService::HealthCheck(
-    grpc::ServerContext* /*context*/,
-    const proto::HealthCheckRequest* /*request*/,
-    proto::HealthCheckResponse* response) {
-
+grpc::Status ProxyService::HealthCheck(grpc::ServerContext* /*context*/,
+                                       const proto::HealthCheckRequest* /*request*/,
+                                       proto::HealthCheckResponse* response) {
   response->set_status(proto::HealthCheckResponse::SERVING);
   response->set_message("Proxy is healthy");
   return grpc::Status::OK;
 }
 
-grpc::Status ProxyService::CreateCollection(
-    grpc::ServerContext* /*context*/,
-    const proto::CreateCollectionRequest* request,
-    proto::CreateCollectionResponse* response) {
+grpc::Status ProxyService::CreateCollection(grpc::ServerContext* /*context*/,
+                                            const proto::CreateCollectionRequest* request,
+                                            proto::CreateCollectionResponse* response) {
   auth::AuditContext::SetCollection(request->collection_name());
   auto status = Forward(GetCoordinatorClient(), kNoCoordinator,
                         &proto::VectorDBService::Stub::CreateCollection, *request, response);
@@ -192,27 +180,24 @@ grpc::Status ProxyService::CreateCollection(
   return status;
 }
 
-grpc::Status ProxyService::DropCollection(
-    grpc::ServerContext* /*context*/,
-    const proto::DropCollectionRequest* request,
-    proto::DropCollectionResponse* response) {
+grpc::Status ProxyService::DropCollection(grpc::ServerContext* /*context*/,
+                                          const proto::DropCollectionRequest* request,
+                                          proto::DropCollectionResponse* response) {
   auth::AuditContext::SetCollection(request->collection_name());
   return Forward(GetCoordinatorClient(), kNoCoordinator,
                  &proto::VectorDBService::Stub::DropCollection, *request, response);
 }
 
-grpc::Status ProxyService::ListCollections(
-    grpc::ServerContext* /*context*/,
-    const proto::ListCollectionsRequest* request,
-    proto::ListCollectionsResponse* response) {
+grpc::Status ProxyService::ListCollections(grpc::ServerContext* /*context*/,
+                                           const proto::ListCollectionsRequest* request,
+                                           proto::ListCollectionsResponse* response) {
   return Forward(GetCoordinatorClient(), kNoCoordinator,
                  &proto::VectorDBService::Stub::ListCollections, *request, response);
 }
 
-grpc::Status ProxyService::Insert(
-    grpc::ServerContext* /*context*/,
-    const proto::InsertRequest* request,
-    proto::InsertResponse* response) {
+grpc::Status ProxyService::Insert(grpc::ServerContext* /*context*/,
+                                  const proto::InsertRequest* request,
+                                  proto::InsertResponse* response) {
   auth::AuditContext::SetCollection(request->collection_name());
   auth::AuditContext::SetItemCount(request->vectors().size());
 
@@ -236,8 +221,8 @@ grpc::Status ProxyService::Insert(
     // the --data-nodes static list was removed when the proxy switched to
     // DNS-based discovery.
     uint64_t primary_term = 0;
-    auto* client = GetDataNodeClientForCollection(
-        request->collection_name(), /*read_only=*/false, &primary_term);
+    auto* client = GetDataNodeClientForCollection(request->collection_name(), /*read_only=*/false,
+                                                  &primary_term);
     if (!client) {
       return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
     }
@@ -307,8 +292,7 @@ grpc::Status ProxyService::Insert(
     auto attempt_call = [&](const std::string& a, uint64_t t) -> grpc::Status {
       auto* client = GetOrCreateDataClient(a);
       if (!client) {
-        return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                             "Data node unavailable");
+        return grpc::Status(grpc::StatusCode::UNAVAILABLE, "Data node unavailable");
       }
       grpc::ClientContext ctx;
       if (t > 0) rpc::StampPrimaryTermHeader(&ctx, t);
@@ -318,9 +302,8 @@ grpc::Status ProxyService::Insert(
 
     status = attempt_call(addr, shard_term);
 
-    if (!status.ok() &&
-        (status.error_code() == grpc::StatusCode::ABORTED ||
-         status.error_code() == grpc::StatusCode::FAILED_PRECONDITION)) {
+    if (!status.ok() && (status.error_code() == grpc::StatusCode::ABORTED ||
+                         status.error_code() == grpc::StatusCode::FAILED_PRECONDITION)) {
       // Re-route once. ABORTED: a concurrent primary swap moved this
       // shard's primary and the data-node bounced our stale-term write.
       // FAILED_PRECONDITION: the node has no primary record for the
@@ -331,19 +314,15 @@ grpc::Status ProxyService::Insert(
         std::this_thread::sleep_for(rpc::kWriteUnknownShardBackoff);
       }
       common::Logger::Instance().Info(
-          "Insert: shard {} got {} (term={}, msg=\"{}\"); re-routing",
-          i,
-          status.error_code() == grpc::StatusCode::ABORTED
-              ? "ABORTED" : "FAILED_PRECONDITION",
+          "Insert: shard {} got {} (term={}, msg=\"{}\"); re-routing", i,
+          status.error_code() == grpc::StatusCode::ABORTED ? "ABORTED" : "FAILED_PRECONDITION",
           shard_term, status.error_message());
       proto::internal::RouteQueryRequest reroute_req;
       reroute_req.set_collection_name(request->collection_name());
       proto::internal::RouteQueryResponse reroute_resp;
       grpc::ClientContext reroute_ctx;
-      auto reroute_status = internal_client->RouteQuery(
-          &reroute_ctx, reroute_req, &reroute_resp);
-      if (reroute_status.ok() &&
-          i < reroute_resp.target_node_addresses_size()) {
+      auto reroute_status = internal_client->RouteQuery(&reroute_ctx, reroute_req, &reroute_resp);
+      if (reroute_status.ok() && i < reroute_resp.target_node_addresses_size()) {
         addr = reroute_resp.target_node_addresses(i);
         if (i < reroute_resp.per_shard_options_size() &&
             reroute_resp.per_shard_options(i).options_size() > 0) {
@@ -367,8 +346,8 @@ grpc::Status ProxyService::Insert(
 
   if (failed_shards > 0) {
     std::string msg = "Insert partially failed: " + std::to_string(failed_shards) +
-        " shard(s) failed, " + std::to_string(total_inserted) +
-        " vectors inserted: " + first_error;
+                      " shard(s) failed, " + std::to_string(total_inserted) +
+                      " vectors inserted: " + first_error;
     return grpc::Status(grpc::StatusCode::INTERNAL, msg);
   }
 
@@ -377,11 +356,9 @@ grpc::Status ProxyService::Insert(
   return grpc::Status::OK;
 }
 
-grpc::Status ProxyService::StreamInsert(
-    grpc::ServerContext* /*context*/,
-    grpc::ServerReader<proto::InsertRequest>* reader,
-    proto::InsertResponse* response) {
-
+grpc::Status ProxyService::StreamInsert(grpc::ServerContext* /*context*/,
+                                        grpc::ServerReader<proto::InsertRequest>* reader,
+                                        proto::InsertResponse* response) {
   // Read first chunk to determine collection for routing
   proto::InsertRequest first_chunk;
   if (!reader->Read(&first_chunk)) {
@@ -391,8 +368,8 @@ grpc::Status ProxyService::StreamInsert(
   }
 
   uint64_t primary_term = 0;
-  auto* client = GetDataNodeClientForCollection(
-      first_chunk.collection_name(), /*read_only=*/false, &primary_term);
+  auto* client = GetDataNodeClientForCollection(first_chunk.collection_name(), /*read_only=*/false,
+                                                &primary_term);
   if (!client) {
     return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No data node available");
   }
@@ -421,10 +398,8 @@ grpc::Status ProxyService::StreamInsert(
   return writer->Finish();
 }
 
-grpc::Status ProxyService::Get(
-    grpc::ServerContext* /*context*/,
-    const proto::GetRequest* request,
-    proto::GetResponse* response) {
+grpc::Status ProxyService::Get(grpc::ServerContext* /*context*/, const proto::GetRequest* request,
+                               proto::GetResponse* response) {
   auth::AuditContext::SetCollection(request->collection_name());
   auth::AuditContext::SetItemCount(request->ids().size());
 
@@ -441,10 +416,9 @@ grpc::Status ProxyService::Get(
       });
 }
 
-grpc::Status ProxyService::Delete(
-    grpc::ServerContext* /*context*/,
-    const proto::DeleteRequest* request,
-    proto::DeleteResponse* response) {
+grpc::Status ProxyService::Delete(grpc::ServerContext* /*context*/,
+                                  const proto::DeleteRequest* request,
+                                  proto::DeleteResponse* response) {
   auth::AuditContext::SetCollection(request->collection_name());
   auth::AuditContext::SetItemCount(request->ids().size());
 
@@ -461,26 +435,24 @@ grpc::Status ProxyService::Delete(
       });
 }
 
-grpc::Status ProxyService::UpdateMetadata(
-    grpc::ServerContext* /*context*/,
-    const proto::UpdateMetadataRequest* request,
-    proto::UpdateMetadataResponse* response) {
+grpc::Status ProxyService::UpdateMetadata(grpc::ServerContext* /*context*/,
+                                          const proto::UpdateMetadataRequest* request,
+                                          proto::UpdateMetadataResponse* response) {
   auth::AuditContext::SetCollection(request->collection_name());
 
   proto::UpdateMetadataRequest internal_req = *request;
   return rpc::RouteWriteAndCallWithFallback(
-      GetCoordinatorInternalClient(), request->collection_name(),
-      "update_metadata", std::chrono::milliseconds(5000),
+      GetCoordinatorInternalClient(), request->collection_name(), "update_metadata",
+      std::chrono::milliseconds(5000),
       [this](const std::string& addr) { return GetOrCreateDataClient(addr); },
       [&](grpc::ClientContext* ctx, proto::VectorDBService::Stub* stub) {
         return stub->UpdateMetadata(ctx, internal_req, response);
       });
 }
 
-grpc::Status ProxyService::Upsert(
-    grpc::ServerContext* /*context*/,
-    const proto::UpsertRequest* request,
-    proto::UpsertResponse* response) {
+grpc::Status ProxyService::Upsert(grpc::ServerContext* /*context*/,
+                                  const proto::UpsertRequest* request,
+                                  proto::UpsertResponse* response) {
   auth::AuditContext::SetCollection(request->collection_name());
   auth::AuditContext::SetItemCount(request->vectors().size());
 
@@ -494,11 +466,9 @@ grpc::Status ProxyService::Upsert(
       });
 }
 
-grpc::Status ProxyService::ListVectors(
-    grpc::ServerContext* /*context*/,
-    const proto::ListVectorsRequest* request,
-    proto::ListVectorsResponse* response) {
-
+grpc::Status ProxyService::ListVectors(grpc::ServerContext* /*context*/,
+                                       const proto::ListVectorsRequest* request,
+                                       proto::ListVectorsResponse* response) {
   // Read with replica fallback (see ProxyService::Get for rationale).
   proto::ListVectorsRequest internal_req = *request;
   return rpc::RouteReadAndCallWithFallback(
@@ -510,10 +480,9 @@ grpc::Status ProxyService::ListVectors(
       });
 }
 
-grpc::Status ProxyService::HybridSearch(
-    grpc::ServerContext* /*context*/,
-    const proto::HybridSearchRequest* request,
-    proto::HybridSearchResponse* response) {
+grpc::Status ProxyService::HybridSearch(grpc::ServerContext* /*context*/,
+                                        const proto::HybridSearchRequest* request,
+                                        proto::HybridSearchResponse* response) {
   auth::AuditContext::SetCollection(request->collection_name());
 
   // Read with replica fallback (see ProxyService::Get for rationale).
@@ -527,80 +496,71 @@ grpc::Status ProxyService::HybridSearch(
       });
 }
 
-grpc::Status ProxyService::Search(
-    grpc::ServerContext* /*context*/,
-    const proto::SearchRequest* request,
-    proto::SearchResponse* response) {
+grpc::Status ProxyService::Search(grpc::ServerContext* /*context*/,
+                                  const proto::SearchRequest* request,
+                                  proto::SearchResponse* response) {
   return Forward(GetQueryNodeClient(), kNoQueryNode, &proto::VectorDBService::Stub::Search,
                  *request, response);
 }
 
-grpc::Status ProxyService::RangeSearch(
-    grpc::ServerContext* /*context*/,
-    const proto::RangeSearchRequest* request,
-    proto::RangeSearchResponse* response) {
+grpc::Status ProxyService::RangeSearch(grpc::ServerContext* /*context*/,
+                                       const proto::RangeSearchRequest* request,
+                                       proto::RangeSearchResponse* response) {
   return Forward(GetQueryNodeClient(), kNoQueryNode, &proto::VectorDBService::Stub::RangeSearch,
                  *request, response);
 }
 
-grpc::Status ProxyService::GetStats(
-    grpc::ServerContext* /*context*/,
-    const proto::GetStatsRequest* request,
-    proto::GetStatsResponse* response) {
-  return Forward(GetCoordinatorClient(), kNoCoordinator,
-                 &proto::VectorDBService::Stub::GetStats, *request, response);
+grpc::Status ProxyService::GetStats(grpc::ServerContext* /*context*/,
+                                    const proto::GetStatsRequest* request,
+                                    proto::GetStatsResponse* response) {
+  return Forward(GetCoordinatorClient(), kNoCoordinator, &proto::VectorDBService::Stub::GetStats,
+                 *request, response);
 }
 
 // =============================================================================
 // Backup / Restore: forward to coordinator (admin-level, multi-shard)
 // =============================================================================
 
-grpc::Status ProxyService::BackupCollection(
-    grpc::ServerContext* /*context*/,
-    const proto::BackupCollectionRequest* request,
-    proto::BackupCollectionResponse* response) {
+grpc::Status ProxyService::BackupCollection(grpc::ServerContext* /*context*/,
+                                            const proto::BackupCollectionRequest* request,
+                                            proto::BackupCollectionResponse* response) {
   auth::AuditContext::SetCollection(request->collection_name());
   return Forward(GetCoordinatorClient(), kNoCoordinator,
                  &proto::VectorDBService::Stub::BackupCollection, *request, response);
 }
 
-grpc::Status ProxyService::RestoreCollection(
-    grpc::ServerContext* /*context*/,
-    const proto::RestoreCollectionRequest* request,
-    proto::RestoreCollectionResponse* response) {
+grpc::Status ProxyService::RestoreCollection(grpc::ServerContext* /*context*/,
+                                             const proto::RestoreCollectionRequest* request,
+                                             proto::RestoreCollectionResponse* response) {
   auth::AuditContext::SetCollection(request->target_collection_name());
   return Forward(GetCoordinatorClient(), kNoCoordinator,
                  &proto::VectorDBService::Stub::RestoreCollection, *request, response);
 }
 
-grpc::Status ProxyService::GetBackupStatus(
-    grpc::ServerContext* /*context*/,
-    const proto::GetBackupStatusRequest* request,
-    proto::GetBackupStatusResponse* response) {
+grpc::Status ProxyService::GetBackupStatus(grpc::ServerContext* /*context*/,
+                                           const proto::GetBackupStatusRequest* request,
+                                           proto::GetBackupStatusResponse* response) {
   return Forward(GetCoordinatorClient(), kNoCoordinator,
                  &proto::VectorDBService::Stub::GetBackupStatus, *request, response);
 }
 
-grpc::Status ProxyService::GetRestoreStatus(
-    grpc::ServerContext* /*context*/,
-    const proto::GetRestoreStatusRequest* request,
-    proto::GetRestoreStatusResponse* response) {
+grpc::Status ProxyService::GetRestoreStatus(grpc::ServerContext* /*context*/,
+                                            const proto::GetRestoreStatusRequest* request,
+                                            proto::GetRestoreStatusResponse* response) {
   return Forward(GetCoordinatorClient(), kNoCoordinator,
                  &proto::VectorDBService::Stub::GetRestoreStatus, *request, response);
 }
 
-grpc::Status ProxyService::ListBackups(
-    grpc::ServerContext* /*context*/,
-    const proto::ListBackupsRequest* request,
-    proto::ListBackupsResponse* response) {
-  return Forward(GetCoordinatorClient(), kNoCoordinator,
-                 &proto::VectorDBService::Stub::ListBackups, *request, response);
+grpc::Status ProxyService::ListBackups(grpc::ServerContext* /*context*/,
+                                       const proto::ListBackupsRequest* request,
+                                       proto::ListBackupsResponse* response) {
+  return Forward(GetCoordinatorClient(), kNoCoordinator, &proto::VectorDBService::Stub::ListBackups,
+                 *request, response);
 }
 
-grpc::Status ProxyService::CancelBackup(
-    grpc::ServerContext* /*context*/,
-    const proto::CancelBackupRequest* request,
-    proto::CancelBackupResponse* response) {
+grpc::Status ProxyService::CancelBackup(grpc::ServerContext* /*context*/,
+                                        const proto::CancelBackupRequest* request,
+                                        proto::CancelBackupResponse* response) {
   return Forward(GetCoordinatorClient(), kNoCoordinator,
                  &proto::VectorDBService::Stub::CancelBackup, *request, response);
 }

@@ -1,11 +1,11 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include <doctest/doctest.h>
 #include "cluster/coordinator/node_registry.h"
-#include "internal.pb.h"
+#include <doctest/doctest.h>
 #include <chrono>
 #include <set>
+#include "internal.pb.h"
 
 using namespace gvdb;
 using namespace gvdb::cluster;
@@ -14,10 +14,8 @@ using namespace std::chrono_literals;
 // ============================================================================
 // Helper: build a proto::internal::NodeInfo with the given fields
 // ============================================================================
-static proto::internal::NodeInfo MakeNodeInfo(
-    uint32_t id,
-    proto::internal::NodeType type,
-    const std::string& address = "localhost:50051") {
+static proto::internal::NodeInfo MakeNodeInfo(uint32_t id, proto::internal::NodeType type,
+                                              const std::string& address = "localhost:50051") {
   proto::internal::NodeInfo info;
   info.set_node_id(id);
   info.set_node_type(type);
@@ -33,8 +31,7 @@ static proto::internal::NodeInfo MakeNodeInfo(
 // ============================================================================
 class NodeRegistryTest {
  public:
-  NodeRegistryTest()
-      : registry_(50ms, [this] { return now_; }) {}
+  NodeRegistryTest() : registry_(50ms, [this] { return now_; }) {}
 
  protected:
   void Advance(std::chrono::milliseconds duration) { now_ += duration; }
@@ -352,9 +349,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "RegisteredNodeTimeSinceLastHeartbeat") {
 
 // Helper that mirrors MakeNodeInfo but sets a DRAINING status.
 static proto::internal::NodeInfo MakeDrainingNodeInfo(
-    uint32_t id,
-    proto::internal::NodeType type,
-    const std::string& address = "localhost:50051") {
+    uint32_t id, proto::internal::NodeType type, const std::string& address = "localhost:50051") {
   auto info = MakeNodeInfo(id, type, address);
   info.set_status(proto::internal::NODE_STATUS_DRAINING);
   return info;
@@ -371,8 +366,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "UpdateNodeTransitionsToDraining") {
   CHECK_FALSE(node.IsDraining());
 
   // Second heartbeat with DRAINING status — node should be marked as draining.
-  registry_.UpdateNode(
-      MakeDrainingNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
+  registry_.UpdateNode(MakeDrainingNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
 
   REQUIRE(registry_.GetNode(1, &node));
   CHECK_EQ(node.info.status(), proto::internal::NODE_STATUS_DRAINING);
@@ -390,8 +384,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "IsRoutableRequiresHealthyAndNotDraining") {
   CHECK(node.IsRoutable(50ms, now_));
 
   // Mark as draining via another heartbeat.
-  registry_.UpdateNode(
-      MakeDrainingNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
+  registry_.UpdateNode(MakeDrainingNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
   REQUIRE(registry_.GetNode(1, &node));
 
   // Still healthy (recent heartbeat) but no longer routable.
@@ -402,33 +395,27 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "IsRoutableRequiresHealthyAndNotDraining") {
 // 18. GetRoutableNodesByType combines type filter with drain exclusion.
 TEST_CASE_FIXTURE(NodeRegistryTest, "GetRoutableNodesByTypeCombinesFilters") {
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
-  registry_.UpdateNode(
-      MakeDrainingNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));
+  registry_.UpdateNode(MakeDrainingNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));
   registry_.UpdateNode(MakeNodeInfo(3, proto::internal::NODE_TYPE_QUERY_NODE));
-  registry_.UpdateNode(
-      MakeDrainingNodeInfo(4, proto::internal::NODE_TYPE_QUERY_NODE));
+  registry_.UpdateNode(MakeDrainingNodeInfo(4, proto::internal::NODE_TYPE_QUERY_NODE));
 
-  auto routable_data =
-      registry_.GetRoutableNodesByType(proto::internal::NODE_TYPE_DATA_NODE);
+  auto routable_data = registry_.GetRoutableNodesByType(proto::internal::NODE_TYPE_DATA_NODE);
   REQUIRE_EQ(routable_data.size(), 1);
   CHECK_EQ(routable_data[0].info.node_id(), 1u);
 
-  auto routable_query =
-      registry_.GetRoutableNodesByType(proto::internal::NODE_TYPE_QUERY_NODE);
+  auto routable_query = registry_.GetRoutableNodesByType(proto::internal::NODE_TYPE_QUERY_NODE);
   REQUIRE_EQ(routable_query.size(), 1);
   CHECK_EQ(routable_query[0].info.node_id(), 3u);
 
   // Healthy-by-type still counts draining nodes (for observability).
-  auto healthy_data =
-      registry_.GetHealthyNodesByType(proto::internal::NODE_TYPE_DATA_NODE);
+  auto healthy_data = registry_.GetHealthyNodesByType(proto::internal::NODE_TYPE_DATA_NODE);
   CHECK_EQ(healthy_data.size(), 2);
 }
 
 // 19. A draining node whose heartbeat eventually times out is no longer
 //     routable AND no longer healthy — belt and braces.
 TEST_CASE_FIXTURE(NodeRegistryTest, "DrainingNodeBecomesFailedAfterTimeout") {
-  registry_.UpdateNode(
-      MakeDrainingNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
+  registry_.UpdateNode(MakeDrainingNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
 
   CHECK_FALSE(registry_.IsNodeRoutable(1));
 
@@ -450,12 +437,10 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetDrainingNodesExcludesStaleDraining") {
   // Node 1: ready (non-draining). Should never appear in GetDrainingNodes.
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
   // Node 2: actively draining + fresh heartbeat. Should appear.
-  registry_.UpdateNode(
-      MakeDrainingNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));
+  registry_.UpdateNode(MakeDrainingNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));
   // Node 3: draining but heartbeat will age past timeout below. Should
   // be excluded (stale draining → failure-path territory).
-  registry_.UpdateNode(
-      MakeDrainingNodeInfo(3, proto::internal::NODE_TYPE_DATA_NODE));
+  registry_.UpdateNode(MakeDrainingNodeInfo(3, proto::internal::NODE_TYPE_DATA_NODE));
 
   // Fresh — all three present.
   auto fresh = registry_.GetDrainingNodes();
@@ -468,8 +453,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetDrainingNodesExcludesStaleDraining") {
   // Let only node 3 age out: refresh 1 and 2 after the timeout; leave 3 stale.
   Advance(100ms);
   registry_.UpdateNode(MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
-  registry_.UpdateNode(
-      MakeDrainingNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));
+  registry_.UpdateNode(MakeDrainingNodeInfo(2, proto::internal::NODE_TYPE_DATA_NODE));
 
   auto after = registry_.GetDrainingNodes();
   REQUIRE_EQ(after.size(), 1);

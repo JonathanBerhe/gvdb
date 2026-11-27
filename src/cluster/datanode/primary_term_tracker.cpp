@@ -31,8 +31,7 @@ bool PrimaryTermTracker::RecordPrimary(uint32_t shard_id, uint64_t term) {
   return true;
 }
 
-bool PrimaryTermTracker::RecordNotPrimary(uint32_t shard_id,
-                                           uint64_t last_known_term) {
+bool PrimaryTermTracker::RecordNotPrimary(uint32_t shard_id, uint64_t last_known_term) {
   std::unique_lock lock(mu_);
   auto it = table_.find(shard_id);
   if (it == table_.end()) {
@@ -47,8 +46,8 @@ bool PrimaryTermTracker::RecordNotPrimary(uint32_t shard_id,
   return true;
 }
 
-PrimaryTermTracker::AcceptDecision PrimaryTermTracker::EvaluateWrite(
-    uint32_t shard_id, uint64_t request_term) const {
+PrimaryTermTracker::AcceptDecision PrimaryTermTracker::EvaluateWrite(uint32_t shard_id,
+                                                                     uint64_t request_term) const {
   std::shared_lock lock(mu_);
   auto it = table_.find(shard_id);
   if (it == table_.end()) {

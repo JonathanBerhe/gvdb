@@ -22,23 +22,19 @@ std::string EscapeJson(const std::string& s);
 
 // Parse a scalar field ("field":value) out of a JSON object string.
 // Return false when the field is absent or malformed.
-bool ParseUint32(const std::string& json, std::string_view field,
-                 uint32_t& out);
+bool ParseUint32(const std::string& json, std::string_view field, uint32_t& out);
 bool ParseInt32(const std::string& json, std::string_view field, int32_t& out);
-bool ParseUint64(const std::string& json, std::string_view field,
-                 uint64_t& out);
+bool ParseUint64(const std::string& json, std::string_view field, uint64_t& out);
 bool ParseInt64(const std::string& json, std::string_view field, int64_t& out);
 
 // Parse a string field ("field":"value"). Handles the escapes EscapeJson
 // produces. Return false when absent.
-bool ParseString(const std::string& json, std::string_view field,
-                 std::string& out);
+bool ParseString(const std::string& json, std::string_view field, std::string& out);
 
 // Locate the body of a JSON array following "field":[ with depth tracking;
 // returns the substring from '[' to its matching ']' inclusive, or empty if
 // not found. Bracket characters inside strings are skipped.
-std::string_view ExtractArrayBody(const std::string& json,
-                                  std::string_view field);
+std::string_view ExtractArrayBody(const std::string& json, std::string_view field);
 
 // Split a JSON array body "[{...},{...}]" into the inner object strings.
 // Handles nested objects, nested arrays, and strings containing braces.
@@ -47,4 +43,3 @@ std::vector<std::string> SplitObjects(std::string_view array_body);
 }  // namespace json
 }  // namespace common
 }  // namespace gvdb
-

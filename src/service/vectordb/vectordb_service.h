@@ -3,28 +3,28 @@
 
 #pragma once
 
-#include "vectordb.grpc.pb.h"
-#include "internal.grpc.pb.h"
-#include "storage/segment/segment_store.h"
-#include "storage/import/bulk_importer.h"
-#include "compute/query_executor.h"
-#include "service/vectordb/collection_resolver.h"
-#include "auth/rbac.h"
+#include <atomic>
 #include <memory>
 #include <optional>
-#include <atomic>
 #include <string>
+#include "auth/rbac.h"
+#include "compute/query_executor.h"
+#include "internal.grpc.pb.h"
+#include "service/vectordb/collection_resolver.h"
+#include "storage/import/bulk_importer.h"
+#include "storage/segment/segment_store.h"
+#include "vectordb.grpc.pb.h"
 
 namespace gvdb {
 namespace cluster {
 class PrimaryTermTracker;
 class ShardWriteGate;
 class Coordinator;
-}
+}  // namespace cluster
 namespace storage {
 class BackupManager;
 class RestoreManager;
-}
+}  // namespace storage
 
 namespace service {
 
@@ -61,144 +61,104 @@ struct VectorDBServiceOptions {
 // which encapsulates the mode-specific behavior (single-node, distributed, coordinator).
 class VectorDBService final : public proto::VectorDBService::Service {
  public:
-  VectorDBService(
-      std::shared_ptr<storage::ISegmentStore> segment_store,
-      std::shared_ptr<compute::QueryExecutor> query_executor,
-      std::unique_ptr<ICollectionResolver> resolver,
-      VectorDBServiceOptions options = {});
+  VectorDBService(std::shared_ptr<storage::ISegmentStore> segment_store,
+                  std::shared_ptr<compute::QueryExecutor> query_executor,
+                  std::unique_ptr<ICollectionResolver> resolver,
+                  VectorDBServiceOptions options = {});
 
   ~VectorDBService();
 
   // Collection management
-  grpc::Status CreateCollection(
-      grpc::ServerContext* context,
-      const proto::CreateCollectionRequest* request,
-      proto::CreateCollectionResponse* response) override;
+  grpc::Status CreateCollection(grpc::ServerContext* context,
+                                const proto::CreateCollectionRequest* request,
+                                proto::CreateCollectionResponse* response) override;
 
-  grpc::Status DropCollection(
-      grpc::ServerContext* context,
-      const proto::DropCollectionRequest* request,
-      proto::DropCollectionResponse* response) override;
+  grpc::Status DropCollection(grpc::ServerContext* context,
+                              const proto::DropCollectionRequest* request,
+                              proto::DropCollectionResponse* response) override;
 
-  grpc::Status ListCollections(
-      grpc::ServerContext* context,
-      const proto::ListCollectionsRequest* request,
-      proto::ListCollectionsResponse* response) override;
+  grpc::Status ListCollections(grpc::ServerContext* context,
+                               const proto::ListCollectionsRequest* request,
+                               proto::ListCollectionsResponse* response) override;
 
   // Vector operations
-  grpc::Status Insert(
-      grpc::ServerContext* context,
-      const proto::InsertRequest* request,
-      proto::InsertResponse* response) override;
+  grpc::Status Insert(grpc::ServerContext* context, const proto::InsertRequest* request,
+                      proto::InsertResponse* response) override;
 
-  grpc::Status StreamInsert(
-      grpc::ServerContext* context,
-      grpc::ServerReader<proto::InsertRequest>* reader,
-      proto::InsertResponse* response) override;
+  grpc::Status StreamInsert(grpc::ServerContext* context,
+                            grpc::ServerReader<proto::InsertRequest>* reader,
+                            proto::InsertResponse* response) override;
 
-  grpc::Status Search(
-      grpc::ServerContext* context,
-      const proto::SearchRequest* request,
-      proto::SearchResponse* response) override;
+  grpc::Status Search(grpc::ServerContext* context, const proto::SearchRequest* request,
+                      proto::SearchResponse* response) override;
 
-  grpc::Status Get(
-      grpc::ServerContext* context,
-      const proto::GetRequest* request,
-      proto::GetResponse* response) override;
+  grpc::Status Get(grpc::ServerContext* context, const proto::GetRequest* request,
+                   proto::GetResponse* response) override;
 
-  grpc::Status Delete(
-      grpc::ServerContext* context,
-      const proto::DeleteRequest* request,
-      proto::DeleteResponse* response) override;
+  grpc::Status Delete(grpc::ServerContext* context, const proto::DeleteRequest* request,
+                      proto::DeleteResponse* response) override;
 
-  grpc::Status UpdateMetadata(
-      grpc::ServerContext* context,
-      const proto::UpdateMetadataRequest* request,
-      proto::UpdateMetadataResponse* response) override;
+  grpc::Status UpdateMetadata(grpc::ServerContext* context,
+                              const proto::UpdateMetadataRequest* request,
+                              proto::UpdateMetadataResponse* response) override;
 
-  grpc::Status Upsert(
-      grpc::ServerContext* context,
-      const proto::UpsertRequest* request,
-      proto::UpsertResponse* response) override;
+  grpc::Status Upsert(grpc::ServerContext* context, const proto::UpsertRequest* request,
+                      proto::UpsertResponse* response) override;
 
-  grpc::Status RangeSearch(
-      grpc::ServerContext* context,
-      const proto::RangeSearchRequest* request,
-      proto::RangeSearchResponse* response) override;
+  grpc::Status RangeSearch(grpc::ServerContext* context, const proto::RangeSearchRequest* request,
+                           proto::RangeSearchResponse* response) override;
 
-  grpc::Status ListVectors(
-      grpc::ServerContext* context,
-      const proto::ListVectorsRequest* request,
-      proto::ListVectorsResponse* response) override;
+  grpc::Status ListVectors(grpc::ServerContext* context, const proto::ListVectorsRequest* request,
+                           proto::ListVectorsResponse* response) override;
 
   // Hybrid search (BM25 + vector)
-  grpc::Status HybridSearch(
-      grpc::ServerContext* context,
-      const proto::HybridSearchRequest* request,
-      proto::HybridSearchResponse* response) override;
+  grpc::Status HybridSearch(grpc::ServerContext* context, const proto::HybridSearchRequest* request,
+                            proto::HybridSearchResponse* response) override;
 
   // Server-side bulk import
-  grpc::Status BulkImport(
-      grpc::ServerContext* context,
-      const proto::BulkImportRequest* request,
-      proto::BulkImportResponse* response) override;
+  grpc::Status BulkImport(grpc::ServerContext* context, const proto::BulkImportRequest* request,
+                          proto::BulkImportResponse* response) override;
 
-  grpc::Status GetImportStatus(
-      grpc::ServerContext* context,
-      const proto::GetImportStatusRequest* request,
-      proto::GetImportStatusResponse* response) override;
+  grpc::Status GetImportStatus(grpc::ServerContext* context,
+                               const proto::GetImportStatusRequest* request,
+                               proto::GetImportStatusResponse* response) override;
 
-  grpc::Status CancelImport(
-      grpc::ServerContext* context,
-      const proto::CancelImportRequest* request,
-      proto::CancelImportResponse* response) override;
+  grpc::Status CancelImport(grpc::ServerContext* context, const proto::CancelImportRequest* request,
+                            proto::CancelImportResponse* response) override;
 
   // Backup and restore
-  grpc::Status BackupCollection(
-      grpc::ServerContext* context,
-      const proto::BackupCollectionRequest* request,
-      proto::BackupCollectionResponse* response) override;
+  grpc::Status BackupCollection(grpc::ServerContext* context,
+                                const proto::BackupCollectionRequest* request,
+                                proto::BackupCollectionResponse* response) override;
 
-  grpc::Status RestoreCollection(
-      grpc::ServerContext* context,
-      const proto::RestoreCollectionRequest* request,
-      proto::RestoreCollectionResponse* response) override;
+  grpc::Status RestoreCollection(grpc::ServerContext* context,
+                                 const proto::RestoreCollectionRequest* request,
+                                 proto::RestoreCollectionResponse* response) override;
 
-  grpc::Status GetBackupStatus(
-      grpc::ServerContext* context,
-      const proto::GetBackupStatusRequest* request,
-      proto::GetBackupStatusResponse* response) override;
+  grpc::Status GetBackupStatus(grpc::ServerContext* context,
+                               const proto::GetBackupStatusRequest* request,
+                               proto::GetBackupStatusResponse* response) override;
 
-  grpc::Status GetRestoreStatus(
-      grpc::ServerContext* context,
-      const proto::GetRestoreStatusRequest* request,
-      proto::GetRestoreStatusResponse* response) override;
+  grpc::Status GetRestoreStatus(grpc::ServerContext* context,
+                                const proto::GetRestoreStatusRequest* request,
+                                proto::GetRestoreStatusResponse* response) override;
 
-  grpc::Status ListBackups(
-      grpc::ServerContext* context,
-      const proto::ListBackupsRequest* request,
-      proto::ListBackupsResponse* response) override;
+  grpc::Status ListBackups(grpc::ServerContext* context, const proto::ListBackupsRequest* request,
+                           proto::ListBackupsResponse* response) override;
 
-  grpc::Status CancelBackup(
-      grpc::ServerContext* context,
-      const proto::CancelBackupRequest* request,
-      proto::CancelBackupResponse* response) override;
+  grpc::Status CancelBackup(grpc::ServerContext* context, const proto::CancelBackupRequest* request,
+                            proto::CancelBackupResponse* response) override;
 
   // Health and stats
-  grpc::Status HealthCheck(
-      grpc::ServerContext* context,
-      const proto::HealthCheckRequest* request,
-      proto::HealthCheckResponse* response) override;
+  grpc::Status HealthCheck(grpc::ServerContext* context, const proto::HealthCheckRequest* request,
+                           proto::HealthCheckResponse* response) override;
 
-  grpc::Status GetStats(
-      grpc::ServerContext* context,
-      const proto::GetStatsRequest* request,
-      proto::GetStatsResponse* response) override;
+  grpc::Status GetStats(grpc::ServerContext* context, const proto::GetStatsRequest* request,
+                        proto::GetStatsResponse* response) override;
 
  private:
   // Check RBAC permission for the current request. Returns OK if allowed.
-  grpc::Status CheckPermission(auth::Permission perm,
-                                const std::string& collection_name) const;
+  grpc::Status CheckPermission(auth::Permission perm, const std::string& collection_name) const;
 
   // CheckPermission for a request on one collection. When the check passes,
   // it also records the collection, and the item count when given, for the
@@ -224,15 +184,12 @@ class VectorDBService final : public proto::VectorDBService::Service {
       const std::string& collection_name);
 
   // Fan out search to remote data nodes holding shards for the collection
-  grpc::Status SearchDistributed(
-      const proto::SearchRequest* request,
-      proto::SearchResponse* response,
-      const core::Vector& query);
+  grpc::Status SearchDistributed(const proto::SearchRequest* request,
+                                 proto::SearchResponse* response, const core::Vector& query);
 
   // Fan out range search to remote data nodes
-  grpc::Status RangeSearchDistributed(
-      const proto::RangeSearchRequest* request,
-      proto::RangeSearchResponse* response);
+  grpc::Status RangeSearchDistributed(const proto::RangeSearchRequest* request,
+                                      proto::RangeSearchResponse* response);
 
   // Per-write-call primary-term gate. Reads the gvdb-shard-term header
   // from the gRPC client metadata and consults primary_term_tracker_
@@ -250,9 +207,8 @@ class VectorDBService final : public proto::VectorDBService::Service {
   //   - tracker says UnknownShard (proxy raced past heartbeat sync,
   //     or this node really doesn't own the shard): FAILED_PRECONDITION.
   //   - tracker says Accept: OK.
-  grpc::Status EvaluateWriteGate(grpc::ServerContext* context,
-                                  const std::string& collection_name,
-                                  uint64_t sample_vector_id);
+  grpc::Status EvaluateWriteGate(grpc::ServerContext* context, const std::string& collection_name,
+                                 uint64_t sample_vector_id);
 
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
@@ -272,4 +228,4 @@ class VectorDBService final : public proto::VectorDBService::Service {
 };
 
 }  // namespace service
-} // namespace gvdb
+}  // namespace gvdb

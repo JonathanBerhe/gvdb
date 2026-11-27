@@ -24,11 +24,10 @@ class FlagSet {
  public:
   // A flag with a value: `--name VALUE`. `value_name` is the VALUE word in
   // the usage text. A '\n' in `help` starts a new usage line.
-  void AddString(std::string name, std::string value_name, std::string help,
-                 std::string* target, std::string env = "");
+  void AddString(std::string name, std::string value_name, std::string help, std::string* target,
+                 std::string env = "");
   void AddInt(std::string name, std::string value_name, std::string help, int* target);
-  void AddSize(std::string name, std::string value_name, std::string help,
-               std::size_t* target);
+  void AddSize(std::string name, std::string value_name, std::string help, std::size_t* target);
   // A comma-separated list. Each use of the flag appends its items. The
   // environment variable replaces the whole list.
   void AddList(std::string name, std::string value_name, std::string help,

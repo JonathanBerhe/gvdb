@@ -6,8 +6,8 @@
 #include "index/faiss/faiss_flat.h"
 #include "index/faiss/faiss_hnsw.h"
 #include "index/faiss/faiss_ivf.h"
-#include "index/turboquant/turboquant_index.h"
 #include "index/turboquant/ivf_turboquant_index.h"
+#include "index/turboquant/turboquant_index.h"
 #ifdef GVDB_HAS_METAL
 #include "index/metal/metal_compute.h"
 #include "index/metal/metal_flat_index.h"
@@ -25,37 +25,28 @@ absl::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateIndex(
       return CreateFlatIndex(config.dimension, config.metric_type);
 
     case core::IndexType::HNSW:
-      return CreateHNSWIndex(config.dimension, config.metric_type,
-                            config.hnsw_params.M,
-                            config.hnsw_params.ef_construction,
-                            config.hnsw_params.ef_search);
+      return CreateHNSWIndex(config.dimension, config.metric_type, config.hnsw_params.M,
+                             config.hnsw_params.ef_construction, config.hnsw_params.ef_search);
 
     case core::IndexType::IVF_FLAT:
-      return CreateIVFIndex(config.dimension, config.metric_type,
-                           config.ivf_params.nlist,
-                           IVFQuantizationType::NONE,
-                           config.ivf_params.pq_m, config.ivf_params.pq_nbits,
-                           config.ivf_params.nprobe);
+      return CreateIVFIndex(config.dimension, config.metric_type, config.ivf_params.nlist,
+                            IVFQuantizationType::NONE, config.ivf_params.pq_m,
+                            config.ivf_params.pq_nbits, config.ivf_params.nprobe);
 
     case core::IndexType::IVF_PQ:
-      return CreateIVFIndex(config.dimension, config.metric_type,
-                           config.ivf_params.nlist,
-                           IVFQuantizationType::PQ,
-                           config.ivf_params.pq_m, config.ivf_params.pq_nbits,
-                           config.ivf_params.nprobe);
+      return CreateIVFIndex(config.dimension, config.metric_type, config.ivf_params.nlist,
+                            IVFQuantizationType::PQ, config.ivf_params.pq_m,
+                            config.ivf_params.pq_nbits, config.ivf_params.nprobe);
 
     case core::IndexType::IVF_SQ:
-      return CreateIVFIndex(config.dimension, config.metric_type,
-                           config.ivf_params.nlist,
-                           IVFQuantizationType::SQ,
-                           config.ivf_params.pq_m, config.ivf_params.pq_nbits,
-                           config.ivf_params.nprobe);
+      return CreateIVFIndex(config.dimension, config.metric_type, config.ivf_params.nlist,
+                            IVFQuantizationType::SQ, config.ivf_params.pq_m,
+                            config.ivf_params.pq_nbits, config.ivf_params.nprobe);
 
     case core::IndexType::TURBOQUANT:
-      return CreateTurboQuantIndex(config.dimension, config.metric_type,
-                                   config.turboquant_params.bit_width,
-                                   config.turboquant_params.use_qjl,
-                                   config.turboquant_params.qjl_projection_dim);
+      return CreateTurboQuantIndex(
+          config.dimension, config.metric_type, config.turboquant_params.bit_width,
+          config.turboquant_params.use_qjl, config.turboquant_params.qjl_projection_dim);
 
     case core::IndexType::IVF_TURBOQUANT:
       return CreateIVFTurboQuantIndex(config);
@@ -65,14 +56,12 @@ absl::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateIndex(
           "AUTO index type must be resolved before reaching IndexFactory");
 
     default:
-      return absl::UnimplementedError(
-          "Index type not yet implemented");
+      return absl::UnimplementedError("Index type not yet implemented");
   }
 }
 
-absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
-IndexFactory::CreateFlatIndex(core::Dimension dimension,
-                               core::MetricType metric) {
+absl::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateFlatIndex(
+    core::Dimension dimension, core::MetricType metric) {
   if (dimension <= 0) {
     return absl::InvalidArgumentError("Dimension must be positive");
   }
@@ -85,9 +74,8 @@ IndexFactory::CreateFlatIndex(core::Dimension dimension,
   return std::make_unique<FaissFlatIndex>(dimension, metric);
 }
 
-absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
-IndexFactory::CreateHNSWIndex(core::Dimension dimension, core::MetricType metric,
-                               int M, int ef_construction, int ef_search) {
+absl::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateHNSWIndex(
+    core::Dimension dimension, core::MetricType metric, int M, int ef_construction, int ef_search) {
   if (dimension <= 0) {
     return absl::InvalidArgumentError("Dimension must be positive");
   }
@@ -104,14 +92,12 @@ IndexFactory::CreateHNSWIndex(core::Dimension dimension, core::MetricType metric
     return absl::InvalidArgumentError("ef_search must be positive");
   }
 
-  return std::make_unique<FaissHNSWIndex>(dimension, metric, M, ef_construction,
-                                          ef_search);
+  return std::make_unique<FaissHNSWIndex>(dimension, metric, M, ef_construction, ef_search);
 }
 
-absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
-IndexFactory::CreateIVFIndex(core::Dimension dimension, core::MetricType metric,
-                              int nlist, IVFQuantizationType quantization,
-                              int pq_m, int pq_nbits, int nprobe) {
+absl::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateIVFIndex(
+    core::Dimension dimension, core::MetricType metric, int nlist, IVFQuantizationType quantization,
+    int pq_m, int pq_nbits, int nprobe) {
   if (dimension <= 0) {
     return absl::InvalidArgumentError("Dimension must be positive");
   }
@@ -126,30 +112,26 @@ IndexFactory::CreateIVFIndex(core::Dimension dimension, core::MetricType metric,
     return absl::InvalidArgumentError("nprobe must be positive");
   }
 
-  return std::make_unique<FaissIVFIndex>(dimension, metric, nlist, nprobe,
-                                         quantization, pq_m, pq_nbits);
+  return std::make_unique<FaissIVFIndex>(dimension, metric, nlist, nprobe, quantization, pq_m,
+                                         pq_nbits);
 }
 
-absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
-IndexFactory::CreateTurboQuantIndex(core::Dimension dimension,
-                                     core::MetricType metric,
-                                     int bit_width, bool use_qjl,
-                                     int qjl_dim) {
+absl::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateTurboQuantIndex(
+    core::Dimension dimension, core::MetricType metric, int bit_width, bool use_qjl, int qjl_dim) {
   if (dimension <= 0) {
     return absl::InvalidArgumentError("Dimension must be positive");
   }
 
   if (bit_width != 1 && bit_width != 2 && bit_width != 4 && bit_width != 8) {
-    return absl::InvalidArgumentError(
-        "TurboQuant bit_width must be 1, 2, 4, or 8");
+    return absl::InvalidArgumentError("TurboQuant bit_width must be 1, 2, 4, or 8");
   }
 
-  return std::make_unique<turboquant::TurboQuantIndex>(
-      dimension, metric, bit_width, use_qjl, qjl_dim);
+  return std::make_unique<turboquant::TurboQuantIndex>(dimension, metric, bit_width, use_qjl,
+                                                       qjl_dim);
 }
 
-absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
-IndexFactory::CreateIVFTurboQuantIndex(const core::IndexConfig& config) {
+absl::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateIVFTurboQuantIndex(
+    const core::IndexConfig& config) {
   if (config.dimension <= 0) {
     return absl::InvalidArgumentError("Dimension must be positive");
   }
@@ -159,13 +141,11 @@ IndexFactory::CreateIVFTurboQuantIndex(const core::IndexConfig& config) {
     return absl::InvalidArgumentError("nlist must be positive");
   }
   if (p.bit_width != 1 && p.bit_width != 2 && p.bit_width != 4 && p.bit_width != 8) {
-    return absl::InvalidArgumentError(
-        "IVF_TURBOQUANT bit_width must be 1, 2, 4, or 8");
+    return absl::InvalidArgumentError("IVF_TURBOQUANT bit_width must be 1, 2, 4, or 8");
   }
 
   return std::make_unique<turboquant::IVFTurboQuantIndex>(
-      config.dimension, config.metric_type,
-      p.nlist, p.nprobe, p.bit_width, p.use_qjl, p.qjl_dim);
+      config.dimension, config.metric_type, p.nlist, p.nprobe, p.bit_width, p.use_qjl, p.qjl_dim);
 }
 
 bool IndexFactory::IsGPUAvailable() {

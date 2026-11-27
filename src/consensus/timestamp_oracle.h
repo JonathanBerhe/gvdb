@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include "core/types.h"
-#include "core/status.h"
 #include <atomic>
 #include <memory>
+#include "core/status.h"
+#include "core/types.h"
 
 namespace gvdb {
 namespace consensus {
@@ -32,5 +32,5 @@ class TimestampOracle {
   std::atomic<core::Timestamp> timestamp_{0};
 };
 
-} // namespace consensus
-} // namespace gvdb
+}  // namespace consensus
+}  // namespace gvdb

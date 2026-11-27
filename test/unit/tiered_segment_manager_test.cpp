@@ -2,8 +2,8 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "storage/segment/tiered_segment_manager.h"
-#include "storage/objstore/object_store.h"
 #include "index/index_factory.h"
+#include "storage/objstore/object_store.h"
 #include "support/temp_dir.h"
 #include "support/vectors.h"
 #include "support/wait.h"
@@ -31,8 +31,7 @@ const std::string kManifestKey = kPrefix + "/manifest.json";
 // exactly one failing Put because UploadSegmentToS3 returns on the first error.
 class FlakyObjectStore : public InMemoryObjectStore {
  public:
-  explicit FlakyObjectStore(int put_failures)
-      : remaining_failures_(put_failures) {}
+  explicit FlakyObjectStore(int put_failures) : remaining_failures_(put_failures) {}
 
   // Ends the outage: every later Put succeeds.
   void StopFailing() { remaining_failures_.store(0); }
@@ -41,16 +40,15 @@ class FlakyObjectStore : public InMemoryObjectStore {
   // Put is one failed upload attempt.
   int RejectedPuts() const { return rejected_puts_.load(); }
 
-  absl::Status PutObject(
-      const std::string& key, const std::string& data) override {
+  absl::Status PutObject(const std::string& key, const std::string& data) override {
     if (ConsumeFailure()) {
       return absl::InternalError("injected object-store put failure");
     }
     return InMemoryObjectStore::PutObject(key, data);
   }
 
-  absl::Status PutObjectFromFile(
-      const std::string& key, const std::string& local_file_path) override {
+  absl::Status PutObjectFromFile(const std::string& key,
+                                 const std::string& local_file_path) override {
     if (ConsumeFailure()) {
       return absl::InternalError("injected object-store put failure");
     }
@@ -81,14 +79,12 @@ class SegmentRejectingObjectStore : public InMemoryObjectStore {
   // Call before any segment is flushed. Upload threads read the value only
   // after FlushSegment hands them the task through the pool's queue lock.
   void RejectSegment(core::SegmentId id) {
-    rejected_key_part_ =
-        "/segments/" + std::to_string(core::ToUInt32(id)) + "/";
+    rejected_key_part_ = "/segments/" + std::to_string(core::ToUInt32(id)) + "/";
   }
 
-  absl::Status PutObjectFromFile(
-      const std::string& key, const std::string& local_file_path) override {
-    if (!rejected_key_part_.empty() &&
-        key.find(rejected_key_part_) != std::string::npos) {
+  absl::Status PutObjectFromFile(const std::string& key,
+                                 const std::string& local_file_path) override {
+    if (!rejected_key_part_.empty() && key.find(rejected_key_part_) != std::string::npos) {
       return absl::InternalError("injected put failure for a rejected segment");
     }
     return InMemoryObjectStore::PutObjectFromFile(key, local_file_path);
@@ -123,34 +119,30 @@ struct TieredTest {
   };
 
   template <typename Store>
-  TieredWith<Store> MakeTieredOver(
-      std::unique_ptr<Store> object_store, int upload_threads,
-      std::chrono::milliseconds retry_delay) {
+  TieredWith<Store> MakeTieredOver(std::unique_ptr<Store> object_store, int upload_threads,
+                                   std::chrono::milliseconds retry_delay) {
     auto* store_ptr = object_store.get();
-    auto local = std::make_unique<SegmentManager>(
-        test_dir_, index_factory_.get());
+    auto local = std::make_unique<SegmentManager>(test_dir_, index_factory_.get());
     auto cache = std::make_unique<SegmentCache>(cache_dir_, 256 * 1024 * 1024);
-    auto tiered = std::make_unique<TieredSegmentManager>(
-        std::move(local), std::move(object_store), std::move(cache), kPrefix,
-        upload_threads, retry_delay);
+    auto tiered = std::make_unique<TieredSegmentManager>(std::move(local), std::move(object_store),
+                                                         std::move(cache), kPrefix, upload_threads,
+                                                         retry_delay);
     return {std::move(tiered), store_ptr};
   }
 
-  std::unique_ptr<TieredSegmentManager> MakeTiered() {
-    return MakeTieredWithStore().tiered;
-  }
+  std::unique_ptr<TieredSegmentManager> MakeTiered() { return MakeTieredWithStore().tiered; }
 
   // A healthy in-memory store never fails an upload, so no retry runs and
   // the retry delay does not matter.
   TieredWith<InMemoryObjectStore> MakeTieredWithStore(int upload_threads = 1) {
-    return MakeTieredOver(std::make_unique<InMemoryObjectStore>(),
-                          upload_threads, std::chrono::seconds(3));
+    return MakeTieredOver(std::make_unique<InMemoryObjectStore>(), upload_threads,
+                          std::chrono::seconds(3));
   }
 
   // Tiered manager backed by a FlakyObjectStore with a millisecond-scale retry
   // delay so background retries can be observed quickly in tests.
-  TieredWith<FlakyObjectStore> MakeTieredFlaky(
-      int put_failures, std::chrono::milliseconds retry_delay) {
+  TieredWith<FlakyObjectStore> MakeTieredFlaky(int put_failures,
+                                               std::chrono::milliseconds retry_delay) {
     return MakeTieredOver(std::make_unique<FlakyObjectStore>(put_failures),
                           /*upload_threads=*/1, retry_delay);
   }
@@ -164,8 +156,8 @@ struct TieredTest {
   }
 
   // Create, populate and seal a segment; returns its id.
-  core::SegmentId SealOneSegment(
-      TieredSegmentManager& tiered, size_t count, uint64_t first_id = 1) {
+  core::SegmentId SealOneSegment(TieredSegmentManager& tiered, size_t count,
+                                 uint64_t first_id = 1) {
     auto seg_id = *tiered.CreateSegment(collection_id_, dimension_, metric_);
     auto vectors = MakeVectors(count);
     auto ids = MakeIds(count, first_id);
@@ -193,15 +185,14 @@ struct TieredTest {
 
   // Object-store key prefix of a segment in the fixture's collection.
   std::string SegmentKeyPrefix(core::SegmentId id) const {
-    return kPrefix + "/collections/" +
-           std::to_string(core::ToUInt32(collection_id_)) + "/segments/" +
-           std::to_string(core::ToUInt32(id)) + "/";
+    return kPrefix + "/collections/" + std::to_string(core::ToUInt32(collection_id_)) +
+           "/segments/" + std::to_string(core::ToUInt32(id)) + "/";
   }
 
   // Polls the manifest until it lists `expected` entries. Returns the entries
   // of the last successful read, so a timeout shows up as a size mismatch.
-  static std::vector<ManifestEntry> WaitForManifestEntries(
-      InMemoryObjectStore& store, size_t expected) {
+  static std::vector<ManifestEntry> WaitForManifestEntries(InMemoryObjectStore& store,
+                                                           size_t expected) {
     std::vector<ManifestEntry> entries;
     (void)test::WaitFor([&] {
       auto manifest = store.GetObject(kManifestKey);
@@ -412,8 +403,8 @@ TEST_CASE_FIXTURE(TieredTest, "DropUploadedSegmentRemovesRemoteCopy") {
   auto objects_after = store->ListObjects(SegmentKeyPrefix(seg_id));
   REQUIRE(objects_after.ok());
   CHECK(objects_after->empty());
-  CHECK_FALSE(std::filesystem::exists(
-      test_dir_ + "/segment_" + std::to_string(core::ToUInt32(seg_id))));
+  CHECK_FALSE(
+      std::filesystem::exists(test_dir_ + "/segment_" + std::to_string(core::ToUInt32(seg_id))));
 
   // Only the marker is left. The dropped segment is not tracked as remote any
   // more, so it is not counted as a remote-only segment.
@@ -442,8 +433,7 @@ TEST_CASE_FIXTURE(TieredTest, "MultipleCollectionsUploadAndSearch") {
   // Both uploads land in the one manifest, one entry per collection.
   auto entries = WaitForManifestEntries(*store, 2);
   REQUIRE_EQ(entries.size(), 2);
-  std::vector<uint32_t> collections = {entries[0].collection_id,
-                                       entries[1].collection_id};
+  std::vector<uint32_t> collections = {entries[0].collection_id, entries[1].collection_id};
   std::sort(collections.begin(), collections.end());
   const std::vector<uint32_t> expected_collections = {1, 2};
   CHECK_EQ(collections, expected_collections);
@@ -501,9 +491,7 @@ TEST_CASE_FIXTURE(TieredTest, "ConcurrentFlushesAllReachManifest") {
 TEST_CASE_FIXTURE(TieredTest, "SetSealCallback") {
   auto tiered = MakeTiered();
   bool callback_called = false;
-  tiered->SetSealCallback([&](core::SegmentId, core::IndexType) {
-    callback_called = true;
-  });
+  tiered->SetSealCallback([&](core::SegmentId, core::IndexType) { callback_called = true; });
 
   // GetWritableSegment with a segment that's full should trigger callback
   // This test just verifies the callback is wired through
@@ -560,8 +548,7 @@ TEST_CASE_FIXTURE(TieredTest, "FailedUploadRetriesAndRecovers") {
   // The background retry thread eventually re-drives the upload to success.
   // The manifest is written after the segment files, so wait for it too.
   bool recovered = test::WaitFor([&] {
-    return tiered->GetFailedUploads().empty() &&
-           store->GetObject("test-prefix/manifest.json").ok();
+    return tiered->GetFailedUploads().empty() && store->GetObject("test-prefix/manifest.json").ok();
   });
   CHECK(recovered);
   CHECK(tiered->GetFailedUploads().empty());
@@ -578,9 +565,8 @@ TEST_CASE_FIXTURE(TieredTest, "DestructorWithPendingFailedUploadShutsDownCleanly
 
   // Wait until the upload has failed often enough to reach the error
   // threshold of the retry loop (5 attempts), and is queued for retry again.
-  bool failed = test::WaitFor([&] {
-    return parts.store->RejectedPuts() >= 5 && !tiered->GetFailedUploads().empty();
-  });
+  bool failed = test::WaitFor(
+      [&] { return parts.store->RejectedPuts() >= 5 && !tiered->GetFailedUploads().empty(); });
   CHECK(failed);
 
   // Destroying the manager while a failed upload is pending must not hang or
@@ -596,8 +582,7 @@ TEST_CASE_FIXTURE(TieredTest, "StartupRedrivesUnuploadedSegments") {
     auto parts = MakeTieredFlaky(
         /*put_failures=*/1000000, std::chrono::milliseconds(25));
     FlushOneSegment(*parts.tiered, 20);
-    bool failed = test::WaitFor(
-        [&] { return !parts.tiered->GetFailedUploads().empty(); });
+    bool failed = test::WaitFor([&] { return !parts.tiered->GetFailedUploads().empty(); });
     CHECK(failed);
   }
 
@@ -607,8 +592,8 @@ TEST_CASE_FIXTURE(TieredTest, "StartupRedrivesUnuploadedSegments") {
   auto [tiered2, store2] = MakeTieredWithStore();
   REQUIRE(tiered2->LoadAllSegments().ok());
 
-  bool uploaded = test::WaitFor(
-      [&] { return store2->GetObject("test-prefix/manifest.json").ok(); });
+  bool uploaded =
+      test::WaitFor([&] { return store2->GetObject("test-prefix/manifest.json").ok(); });
   CHECK(uploaded);
   CHECK(store2->ObjectCount() > 0);
   CHECK(tiered2->GetFailedUploads().empty());

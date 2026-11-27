@@ -20,9 +20,7 @@ struct CacheTest {
   test::ScopedTempDir temp_dir_{"gvdb_segment_cache_test"};
   const std::string test_dir_ = temp_dir_.str();
 
-  static core::SegmentId MakeId(uint32_t v) {
-    return static_cast<core::SegmentId>(v);
-  }
+  static core::SegmentId MakeId(uint32_t v) { return static_cast<core::SegmentId>(v); }
 };
 
 TEST_CASE_FIXTURE(CacheTest, "EmptyCache") {
@@ -79,7 +77,7 @@ TEST_CASE_FIXTURE(CacheTest, "TouchUpdatesLRU") {
   auto evicted = cache.Evict(100);
   REQUIRE(evicted.ok());
   CHECK_EQ(evicted->size(), 1);
-  CHECK(cache.HasSegment(MakeId(1)));   // touched, not evicted
+  CHECK(cache.HasSegment(MakeId(1)));        // touched, not evicted
   CHECK_FALSE(cache.HasSegment(MakeId(2)));  // evicted
   CHECK(cache.HasSegment(MakeId(3)));
 }

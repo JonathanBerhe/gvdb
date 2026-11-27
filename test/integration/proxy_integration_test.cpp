@@ -12,15 +12,15 @@
 #include <string>
 
 #include "cluster/coordinator/coordinator.h"
-#include "cluster/shard_manager.h"
-#include "cluster/coordinator/node_registry.h"
 #include "cluster/coordinator/internal_client.h"
+#include "cluster/coordinator/node_registry.h"
+#include "cluster/shard_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "service/internal/internal_service.h"
-#include "service/vectordb/vectordb_service.h"
 #include "service/proxy/proxy_service.h"
 #include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
 #include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
@@ -33,8 +33,8 @@ namespace {
 // Starts a server on a free local port with the given services and the
 // 256 MB message limits of the production servers. Sets *address to
 // "localhost:<port>".
-std::unique_ptr<grpc::Server> StartServer(
-    std::initializer_list<grpc::Service*> services, std::string* address) {
+std::unique_ptr<grpc::Server> StartServer(std::initializer_list<grpc::Service*> services,
+                                          std::string* address) {
   grpc::ServerBuilder builder;
   int port = 0;
   builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
@@ -63,8 +63,7 @@ class ProxyIntegrationTest {
 
     coord_segment_store_ = std::make_shared<storage::SegmentManager>(
         (dir_ / "coordinator").string(), index_factory_.get());
-    coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *coord_segment_store_);
+    coord_query_executor_ = std::make_shared<compute::QueryExecutor>(*coord_segment_store_);
 
     // The client factory lets CreateCollection send CreateSegment to the
     // data node that step 3 registers.
@@ -75,22 +74,24 @@ class ProxyIntegrationTest {
 
     coord_internal_service_ = std::make_unique<service::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
-        service::InternalServiceOptions{.node_registry = node_registry_, .coordinator = coordinator_});
+        service::InternalServiceOptions{.node_registry = node_registry_,
+                                        .coordinator = coordinator_});
 
     auto coord_resolver = service::MakeCoordinatorResolver(coordinator_);
     coord_vectordb_service_ = std::make_unique<service::VectorDBService>(
         coord_segment_store_, coord_query_executor_, std::move(coord_resolver));
 
-    coord_server_ = StartServer(
-        {coord_internal_service_.get(), coord_vectordb_service_.get()}, &coord_address_);
+    coord_server_ = StartServer({coord_internal_service_.get(), coord_vectordb_service_.get()},
+                                &coord_address_);
 
-    // --- Step 2: Start data node (InternalService for CreateSegment + VectorDBService for Insert/Search) ---
-    dn_segment_store_ = std::make_shared<storage::SegmentManager>(
-        (dir_ / "data_node").string(), index_factory_.get());
-    dn_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *dn_segment_store_);
+    // --- Step 2: Start data node (InternalService for CreateSegment + VectorDBService for
+    // Insert/Search) ---
+    dn_segment_store_ = std::make_shared<storage::SegmentManager>((dir_ / "data_node").string(),
+                                                                  index_factory_.get());
+    dn_query_executor_ = std::make_shared<compute::QueryExecutor>(*dn_segment_store_);
 
-    auto dn_shard_manager = std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
+    auto dn_shard_manager =
+        std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
     dn_internal_service_ = std::make_unique<service::InternalService>(
         dn_shard_manager, dn_segment_store_, dn_query_executor_);
 
@@ -99,8 +100,8 @@ class ProxyIntegrationTest {
     dn_vectordb_service_ = std::make_unique<service::VectorDBService>(
         dn_segment_store_, dn_query_executor_, std::move(dn_resolver));
 
-    dn_server_ = StartServer(
-        {dn_internal_service_.get(), dn_vectordb_service_.get()}, &dn_address_);
+    dn_server_ =
+        StartServer({dn_internal_service_.get(), dn_vectordb_service_.get()}, &dn_address_);
 
     // --- Step 3: Register data node with the coordinator ---
     proto::internal::NodeInfo proto_node;
@@ -121,8 +122,7 @@ class ProxyIntegrationTest {
     // production": they do not, because a real deployment always has query-node
     // pods.
     proxy_service_ = std::make_unique<service::ProxyService>(
-        std::vector<std::string>{coord_address_},
-        dn_address_);
+        std::vector<std::string>{coord_address_}, dn_address_);
     proxy_server_ = StartServer({proxy_service_.get()}, &proxy_address_);
 
     // Client connects to proxy

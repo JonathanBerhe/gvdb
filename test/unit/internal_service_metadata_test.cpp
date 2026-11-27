@@ -1,12 +1,6 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "service/internal/internal_service.h"
-#include "cluster/coordinator/coordinator.h"
-#include "cluster/shard_manager.h"
-#include "cluster/coordinator/node_registry.h"
-#include "internal.grpc.pb.h"
-#include "support/grpc_server.h"
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <chrono>
@@ -14,6 +8,12 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "cluster/coordinator/coordinator.h"
+#include "cluster/coordinator/node_registry.h"
+#include "cluster/shard_manager.h"
+#include "internal.grpc.pb.h"
+#include "service/internal/internal_service.h"
+#include "support/grpc_server.h"
 
 using namespace gvdb;
 using namespace gvdb::service;
@@ -71,12 +71,10 @@ class InternalServiceMetadataServerTest : public InternalServiceMetadataTest {
   }
 
   // Sends one GetCollectionMetadata call through the stub.
-  grpc::Status GetMetadata(
-      const proto::internal::GetCollectionMetadataRequest& request,
-      proto::internal::GetCollectionMetadataResponse* response) {
+  grpc::Status GetMetadata(const proto::internal::GetCollectionMetadataRequest& request,
+                           proto::internal::GetCollectionMetadataResponse* response) {
     grpc::ClientContext context;
-    context.set_deadline(std::chrono::system_clock::now() +
-                         std::chrono::seconds(10));
+    context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(10));
     return stub_->GetCollectionMetadata(&context, request, response);
   }
 
@@ -88,8 +86,8 @@ class InternalServiceMetadataServerTest : public InternalServiceMetadataTest {
 // Test getting collection metadata by name
 TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetCollectionMetadataByName") {
   // Create a collection in the coordinator
-  auto collection_id = coordinator_->CreateCollection(
-      "test_collection", 128, core::MetricType::L2, core::IndexType::HNSW, 1);
+  auto collection_id = coordinator_->CreateCollection("test_collection", 128, core::MetricType::L2,
+                                                      core::IndexType::HNSW, 1);
   REQUIRE(collection_id.ok());
 
   // Query metadata via InternalService
@@ -165,9 +163,9 @@ TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetNonExistentCollectionById") {
 // Test with no coordinator
 TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetMetadataWithoutCoordinator") {
   // Create InternalService without coordinator
-  auto service_without_coordinator = std::make_unique<InternalService>(
-      shard_manager_, segment_store_, query_executor_,
-      InternalServiceOptions{.node_registry = node_registry_});
+  auto service_without_coordinator =
+      std::make_unique<InternalService>(shard_manager_, segment_store_, query_executor_,
+                                        InternalServiceOptions{.node_registry = node_registry_});
 
   grpc::ServerContext context;
   proto::internal::GetCollectionMetadataRequest request;
@@ -196,8 +194,8 @@ TEST_CASE_FIXTURE(InternalServiceMetadataTest, "DifferentMetricTypes") {
   };
 
   for (const auto& tc : test_cases) {
-    auto collection_id = coordinator_->CreateCollection(
-        tc.name, 128, tc.metric_type, core::IndexType::FLAT, 1);
+    auto collection_id =
+        coordinator_->CreateCollection(tc.name, 128, tc.metric_type, core::IndexType::FLAT, 1);
     REQUIRE(collection_id.ok());
 
     grpc::ServerContext context;
@@ -230,8 +228,8 @@ TEST_CASE_FIXTURE(InternalServiceMetadataTest, "DifferentIndexTypes") {
   };
 
   for (const auto& tc : test_cases) {
-    auto collection_id = coordinator_->CreateCollection(
-        tc.name, 128, core::MetricType::L2, tc.index_type, 1);
+    auto collection_id =
+        coordinator_->CreateCollection(tc.name, 128, core::MetricType::L2, tc.index_type, 1);
     REQUIRE(collection_id.ok());
 
     grpc::ServerContext context;
@@ -263,15 +261,13 @@ TEST_CASE_FIXTURE(InternalServiceMetadataTest, "InvalidRequest") {
 
 // The by-id lookup, the not-found answer and the empty-request error, sent
 // through a real channel to the real handler.
-TEST_CASE_FIXTURE(InternalServiceMetadataServerTest,
-                  "GetCollectionMetadataOverGrpc") {
+TEST_CASE_FIXTURE(InternalServiceMetadataServerTest, "GetCollectionMetadataOverGrpc") {
   proto::internal::GetCollectionMetadataRequest request;
   proto::internal::GetCollectionMetadataResponse response;
 
   SUBCASE("by id") {
     auto collection_id = coordinator_->CreateCollection(
-        "id_test_collection", 256, core::MetricType::COSINE,
-        core::IndexType::IVF_FLAT, 1);
+        "id_test_collection", 256, core::MetricType::COSINE, core::IndexType::IVF_FLAT, 1);
     REQUIRE(collection_id.ok());
     request.set_collection_id(core::ToUInt32(collection_id.value()));
 
@@ -280,8 +276,7 @@ TEST_CASE_FIXTURE(InternalServiceMetadataServerTest,
     INFO("gRPC error: " << status.error_message());
     REQUIRE(status.ok());
     CHECK(response.found());
-    CHECK_EQ(response.metadata().collection_id(),
-             core::ToUInt32(collection_id.value()));
+    CHECK_EQ(response.metadata().collection_id(), core::ToUInt32(collection_id.value()));
     CHECK_EQ(response.metadata().collection_name(), "id_test_collection");
     CHECK_EQ(response.metadata().dimension(), 256);
     CHECK_EQ(response.metadata().metric_type(), "COSINE");
@@ -308,21 +303,18 @@ TEST_CASE_FIXTURE(InternalServiceMetadataServerTest,
 
 // Parallel calls through one channel to a real server: each caller gets its
 // own collection back, field for field.
-TEST_CASE_FIXTURE(InternalServiceMetadataServerTest,
-                  "ConcurrentGetCollectionMetadataOverGrpc") {
+TEST_CASE_FIXTURE(InternalServiceMetadataServerTest, "ConcurrentGetCollectionMetadataOverGrpc") {
   constexpr int kNumCollections = 10;
   std::vector<uint32_t> ids(kNumCollections);
   for (int i = 0; i < kNumCollections; ++i) {
     auto collection_id = coordinator_->CreateCollection(
-        "collection_" + std::to_string(i), 128 + i, core::MetricType::L2,
-        core::IndexType::FLAT, 1);
+        "collection_" + std::to_string(i), 128 + i, core::MetricType::L2, core::IndexType::FLAT, 1);
     REQUIRE(collection_id.ok());
     ids[i] = core::ToUInt32(collection_id.value());
   }
 
   std::vector<grpc::Status> statuses(kNumCollections);
-  std::vector<proto::internal::GetCollectionMetadataResponse> responses(
-      kNumCollections);
+  std::vector<proto::internal::GetCollectionMetadataResponse> responses(kNumCollections);
   std::vector<std::thread> threads;
   threads.reserve(kNumCollections);
   for (int i = 0; i < kNumCollections; ++i) {

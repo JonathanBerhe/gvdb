@@ -14,7 +14,7 @@ namespace config {
 // Helper Functions
 // ============================================================================
 
-template<typename T>
+template <typename T>
 T get_or_default(const YAML::Node& node, const std::string& key, const T& default_value) {
   if (node[key]) {
     return node[key].as<T>();
@@ -36,8 +36,10 @@ ServerConfig Config::ParseServerConfig(const YAML::Node& node) {
   config.bind_address = get_or_default(node, "bind_address", config.bind_address);
   config.grpc_port = get_or_default(node, "grpc_port", config.grpc_port);
   config.metrics_port = get_or_default(node, "metrics_port", config.metrics_port);
-  config.max_message_size_mb = get_or_default(node, "max_message_size_mb", config.max_message_size_mb);
-  config.max_concurrent_streams = get_or_default(node, "max_concurrent_streams", config.max_concurrent_streams);
+  config.max_message_size_mb =
+      get_or_default(node, "max_message_size_mb", config.max_message_size_mb);
+  config.max_concurrent_streams =
+      get_or_default(node, "max_concurrent_streams", config.max_concurrent_streams);
 
   // TLS config
   if (node["tls"]) {
@@ -86,7 +88,8 @@ StorageConfig Config::ParseStorageConfig(const YAML::Node& node) {
   }
 
   config.data_dir = get_or_default(node, "data_dir", config.data_dir);
-  config.segment_max_size_mb = get_or_default(node, "segment_max_size_mb", config.segment_max_size_mb);
+  config.segment_max_size_mb =
+      get_or_default(node, "segment_max_size_mb", config.segment_max_size_mb);
   config.wal_buffer_size_mb = get_or_default(node, "wal_buffer_size_mb", config.wal_buffer_size_mb);
   config.enable_compression = get_or_default(node, "enable_compression", config.enable_compression);
   config.compaction_threads = get_or_default(node, "compaction_threads", config.compaction_threads);
@@ -104,8 +107,7 @@ StorageConfig Config::ParseStorageConfig(const YAML::Node& node) {
     config.object_store.prefix = get_or_default(os, "prefix", std::string("gvdb"));
     // GCS-specific (ignored by the S3/MinIO backend).
     config.object_store.project = get_or_default(os, "project", std::string(""));
-    config.object_store.credentials_path =
-        get_or_default(os, "credentials_path", std::string(""));
+    config.object_store.credentials_path = get_or_default(os, "credentials_path", std::string(""));
     config.object_store.use_ssl = get_or_default(os, "use_ssl", true);
     config.object_store_cache_size_mb = get_or_default(os, "local_cache_size_mb", 256);
     config.object_store_upload_threads = get_or_default(os, "upload_threads", 2);
@@ -123,7 +125,8 @@ IndexConfig Config::ParseIndexConfig(const YAML::Node& node) {
 
   config.default_index_type = get_or_default(node, "default_index_type", config.default_index_type);
   config.hnsw_m = get_or_default(node, "hnsw_m", config.hnsw_m);
-  config.hnsw_ef_construction = get_or_default(node, "hnsw_ef_construction", config.hnsw_ef_construction);
+  config.hnsw_ef_construction =
+      get_or_default(node, "hnsw_ef_construction", config.hnsw_ef_construction);
   config.hnsw_ef_search = get_or_default(node, "hnsw_ef_search", config.hnsw_ef_search);
   config.ivf_nlist = get_or_default(node, "ivf_nlist", config.ivf_nlist);
   config.use_gpu = get_or_default(node, "use_gpu", config.use_gpu);
@@ -149,7 +152,8 @@ LoggingConfig Config::ParseLoggingConfig(const YAML::Node& node) {
     auto audit_node = node["audit"];
     config.audit.enabled = get_or_default(audit_node, "enabled", config.audit.enabled);
     config.audit.file_path = get_or_default(audit_node, "file_path", config.audit.file_path);
-    config.audit.max_file_size_mb = get_or_default(audit_node, "max_file_size_mb", config.audit.max_file_size_mb);
+    config.audit.max_file_size_mb =
+        get_or_default(audit_node, "max_file_size_mb", config.audit.max_file_size_mb);
     config.audit.max_files = get_or_default(audit_node, "max_files", config.audit.max_files);
   }
 
@@ -165,8 +169,10 @@ ConsensusConfig Config::ParseConsensusConfig(const YAML::Node& node) {
 
   config.node_id = get_or_default(node, "node_id", config.node_id);
   config.single_node_mode = get_or_default(node, "single_node_mode", config.single_node_mode);
-  config.election_timeout_ms = get_or_default(node, "election_timeout_ms", config.election_timeout_ms);
-  config.heartbeat_interval_ms = get_or_default(node, "heartbeat_interval_ms", config.heartbeat_interval_ms);
+  config.election_timeout_ms =
+      get_or_default(node, "election_timeout_ms", config.election_timeout_ms);
+  config.heartbeat_interval_ms =
+      get_or_default(node, "heartbeat_interval_ms", config.heartbeat_interval_ms);
 
   // Parse peers array
   if (node["peers"] && node["peers"].IsSequence()) {
@@ -200,11 +206,9 @@ absl::StatusOr<GVDBConfig> Config::LoadFromFile(const std::string& config_path) 
     return config;
 
   } catch (const YAML::Exception& e) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Failed to parse YAML config: ", e.what()));
+    return absl::InvalidArgumentError(absl::StrCat("Failed to parse YAML config: ", e.what()));
   } catch (const std::exception& e) {
-    return absl::InternalError(
-        absl::StrCat("Failed to load config file: ", e.what()));
+    return absl::InternalError(absl::StrCat("Failed to load config file: ", e.what()));
   }
 }
 
@@ -243,10 +247,8 @@ absl::Status Config::Validate(const GVDBConfig& config) {
   }
 
   // Validate logging config
-  if (config.logging.level != "trace" &&
-      config.logging.level != "debug" &&
-      config.logging.level != "info" &&
-      config.logging.level != "warn" &&
+  if (config.logging.level != "trace" && config.logging.level != "debug" &&
+      config.logging.level != "info" && config.logging.level != "warn" &&
       config.logging.level != "error") {
     return absl::InvalidArgumentError(
         "Invalid log level (must be: trace, debug, info, warn, error)");

@@ -11,8 +11,7 @@
 namespace gvdb {
 namespace storage {
 
-SegmentCache::SegmentCache(const std::string& cache_dir,
-                           size_t max_cache_bytes)
+SegmentCache::SegmentCache(const std::string& cache_dir, size_t max_cache_bytes)
     : cache_dir_(cache_dir), max_cache_bytes_(max_cache_bytes) {
   std::filesystem::create_directories(cache_dir_);
 }
@@ -30,8 +29,7 @@ std::string SegmentCache::GetSegmentPath(core::SegmentId id) const {
   return absl::StrCat(cache_dir_, "/segment_", core::ToUInt32(id));
 }
 
-absl::Status SegmentCache::RegisterSegment(
-    core::SegmentId id, size_t size_bytes) {
+absl::Status SegmentCache::RegisterSegment(core::SegmentId id, size_t size_bytes) {
   std::unique_lock lock(mutex_);
   auto key = core::ToUInt32(id);
 
@@ -67,8 +65,7 @@ void SegmentCache::TouchLocked(core::SegmentId id) {
   it->second.lru_it = lru_list_.begin();
 }
 
-absl::StatusOr<std::vector<core::SegmentId>> SegmentCache::Evict(
-    size_t needed_bytes) {
+absl::StatusOr<std::vector<core::SegmentId>> SegmentCache::Evict(size_t needed_bytes) {
   std::unique_lock lock(mutex_);
   std::vector<core::SegmentId> evicted;
   size_t freed = 0;
@@ -87,8 +84,7 @@ absl::StatusOr<std::vector<core::SegmentId>> SegmentCache::Evict(
     current_size_ -= it->second.size_bytes;
 
     // Delete the cached files from disk
-    auto segment_path = absl::StrCat(
-        cache_dir_, "/segment_", core::ToUInt32(victim_id));
+    auto segment_path = absl::StrCat(cache_dir_, "/segment_", core::ToUInt32(victim_id));
     std::error_code ec;
     std::filesystem::remove_all(segment_path, ec);
 

@@ -25,13 +25,13 @@
 #include "cluster/coordinator/coordinator.h"
 #include "cluster/coordinator/internal_client.h"
 #include "cluster/coordinator/node_registry.h"
-#include "cluster/shard_manager.h"
 #include "cluster/datanode/shard_write_gate.h"
+#include "cluster/shard_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "service/vectordb/collection_resolver.h"
 #include "service/internal/internal_service.h"
 #include "service/proxy/proxy_service.h"
+#include "service/vectordb/collection_resolver.h"
 #include "service/vectordb/vectordb_service.h"
 #include "storage/backup/backup_manager.h"
 #include "storage/backup/restore_manager.h"
@@ -49,8 +49,8 @@ namespace {
 // Polls a backup job until it reaches a terminal state. Returns that
 // state, BACKUP_FAILED when the status RPC fails, or the last state seen
 // when the job has not finished within WaitFor's timeout.
-proto::BackupState WaitForBackup(
-    proto::VectorDBService::Stub* client, const std::string& backup_id) {
+proto::BackupState WaitForBackup(proto::VectorDBService::Stub* client,
+                                 const std::string& backup_id) {
   proto::BackupState state = proto::BACKUP_RUNNING;
   WaitFor([&] {
     proto::GetBackupStatusRequest req;
@@ -62,16 +62,15 @@ proto::BackupState WaitForBackup(
       return true;
     }
     state = resp.state();
-    return state == proto::BACKUP_COMPLETED ||
-           state == proto::BACKUP_FAILED ||
+    return state == proto::BACKUP_COMPLETED || state == proto::BACKUP_FAILED ||
            state == proto::BACKUP_CANCELLED;
   });
   return state;
 }
 
 // The same for a restore job.
-proto::BackupState WaitForRestore(
-    proto::VectorDBService::Stub* client, const std::string& restore_id) {
+proto::BackupState WaitForRestore(proto::VectorDBService::Stub* client,
+                                  const std::string& restore_id) {
   proto::BackupState state = proto::BACKUP_RUNNING;
   WaitFor([&] {
     proto::GetRestoreStatusRequest req;
@@ -100,15 +99,12 @@ class BackupRestoreIntegrationTest {
     shared_object_store_ = std::make_unique<storage::InMemoryObjectStore>();
 
     // --- Coordinator: shard manager, registry, factory, services ---
-    shard_manager_ = std::make_shared<cluster::ShardManager>(
-        8, cluster::ShardingStrategy::HASH);
-    node_registry_ = std::make_shared<cluster::NodeRegistry>(
-        std::chrono::seconds(30));
+    shard_manager_ = std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
+    node_registry_ = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
 
     coord_segment_store_ = std::make_shared<storage::SegmentManager>(
         (dir_ / "coordinator" / "segments").string(), index_factory_.get());
-    coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *coord_segment_store_);
+    coord_query_executor_ = std::make_shared<compute::QueryExecutor>(*coord_segment_store_);
 
     // BackupManager + RestoreManager of the coordinator. The coordinator
     // writes the top manifest into the shared object store.
@@ -119,22 +115,19 @@ class BackupRestoreIntegrationTest {
       opts.tmp_dir = (dir_ / "coordinator" / "tmp").string();
       opts.gvdb_version = "integration";
       opts.node_id = 1;
-      coord_backup_mgr_ =
-          std::make_shared<storage::BackupManager>(std::move(opts));
+      coord_backup_mgr_ = std::make_shared<storage::BackupManager>(std::move(opts));
     }
     {
       storage::RestoreManagerOptions opts;
       opts.default_object_store = shared_object_store_.get();
       opts.s3_bucket = "test-bucket";
       opts.staging_dir = (dir_ / "coordinator" / "restore").string();
-      coord_restore_mgr_ =
-          std::make_shared<storage::RestoreManager>(std::move(opts));
+      coord_restore_mgr_ = std::make_shared<storage::RestoreManager>(std::move(opts));
     }
     coordinator_ = std::make_shared<cluster::Coordinator>(
         shard_manager_, node_registry_,
         cluster::CoordinatorOptions{
-            .client_factory =
-                std::make_shared<cluster::GrpcInternalServiceClientFactory>(),
+            .client_factory = std::make_shared<cluster::GrpcInternalServiceClientFactory>(),
             .backup_manager = coord_backup_mgr_,
             .restore_manager = coord_restore_mgr_});
 
@@ -144,15 +137,13 @@ class BackupRestoreIntegrationTest {
                                         .coordinator = coordinator_});
     auto coord_resolver = service::MakeCoordinatorResolver(coordinator_);
     coord_vectordb_service_ = std::make_unique<service::VectorDBService>(
-        coord_segment_store_, coord_query_executor_,
-        std::move(coord_resolver),
+        coord_segment_store_, coord_query_executor_, std::move(coord_resolver),
         service::VectorDBServiceOptions{.coordinator = coordinator_});
 
     {
       grpc::ServerBuilder builder;
       int port = 0;
-      builder.AddListeningPort("localhost:0",
-                                grpc::InsecureServerCredentials(), &port);
+      builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
       builder.RegisterService(coord_internal_service_.get());
       builder.RegisterService(coord_vectordb_service_.get());
       coord_server_ = builder.BuildAndStart();
@@ -163,10 +154,9 @@ class BackupRestoreIntegrationTest {
     // --- Data node ---
     dn_segment_store_ = std::make_shared<storage::SegmentManager>(
         (dir_ / "data_node" / "segments").string(), index_factory_.get());
-    dn_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *dn_segment_store_);
-    auto dn_shard_manager = std::make_shared<cluster::ShardManager>(
-        8, cluster::ShardingStrategy::HASH);
+    dn_query_executor_ = std::make_shared<compute::QueryExecutor>(*dn_segment_store_);
+    auto dn_shard_manager =
+        std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
 
     // Backup/restore engines on the data-node, same object store so
     // the per-shard uploads end up where the coordinator's top
@@ -179,36 +169,31 @@ class BackupRestoreIntegrationTest {
       opts.tmp_dir = (dir_ / "data_node" / "tmp" / "backup").string();
       opts.gvdb_version = "integration";
       opts.node_id = 100;
-      dn_backup_mgr_ =
-          std::make_shared<storage::BackupManager>(std::move(opts));
+      dn_backup_mgr_ = std::make_shared<storage::BackupManager>(std::move(opts));
     }
     {
       storage::RestoreManagerOptions opts;
       opts.default_object_store = shared_object_store_.get();
       opts.s3_bucket = "test-bucket";
       opts.staging_dir = (dir_ / "data_node" / "tmp" / "restore").string();
-      dn_restore_mgr_ =
-          std::make_shared<storage::RestoreManager>(std::move(opts));
+      dn_restore_mgr_ = std::make_shared<storage::RestoreManager>(std::move(opts));
     }
     shard_write_gate_ = std::make_unique<cluster::ShardWriteGate>();
     dn_internal_service_ = std::make_unique<service::InternalService>(
         dn_shard_manager, dn_segment_store_, dn_query_executor_,
-        service::InternalServiceOptions{
-            .backup_manager = dn_backup_mgr_,
-            .restore_manager = dn_restore_mgr_,
-            .shard_write_gate = shard_write_gate_.get()});
+        service::InternalServiceOptions{.backup_manager = dn_backup_mgr_,
+                                        .restore_manager = dn_restore_mgr_,
+                                        .shard_write_gate = shard_write_gate_.get()});
 
     auto dn_resolver = service::MakeCachedCoordinatorResolver(coord_address_);
     dn_vectordb_service_ = std::make_unique<service::VectorDBService>(
         dn_segment_store_, dn_query_executor_, std::move(dn_resolver),
-        service::VectorDBServiceOptions{.shard_write_gate =
-                                            shard_write_gate_.get()});
+        service::VectorDBServiceOptions{.shard_write_gate = shard_write_gate_.get()});
 
     {
       grpc::ServerBuilder builder;
       int port = 0;
-      builder.AddListeningPort("localhost:0",
-                                grpc::InsecureServerCredentials(), &port);
+      builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
       builder.RegisterService(dn_internal_service_.get());
       builder.RegisterService(dn_vectordb_service_.get());
       dn_server_ = builder.BuildAndStart();
@@ -232,16 +217,14 @@ class BackupRestoreIntegrationTest {
     {
       grpc::ServerBuilder builder;
       int port = 0;
-      builder.AddListeningPort("localhost:0",
-                                grpc::InsecureServerCredentials(), &port);
+      builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
       builder.RegisterService(proxy_service_.get());
       proxy_server_ = builder.BuildAndStart();
       REQUIRE_NE(proxy_server_, nullptr);
       proxy_address_ = "localhost:" + std::to_string(port);
     }
 
-    auto channel = grpc::CreateChannel(
-        proxy_address_, grpc::InsecureChannelCredentials());
+    auto channel = grpc::CreateChannel(proxy_address_, grpc::InsecureChannelCredentials());
     client_ = proto::VectorDBService::NewStub(channel);
   }
 
@@ -320,8 +303,7 @@ class BackupRestoreIntegrationTest {
   // Run a one-NN search for an inserted vector by id; returns the
   // top result's id (which should be the same as `expected_id` if the
   // vector is present and unique).
-  uint64_t SearchTopMatch(const std::string& name, uint32_t dim,
-                          uint64_t expected_id) {
+  uint64_t SearchTopMatch(const std::string& name, uint32_t dim, uint64_t expected_id) {
     proto::SearchRequest req;
     req.set_collection_name(name);
     req.set_top_k(1);
@@ -455,8 +437,7 @@ TEST_CASE_FIXTURE(BackupRestoreIntegrationTest,
   size_t sealed = 0;
   for (auto sid : dn_segment_store_->GetAllSegmentIds()) {
     auto* seg = dn_segment_store_->GetSegment(sid);
-    if (!seg || seg->GetState() != core::SegmentState::GROWING ||
-        seg->GetVectorCount() == 0) {
+    if (!seg || seg->GetState() != core::SegmentState::GROWING || seg->GetVectorCount() == 0) {
       continue;
     }
     core::IndexConfig config;
@@ -511,8 +492,7 @@ TEST_CASE_FIXTURE(BackupRestoreIntegrationTest,
     REQUIRE(s.ok());
     restore_id = resp.restore_id();
   }
-  REQUIRE_EQ(WaitForRestore(client_.get(), restore_id),
-             proto::BACKUP_COMPLETED);
+  REQUIRE_EQ(WaitForRestore(client_.get(), restore_id), proto::BACKUP_COMPLETED);
 
   // Search must work against the restored sealed segments: the segment
   // store rebuilds their indexes when they are installed.

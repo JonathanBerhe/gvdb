@@ -16,8 +16,7 @@
 namespace gvdb {
 namespace compute {
 
-QueryExecutor::QueryExecutor(storage::ISegmentStore& segment_store,
-                             common::ThreadPool* thread_pool,
+QueryExecutor::QueryExecutor(storage::ISegmentStore& segment_store, common::ThreadPool* thread_pool,
                              std::shared_ptr<compute::QueryCache> cache)
     : segment_store_(&segment_store), thread_pool_(thread_pool), cache_(std::move(cache)) {
   // Create thread pool if not provided
@@ -29,11 +28,9 @@ QueryExecutor::QueryExecutor(storage::ISegmentStore& segment_store,
 
 QueryExecutor::~QueryExecutor() = default;
 
-absl::StatusOr<core::SearchResult> QueryExecutor::Search(
-    core::CollectionId collection_id,
-    const core::Vector& query,
-    int top_k,
-    const std::string& filter) {
+absl::StatusOr<core::SearchResult> QueryExecutor::Search(core::CollectionId collection_id,
+                                                         const core::Vector& query, int top_k,
+                                                         const std::string& filter) {
   common::Timer timer;
 
   if (top_k <= 0) {
@@ -53,13 +50,13 @@ absl::StatusOr<core::SearchResult> QueryExecutor::Search(
 
   // Check cache
   if (cache_) {
-    auto cache_key = compute::MakeCacheKey(
-        collection_id, query.data(), query.dimension(), top_k, filter);
+    auto cache_key =
+        compute::MakeCacheKey(collection_id, query.data(), query.dimension(), top_k, filter);
     auto cached = cache_->Get(cache_key, core::ToUInt32(collection_id));
     if (cached.has_value()) {
-      common::Logger::Instance().Debug(
-          "Cache hit for collection {} (top_k={}, filter={})",
-          core::ToUInt32(collection_id), top_k, filter.empty() ? "none" : "yes");
+      common::Logger::Instance().Debug("Cache hit for collection {} (top_k={}, filter={})",
+                                       core::ToUInt32(collection_id), top_k,
+                                       filter.empty() ? "none" : "yes");
       return *cached;
     }
   }
@@ -89,16 +86,13 @@ absl::StatusOr<core::SearchResult> QueryExecutor::Search(
 
   if (result.ok()) {
     common::Logger::Instance().Debug(
-        "Search completed in {} us for collection {} (top_k={}, results={})",
-        timer.ElapsedMicros(),
-        core::ToUInt32(collection_id),
-        top_k,
-        result->entries.size());
+        "Search completed in {} us for collection {} (top_k={}, results={})", timer.ElapsedMicros(),
+        core::ToUInt32(collection_id), top_k, result->entries.size());
 
     // Store in cache
     if (cache_) {
-      auto cache_key = compute::MakeCacheKey(
-          collection_id, query.data(), query.dimension(), top_k, filter);
+      auto cache_key =
+          compute::MakeCacheKey(collection_id, query.data(), query.dimension(), top_k, filter);
       cache_->Put(cache_key, *result, core::ToUInt32(collection_id));
     }
   }
@@ -107,18 +101,16 @@ absl::StatusOr<core::SearchResult> QueryExecutor::Search(
 }
 
 core::SearchResult QueryExecutor::MergeResults(
-    const std::vector<core::SearchResult>& partial_results,
-    int top_k) {
+    const std::vector<core::SearchResult>& partial_results, int top_k) {
   // Use min-heap to efficiently maintain top-k results
   // We use std::greater to create a min-heap (smallest distance at top)
-  auto compare = [](const core::SearchResultEntry& a,
-                   const core::SearchResultEntry& b) {
+  auto compare = [](const core::SearchResultEntry& a, const core::SearchResultEntry& b) {
     return a.distance > b.distance;  // Min-heap based on distance
   };
 
-  std::priority_queue<core::SearchResultEntry,
-                     std::vector<core::SearchResultEntry>,
-                     decltype(compare)> min_heap(compare);
+  std::priority_queue<core::SearchResultEntry, std::vector<core::SearchResultEntry>,
+                      decltype(compare)>
+      min_heap(compare);
 
   // Process all partial results
   for (const auto& partial : partial_results) {

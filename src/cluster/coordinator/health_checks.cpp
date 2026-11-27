@@ -4,13 +4,13 @@
 // The health check loop: draining, new and failed data nodes, and the
 // replication check.
 
-#include "cluster/coordinator/coordinator.h"
-#include "common/logger.h"
-#include "common/metrics.h"
 #include <chrono>
 #include <mutex>
 #include <set>
 #include <thread>
+#include "cluster/coordinator/coordinator.h"
+#include "common/logger.h"
+#include "common/metrics.h"
 
 namespace gvdb {
 namespace cluster {
@@ -76,14 +76,12 @@ std::set<core::NodeId> Coordinator::KnownDataNodesForTesting() const {
   return known_data_nodes_;
 }
 
-std::optional<Coordinator::LastAutoRebalance>
-Coordinator::GetLastAutoRebalance() const {
+std::optional<Coordinator::LastAutoRebalance> Coordinator::GetLastAutoRebalance() const {
   std::lock_guard lock(rebalance_worker_mutex_);
   return last_auto_rebalance_;
 }
 
-bool Coordinator::WaitForAutoRebalanceIdleForTesting(
-    std::chrono::milliseconds timeout) {
+bool Coordinator::WaitForAutoRebalanceIdleForTesting(std::chrono::milliseconds timeout) {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   while (std::chrono::steady_clock::now() < deadline) {
     if (!rebalance_in_flight_.load(std::memory_order_acquire)) return true;
@@ -96,8 +94,8 @@ void Coordinator::DetectNewDataNodes() {
   // Lock ordering: NodeRegistry's own shared_mutex is acquired inside this
   // call and released before we take known_nodes_mutex_ below. Never hold
   // known_nodes_mutex_ while calling back into NodeRegistry.
-  auto data_nodes = node_registry_->GetHealthyNodesByType(
-      proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  auto data_nodes =
+      node_registry_->GetHealthyNodesByType(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
 
   std::vector<core::NodeId> newly_seen;
   bool within_debounce = false;
@@ -139,7 +137,8 @@ void Coordinator::DetectNewDataNodes() {
   if (within_debounce) {
     common::Logger::Instance().Info(
         "Auto-rebalance: new data node(s) [{}] seen; skipping rebalance "
-        "(within debounce window)", ids_str);
+        "(within debounce window)",
+        ids_str);
     common::MetricsRegistry::Instance().IncAutoRebalanceDebounced();
     return;
   }
@@ -148,18 +147,19 @@ void Coordinator::DetectNewDataNodes() {
   // running from a previous trigger, drop this one rather than spawn a
   // concurrent rebalance that would double-count moves and log noise.
   bool expected = false;
-  if (!rebalance_in_flight_.compare_exchange_strong(
-          expected, true, std::memory_order_acq_rel)) {
+  if (!rebalance_in_flight_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
     common::Logger::Instance().Info(
         "Auto-rebalance: previous worker still in flight; skipping "
-        "trigger for new node(s) [{}]", ids_str);
+        "trigger for new node(s) [{}]",
+        ids_str);
     common::MetricsRegistry::Instance().IncAutoRebalanceDebounced();
     return;
   }
 
   common::Logger::Instance().Info(
       "Auto-rebalance: new data node(s) [{}] joined; scheduling "
-      "ExecuteRebalancePlan", ids_str);
+      "ExecuteRebalancePlan",
+      ids_str);
   common::MetricsRegistry::Instance().IncAutoRebalanceTriggered();
 
   // Join any previous finished worker so we don't leak the thread handle.
@@ -177,10 +177,9 @@ void Coordinator::DetectNewDataNodes() {
       // operator's GVDBCluster.status.lastRebalance) don't have to
       // reconstruct it from a monotonic clock: a conversion that breaks
       // under NTP steps and silently drops data across process restarts.
-      snapshot.completed_unix_ms =
-          std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::system_clock::now().time_since_epoch())
-              .count();
+      snapshot.completed_unix_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now().time_since_epoch())
+                                       .count();
       if (result.ok()) {
         snapshot.status = absl::OkStatus();
         snapshot.moves = *result;
@@ -188,15 +187,12 @@ void Coordinator::DetectNewDataNodes() {
           common::Logger::Instance().Debug(
               "Auto-rebalance completed: 0 shards moved (already balanced)");
         } else {
-          common::Logger::Instance().Info(
-              "Auto-rebalance completed: {} shards moved", *result);
-          common::MetricsRegistry::Instance().AddAutoRebalanceMovesCompleted(
-              *result);
+          common::Logger::Instance().Info("Auto-rebalance completed: {} shards moved", *result);
+          common::MetricsRegistry::Instance().AddAutoRebalanceMovesCompleted(*result);
         }
       } else {
         snapshot.status = result.status();
-        common::Logger::Instance().Warn(
-            "Auto-rebalance failed: {}", result.status().message());
+        common::Logger::Instance().Warn("Auto-rebalance failed: {}", result.status().message());
         common::MetricsRegistry::Instance().IncAutoRebalanceFailures();
       }
       {
@@ -254,39 +250,33 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
         common::Logger::Instance().Warn(
             "Drain: no routable replica for shard {} on draining node {}; "
             "will retry next cycle",
-            core::ToUInt16(shard_info.shard_id),
-            core::ToUInt32(draining_node_id));
+            core::ToUInt16(shard_info.shard_id), core::ToUInt32(draining_node_id));
         continue;
       }
 
       // Primary swap goes through TransferPrimary so the draining node
       // stops accepting writes the moment we commit, instead of writing
       // to a node we've decided is going away.
-      auto status = TransferPrimary(shard_info.shard_id,
-                                     draining_node_id, new_primary);
+      auto status = TransferPrimary(shard_info.shard_id, draining_node_id, new_primary);
       if (status.ok()) {
         common::Logger::Instance().Info(
             "Drain: promoted replica {} to primary for shard {} "
             "(was on draining node {})",
-            core::ToUInt32(new_primary),
-            core::ToUInt16(shard_info.shard_id),
+            core::ToUInt32(new_primary), core::ToUInt16(shard_info.shard_id),
             core::ToUInt32(draining_node_id));
       } else {
         common::Logger::Instance().Warn(
             "Drain: TransferPrimary failed for shard {} ({}); will retry next cycle",
-            core::ToUInt16(shard_info.shard_id),
-            status.message());
+            core::ToUInt16(shard_info.shard_id), status.message());
       }
     } else {
       // Case 2: draining node is a REPLICA. Primary still serves this
       // shard, so we can drop the replica immediately.
-      auto status = shard_manager_->RemoveReplica(
-          shard_info.shard_id, draining_node_id);
+      auto status = shard_manager_->RemoveReplica(shard_info.shard_id, draining_node_id);
       if (status.ok()) {
-        common::Logger::Instance().Info(
-            "Drain: removed draining node {} as replica of shard {}",
-            core::ToUInt32(draining_node_id),
-            core::ToUInt16(shard_info.shard_id));
+        common::Logger::Instance().Info("Drain: removed draining node {} as replica of shard {}",
+                                        core::ToUInt32(draining_node_id),
+                                        core::ToUInt16(shard_info.shard_id));
       }
     }
   }
@@ -301,9 +291,8 @@ void Coordinator::HandleDrainingNode(core::NodeId draining_node_id) {
       std::lock_guard lock(known_nodes_mutex_);
       known_data_nodes_.erase(draining_node_id);
     }
-    common::Logger::Instance().Info(
-        "Drain: node {} fully drained, unregistered from shard manager",
-        core::ToUInt32(draining_node_id));
+    common::Logger::Instance().Info("Drain: node {} fully drained, unregistered from shard manager",
+                                    core::ToUInt32(draining_node_id));
   }
 }
 
@@ -335,7 +324,10 @@ void Coordinator::CheckReplication() {
           bool already_replica = false;
           if (replicas_result.ok()) {
             for (const auto& r : *replicas_result) {
-              if (r == node.node_id) { already_replica = true; break; }
+              if (r == node.node_id) {
+                already_replica = true;
+                break;
+              }
             }
           }
           if (already_replica) continue;
@@ -344,15 +336,15 @@ void Coordinator::CheckReplication() {
           core::SegmentId seg_id = core::ShardSegmentId(coll_id, i);
           lock.unlock();  // Release lock during RPC
           auto status = ReplicateSegmentData(seg_id, *primary_result, node.node_id);
-          lock.lock();    // Re-acquire (collections_ may have changed, but that's OK for a best-effort check)
+          lock.lock();  // Re-acquire (collections_ may have changed, but that's OK for a
+                        // best-effort check)
 
           if (status.ok()) {
             (void)shard_manager_->AddReplica(shard_id, node.node_id);
             assignments_changed = true;
-            common::Logger::Instance().Info(
-                "Auto-replicated shard {} (segment {}) to node {}",
-                core::ToUInt16(shard_id), core::ToUInt32(seg_id),
-                core::ToUInt32(node.node_id));
+            common::Logger::Instance().Info("Auto-replicated shard {} (segment {}) to node {}",
+                                            core::ToUInt16(shard_id), core::ToUInt32(seg_id),
+                                            core::ToUInt32(node.node_id));
           }
           break;  // One replication per check cycle per shard
         }
@@ -403,8 +395,7 @@ void Coordinator::HandleFailedNode(core::NodeId failed_node_id) {
         // TransferPrimary skips PausePrimary on the dead node (calling
         // it would block forever on UNAVAILABLE) and just bumps the
         // term on the new primary before committing.
-        auto status = TransferPrimary(shard_info.shard_id,
-                                       core::kInvalidNodeId, new_primary);
+        auto status = TransferPrimary(shard_info.shard_id, core::kInvalidNodeId, new_primary);
         if (status.ok()) {
           common::Logger::Instance().Info(
               "Promoted node {} to primary for shard {} (was on failed node {})",

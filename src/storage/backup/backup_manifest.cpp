@@ -38,22 +38,19 @@ using common::json::SplitObjects;
 std::string CollectionToJson(const BackupCollectionMeta& c) {
   std::ostringstream ss;
   ss << "{"
-     << "\"collection_id\":" << c.collection_id
-     << ",\"collection_name\":\"" << EscapeJson(c.collection_name) << "\""
-     << ",\"dimension\":" << c.dimension
-     << ",\"metric\":" << c.metric
-     << ",\"index_type\":" << c.index_type
-     << ",\"num_shards\":" << c.num_shards
-     << ",\"replication_factor\":" << c.replication_factor
-     << "}";
+     << "\"collection_id\":" << c.collection_id << ",\"collection_name\":\""
+     << EscapeJson(c.collection_name) << "\""
+     << ",\"dimension\":" << c.dimension << ",\"metric\":" << c.metric
+     << ",\"index_type\":" << c.index_type << ",\"num_shards\":" << c.num_shards
+     << ",\"replication_factor\":" << c.replication_factor << "}";
   return ss.str();
 }
 
 std::string ShardRefToJson(const BackupShardRef& s) {
   std::ostringstream ss;
   ss << "{"
-     << "\"shard_id\":" << s.shard_id
-     << ",\"manifest_key\":\"" << EscapeJson(s.manifest_key) << "\""
+     << "\"shard_id\":" << s.shard_id << ",\"manifest_key\":\"" << EscapeJson(s.manifest_key)
+     << "\""
      << "}";
   return ss.str();
 }
@@ -63,18 +60,15 @@ std::string FileToJson(const ShardBackupFile& f) {
   ss << "{"
      << "\"name\":\"" << EscapeJson(f.name) << "\""
      << ",\"key\":\"" << EscapeJson(f.key) << "\""
-     << ",\"size\":" << f.size
-     << "}";
+     << ",\"size\":" << f.size << "}";
   return ss.str();
 }
 
 std::string SegmentToJson(const ShardBackupSegment& s) {
   std::ostringstream ss;
   ss << "{"
-     << "\"segment_id\":" << s.segment_id
-     << ",\"state\":\"" << EscapeJson(s.state) << "\""
-     << ",\"vector_count\":" << s.vector_count
-     << ",\"size_bytes\":" << s.size_bytes
+     << "\"segment_id\":" << s.segment_id << ",\"state\":\"" << EscapeJson(s.state) << "\""
+     << ",\"vector_count\":" << s.vector_count << ",\"size_bytes\":" << s.size_bytes
      << ",\"files\":[";
   for (size_t i = 0; i < s.files.size(); ++i) {
     if (i > 0) ss << ",";
@@ -88,18 +82,15 @@ std::string SegmentToJson(const ShardBackupSegment& s) {
 // Object readers
 // ============================================================================
 
-absl::StatusOr<BackupCollectionMeta> ParseCollectionMeta(
-    const std::string& json) {
+absl::StatusOr<BackupCollectionMeta> ParseCollectionMeta(const std::string& json) {
   BackupCollectionMeta c;
   if (!ParseUint32(json, "collection_id", c.collection_id) ||
       !ParseString(json, "collection_name", c.collection_name) ||
-      !ParseInt32(json, "dimension", c.dimension) ||
-      !ParseInt32(json, "metric", c.metric) ||
+      !ParseInt32(json, "dimension", c.dimension) || !ParseInt32(json, "metric", c.metric) ||
       !ParseInt32(json, "index_type", c.index_type) ||
       !ParseUint32(json, "num_shards", c.num_shards) ||
       !ParseUint32(json, "replication_factor", c.replication_factor)) {
-    return absl::InvalidArgumentError(
-        "Failed to parse backup manifest collection metadata");
+    return absl::InvalidArgumentError("Failed to parse backup manifest collection metadata");
   }
   return c;
 }
@@ -108,31 +99,26 @@ absl::StatusOr<BackupShardRef> ParseShardRef(const std::string& json) {
   BackupShardRef s;
   if (!ParseUint32(json, "shard_id", s.shard_id) ||
       !ParseString(json, "manifest_key", s.manifest_key)) {
-    return absl::InvalidArgumentError(
-        "Failed to parse backup manifest shard reference");
+    return absl::InvalidArgumentError("Failed to parse backup manifest shard reference");
   }
   return s;
 }
 
 absl::StatusOr<ShardBackupFile> ParseFile(const std::string& json) {
   ShardBackupFile f;
-  if (!ParseString(json, "name", f.name) ||
-      !ParseString(json, "key", f.key) ||
+  if (!ParseString(json, "name", f.name) || !ParseString(json, "key", f.key) ||
       !ParseUint64(json, "size", f.size)) {
-    return absl::InvalidArgumentError(
-        "Failed to parse shard manifest file entry");
+    return absl::InvalidArgumentError("Failed to parse shard manifest file entry");
   }
   return f;
 }
 
 absl::StatusOr<ShardBackupSegment> ParseSegment(const std::string& json) {
   ShardBackupSegment s;
-  if (!ParseUint64(json, "segment_id", s.segment_id) ||
-      !ParseString(json, "state", s.state) ||
+  if (!ParseUint64(json, "segment_id", s.segment_id) || !ParseString(json, "state", s.state) ||
       !ParseUint64(json, "vector_count", s.vector_count) ||
       !ParseUint64(json, "size_bytes", s.size_bytes)) {
-    return absl::InvalidArgumentError(
-        "Failed to parse shard manifest segment entry");
+    return absl::InvalidArgumentError("Failed to parse shard manifest segment entry");
   }
   auto files_body = ExtractArrayBody(json, "files");
   if (files_body.empty()) {
@@ -156,13 +142,11 @@ absl::StatusOr<ShardBackupSegment> ParseSegment(const std::string& json) {
 std::string BackupManifest::SerializeTop(const BackupManifestV1& m) {
   std::ostringstream ss;
   ss << "{"
-     << "\"manifest_version\":" << m.manifest_version
-     << ",\"backup_id\":\"" << EscapeJson(m.backup_id) << "\""
+     << "\"manifest_version\":" << m.manifest_version << ",\"backup_id\":\""
+     << EscapeJson(m.backup_id) << "\""
      << ",\"collection\":" << CollectionToJson(m.collection)
-     << ",\"created_at_unix_ms\":" << m.created_at_unix_ms
-     << ",\"vector_count\":" << m.vector_count
-     << ",\"size_bytes\":" << m.size_bytes
-     << ",\"shards\":[";
+     << ",\"created_at_unix_ms\":" << m.created_at_unix_ms << ",\"vector_count\":" << m.vector_count
+     << ",\"size_bytes\":" << m.size_bytes << ",\"shards\":[";
   for (size_t i = 0; i < m.shards.size(); ++i) {
     if (i > 0) ss << ",";
     ss << ShardRefToJson(m.shards[i]);
@@ -174,19 +158,17 @@ std::string BackupManifest::SerializeTop(const BackupManifestV1& m) {
   return ss.str();
 }
 
-absl::StatusOr<BackupManifestV1> BackupManifest::DeserializeTop(
-    const std::string& json) {
+absl::StatusOr<BackupManifestV1> BackupManifest::DeserializeTop(const std::string& json) {
   if (json.empty()) {
     return absl::InvalidArgumentError("Empty backup manifest");
   }
   BackupManifestV1 m;
   if (!ParseUint32(json, "manifest_version", m.manifest_version)) {
-    return absl::InvalidArgumentError(
-        "Backup manifest missing 'manifest_version'");
+    return absl::InvalidArgumentError("Backup manifest missing 'manifest_version'");
   }
   if (m.manifest_version != 1) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "Unsupported backup manifest version: ", m.manifest_version));
+    return absl::InvalidArgumentError(
+        absl::StrCat("Unsupported backup manifest version: ", m.manifest_version));
   }
   if (!ParseString(json, "backup_id", m.backup_id)) {
     return absl::InvalidArgumentError("Backup manifest missing 'backup_id'");
@@ -197,8 +179,7 @@ absl::StatusOr<BackupManifestV1> BackupManifest::DeserializeTop(
   std::string coll_needle = "\"collection\":{";
   auto coll_pos = json.find(coll_needle);
   if (coll_pos == std::string::npos) {
-    return absl::InvalidArgumentError(
-        "Backup manifest missing 'collection' object");
+    return absl::InvalidArgumentError("Backup manifest missing 'collection' object");
   }
   size_t coll_start = coll_pos + coll_needle.size() - 1;  // at '{'
   int curly = 0;
@@ -208,36 +189,42 @@ absl::StatusOr<BackupManifestV1> BackupManifest::DeserializeTop(
   for (size_t i = coll_start; i < json.size(); ++i) {
     char c = json[i];
     if (in_string) {
-      if (escape) { escape = false; }
-      else if (c == '\\') { escape = true; }
-      else if (c == '"') { in_string = false; }
+      if (escape) {
+        escape = false;
+      } else if (c == '\\') {
+        escape = true;
+      } else if (c == '"') {
+        in_string = false;
+      }
       continue;
     }
-    if (c == '"') { in_string = true; }
-    else if (c == '{') { ++curly; }
-    else if (c == '}') {
+    if (c == '"') {
+      in_string = true;
+    } else if (c == '{') {
+      ++curly;
+    } else if (c == '}') {
       --curly;
-      if (curly == 0) { coll_end = i; break; }
+      if (curly == 0) {
+        coll_end = i;
+        break;
+      }
     }
   }
   if (coll_end == std::string::npos) {
     return absl::InvalidArgumentError("Malformed 'collection' object");
   }
-  auto coll = ParseCollectionMeta(
-      json.substr(coll_start, coll_end - coll_start + 1));
+  auto coll = ParseCollectionMeta(json.substr(coll_start, coll_end - coll_start + 1));
   if (!coll.ok()) return coll.status();
   m.collection = std::move(*coll);
 
   if (!ParseInt64(json, "created_at_unix_ms", m.created_at_unix_ms) ||
       !ParseUint64(json, "vector_count", m.vector_count) ||
       !ParseUint64(json, "size_bytes", m.size_bytes)) {
-    return absl::InvalidArgumentError(
-        "Backup manifest missing required numeric fields");
+    return absl::InvalidArgumentError("Backup manifest missing required numeric fields");
   }
   auto shards_body = ExtractArrayBody(json, "shards");
   if (shards_body.empty()) {
-    return absl::InvalidArgumentError(
-        "Backup manifest missing 'shards' array");
+    return absl::InvalidArgumentError("Backup manifest missing 'shards' array");
   }
   for (const auto& obj : SplitObjects(shards_body)) {
     auto s = ParseShardRef(obj);
@@ -256,11 +243,8 @@ absl::StatusOr<BackupManifestV1> BackupManifest::DeserializeTop(
 std::string BackupManifest::SerializeShard(const ShardManifestV1& m) {
   std::ostringstream ss;
   ss << "{"
-     << "\"manifest_version\":" << m.manifest_version
-     << ",\"shard_id\":" << m.shard_id
-     << ",\"node_id\":" << m.node_id
-     << ",\"primary_term\":" << m.primary_term
-     << ",\"segments\":[";
+     << "\"manifest_version\":" << m.manifest_version << ",\"shard_id\":" << m.shard_id
+     << ",\"node_id\":" << m.node_id << ",\"primary_term\":" << m.primary_term << ",\"segments\":[";
   for (size_t i = 0; i < m.segments.size(); ++i) {
     if (i > 0) ss << ",";
     ss << SegmentToJson(m.segments[i]);
@@ -269,30 +253,25 @@ std::string BackupManifest::SerializeShard(const ShardManifestV1& m) {
   return ss.str();
 }
 
-absl::StatusOr<ShardManifestV1> BackupManifest::DeserializeShard(
-    const std::string& json) {
+absl::StatusOr<ShardManifestV1> BackupManifest::DeserializeShard(const std::string& json) {
   if (json.empty()) {
     return absl::InvalidArgumentError("Empty shard manifest");
   }
   ShardManifestV1 m;
   if (!ParseUint32(json, "manifest_version", m.manifest_version)) {
-    return absl::InvalidArgumentError(
-        "Shard manifest missing 'manifest_version'");
+    return absl::InvalidArgumentError("Shard manifest missing 'manifest_version'");
   }
   if (m.manifest_version != 1) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "Unsupported shard manifest version: ", m.manifest_version));
-  }
-  if (!ParseUint32(json, "shard_id", m.shard_id) ||
-      !ParseUint32(json, "node_id", m.node_id) ||
-      !ParseUint64(json, "primary_term", m.primary_term)) {
     return absl::InvalidArgumentError(
-        "Shard manifest missing required numeric fields");
+        absl::StrCat("Unsupported shard manifest version: ", m.manifest_version));
+  }
+  if (!ParseUint32(json, "shard_id", m.shard_id) || !ParseUint32(json, "node_id", m.node_id) ||
+      !ParseUint64(json, "primary_term", m.primary_term)) {
+    return absl::InvalidArgumentError("Shard manifest missing required numeric fields");
   }
   auto segments_body = ExtractArrayBody(json, "segments");
   if (segments_body.empty()) {
-    return absl::InvalidArgumentError(
-        "Shard manifest missing 'segments' array");
+    return absl::InvalidArgumentError("Shard manifest missing 'segments' array");
   }
   for (const auto& obj : SplitObjects(segments_body)) {
     auto s = ParseSegment(obj);
@@ -314,18 +293,14 @@ std::string BackupManifest::TopManifestKey(const std::string& backup_id) {
   return absl::StrCat(BackupRootPrefix(backup_id), "/backup.manifest.json");
 }
 
-std::string BackupManifest::ShardManifestKey(const std::string& backup_id,
-                                             uint32_t shard_id) {
-  return absl::StrCat(BackupRootPrefix(backup_id), "/shards/", shard_id,
-                      "/shard.manifest.json");
+std::string BackupManifest::ShardManifestKey(const std::string& backup_id, uint32_t shard_id) {
+  return absl::StrCat(BackupRootPrefix(backup_id), "/shards/", shard_id, "/shard.manifest.json");
 }
 
-std::string BackupManifest::SegmentFileKey(const std::string& backup_id,
-                                           uint32_t shard_id,
-                                           uint64_t segment_id,
-                                           const std::string& filename) {
-  return absl::StrCat(BackupRootPrefix(backup_id), "/shards/", shard_id,
-                      "/segments/", segment_id, "/", filename);
+std::string BackupManifest::SegmentFileKey(const std::string& backup_id, uint32_t shard_id,
+                                           uint64_t segment_id, const std::string& filename) {
+  return absl::StrCat(BackupRootPrefix(backup_id), "/shards/", shard_id, "/segments/", segment_id,
+                      "/", filename);
 }
 
 }  // namespace storage

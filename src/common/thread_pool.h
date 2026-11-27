@@ -36,8 +36,7 @@ class ThreadPool {
   // Enqueue a task for execution
   // Returns a future that will contain the result
   template <typename F, typename... Args>
-  auto Enqueue(F&& f, Args&&... args)
-      -> std::future<typename std::invoke_result<F, Args...>::type>;
+  auto Enqueue(F&& f, Args&&... args) -> std::future<typename std::invoke_result<F, Args...>::type>;
 
   // Get number of worker threads
   [[nodiscard]] size_t size() const noexcept { return workers_.size(); }
@@ -87,4 +86,3 @@ auto ThreadPool::Enqueue(F&& f, Args&&... args)
 
 }  // namespace common
 }  // namespace gvdb
-

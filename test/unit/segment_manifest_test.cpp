@@ -10,15 +10,14 @@ namespace storage {
 namespace {
 
 ManifestEntry MakeEntry(uint32_t seg_id, uint32_t col_id, uint64_t count) {
-  return ManifestEntry{
-      .segment_id = seg_id,
-      .collection_id = col_id,
-      .dimension = 128,
-      .metric = 2,
-      .index_type = 1,
-      .vector_count = count,
-      .size_bytes = count * 128 * 4,
-      .uploaded_at = "2026-04-10T12:00:00Z"};
+  return ManifestEntry{.segment_id = seg_id,
+                       .collection_id = col_id,
+                       .dimension = 128,
+                       .metric = 2,
+                       .index_type = 1,
+                       .vector_count = count,
+                       .size_bytes = count * 128 * 4,
+                       .uploaded_at = "2026-04-10T12:00:00Z"};
 }
 
 TEST_CASE("SerializeEmpty") {

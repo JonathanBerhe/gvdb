@@ -45,29 +45,23 @@ class S3ObjectStore : public IObjectStore {
 
   ~S3ObjectStore() override;
 
-  absl::Status PutObject(
-      const std::string& key, const std::string& data) override;
+  absl::Status PutObject(const std::string& key, const std::string& data) override;
 
   absl::StatusOr<std::string> GetObject(const std::string& key) override;
 
   absl::Status DeleteObject(const std::string& key) override;
 
-  absl::StatusOr<std::vector<std::string>> ListObjects(
-      const std::string& prefix) override;
+  absl::StatusOr<std::vector<std::string>> ListObjects(const std::string& prefix) override;
 
   absl::StatusOr<bool> ObjectExists(const std::string& key) override;
 
-  absl::Status PutObjectFromFile(
-      const std::string& key,
-      const std::string& local_file_path) override;
+  absl::Status PutObjectFromFile(const std::string& key,
+                                 const std::string& local_file_path) override;
 
-  absl::Status GetObjectToFile(
-      const std::string& key,
-      const std::string& local_file_path) override;
+  absl::Status GetObjectToFile(const std::string& key, const std::string& local_file_path) override;
 
  private:
-  S3ObjectStore(std::shared_ptr<Aws::S3::S3Client> client,
-                const std::string& bucket);
+  S3ObjectStore(std::shared_ptr<Aws::S3::S3Client> client, const std::string& bucket);
 
   std::shared_ptr<Aws::S3::S3Client> client_;
   std::string bucket_;

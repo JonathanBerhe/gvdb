@@ -15,9 +15,9 @@ namespace storage {
 
 // Parsed header from a NumPy .npy file.
 struct NpyHeader {
-  size_t num_vectors;   // Number of rows (first dimension of shape)
-  size_t dimension;     // Vector dimension (second dimension of shape)
-  size_t data_offset;   // Byte offset where float32 data begins
+  size_t num_vectors;  // Number of rows (first dimension of shape)
+  size_t dimension;    // Vector dimension (second dimension of shape)
+  size_t data_offset;  // Byte offset where float32 data begins
 };
 
 // Reads NumPy .npy files containing 2D float32 arrays.
@@ -34,18 +34,15 @@ struct NpyHeader {
 class NpyReader {
  public:
   // Parse the header of a .npy file. Returns vector count and dimension.
-  [[nodiscard]] static absl::StatusOr<NpyHeader> ReadHeader(
-      const std::string& file_path);
+  [[nodiscard]] static absl::StatusOr<NpyHeader> ReadHeader(const std::string& file_path);
 
   // Read a chunk of vectors from [start_row, start_row + count).
   // Generates sequential VectorIds starting from start_id.
   // count is clamped to available rows.
-  [[nodiscard]] static absl::StatusOr<
-      std::vector<std::pair<core::VectorId, core::Vector>>>
-  ReadChunk(const std::string& file_path, const NpyHeader& header,
-            size_t start_row, size_t count, uint64_t start_id);
+  [[nodiscard]] static absl::StatusOr<std::vector<std::pair<core::VectorId, core::Vector>>>
+  ReadChunk(const std::string& file_path, const NpyHeader& header, size_t start_row, size_t count,
+            uint64_t start_id);
 };
 
 }  // namespace storage
 }  // namespace gvdb
-

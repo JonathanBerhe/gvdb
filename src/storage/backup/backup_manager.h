@@ -83,7 +83,7 @@ struct BackupJobStatus {
 // segment N lives under <flushed_segments_root>/segment_N/.
 struct BackupManagerOptions {
   IObjectStore* default_object_store = nullptr;
-  std::string s3_bucket;            // server's configured bucket (for validation)
+  std::string s3_bucket;  // server's configured bucket (for validation)
   std::string local_root_allowlist;
   std::string flushed_segments_root;
   std::string tmp_dir = "/tmp/gvdb-backup";
@@ -129,18 +129,11 @@ class BackupManager {
   // a job for the same id already exists in PENDING/RUNNING/COMPLETED
   // state, the existing id is returned.
   [[nodiscard]] absl::StatusOr<std::string> StartBackupSingleShard(
-      const std::string& collection_name,
-      core::CollectionId collection_id,
-      core::Dimension dimension,
-      core::MetricType metric,
-      core::IndexType index_type,
-      uint32_t num_shards,
-      uint32_t replication_factor,
-      core::ShardId shard_id,
-      uint64_t primary_term,
-      const BackupTarget& target,
-      std::shared_ptr<ISegmentStore> segment_store,
-      const std::string& requested_backup_id = "");
+      const std::string& collection_name, core::CollectionId collection_id,
+      core::Dimension dimension, core::MetricType metric, core::IndexType index_type,
+      uint32_t num_shards, uint32_t replication_factor, core::ShardId shard_id,
+      uint64_t primary_term, const BackupTarget& target,
+      std::shared_ptr<ISegmentStore> segment_store, const std::string& requested_backup_id = "");
 
   // Per-shard executor used by the multi-shard orchestration path. The
   // caller (Coordinator) supplies a callable that runs the equivalent
@@ -148,8 +141,8 @@ class BackupManager {
   // and returns the per-shard result. The manager handles job tracking,
   // sequencing across shards, top-manifest write, and cleanup-on-failure.
   using ShardBackupExecutor = std::function<absl::StatusOr<ShardBackupResult>(
-      const std::string& backup_id, core::ShardId shard_id,
-      uint64_t primary_term, const BackupTarget& target)>;
+      const std::string& backup_id, core::ShardId shard_id, uint64_t primary_term,
+      const BackupTarget& target)>;
 
   // Schedule a distributed (multi-shard) backup asynchronously. Each
   // shard's primary is called via `executor` in sequence; on failure
@@ -157,20 +150,14 @@ class BackupManager {
   // top-level manifest is written ONLY after every shard succeeds,
   // so a restore that cannot find it treats the backup as nonexistent.
   [[nodiscard]] absl::StatusOr<std::string> StartBackupDistributed(
-      const std::string& collection_name,
-      core::CollectionId collection_id,
-      core::Dimension dimension,
-      core::MetricType metric,
-      core::IndexType index_type,
-      uint32_t replication_factor,
-      const std::vector<core::ShardId>& shard_ids,
+      const std::string& collection_name, core::CollectionId collection_id,
+      core::Dimension dimension, core::MetricType metric, core::IndexType index_type,
+      uint32_t replication_factor, const std::vector<core::ShardId>& shard_ids,
       const std::vector<uint64_t>& primary_terms,  // parallel to shard_ids
-      const BackupTarget& target,
-      ShardBackupExecutor executor,
+      const BackupTarget& target, ShardBackupExecutor executor,
       const std::string& requested_backup_id = "");
 
-  [[nodiscard]] absl::StatusOr<BackupJobStatus> GetStatus(
-      const std::string& backup_id) const;
+  [[nodiscard]] absl::StatusOr<BackupJobStatus> GetStatus(const std::string& backup_id) const;
 
   [[nodiscard]] absl::Status Cancel(const std::string& backup_id);
 
@@ -180,11 +167,8 @@ class BackupManager {
   // a per-shard manifest, and returns the manifest's object key. Does
   // NOT write the top-level manifest.
   [[nodiscard]] absl::StatusOr<ShardBackupResult> RunShardBackup(
-      const std::string& backup_id,
-      core::CollectionId collection_id,
-      core::ShardId shard_id,
-      uint64_t primary_term,
-      const BackupTarget& target,
+      const std::string& backup_id, core::CollectionId collection_id, core::ShardId shard_id,
+      uint64_t primary_term, const BackupTarget& target,
       std::shared_ptr<ISegmentStore> segment_store);
 
   // Test helper: list all known job ids (deterministic order).
@@ -199,47 +183,31 @@ class BackupManager {
     std::unique_ptr<IObjectStore> owned;
     std::string display_prefix;  // e.g. "s3://bucket/prefix" or "file:///path"
   };
-  [[nodiscard]] absl::StatusOr<ResolvedTarget> ResolveTarget(
-      const BackupTarget& target);
+  [[nodiscard]] absl::StatusOr<ResolvedTarget> ResolveTarget(const BackupTarget& target);
 
-  void ExecuteSingleShardJob(std::shared_ptr<BackupJob> job,
-                             core::Dimension dimension,
-                             core::MetricType metric,
-                             core::IndexType index_type,
-                             uint32_t num_shards,
-                             uint32_t replication_factor,
-                             core::ShardId shard_id,
-                             uint64_t primary_term,
+  void ExecuteSingleShardJob(std::shared_ptr<BackupJob> job, core::Dimension dimension,
+                             core::MetricType metric, core::IndexType index_type,
+                             uint32_t num_shards, uint32_t replication_factor,
+                             core::ShardId shard_id, uint64_t primary_term,
                              std::shared_ptr<ISegmentStore> segment_store);
 
-  void ExecuteDistributedJob(
-      std::shared_ptr<BackupJob> job,
-      core::Dimension dimension,
-      core::MetricType metric,
-      core::IndexType index_type,
-      uint32_t replication_factor,
-      std::vector<core::ShardId> shard_ids,
-      std::vector<uint64_t> primary_terms,
-      ShardBackupExecutor executor);
+  void ExecuteDistributedJob(std::shared_ptr<BackupJob> job, core::Dimension dimension,
+                             core::MetricType metric, core::IndexType index_type,
+                             uint32_t replication_factor, std::vector<core::ShardId> shard_ids,
+                             std::vector<uint64_t> primary_terms, ShardBackupExecutor executor);
 
   // Write the top-level manifest after every shard succeeded. Shared by
   // both single- and multi-shard paths. Sets `job->manifest_uri` and
   // returns OK on success; on failure the partial upload is cleaned up
   // and the job is marked FAILED.
-  absl::Status FinalizeTopManifest(
-      std::shared_ptr<BackupJob> job,
-      const ResolvedTarget& rt,
-      core::Dimension dimension,
-      core::MetricType metric,
-      core::IndexType index_type,
-      uint32_t num_shards,
-      uint32_t replication_factor,
-      const std::vector<BackupShardRef>& shard_refs,
-      uint64_t vector_count,
-      uint64_t size_bytes);
+  absl::Status FinalizeTopManifest(std::shared_ptr<BackupJob> job, const ResolvedTarget& rt,
+                                   core::Dimension dimension, core::MetricType metric,
+                                   core::IndexType index_type, uint32_t num_shards,
+                                   uint32_t replication_factor,
+                                   const std::vector<BackupShardRef>& shard_refs,
+                                   uint64_t vector_count, uint64_t size_bytes);
 
-  void CleanupOnFailure(const ResolvedTarget& target,
-                        const std::string& backup_id);
+  void CleanupOnFailure(const ResolvedTarget& target, const std::string& backup_id);
 
   static std::string AllocateBackupId();
 

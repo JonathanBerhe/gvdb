@@ -9,21 +9,18 @@
 namespace gvdb {
 namespace index {
 
-FaissHNSWIndex::FaissHNSWIndex(core::Dimension dimension,
-                               core::MetricType metric, int M,
+FaissHNSWIndex::FaissHNSWIndex(core::Dimension dimension, core::MetricType metric, int M,
                                int ef_construction, int ef_search)
-    : FaissIndexBase(CreateHNSWIndex(dimension, metric, M, ef_construction),
-                     metric),
+    : FaissIndexBase(CreateHNSWIndex(dimension, metric, M, ef_construction), metric),
       ef_search_(ef_search) {
   SetEfSearch(ef_search);
 }
 
-std::unique_ptr<faiss::Index> FaissHNSWIndex::CreateHNSWIndex(
-    core::Dimension dimension, core::MetricType metric, int M,
-    int ef_construction) {
-  faiss::MetricType faiss_metric = (metric == core::MetricType::INNER_PRODUCT)
-                                       ? faiss::METRIC_INNER_PRODUCT
-                                       : faiss::METRIC_L2;
+std::unique_ptr<faiss::Index> FaissHNSWIndex::CreateHNSWIndex(core::Dimension dimension,
+                                                              core::MetricType metric, int M,
+                                                              int ef_construction) {
+  faiss::MetricType faiss_metric =
+      (metric == core::MetricType::INNER_PRODUCT) ? faiss::METRIC_INNER_PRODUCT : faiss::METRIC_L2;
 
   auto hnsw_index = new faiss::IndexHNSWFlat(dimension, M, faiss_metric);
   hnsw_index->hnsw.efConstruction = ef_construction;
@@ -57,9 +54,7 @@ int FaissHNSWIndex::GetEfSearch() const {
   return -1;
 }
 
-core::IndexType FaissHNSWIndex::GetIndexType() const {
-  return core::IndexType::HNSW;
-}
+core::IndexType FaissHNSWIndex::GetIndexType() const { return core::IndexType::HNSW; }
 
 }  // namespace index
 }  // namespace gvdb

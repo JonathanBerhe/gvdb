@@ -4,16 +4,16 @@
 // BackupManager: single-shard and distributed backups.
 
 #include "storage/backup/backup_manager.h"
-#include "core/status.h"
 #include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <filesystem>
 #include <system_error>
 #include "absl/strings/str_cat.h"
-#include "storage/objstore/filesystem_object_store.h"
-#include "storage/backup/segment_export.h"
+#include "core/status.h"
 #include "storage/backup/backup_util.h"
+#include "storage/backup/segment_export.h"
+#include "storage/objstore/filesystem_object_store.h"
 
 namespace gvdb {
 namespace storage {
@@ -32,8 +32,7 @@ int64_t UnixMillisNow() {
 // BackupManager
 // ============================================================================
 
-BackupManager::BackupManager(BackupManagerOptions opts)
-    : opts_(std::move(opts)) {
+BackupManager::BackupManager(BackupManagerOptions opts) : opts_(std::move(opts)) {
   pool_ = std::make_unique<common::ThreadPool>(
       static_cast<size_t>(std::max(1, opts_.max_concurrent_jobs)));
   std::error_code ec;
@@ -47,8 +46,7 @@ std::string BackupManager::AllocateBackupId() {
 absl::StatusOr<BackupManager::ResolvedTarget> BackupManager::ResolveTarget(
     const BackupTarget& target) {
   if (std::holds_alternative<std::monostate>(target)) {
-    return absl::InvalidArgumentError(
-        "BackupTarget is unset (must select S3 or Local)");
+    return absl::InvalidArgumentError("BackupTarget is unset (must select S3 or Local)");
   }
   if (auto* s3 = std::get_if<S3BackupTarget>(&target)) {
     if (!opts_.default_object_store) {
@@ -57,16 +55,14 @@ absl::StatusOr<BackupManager::ResolvedTarget> BackupManager::ResolveTarget(
           "use a LocalBackupTarget or rebuild with -DGVDB_WITH_S3=ON");
     }
     if (!opts_.s3_bucket.empty() && s3->bucket != opts_.s3_bucket) {
-      return absl::InvalidArgumentError(absl::StrCat(
-          "Requested S3 bucket '", s3->bucket,
-          "' does not match server-configured bucket '", opts_.s3_bucket,
-          "'"));
+      return absl::InvalidArgumentError(absl::StrCat("Requested S3 bucket '", s3->bucket,
+                                                     "' does not match server-configured bucket '",
+                                                     opts_.s3_bucket, "'"));
     }
     ResolvedTarget r;
     r.store = opts_.default_object_store;
     r.display_prefix =
-        absl::StrCat("s3://", s3->bucket,
-                     s3->prefix.empty() ? "" : absl::StrCat("/", s3->prefix));
+        absl::StrCat("s3://", s3->bucket, s3->prefix.empty() ? "" : absl::StrCat("/", s3->prefix));
     return r;
   }
   if (auto* loc = std::get_if<LocalBackupTarget>(&target)) {
@@ -76,8 +72,7 @@ absl::StatusOr<BackupManager::ResolvedTarget> BackupManager::ResolveTarget(
     }
     if (!PathUnderRoot(opts_.local_root_allowlist, loc->path)) {
       return absl::InvalidArgumentError(absl::StrCat(
-          "LocalBackupTarget path '", loc->path,
-          "' is not under the configured allowlist root '",
+          "LocalBackupTarget path '", loc->path, "' is not under the configured allowlist root '",
           opts_.local_root_allowlist, "'"));
     }
     auto store_or = FilesystemObjectStore::Create(loc->path);
@@ -94,11 +89,8 @@ absl::StatusOr<BackupManager::ResolvedTarget> BackupManager::ResolveTarget(
 // Per-shard executor: pure synchronous logic. Iterates the collection's
 // segments on this node, uploads each, and writes the per-shard manifest.
 absl::StatusOr<ShardBackupResult> BackupManager::RunShardBackup(
-    const std::string& backup_id,
-    core::CollectionId collection_id,
-    core::ShardId shard_id,
-    uint64_t primary_term,
-    const BackupTarget& target,
+    const std::string& backup_id, core::CollectionId collection_id, core::ShardId shard_id,
+    uint64_t primary_term, const BackupTarget& target,
     std::shared_ptr<ISegmentStore> segment_store) {
   if (backup_id.empty()) {
     return absl::InvalidArgumentError("backup_id is required");
@@ -127,17 +119,15 @@ absl::StatusOr<ShardBackupResult> BackupManager::RunShardBackup(
 
   auto segment_ids = segment_store->GetCollectionSegments(collection_id);
   // Sort for deterministic manifest ordering: tests rely on it.
-  std::sort(segment_ids.begin(), segment_ids.end(),
-            [](core::SegmentId a, core::SegmentId b) {
-              return core::ToUInt32(a) < core::ToUInt32(b);
-            });
+  std::sort(segment_ids.begin(), segment_ids.end(), [](core::SegmentId a, core::SegmentId b) {
+    return core::ToUInt32(a) < core::ToUInt32(b);
+  });
 
   for (auto seg_id : segment_ids) {
     Segment* seg = segment_store->GetSegment(seg_id);
     if (seg == nullptr) continue;
 
-    auto export_or = SegmentExporter::Export(
-        *seg, opts_.flushed_segments_root, opts_.tmp_dir);
+    auto export_or = SegmentExporter::Export(*seg, opts_.flushed_segments_root, opts_.tmp_dir);
     if (!export_or.ok()) {
       return export_or.status();
     }
@@ -156,11 +146,10 @@ absl::StatusOr<ShardBackupResult> BackupManager::RunShardBackup(
     seg_result.size_bytes = exp.total_size_bytes;
 
     for (const auto& f : exp.files) {
-      auto rel_key = BackupManifest::SegmentFileKey(
-          backup_id, core::ToUInt16(shard_id), exp.segment_id, f.name);
+      auto rel_key = BackupManifest::SegmentFileKey(backup_id, core::ToUInt16(shard_id),
+                                                    exp.segment_id, f.name);
       auto full_key = BuildKey(s3_prefix, rel_key);
-      auto put_status = rt.store->PutObjectFromFile(
-          full_key, f.source_path.string());
+      auto put_status = rt.store->PutObjectFromFile(full_key, f.source_path.string());
       if (!put_status.ok()) {
         // Cleanup tmp_dir if we made one before propagating.
         if (!exp.tmp_dir.empty()) {
@@ -185,8 +174,7 @@ absl::StatusOr<ShardBackupResult> BackupManager::RunShardBackup(
   }
 
   // Write the per-shard manifest.
-  auto rel_shard_key = BackupManifest::ShardManifestKey(
-      backup_id, core::ToUInt16(shard_id));
+  auto rel_shard_key = BackupManifest::ShardManifestKey(backup_id, core::ToUInt16(shard_id));
   auto full_shard_key = BuildKey(s3_prefix, rel_shard_key);
   auto shard_json = BackupManifest::SerializeShard(shard_manifest);
   RETURN_IF_ERROR(rt.store->PutObject(full_shard_key, shard_json));
@@ -197,17 +185,10 @@ absl::StatusOr<ShardBackupResult> BackupManager::RunShardBackup(
 }
 
 absl::StatusOr<std::string> BackupManager::StartBackupSingleShard(
-    const std::string& collection_name,
-    core::CollectionId collection_id,
-    core::Dimension dimension,
-    core::MetricType metric,
-    core::IndexType index_type,
-    uint32_t num_shards,
-    uint32_t replication_factor,
-    core::ShardId shard_id,
-    uint64_t primary_term,
-    const BackupTarget& target,
-    std::shared_ptr<ISegmentStore> segment_store,
+    const std::string& collection_name, core::CollectionId collection_id, core::Dimension dimension,
+    core::MetricType metric, core::IndexType index_type, uint32_t num_shards,
+    uint32_t replication_factor, core::ShardId shard_id, uint64_t primary_term,
+    const BackupTarget& target, std::shared_ptr<ISegmentStore> segment_store,
     const std::string& requested_backup_id) {
   if (collection_name.empty()) {
     return absl::InvalidArgumentError("collection_name is required");
@@ -220,16 +201,14 @@ absl::StatusOr<std::string> BackupManager::StartBackupSingleShard(
   auto rt = ResolveTarget(target);
   if (!rt.ok()) return rt.status();
 
-  std::string id =
-      requested_backup_id.empty() ? AllocateBackupId() : requested_backup_id;
+  std::string id = requested_backup_id.empty() ? AllocateBackupId() : requested_backup_id;
 
   {
     std::lock_guard<std::mutex> lk(jobs_mutex_);
     auto it = jobs_.find(id);
     if (it != jobs_.end()) {
       auto s = it->second->state.load();
-      if (s == BackupState::PENDING || s == BackupState::RUNNING ||
-          s == BackupState::COMPLETED) {
+      if (s == BackupState::PENDING || s == BackupState::RUNNING || s == BackupState::COMPLETED) {
         return id;  // idempotent: existing run wins
       }
       // FAILED or CANCELLED: overwrite.
@@ -250,27 +229,20 @@ absl::StatusOr<std::string> BackupManager::StartBackupSingleShard(
     jobs_[id] = job;
   }
 
-  (void)pool_->Enqueue(
-      [this, job, dimension, metric, index_type, num_shards,
-       replication_factor, shard_id, primary_term, segment_store]() {
-        ExecuteSingleShardJob(job, dimension, metric, index_type, num_shards,
-                              replication_factor, shard_id, primary_term,
-                              segment_store);
-      });
+  (void)pool_->Enqueue([this, job, dimension, metric, index_type, num_shards, replication_factor,
+                        shard_id, primary_term, segment_store]() {
+    ExecuteSingleShardJob(job, dimension, metric, index_type, num_shards, replication_factor,
+                          shard_id, primary_term, segment_store);
+  });
 
   return id;
 }
 
-void BackupManager::ExecuteSingleShardJob(
-    std::shared_ptr<BackupJob> job,
-    core::Dimension dimension,
-    core::MetricType metric,
-    core::IndexType index_type,
-    uint32_t num_shards,
-    uint32_t replication_factor,
-    core::ShardId shard_id,
-    uint64_t primary_term,
-    std::shared_ptr<ISegmentStore> segment_store) {
+void BackupManager::ExecuteSingleShardJob(std::shared_ptr<BackupJob> job, core::Dimension dimension,
+                                          core::MetricType metric, core::IndexType index_type,
+                                          uint32_t num_shards, uint32_t replication_factor,
+                                          core::ShardId shard_id, uint64_t primary_term,
+                                          std::shared_ptr<ISegmentStore> segment_store) {
   job->state.store(BackupState::RUNNING);
 
   if (job->cancelled.load()) {
@@ -286,9 +258,8 @@ void BackupManager::ExecuteSingleShardJob(
   }
   auto& rt = *rt_or;
 
-  auto shard_or = RunShardBackup(job->id, core::MakeCollectionId(job->collection_id),
-                                 shard_id, primary_term, job->target,
-                                 segment_store);
+  auto shard_or = RunShardBackup(job->id, core::MakeCollectionId(job->collection_id), shard_id,
+                                 primary_term, job->target, segment_store);
   if (!shard_or.ok()) {
     job->SetError(std::string(shard_or.status().message()));
     CleanupOnFailure(rt, job->id);
@@ -304,29 +275,22 @@ void BackupManager::ExecuteSingleShardJob(
     size_bytes += seg.size_bytes;
   }
   std::vector<BackupShardRef> shard_refs;
-  shard_refs.push_back(
-      BackupShardRef{static_cast<uint32_t>(core::ToUInt16(shard_id)),
-                     shard_or->shard_manifest_key});
+  shard_refs.push_back(BackupShardRef{static_cast<uint32_t>(core::ToUInt16(shard_id)),
+                                      shard_or->shard_manifest_key});
 
-  auto final_status = FinalizeTopManifest(
-      job, rt, dimension, metric, index_type, num_shards, replication_factor,
-      shard_refs, vector_count, size_bytes);
+  auto final_status = FinalizeTopManifest(job, rt, dimension, metric, index_type, num_shards,
+                                          replication_factor, shard_refs, vector_count, size_bytes);
   if (!final_status.ok()) return;  // FinalizeTopManifest already set FAILED.
   job->shards_completed.store(1);
   job->state.store(BackupState::COMPLETED);
 }
 
-absl::Status BackupManager::FinalizeTopManifest(
-    std::shared_ptr<BackupJob> job,
-    const ResolvedTarget& rt,
-    core::Dimension dimension,
-    core::MetricType metric,
-    core::IndexType index_type,
-    uint32_t num_shards,
-    uint32_t replication_factor,
-    const std::vector<BackupShardRef>& shard_refs,
-    uint64_t vector_count,
-    uint64_t size_bytes) {
+absl::Status BackupManager::FinalizeTopManifest(std::shared_ptr<BackupJob> job,
+                                                const ResolvedTarget& rt, core::Dimension dimension,
+                                                core::MetricType metric, core::IndexType index_type,
+                                                uint32_t num_shards, uint32_t replication_factor,
+                                                const std::vector<BackupShardRef>& shard_refs,
+                                                uint64_t vector_count, uint64_t size_bytes) {
   BackupManifestV1 top;
   top.backup_id = job->id;
   top.collection.collection_id = job->collection_id;
@@ -366,16 +330,10 @@ absl::Status BackupManager::FinalizeTopManifest(
 // ============================================================================
 
 absl::StatusOr<std::string> BackupManager::StartBackupDistributed(
-    const std::string& collection_name,
-    core::CollectionId collection_id,
-    core::Dimension dimension,
-    core::MetricType metric,
-    core::IndexType index_type,
-    uint32_t replication_factor,
-    const std::vector<core::ShardId>& shard_ids,
-    const std::vector<uint64_t>& primary_terms,
-    const BackupTarget& target,
-    ShardBackupExecutor executor,
+    const std::string& collection_name, core::CollectionId collection_id, core::Dimension dimension,
+    core::MetricType metric, core::IndexType index_type, uint32_t replication_factor,
+    const std::vector<core::ShardId>& shard_ids, const std::vector<uint64_t>& primary_terms,
+    const BackupTarget& target, ShardBackupExecutor executor,
     const std::string& requested_backup_id) {
   if (collection_name.empty()) {
     return absl::InvalidArgumentError("collection_name is required");
@@ -384,8 +342,7 @@ absl::StatusOr<std::string> BackupManager::StartBackupDistributed(
     return absl::InvalidArgumentError("shard_ids is empty");
   }
   if (shard_ids.size() != primary_terms.size()) {
-    return absl::InvalidArgumentError(
-        "shard_ids and primary_terms must have the same length");
+    return absl::InvalidArgumentError("shard_ids and primary_terms must have the same length");
   }
   if (!executor) {
     return absl::InvalidArgumentError("executor is required");
@@ -393,15 +350,13 @@ absl::StatusOr<std::string> BackupManager::StartBackupDistributed(
   auto rt = ResolveTarget(target);
   if (!rt.ok()) return rt.status();
 
-  std::string id =
-      requested_backup_id.empty() ? AllocateBackupId() : requested_backup_id;
+  std::string id = requested_backup_id.empty() ? AllocateBackupId() : requested_backup_id;
   {
     std::lock_guard<std::mutex> lk(jobs_mutex_);
     auto it = jobs_.find(id);
     if (it != jobs_.end()) {
       auto s = it->second->state.load();
-      if (s == BackupState::PENDING || s == BackupState::RUNNING ||
-          s == BackupState::COMPLETED) {
+      if (s == BackupState::PENDING || s == BackupState::RUNNING || s == BackupState::COMPLETED) {
         return id;
       }
       jobs_.erase(it);
@@ -421,26 +376,21 @@ absl::StatusOr<std::string> BackupManager::StartBackupDistributed(
     jobs_[id] = job;
   }
 
-  (void)pool_->Enqueue(
-      [this, job, dimension, metric, index_type, replication_factor,
-       shard_ids, primary_terms, executor]() mutable {
-        ExecuteDistributedJob(job, dimension, metric, index_type,
-                              replication_factor, std::move(shard_ids),
-                              std::move(primary_terms), std::move(executor));
-      });
+  (void)pool_->Enqueue([this, job, dimension, metric, index_type, replication_factor, shard_ids,
+                        primary_terms, executor]() mutable {
+    ExecuteDistributedJob(job, dimension, metric, index_type, replication_factor,
+                          std::move(shard_ids), std::move(primary_terms), std::move(executor));
+  });
 
   return id;
 }
 
-void BackupManager::ExecuteDistributedJob(
-    std::shared_ptr<BackupJob> job,
-    core::Dimension dimension,
-    core::MetricType metric,
-    core::IndexType index_type,
-    uint32_t replication_factor,
-    std::vector<core::ShardId> shard_ids,
-    std::vector<uint64_t> primary_terms,
-    ShardBackupExecutor executor) {
+void BackupManager::ExecuteDistributedJob(std::shared_ptr<BackupJob> job, core::Dimension dimension,
+                                          core::MetricType metric, core::IndexType index_type,
+                                          uint32_t replication_factor,
+                                          std::vector<core::ShardId> shard_ids,
+                                          std::vector<uint64_t> primary_terms,
+                                          ShardBackupExecutor executor) {
   job->state.store(BackupState::RUNNING);
   if (job->cancelled.load()) {
     job->state.store(BackupState::CANCELLED);
@@ -465,8 +415,7 @@ void BackupManager::ExecuteDistributedJob(
       job->state.store(BackupState::CANCELLED);
       return;
     }
-    auto shard_result = executor(job->id, shard_ids[i], primary_terms[i],
-                                  job->target);
+    auto shard_result = executor(job->id, shard_ids[i], primary_terms[i], job->target);
     if (!shard_result.ok()) {
       job->SetError(std::string(shard_result.status().message()));
       CleanupOnFailure(rt, job->id);
@@ -478,22 +427,19 @@ void BackupManager::ExecuteDistributedJob(
       size_bytes += seg.size_bytes;
     }
     job->bytes_uploaded.fetch_add(shard_result->bytes_uploaded);
-    shard_refs.push_back(BackupShardRef{
-        static_cast<uint32_t>(core::ToUInt16(shard_ids[i])),
-        shard_result->shard_manifest_key});
+    shard_refs.push_back(BackupShardRef{static_cast<uint32_t>(core::ToUInt16(shard_ids[i])),
+                                        shard_result->shard_manifest_key});
     job->shards_completed.fetch_add(1);
   }
 
-  auto final_status = FinalizeTopManifest(
-      job, rt, dimension, metric, index_type,
-      static_cast<uint32_t>(shard_ids.size()), replication_factor,
-      shard_refs, vector_count, size_bytes);
+  auto final_status = FinalizeTopManifest(job, rt, dimension, metric, index_type,
+                                          static_cast<uint32_t>(shard_ids.size()),
+                                          replication_factor, shard_refs, vector_count, size_bytes);
   if (!final_status.ok()) return;  // already FAILED inside helper
   job->state.store(BackupState::COMPLETED);
 }
 
-void BackupManager::CleanupOnFailure(const ResolvedTarget& rt,
-                                     const std::string& backup_id) {
+void BackupManager::CleanupOnFailure(const ResolvedTarget& rt, const std::string& backup_id) {
   std::string s3_prefix;
   // Best-effort: scan the backup prefix and delete everything under it.
   // We don't have the request target here so we use both relative and
@@ -510,15 +456,13 @@ void BackupManager::CleanupOnFailure(const ResolvedTarget& rt,
   }
 }
 
-absl::StatusOr<BackupJobStatus> BackupManager::GetStatus(
-    const std::string& backup_id) const {
+absl::StatusOr<BackupJobStatus> BackupManager::GetStatus(const std::string& backup_id) const {
   std::shared_ptr<BackupJob> job;
   {
     std::lock_guard<std::mutex> lk(jobs_mutex_);
     auto it = jobs_.find(backup_id);
     if (it == jobs_.end()) {
-      return absl::NotFoundError(
-          absl::StrCat("Backup not found: ", backup_id));
+      return absl::NotFoundError(absl::StrCat("Backup not found: ", backup_id));
     }
     job = it->second;
   }
@@ -531,8 +475,7 @@ absl::StatusOr<BackupJobStatus> BackupManager::GetStatus(
   s.error_message = job->GetError();
   s.manifest_uri = job->manifest_uri;
   auto now = std::chrono::steady_clock::now();
-  s.elapsed_seconds =
-      std::chrono::duration<float>(now - job->start_time).count();
+  s.elapsed_seconds = std::chrono::duration<float>(now - job->start_time).count();
   return s;
 }
 

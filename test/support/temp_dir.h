@@ -26,8 +26,8 @@ inline std::filesystem::path MakeUniqueTempDir(const std::string& prefix) {
   static const std::uint64_t salt = std::random_device{}();
   const auto n = counter.fetch_add(1, std::memory_order_relaxed);
   auto dir = std::filesystem::temp_directory_path() /
-             (prefix + "_" + std::to_string(::getpid()) + "_" + std::to_string(n) +
-              "_" + std::to_string(salt % 1000000));
+             (prefix + "_" + std::to_string(::getpid()) + "_" + std::to_string(n) + "_" +
+              std::to_string(salt % 1000000));
   std::filesystem::remove_all(dir);
   std::filesystem::create_directories(dir);
   return dir;

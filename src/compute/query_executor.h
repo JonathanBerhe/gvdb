@@ -6,12 +6,12 @@
 #include <memory>
 #include <vector>
 
+#include "common/thread_pool.h"
+#include "compute/query_cache.h"
 #include "core/status.h"
 #include "core/types.h"
 #include "core/vector.h"
 #include "storage/segment/segment_store.h"
-#include "common/thread_pool.h"
-#include "compute/query_cache.h"
 
 namespace gvdb {
 namespace compute {
@@ -25,8 +25,8 @@ class QueryExecutor {
   // executor create its own pool with one thread per hardware thread. A
   // null cache turns off result caching.
   explicit QueryExecutor(storage::ISegmentStore& segment_store,
-                        common::ThreadPool* thread_pool = nullptr,
-                        std::shared_ptr<compute::QueryCache> cache = nullptr);
+                         common::ThreadPool* thread_pool = nullptr,
+                         std::shared_ptr<compute::QueryCache> cache = nullptr);
 
   ~QueryExecutor();
 
@@ -39,17 +39,14 @@ class QueryExecutor {
   // Execute a vector search query
   // Searches across all segments in the collection and merges results
   // Optional filter expression for metadata filtering
-  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
-      core::CollectionId collection_id,
-      const core::Vector& query,
-      int top_k,
-      const std::string& filter = "");
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(core::CollectionId collection_id,
+                                                          const core::Vector& query, int top_k,
+                                                          const std::string& filter = "");
 
  private:
   // Merge multiple partial results into final top-k
-  static core::SearchResult MergeResults(
-      const std::vector<core::SearchResult>& partial_results,
-      int top_k);
+  static core::SearchResult MergeResults(const std::vector<core::SearchResult>& partial_results,
+                                         int top_k);
 
   storage::ISegmentStore* segment_store_;
   std::unique_ptr<common::ThreadPool> owned_thread_pool_;
@@ -63,4 +60,3 @@ class QueryExecutor {
 
 }  // namespace compute
 }  // namespace gvdb
-

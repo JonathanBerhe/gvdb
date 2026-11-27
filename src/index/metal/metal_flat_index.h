@@ -9,7 +9,9 @@
 #include <string>
 #include <vector>
 
-namespace MTL { class Buffer; }
+namespace MTL {
+class Buffer;
+}
 
 #include "core/interfaces.h"
 #include "core/status.h"
@@ -30,24 +32,21 @@ class MetalFlatIndex : public core::IVectorIndex {
   ~MetalFlatIndex() override = default;
 
   // IVectorIndex implementation
-  [[nodiscard]] absl::Status Build(
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids) override;
+  [[nodiscard]] absl::Status Build(const std::vector<core::Vector>& vectors,
+                                   const std::vector<core::VectorId>& ids) override;
 
-  [[nodiscard]] absl::Status Add(const core::Vector& vector,
-                                  core::VectorId id) override;
+  [[nodiscard]] absl::Status Add(const core::Vector& vector, core::VectorId id) override;
 
-  [[nodiscard]] absl::Status AddBatch(
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids) override;
+  [[nodiscard]] absl::Status AddBatch(const std::vector<core::Vector>& vectors,
+                                      const std::vector<core::VectorId>& ids) override;
 
   [[nodiscard]] absl::Status Remove(core::VectorId id) override;
 
-  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
-      const core::Vector& query, int k) override;
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(const core::Vector& query,
+                                                          int k) override;
 
-  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRange(
-      const core::Vector& query, float radius) override;
+  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRange(const core::Vector& query,
+                                                               float radius) override;
 
   [[nodiscard]] absl::StatusOr<std::vector<core::SearchResult>> SearchBatch(
       const std::vector<core::Vector>& queries, int k) override;
@@ -57,8 +56,7 @@ class MetalFlatIndex : public core::IVectorIndex {
   [[nodiscard]] core::Dimension GetDimension() const override;
   [[nodiscard]] core::MetricType GetMetricType() const override;
 
-  [[nodiscard]] absl::Status Train(
-      const std::vector<core::Vector>& training_data) override;
+  [[nodiscard]] absl::Status Train(const std::vector<core::Vector>& training_data) override;
 
   [[nodiscard]] bool IsTrained() const override;
 

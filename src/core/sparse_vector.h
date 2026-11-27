@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include "core/status.h"
 #include <cstdint>
 #include <utility>
 #include <vector>
+#include "core/status.h"
 
 namespace gvdb {
 namespace core {

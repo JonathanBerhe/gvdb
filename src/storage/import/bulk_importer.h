@@ -12,11 +12,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/thread_pool.h"
 #include "core/status.h"
 #include "core/types.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_store.h"
-#include "common/thread_pool.h"
 
 namespace gvdb {
 namespace storage {
@@ -112,29 +112,21 @@ class BulkImporter {
  public:
   // object_store may be nullptr (import will fail with UNIMPLEMENTED).
   // max_concurrent controls how many imports can run simultaneously.
-  BulkImporter(std::shared_ptr<ISegmentStore> segment_store,
-               IObjectStore* object_store,
-               const std::string& temp_dir,
-               int max_concurrent = 2);
+  BulkImporter(std::shared_ptr<ISegmentStore> segment_store, IObjectStore* object_store,
+               const std::string& temp_dir, int max_concurrent = 2);
 
   ~BulkImporter() = default;
 
   // Start an async import job. Returns job_id immediately.
   // The collection must already exist — caller resolves metadata.
   [[nodiscard]] absl::StatusOr<std::string> StartImport(
-      const std::string& collection_name,
-      core::CollectionId collection_id,
-      core::Dimension dimension,
-      core::MetricType metric,
-      core::IndexType index_type,
-      const std::string& source_uri,
-      ImportFormat format,
-      const std::string& vector_column = "vector",
-      const std::string& id_column = "id");
+      const std::string& collection_name, core::CollectionId collection_id,
+      core::Dimension dimension, core::MetricType metric, core::IndexType index_type,
+      const std::string& source_uri, ImportFormat format,
+      const std::string& vector_column = "vector", const std::string& id_column = "id");
 
   // Get current job status snapshot.
-  [[nodiscard]] absl::StatusOr<ImportJobStatus> GetStatus(
-      const std::string& import_id) const;
+  [[nodiscard]] absl::StatusOr<ImportJobStatus> GetStatus(const std::string& import_id) const;
 
   // Cancel a running or pending import. Idempotent.
   [[nodiscard]] absl::Status CancelImport(const std::string& import_id);
@@ -144,38 +136,30 @@ class BulkImporter {
 
  private:
   // Execute the import (runs on thread pool)
-  void ExecuteImport(std::shared_ptr<ImportJob> job,
-                     core::CollectionId collection_id,
-                     core::Dimension dimension,
-                     core::MetricType metric,
-                     core::IndexType index_type,
-                     ImportFormat format,
-                     const std::string& vector_column,
+  void ExecuteImport(std::shared_ptr<ImportJob> job, core::CollectionId collection_id,
+                     core::Dimension dimension, core::MetricType metric, core::IndexType index_type,
+                     ImportFormat format, const std::string& vector_column,
                      const std::string& id_column);
 
   // Import a NumPy .npy file
-  absl::Status ImportNpy(std::shared_ptr<ImportJob> job,
-                         const std::string& local_path,
-                         core::CollectionId collection_id,
-                         core::Dimension expected_dim);
+  absl::Status ImportNpy(std::shared_ptr<ImportJob> job, const std::string& local_path,
+                         core::CollectionId collection_id, core::Dimension expected_dim);
 
   // Parse s3://bucket/key URI into object store key
   static absl::StatusOr<std::string> ParseS3Uri(const std::string& uri);
 
   // Download file from object store to local temp path
-  absl::StatusOr<std::string> DownloadToTemp(const std::string& s3_key,
-                                              const std::string& job_id);
+  absl::StatusOr<std::string> DownloadToTemp(const std::string& s3_key, const std::string& job_id);
 
   // Generate a unique import ID
   static std::string GenerateImportId();
 
   // Compute fingerprint for idempotency
   static std::string ComputeFingerprint(const std::string& source_uri,
-                                         const std::string& collection_name);
+                                        const std::string& collection_name);
 
   // Cleanup partially-created segments and temp file on failure
-  void CleanupOnFailure(std::shared_ptr<ImportJob> job,
-                        const std::string& temp_path);
+  void CleanupOnFailure(std::shared_ptr<ImportJob> job, const std::string& temp_path);
 
   std::shared_ptr<ISegmentStore> segment_store_;
   IObjectStore* object_store_;
@@ -194,4 +178,3 @@ class BulkImporter {
 
 }  // namespace storage
 }  // namespace gvdb
-

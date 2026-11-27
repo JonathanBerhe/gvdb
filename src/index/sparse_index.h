@@ -3,11 +3,11 @@
 
 #pragma once
 
-#include "core/sparse_vector.h"
-#include "core/types.h"
 #include <queue>
 #include <unordered_map>
 #include <vector>
+#include "core/sparse_vector.h"
+#include "core/types.h"
 
 namespace gvdb {
 namespace index {
@@ -25,8 +25,7 @@ class SparseIndex {
   absl::Status AddVector(core::VectorId id, const core::SparseVector& sparse);
 
   // Search for top-k vectors by dot product with query (higher = better)
-  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
-      const core::SparseVector& query, int k);
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(const core::SparseVector& query, int k);
 
  private:
   struct Posting {

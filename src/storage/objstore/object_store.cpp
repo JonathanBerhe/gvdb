@@ -17,15 +17,13 @@ namespace storage {
 // InMemoryObjectStore implementation
 // ============================================================================
 
-absl::Status InMemoryObjectStore::PutObject(
-    const std::string& key, const std::string& data) {
+absl::Status InMemoryObjectStore::PutObject(const std::string& key, const std::string& data) {
   std::unique_lock lock(mutex_);
   objects_[key] = data;
   return absl::OkStatus();
 }
 
-absl::StatusOr<std::string> InMemoryObjectStore::GetObject(
-    const std::string& key) {
+absl::StatusOr<std::string> InMemoryObjectStore::GetObject(const std::string& key) {
   std::shared_lock lock(mutex_);
   auto it = objects_.find(key);
   if (it == objects_.end()) {
@@ -53,34 +51,31 @@ absl::StatusOr<std::vector<std::string>> InMemoryObjectStore::ListObjects(
   return result;
 }
 
-absl::StatusOr<bool> InMemoryObjectStore::ObjectExists(
-    const std::string& key) {
+absl::StatusOr<bool> InMemoryObjectStore::ObjectExists(const std::string& key) {
   std::shared_lock lock(mutex_);
   return objects_.count(key) > 0;
 }
 
-absl::Status InMemoryObjectStore::PutObjectFromFile(
-    const std::string& key, const std::string& local_file_path) {
+absl::Status InMemoryObjectStore::PutObjectFromFile(const std::string& key,
+                                                    const std::string& local_file_path) {
   std::ifstream file(local_file_path, std::ios::binary);
   if (!file.is_open()) {
-    return absl::NotFoundError(
-        absl::StrCat("Local file not found: ", local_file_path));
+    return absl::NotFoundError(absl::StrCat("Local file not found: ", local_file_path));
   }
   std::ostringstream ss;
   ss << file.rdbuf();
   return PutObject(key, ss.str());
 }
 
-absl::Status InMemoryObjectStore::GetObjectToFile(
-    const std::string& key, const std::string& local_file_path) {
+absl::Status InMemoryObjectStore::GetObjectToFile(const std::string& key,
+                                                  const std::string& local_file_path) {
   auto result = GetObject(key);
   if (!result.ok()) {
     return result.status();
   }
   std::ofstream file(local_file_path, std::ios::binary);
   if (!file.is_open()) {
-    return absl::InternalError(
-        absl::StrCat("Failed to open local file: ", local_file_path));
+    return absl::InternalError(absl::StrCat("Failed to open local file: ", local_file_path));
   }
   file.write(result->data(), result->size());
   return absl::OkStatus();
