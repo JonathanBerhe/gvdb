@@ -21,10 +21,12 @@ namespace compute {
 // ============================================================================
 class QueryExecutor {
  public:
-  // Create query executor with segment manager and optional thread pool
-  // If thread_pool is nullptr, creates a default pool with hardware concurrency
+  // thread_pool and cache are optional. A null thread_pool makes the
+  // executor create its own pool with one thread per hardware thread. A
+  // null cache turns off result caching.
   explicit QueryExecutor(storage::ISegmentStore& segment_store,
-                        common::ThreadPool* thread_pool = nullptr);
+                        common::ThreadPool* thread_pool = nullptr,
+                        std::shared_ptr<compute::QueryCache> cache = nullptr);
 
   ~QueryExecutor();
 
@@ -52,11 +54,10 @@ class QueryExecutor {
   storage::ISegmentStore* segment_store_;
   std::unique_ptr<common::ThreadPool> owned_thread_pool_;
   common::ThreadPool* thread_pool_;  // Points to owned or external pool
-  std::shared_ptr<compute::QueryCache> cache_;
+  const std::shared_ptr<compute::QueryCache> cache_;
 
  public:
-  // Set or get the query cache (optional, nullptr disables caching)
-  void SetCache(std::shared_ptr<compute::QueryCache> cache) { cache_ = std::move(cache); }
+  // The query cache, or null when caching is off.
   compute::QueryCache* GetCache() const { return cache_.get(); }
 };
 

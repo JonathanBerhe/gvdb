@@ -3,16 +3,16 @@
 //
 // In-process integration tests for coordinator Raft auto-join.
 // Spins up multiple RaftNode instances in the same test binary plus an
-// InternalService gRPC server for each — just enough to exercise the
+// InternalService gRPC server for each, just enough to exercise the
 // JoinCluster / RemovePeer RPCs end-to-end without a real K8s cluster.
 //
 // Scope:
-//   1. 3-node cold bootstrap — all pods start with empty persisted state +
+//   1. 3-node cold bootstrap: all pods start with empty persisted state +
 //      the full declared peer list; verify leader election converges.
-//   2. Runtime scale-up — add a 4th RaftNode with an empty PVC and the
+//   2. Runtime scale-up: add a 4th RaftNode with an empty PVC and the
 //      extended peer list. Its peer probe finds the 3-node leader, skips
 //      self-seeding, and calls JoinCluster. Verify cluster_config grows to 4.
-//   3. Graceful scale-down — simulate SIGTERM on node 4 by calling
+//   3. Graceful scale-down: simulate SIGTERM on node 4 by calling
 //      RemovePeer on the leader. Verify cluster_config returns to 3.
 
 #include "cluster/coordinator/raft_peer_client.h"
@@ -160,9 +160,7 @@ std::unique_ptr<TestCoordinator> StartCoordinator(
       /*shard_manager=*/nullptr,
       /*segment_store=*/nullptr,
       /*query_executor=*/nullptr,
-      /*node_registry=*/nullptr,
-      /*coordinator=*/nullptr,
-      c->raft);
+      service::InternalServiceOptions{.raft_node = c->raft});
 
   grpc::ServerBuilder builder;
   builder.AddListeningPort(c->grpc_endpoint(), grpc::InsecureServerCredentials());
@@ -198,8 +196,8 @@ TestCoordinator* FindLeader(const std::vector<std::unique_ptr<TestCoordinator>>&
 // RemovePeer with bounded retry. NuRaft's remove_srv can transiently
 // return CONFIG_CHANGING when called immediately after leader election
 // (the bootstrap-era membership log entry is still being committed).
-// Matches the behavior real operator reconcilers exhibit — each reconcile
-// retries idempotently — so the test mirrors the production retry loop.
+// Matches the behavior real operator reconcilers exhibit: each reconcile
+// retries idempotently, so the test mirrors the production retry loop.
 bool RemovePeerWithRetry(const std::string& leader_target, uint32_t node_id,
                          std::chrono::milliseconds budget = std::chrono::seconds(5)) {
   auto channel = grpc::CreateChannel(leader_target,
@@ -385,7 +383,7 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "ScaleDownRemovesPeerViaRPC") {
   auto* leader = FindLeader(coords_);
   REQUIRE(leader != nullptr);
 
-  // Send the RemovePeer RPC to the leader (not to ourselves — a real
+  // Send the RemovePeer RPC to the leader (not to ourselves, because a real
   // scale-down drains the non-leader pod first). Use the retry helper
   // to tolerate NuRaft's transient CONFIG_CHANGING during bootstrap-era
   // membership settling.
@@ -402,7 +400,7 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "ScaleDownRemovesPeerViaRPC") {
   ShutdownCoordinator(victim);
 
   // Remaining 3 nodes should still have a quorum (3 of the new 3-member
-  // config) and keep the same leader — or at worst re-elect if the
+  // config) and keep the same leader, or at worst re-elect if the
   // removed node happened to be the leader (we explicitly avoided that
   // above, but NuRaft can still trigger an election under rare timing).
   bool stable = WaitFor([&]() {
@@ -420,7 +418,7 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "GhostPeerCleanupAfterHardKill") {
   // `kubectl delete pod --force`): the coordinator pod dies WITHOUT
   // running its SIGTERM self-remove handler. The leader's cluster_config
   // still lists the dead node as a member ("ghost peer"). This is
-  // exactly what 1.8 operator-side reconciliation fixes — we simulate
+  // exactly what operator-side reconciliation fixes, and we simulate
   // the operator calling RemovePeer directly and assert membership
   // converges back to {1,2,3}.
   auto layout = MakeLayout(/*count=*/4);
@@ -448,7 +446,7 @@ TEST_CASE_FIXTURE(RaftAutoJoinFixture, "GhostPeerCleanupAfterHardKill") {
   int victim_node_id = victim->node_id;
 
   // Hard-kill: shut down the victim WITHOUT calling RemovePeer first.
-  // This mirrors K8s SIGKILL — no graceful drain, no operator-driven
+  // This mirrors K8s SIGKILL: no graceful drain, no operator-driven
   // remove, just the process dying.
   ShutdownCoordinator(victim);
 

@@ -273,7 +273,7 @@ struct CoordinatorResolverTest {
 
     // Create coordinator with no client factory (test mode)
     coordinator_ = std::make_shared<cluster::Coordinator>(
-        shard_manager_, node_registry_, nullptr);
+        shard_manager_, node_registry_);
 
     // Register a fake data node so that CreateCollection succeeds
     proto::internal::NodeInfo proto_node;

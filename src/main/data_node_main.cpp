@@ -67,8 +67,8 @@ absl::Status Run(const Args& args) {
   segment_store->SetSealCallback([data_node](core::SegmentId sid, core::IndexType idx_type) {
     (void)data_node->ScheduleBuildTask({sid, idx_type, 100});
   });
-  auto query_executor = std::make_shared<compute::QueryExecutor>(*segment_store);
-  query_executor->SetCache(std::make_shared<compute::QueryCache>(10000));
+  auto query_executor = std::make_shared<compute::QueryExecutor>(
+      *segment_store, nullptr, std::make_shared<compute::QueryCache>(10000));
 
   // Both services and the heartbeat keep raw pointers to the write fence and
   // to the primary-term tracker, so these two outlive all three. The fence
@@ -83,26 +83,27 @@ absl::Status Run(const Args& args) {
                                                             .data_dir = args.data_dir,
                                                             .version = "data-node",
                                                             .node_id = args.node_id});
+  // The services get the tracker only in a cluster: without a coordinator
+  // no heartbeat fills it, and every shard would be unknown to it.
+  cluster::PrimaryTermTracker* tracker = in_cluster ? &primary_term_tracker : nullptr;
   auto internal_service = std::make_unique<service::InternalService>(
       std::make_shared<cluster::ShardManager>(16, cluster::ShardingStrategy::HASH), segment_store,
-      query_executor);
-  internal_service->SetShardWriteGate(&shard_write_gate);
-  internal_service->SetBackupManager(backup.backup);
-  internal_service->SetRestoreManager(backup.restore);
+      query_executor,
+      service::InternalServiceOptions{.backup_manager = backup.backup,
+                                      .restore_manager = backup.restore,
+                                      .primary_term_tracker = tracker,
+                                      .shard_write_gate = &shard_write_gate});
 
   auto resolver = in_cluster
                       ? service::MakeCachedCoordinatorResolver(args.coordinator_addresses[0])
                       : service::MakeLocalResolver(segment_store, args.data_dir);
   auto vectordb_service = std::make_unique<service::VectorDBService>(
-      segment_store, query_executor, std::move(resolver), nullptr, bulk_importer, backup.backup,
-      backup.restore);
-  vectordb_service->SetShardWriteGate(&shard_write_gate);
-  // Only in a cluster: without a coordinator no heartbeat fills the tracker,
-  // and every shard would be unknown to it.
-  if (in_cluster) {
-    vectordb_service->SetPrimaryTermTracker(&primary_term_tracker);
-    internal_service->SetPrimaryTermTracker(&primary_term_tracker);
-  }
+      segment_store, query_executor, std::move(resolver),
+      service::VectorDBServiceOptions{.bulk_importer = bulk_importer,
+                                      .backup_manager = backup.backup,
+                                      .restore_manager = backup.restore,
+                                      .primary_term_tracker = tracker,
+                                      .shard_write_gate = &shard_write_gate});
 
   server::InterceptorFactories interceptors;
   server::AddAuditInterceptor(config.logging.audit, interceptors);

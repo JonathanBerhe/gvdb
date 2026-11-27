@@ -139,12 +139,12 @@ std::vector<float> ToFloats(const core::Vector& v) {
 
 class SearchServiceTest {
  public:
-  SearchServiceTest() {
+  explicit SearchServiceTest(std::shared_ptr<compute::QueryCache> cache = nullptr) {
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(
         test_dir_.str(), index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *segment_store_);
+        *segment_store_, nullptr, std::move(cache));
 
     auto resolver = service::MakeLocalResolver(segment_store_);
     service_ = std::make_unique<service::VectorDBService>(
@@ -1480,9 +1480,8 @@ class ConcurrentSearchTest : public SearchServiceTest {
   static constexpr int kBatchSize = 50;
   static constexpr const char* kCollection = "concurrent_collection";
 
-  ConcurrentSearchTest() {
-    // As in the single-node server, Search results go through a query cache.
-    query_executor_->SetCache(std::make_shared<compute::QueryCache>(10000));
+  // As in the single-node server, Search results go through a query cache.
+  ConcurrentSearchTest() : SearchServiceTest(std::make_shared<compute::QueryCache>(10000)) {
     CreateCollection(kCollection, kDim);
 
     const auto vectors = test::RandomVectors(kCount, kDim, 97);

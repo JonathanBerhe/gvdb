@@ -90,8 +90,7 @@ std::unique_ptr<cluster::HeartbeatSender> StartHeartbeat(
   if (coordinators.empty()) return nullptr;
   const std::string& address = advertise_address.empty() ? bind_address : advertise_address;
   auto heartbeat = std::make_unique<cluster::HeartbeatSender>(coordinators[0], node_id, address,
-                                                              node_type, ShutdownFlag());
-  if (tracker != nullptr) heartbeat->SetPrimaryTermTracker(tracker);
+                                                              node_type, ShutdownFlag(), tracker);
   heartbeat->Start();
   return heartbeat;
 }

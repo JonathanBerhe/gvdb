@@ -20,11 +20,6 @@ namespace cluster {
 // Registry persistence
 // =============================================================================
 
-void Coordinator::SetRegistryDir(const std::string& dir) {
-  std::unique_lock lock(collection_mutex_);
-  registry_path_ = dir + "/registry.json";
-}
-
 void Coordinator::PersistRegistry() const {
   std::shared_lock lock(collection_mutex_);
   PersistRegistryLocked();
@@ -92,7 +87,7 @@ absl::Status Coordinator::LoadRegistry() {
   std::unique_lock lock(collection_mutex_);
   if (registry_path_.empty()) {
     return absl::FailedPreconditionError(
-        "SetRegistryDir must be called before LoadRegistry");
+        "LoadRegistry needs CoordinatorOptions::registry_dir");
   }
 
   auto read = common::ReadFileToString(registry_path_);

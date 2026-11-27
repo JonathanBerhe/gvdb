@@ -94,12 +94,13 @@ class DistributedDataNodeTest {
     // Create coordinator with client factory that can reach data node
     auto client_factory = std::make_shared<cluster::GrpcInternalServiceClientFactory>();
     coordinator_ = std::make_shared<cluster::Coordinator>(
-        shard_manager_, node_registry_, client_factory);
+        shard_manager_, node_registry_,
+        cluster::CoordinatorOptions{.client_factory = client_factory});
 
     // Create coordinator's InternalService (serves GetCollectionMetadata)
     coord_internal_service_ = std::make_unique<service::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
-        node_registry_, coordinator_);
+        service::InternalServiceOptions{.node_registry = node_registry_, .coordinator = coordinator_});
 
     // Create coordinator's VectorDBService
     auto coord_resolver = service::MakeCoordinatorResolver(coordinator_);
@@ -142,10 +143,8 @@ class DistributedDataNodeTest {
     auto dn2_shard_manager = std::make_shared<cluster::ShardManager>(
         8, cluster::ShardingStrategy::HASH);
     dn2_internal_service_ = std::make_unique<service::InternalService>(
-        dn2_shard_manager, dn2_segment_store_, dn2_query_executor_);
-    if (tracker != nullptr) {
-      dn2_internal_service_->SetPrimaryTermTracker(tracker);
-    }
+        dn2_shard_manager, dn2_segment_store_, dn2_query_executor_,
+        service::InternalServiceOptions{.primary_term_tracker = tracker});
     std::string address;
     dn2_server_ = StartServer({dn2_internal_service_.get()}, &address);
     return address;

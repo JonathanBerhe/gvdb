@@ -160,7 +160,7 @@ class ImportServiceFixtureBase {
     auto resolver = service::MakeLocalResolver(segment_store_);
     service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_, std::move(resolver),
-        /*rbac_store=*/nullptr, importer_);
+        service::VectorDBServiceOptions{.bulk_importer = importer_});
   }
 
   ~ImportServiceFixtureBase() {
