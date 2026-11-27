@@ -43,7 +43,7 @@ absl::Status Run(const Args& args) {
   auto index_factory = std::make_unique<index::IndexFactory>();
   auto segment_manager =
       std::make_shared<storage::SegmentManager>(args.data_dir + "/cache", index_factory.get());
-  auto query_executor = std::make_shared<compute::QueryExecutor>(segment_manager.get());
+  auto query_executor = std::make_shared<compute::QueryExecutor>(*segment_manager);
   // The service does not use the query node yet. Only it and the banner
   // read the memory limit.
   auto query_node = std::make_unique<cluster::QueryNode>(

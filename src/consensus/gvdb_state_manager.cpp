@@ -3,6 +3,8 @@
 
 #include "consensus/gvdb_state_manager.h"
 
+#include "core/status.h"
+
 #include "common/logger.h"
 
 #include <cstring>
@@ -18,8 +20,18 @@ using nuraft::ptr;
 using nuraft::srv_config;
 using nuraft::srv_state;
 
+absl::StatusOr<std::shared_ptr<GvdbStateManager>> GvdbStateManager::Create(
+    int32_t server_id, const std::string& endpoint, const std::string& log_store_path,
+    const std::string& state_path) {
+  std::shared_ptr<GvdbStateManager> manager(new GvdbStateManager(server_id, endpoint, state_path));
+  ASSIGN_OR_RETURN(manager->log_store_, GvdbLogStore::Create(log_store_path));
+  common::Logger::Instance().Info(
+      "GvdbStateManager initialized (persistent, server_id={}, endpoint={}, state_path={})",
+      server_id, endpoint, state_path);
+  return manager;
+}
+
 GvdbStateManager::GvdbStateManager(int32_t server_id, const std::string& endpoint,
-                                   const std::string& log_store_path,
                                    const std::string& state_path)
     : state_db_path_(state_path), server_id_(server_id), endpoint_(endpoint) {
 
@@ -37,13 +49,6 @@ GvdbStateManager::GvdbStateManager(int32_t server_id, const std::string& endpoin
     SaveConfigToDb();  // Persist initial config
     common::Logger::Instance().Info("Created initial cluster configuration");
   }
-
-  // Create persistent log store
-  log_store_ = nuraft::cs_new<GvdbLogStore>(log_store_path);
-
-  common::Logger::Instance().Info(
-      "GvdbStateManager initialized (persistent, server_id={}, endpoint={}, state_path={})",
-      server_id, endpoint, state_path);
 }
 
 ptr<cluster_config> GvdbStateManager::load_config() {

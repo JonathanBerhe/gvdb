@@ -146,7 +146,7 @@ RowResult BenchRow(core::IndexType type, core::Dimension dim,
   if (!status.ok()) Fail("SealSegment (" + label + ")", status);
   auto build_end = std::chrono::steady_clock::now();
 
-  compute::QueryExecutor executor(&segments);
+  compute::QueryExecutor executor(segments);
 
   auto run_once = [&](const core::Vector& query) {
     auto result = executor.Search(collection_id, query, kTopK);

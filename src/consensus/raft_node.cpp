@@ -21,13 +21,16 @@
 namespace gvdb {
 namespace consensus {
 
+absl::StatusOr<std::unique_ptr<RaftNode>> RaftNode::Create(
+    const RaftConfig& config, std::shared_ptr<IRaftPeerClient> peer_client) {
+  if (!config.IsValid()) {
+    return absl::InvalidArgumentError("Invalid Raft configuration");
+  }
+  return std::unique_ptr<RaftNode>(new RaftNode(config, std::move(peer_client)));
+}
+
 RaftNode::RaftNode(const RaftConfig& config, std::shared_ptr<IRaftPeerClient> peer_client)
     : config_(config), peer_client_(std::move(peer_client)) {
-
-  if (!config_.IsValid()) {
-    throw std::invalid_argument("Invalid Raft configuration");
-  }
-
   common::Logger::Instance().Info("RaftNode created (node_id={}, single_node_mode={})",
                                  config_.node_id,
                                  config_.single_node_mode);
@@ -381,11 +384,8 @@ absl::Status RaftNode::InitializeNuRaft() {
   const std::filesystem::path raft_dir(config_.data_dir);
   const std::string log_path = (raft_dir / "log").string();
   const std::string state_path = (raft_dir / "state").string();
-  state_mgr_ = std::make_shared<GvdbStateManager>(
-      config_.node_id,
-      advertise,
-      log_path,
-      state_path);
+  ASSIGN_OR_RETURN(state_mgr_,
+                   GvdbStateManager::Create(config_.node_id, advertise, log_path, state_path));
 
   // Seed the cluster configuration with the declared peers.
   // Accepted format for each entry: "id:host:port", self is identified by

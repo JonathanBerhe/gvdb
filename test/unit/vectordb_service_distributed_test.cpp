@@ -83,7 +83,7 @@ struct VectorDBServiceDistributedTest {
     segment_store_ = std::make_shared<storage::SegmentManager>(
         test_dir_.str(), index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
-        segment_store_.get());
+        *segment_store_);
 
     // The mock coordinator InternalService listens on a port that the
     // operating system picks. TestGrpcServer listens once it is built, and

@@ -98,15 +98,8 @@ class ComputeTest {
 // QueryExecutor Tests
 // ============================================================================
 
-TEST_CASE_FIXTURE(ComputeTest, "CreateQueryExecutorNullSegmentManager") {
-  CHECK_THROWS_AS(
-      compute::QueryExecutor executor(nullptr),
-      std::invalid_argument
-  );
-}
-
 TEST_CASE_FIXTURE(ComputeTest, "SearchEmptyCollection") {
-  compute::QueryExecutor executor(segment_manager_.get());
+  compute::QueryExecutor executor(*segment_manager_);
 
   auto query = CreateTestVectors(1, dimension_)[0];
   auto result = executor.Search(collection_id_, query, 10);
@@ -119,7 +112,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchEmptyCollection") {
 TEST_CASE_FIXTURE(ComputeTest, "SearchWithData") {
   PopulateSegmentManager(100);
 
-  compute::QueryExecutor executor(segment_manager_.get());
+  compute::QueryExecutor executor(*segment_manager_);
 
   auto query = CreateTestVectors(1, dimension_)[0];
   auto result = executor.Search(collection_id_, query, 10);
@@ -138,7 +131,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchWithData") {
 TEST_CASE_FIXTURE(ComputeTest, "SearchTopKLargerThanDataset") {
   PopulateSegmentManager(50);
 
-  compute::QueryExecutor executor(segment_manager_.get());
+  compute::QueryExecutor executor(*segment_manager_);
 
   auto query = CreateTestVectors(1, dimension_)[0];
   auto result = executor.Search(collection_id_, query, 100);
@@ -149,7 +142,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchTopKLargerThanDataset") {
 }
 
 TEST_CASE_FIXTURE(ComputeTest, "SearchInvalidTopK") {
-  compute::QueryExecutor executor(segment_manager_.get());
+  compute::QueryExecutor executor(*segment_manager_);
 
   auto query = CreateTestVectors(1, dimension_)[0];
 
@@ -185,7 +178,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchMultipleSegments") {
     REQUIRE(status.ok());
   }
 
-  compute::QueryExecutor executor(segment_manager_.get());
+  compute::QueryExecutor executor(*segment_manager_);
 
   auto query = CreateTestVectors(1, dimension_)[0];
   auto result = executor.Search(collection_id_, query, 20);
@@ -204,7 +197,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchMultipleSegments") {
 TEST_CASE_FIXTURE(ComputeTest, "SearchExactMatch") {
   PopulateSegmentManager(100);
 
-  compute::QueryExecutor executor(segment_manager_.get());
+  compute::QueryExecutor executor(*segment_manager_);
 
   // Query with the exact vector that was inserted (should have distance ~0)
   auto query = CreateTestVectors(1, dimension_)[0];
@@ -247,7 +240,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchMergesTopKAcrossFiveSegments") {
     REQUIRE(status.ok());
   }
 
-  compute::QueryExecutor executor(segment_manager_.get());
+  compute::QueryExecutor executor(*segment_manager_);
 
   auto query = CreateTestVectors(1, dimension_)[0];
   auto result = executor.Search(collection_id_, query, 50);
@@ -324,7 +317,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchAfterSegmentDrop") {
   status = segment_manager_->DropSegment(segment_id);
   REQUIRE(status.ok());
 
-  compute::QueryExecutor executor(segment_manager_.get());
+  compute::QueryExecutor executor(*segment_manager_);
 
   auto query = CreateTestVectors(1, dimension_)[0];
   auto result = executor.Search(collection_id_, query, 10);
@@ -361,7 +354,7 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchDifferentCollections") {
   status = segment_manager_->SealSegment(segment_id_2, config);
   REQUIRE(status.ok());
 
-  compute::QueryExecutor executor(segment_manager_.get());
+  compute::QueryExecutor executor(*segment_manager_);
 
   auto query = CreateTestVectors(1, dimension_)[0];
 

@@ -64,7 +64,7 @@ class ProxyIntegrationTest {
     coord_segment_store_ = std::make_shared<storage::SegmentManager>(
         (dir_ / "coordinator").string(), index_factory_.get());
     coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        coord_segment_store_.get());
+        *coord_segment_store_);
 
     // The client factory lets CreateCollection send CreateSegment to the
     // data node that step 3 registers.
@@ -87,7 +87,7 @@ class ProxyIntegrationTest {
     dn_segment_store_ = std::make_shared<storage::SegmentManager>(
         (dir_ / "data_node").string(), index_factory_.get());
     dn_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        dn_segment_store_.get());
+        *dn_segment_store_);
 
     auto dn_shard_manager = std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
     dn_internal_service_ = std::make_unique<service::InternalService>(

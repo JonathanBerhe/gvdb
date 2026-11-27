@@ -17,8 +17,9 @@ namespace gvdb {
 namespace server {
 
 absl::StatusOr<std::unique_ptr<consensus::RaftNode>> StartRaft(const consensus::RaftConfig& config) {
-  auto raft = std::make_unique<consensus::RaftNode>(
-      config, std::make_shared<cluster::GrpcRaftPeerClient>());
+  auto created = consensus::RaftNode::Create(config, std::make_shared<cluster::GrpcRaftPeerClient>());
+  if (!created.ok()) return WithPrefix("Failed to start Raft: ", created.status());
+  std::unique_ptr<consensus::RaftNode> raft = std::move(*created);
   if (auto status = raft->Start(); !status.ok()) {
     return WithPrefix("Failed to start Raft: ", status);
   }

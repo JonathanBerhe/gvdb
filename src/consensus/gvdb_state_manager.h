@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "absl/status/statusor.h"
 #include "consensus/gvdb_log_store.h"
 
 #include <libnuraft/nuraft.hxx>
@@ -28,16 +29,13 @@ namespace consensus {
  */
 class GvdbStateManager : public nuraft::state_mgr {
  public:
-  /**
-   * Create a persistent state manager backed by RocksDB.
-   *
-   * @param server_id This server's ID
-   * @param endpoint This server's endpoint
-   * @param log_store_path Directory path for log store RocksDB
-   * @param state_path Directory path for state RocksDB
-   */
-  GvdbStateManager(int32_t server_id, const std::string& endpoint,
-                   const std::string& log_store_path, const std::string& state_path);
+  // Creates a persistent state manager for the server `server_id` at
+  // `endpoint`. The state lives in a RocksDB at `state_path` and the Raft
+  // log in a RocksDB at `log_store_path`. Internal when the log store
+  // cannot be opened.
+  static absl::StatusOr<std::shared_ptr<GvdbStateManager>> Create(
+      int32_t server_id, const std::string& endpoint, const std::string& log_store_path,
+      const std::string& state_path);
 
   ~GvdbStateManager() override = default;
 
@@ -112,6 +110,9 @@ class GvdbStateManager : public nuraft::state_mgr {
   nuraft::ptr<nuraft::srv_config> get_srv_config() const { return my_srv_config_; }
 
  private:
+  // Loads or seeds the state. Create() then opens the log store.
+  GvdbStateManager(int32_t server_id, const std::string& endpoint, const std::string& state_path);
+
   // Mutex protecting all data structures
   mutable std::mutex mutex_;
 

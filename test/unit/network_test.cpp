@@ -237,7 +237,7 @@ class VectorDBServiceTest {
 
     // Create query executor
     query_executor_ = std::make_shared<compute::QueryExecutor>(
-        segment_store_.get());
+        *segment_store_);
 
     // Create service with local resolver
     auto resolver = service::MakeLocalResolver(segment_store_);
@@ -1491,7 +1491,7 @@ class SmallSegmentServiceTest {
     segment_store_ = std::make_shared<storage::SegmentManager>(
         test_dir_.str(), index_factory_.get(), kMaxSegmentBytes);
     query_executor_ = std::make_shared<compute::QueryExecutor>(
-        segment_store_.get());
+        *segment_store_);
     auto resolver = service::MakeLocalResolver(segment_store_);
     service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_, std::move(resolver));

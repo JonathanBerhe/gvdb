@@ -67,7 +67,7 @@ class AuditIntegrationTest {
     segment_store_ = std::make_shared<storage::SegmentManager>(
         (test_dir_ / "data").string(), index_factory_.get());
     query_executor_ = std::make_shared<compute::QueryExecutor>(
-        segment_store_.get());
+        *segment_store_);
 
     // Auth config
     auth::AuthConfig auth_config;

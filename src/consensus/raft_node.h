@@ -72,11 +72,12 @@ absl::StatusOr<PeerListPlan> PrepareRaftPeerList(
 // Thread-safe: All public methods are thread-safe
 class RaftNode {
  public:
-  // `peer_client` makes the startup peer probe and the join request. A
-  // multi-node config with coordinator_grpc_peers needs it: Start() fails
-  // without it. A single node needs none.
-  explicit RaftNode(const RaftConfig& config,
-                    std::shared_ptr<IRaftPeerClient> peer_client = nullptr);
+  // Creates a node. InvalidArgument when `config` is invalid. `peer_client`
+  // makes the startup peer probe and the join request. A multi-node config
+  // with coordinator_grpc_peers needs it: Start() fails without it. A single
+  // node needs none.
+  static absl::StatusOr<std::unique_ptr<RaftNode>> Create(
+      const RaftConfig& config, std::shared_ptr<IRaftPeerClient> peer_client = nullptr);
   ~RaftNode();
 
   // Disable copy and move
@@ -142,6 +143,8 @@ class RaftNode {
   TimestampOracle* GetTimestampOracle() { return &tso_; }
 
  private:
+  RaftNode(const RaftConfig& config, std::shared_ptr<IRaftPeerClient> peer_client);
+
   RaftConfig config_;
   std::shared_ptr<IRaftPeerClient> peer_client_;
   std::atomic<bool> running_{false};

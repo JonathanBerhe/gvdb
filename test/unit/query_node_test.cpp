@@ -38,7 +38,7 @@ class QueryNodeTest {
         test_dir_.str(), index_factory_.get());
 
     query_executor_ = std::make_shared<compute::QueryExecutor>(
-        segment_store_.get());
+        *segment_store_);
 
     query_node_ = std::make_unique<QueryNode>(
         segment_store_, query_executor_, memory_limit_);
