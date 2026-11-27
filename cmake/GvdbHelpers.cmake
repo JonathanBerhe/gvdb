@@ -10,7 +10,9 @@ endfunction()
 #
 # Creates the static library gvdb_<name> and its alias gvdb::<name>. Without
 # SOURCES, the library is header-only: an INTERFACE target that gives the
-# include directory and PUBLIC_DEPS to the targets that link it.
+# include directory and PUBLIC_DEPS to the targets that link it. Every library
+# shares one include root, src/, so a header is included by its path below
+# src/ (for example "storage/segment/segment.h").
 function(gvdb_add_library name)
   cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "SOURCES;PUBLIC_DEPS;PRIVATE_DEPS")
   set(target gvdb_${name})
@@ -20,24 +22,23 @@ function(gvdb_add_library name)
     endif()
     add_library(${target} INTERFACE)
     add_library(gvdb::${name} ALIAS ${target})
-    target_include_directories(${target} INTERFACE "${PROJECT_SOURCE_DIR}/include")
+    target_include_directories(${target} INTERFACE "${PROJECT_SOURCE_DIR}/src")
     target_link_libraries(${target} INTERFACE ${arg_PUBLIC_DEPS})
     return()
   endif()
   add_library(${target} STATIC ${arg_SOURCES})
   add_library(gvdb::${name} ALIAS ${target})
-  target_include_directories(${target} PUBLIC "${PROJECT_SOURCE_DIR}/include")
+  target_include_directories(${target} PUBLIC "${PROJECT_SOURCE_DIR}/src")
   target_link_libraries(${target} PUBLIC ${arg_PUBLIC_DEPS} PRIVATE ${arg_PRIVATE_DEPS})
   _gvdb_configure_target(${target})
 endfunction()
 
-# gvdb_add_executable(<name> SOURCES <file>... DEPS <dep>... [INCLUDE_DIRS <dir>...])
+# gvdb_add_executable(<name> SOURCES <file>... DEPS <dep>...)
 #
 # Creates a program in <build>/bin.
 function(gvdb_add_executable name)
-  cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "SOURCES;DEPS;INCLUDE_DIRS")
+  cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "SOURCES;DEPS")
   add_executable(${name} ${arg_SOURCES})
-  target_include_directories(${name} PRIVATE ${arg_INCLUDE_DIRS})
   target_link_libraries(${name} PRIVATE ${arg_DEPS})
   set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
   if(GVDB_STATIC_LIBCXX)
@@ -48,7 +49,7 @@ function(gvdb_add_executable name)
 endfunction()
 
 # gvdb_add_test(<name> SOURCES <file>... DEPS <dep>... TIMEOUT <seconds>
-#               LABELS <label>... [INCLUDE_DIRS <dir>...] [WORKING_DIRECTORY <dir>]
+#               LABELS <label>... [WORKING_DIRECTORY <dir>]
 #               [ENVIRONMENT <VAR=value>...] [CUSTOM_MAIN] [SKIP_RETURN_CODE <code>])
 #
 # Creates a doctest executable and registers it with CTest under the same name.
@@ -58,7 +59,7 @@ endfunction()
 # SKIP_RETURN_CODE makes CTest report that exit code as skipped. ENVIRONMENT
 # sets variables for the test process when CTest runs it.
 function(gvdb_add_test name)
-  cmake_parse_arguments(PARSE_ARGV 1 arg "CUSTOM_MAIN" "TIMEOUT;WORKING_DIRECTORY;SKIP_RETURN_CODE" "SOURCES;DEPS;LABELS;INCLUDE_DIRS;ENVIRONMENT")
+  cmake_parse_arguments(PARSE_ARGV 1 arg "CUSTOM_MAIN" "TIMEOUT;WORKING_DIRECTORY;SKIP_RETURN_CODE" "SOURCES;DEPS;LABELS;ENVIRONMENT")
   if(NOT arg_TIMEOUT OR NOT arg_LABELS)
     message(FATAL_ERROR "gvdb_add_test(${name}): TIMEOUT and LABELS are required")
   endif()
@@ -70,7 +71,6 @@ function(gvdb_add_test name)
   endif()
 
   add_executable(${name} ${arg_SOURCES})
-  target_include_directories(${name} PRIVATE ${arg_INCLUDE_DIRS})
   target_link_libraries(${name} PRIVATE ${arg_DEPS} ${doctest_target})
   if(TARGET gvdb::test_support)
     target_link_libraries(${name} PRIVATE gvdb::test_support)

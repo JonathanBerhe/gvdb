@@ -1,6 +1,6 @@
 # Configuration
 
-Every GVDB binary reads a YAML config file. For the authoritative schema, see [`include/utils/config.h`](https://github.com/JonathanBerhe/gvdb/blob/main/include/utils/config.h); the struct field names map directly to YAML keys.
+Every GVDB binary reads a YAML config file. For the authoritative schema, see [`src/utils/config.h`](https://github.com/JonathanBerhe/gvdb/blob/main/src/utils/config.h); the struct field names map directly to YAML keys.
 
 ## Minimal YAML
 

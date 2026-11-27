@@ -17,9 +17,9 @@
 #include "index/index_factory.h"
 #include "network/collection_resolver.h"
 #include "network/vectordb_service.h"
-#include "storage/bulk_importer.h"
-#include "storage/object_store.h"
-#include "storage/segment_manager.h"
+#include "storage/import/bulk_importer.h"
+#include "storage/objstore/object_store.h"
+#include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 #include "support/wait.h"
 

@@ -2,10 +2,10 @@
 # CUDA and Metal backends.
 gvdb_add_library(index
   SOURCES
-    faiss_base.cpp
-    faiss_flat.cpp
-    faiss_hnsw.cpp
-    faiss_ivf.cpp
+    faiss/faiss_base.cpp
+    faiss/faiss_flat.cpp
+    faiss/faiss_hnsw.cpp
+    faiss/faiss_ivf.cpp
     index_factory.cpp
     turboquant/turboquant_codec.cpp
     turboquant/turboquant_index.cpp
@@ -15,16 +15,8 @@ gvdb_add_library(index
   PUBLIC_DEPS
     gvdb::core
     # faiss/impl/HNSW.h includes <omp.h>, and the tests include the FAISS
-    # wrappers in this folder.
+    # wrappers in index/faiss.
     OpenMP::OpenMP_CXX
-)
-
-# Module-private headers (faiss_*.h, turboquant/, metal/, cuda/) live next to
-# the sources.
-target_include_directories(gvdb_index
-  PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/turboquant
 )
 
 if(GVDB_WITH_CUDA)

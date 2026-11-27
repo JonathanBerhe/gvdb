@@ -19,7 +19,7 @@
 #include "network/vectordb_service.h"
 #include "network/proxy_service.h"
 #include "network/collection_resolver.h"
-#include "storage/segment_manager.h"
+#include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 

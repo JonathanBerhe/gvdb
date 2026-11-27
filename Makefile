@@ -65,7 +65,7 @@ bench-cuda:
 test:
 	@ctest --preset $(PRESET) --parallel $(NPROC)
 
-# Line coverage of src/ and include/ per file, from the unit and integration
+# Line coverage of src/ per file, from the unit and integration
 # tests. The report lands in build/coverage/coverage.
 coverage:
 	@cmake --preset coverage

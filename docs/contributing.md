@@ -81,7 +81,8 @@ The C++ code follows these conventions:
 - RAII + smart pointers (no raw `new`/`delete`)
 - `absl::Status` / `absl::StatusOr<T>` for fallible operations
 - `-Wall -Wextra -Wpedantic` on every GVDB target, and warnings are errors in every preset
-- A module (`src/<module>` and `include/<module>`) includes and links only the modules before it in this order: `core`, `utils`, `auth`, `index`, `storage`, `compute`, `meta`, `rpc`, `consensus`, `cluster`, `network`. The programs in `src/main` can use all of them.
+- Each module is a folder in `src/`. Its headers sit next to its sources, and code includes a header by its path below `src/`, for example `#include "storage/segment/segment.h"`. Headers use `#pragma once`.
+- A module includes and links only the modules before it in this order: `core`, `utils`, `auth`, `index`, `storage`, `compute`, `meta`, `rpc`, `consensus`, `cluster`, `network`. The programs in `src/main` can use all of them.
 - When a header of a module includes a header of another module, the `CMakeLists.txt` of the module lists that module in `PUBLIC_DEPS`. A module that only its sources include goes in `PRIVATE_DEPS`.
 
 Python SDK follows `ruff` defaults. Run `make lint-sdk`.
