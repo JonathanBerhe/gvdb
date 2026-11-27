@@ -6,6 +6,4 @@ gvdb_add_library(compute
     gvdb::core
     gvdb::storage
     gvdb::utils
-  PRIVATE_DEPS
-    gvdb::index
 )

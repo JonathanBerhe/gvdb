@@ -129,7 +129,7 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "DataNodePullsSegmentOnSear
   REQUIRE(collection_id.ok());
 
   // 2. Create segment on coordinator using ShardSegmentId scheme
-  core::SegmentId segment_id = cluster::ShardSegmentId(*collection_id, 0);
+  core::SegmentId segment_id = core::ShardSegmentId(*collection_id, 0);
   auto create_seg_status = coord_segment_store_->CreateSegmentWithId(
       segment_id, *collection_id, 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(create_seg_status.ok());
@@ -198,7 +198,7 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCache
       "reuse_test", 64, core::MetricType::L2, core::IndexType::FLAT, 1);
   REQUIRE(collection_id.ok());
 
-  core::SegmentId segment_id = cluster::ShardSegmentId(*collection_id, 0);
+  core::SegmentId segment_id = core::ShardSegmentId(*collection_id, 0);
 
   // Create segment on coordinator
   if (!coord_segment_store_->GetSegment(segment_id)) {
@@ -476,7 +476,7 @@ TEST_CASE_FIXTURE(ReadRepairIntegrationTest, "ReadRepairFixesDivergentReplica") 
   // 2. The coordinator's CreateCollection already created the segment on the
   //    primary via CreateSegment RPC. Create it on the replica too (simulating
   //    initial replication that happened before the crash).
-  core::SegmentId seg_id = cluster::ShardSegmentId(coll_id, 0);
+  core::SegmentId seg_id = core::ShardSegmentId(coll_id, 0);
 
   // Primary already has the segment from CreateCollection. Verify.
   auto* primary_seg = primary_sm->GetSegment(seg_id);

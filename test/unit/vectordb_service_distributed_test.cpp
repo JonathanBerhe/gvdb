@@ -128,7 +128,7 @@ struct VectorDBServiceDistributedTest {
 TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "SearchPullsMetadataFromCoordinator") {
   // Insert vectors first (requires collection to exist in segment manager)
   // Segment ID uses ShardSegmentId scheme: collection_id * 1000 + shard_index
-  auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
+  auto segment_id = core::ShardSegmentId(core::MakeCollectionId(42), 0);
   auto create_status = segment_store_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(create_status.ok());
@@ -182,7 +182,7 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "SearchPullsMetadataFromCoordi
 
 TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "MetadataCacheReusedOnSecondSearch") {
   // Set up collection and vectors
-  auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
+  auto segment_id = core::ShardSegmentId(core::MakeCollectionId(42), 0);
   auto create_status = segment_store_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(create_status.ok());
@@ -276,7 +276,7 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "SearchNonexistentCollectionFa
 }
 
 TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "CoordinatorLookupErrorIsNotCached") {
-  auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
+  auto segment_id = core::ShardSegmentId(core::MakeCollectionId(42), 0);
   REQUIRE(segment_store_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2,
       core::IndexType::FLAT).ok());
@@ -330,7 +330,7 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "CoordinatorLookupErrorIsNotCa
 
 TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "InsertVectors") {
   // Create segment for collection
-  auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
+  auto segment_id = core::ShardSegmentId(core::MakeCollectionId(42), 0);
   auto create_status = segment_store_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(create_status.ok());
@@ -362,7 +362,7 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "InsertVectors") {
 
 TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "GetVectors") {
   // Create segment and add vectors
-  auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
+  auto segment_id = core::ShardSegmentId(core::MakeCollectionId(42), 0);
   auto create_status = segment_store_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(create_status.ok());
@@ -400,7 +400,7 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "GetVectors") {
 
 TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "DeleteVectors") {
   // Create segment and add vectors
-  auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
+  auto segment_id = core::ShardSegmentId(core::MakeCollectionId(42), 0);
   auto create_status = segment_store_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(create_status.ok());
@@ -479,7 +479,7 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "InsertWithEmptyVectorList") {
 
 TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "SearchWithInvalidDimension") {
   // Create segment with dimension 128
-  auto segment_id = cluster::ShardSegmentId(core::MakeCollectionId(42), 0);
+  auto segment_id = core::ShardSegmentId(core::MakeCollectionId(42), 0);
   auto create_status = segment_store_->CreateSegmentWithId(
       segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(create_status.ok());

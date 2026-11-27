@@ -206,17 +206,17 @@ struct CoordinatorBackupFixture {
     // populated — otherwise AssignShard falls back to a degenerate
     // HashKey that collides for small num_shards and produces a single
     // shard_id for multi-shard collections.
-    NodeInfo info1;
+    meta::NodeInfo info1;
     info1.node_id = core::MakeNodeId(1);
-    info1.type = NodeType::DATA_NODE;
-    info1.status = NodeStatus::HEALTHY;
+    info1.type = meta::NodeType::DATA_NODE;
+    info1.status = meta::NodeStatus::HEALTHY;
     info1.address = "node1:50051";
     REQUIRE(coordinator->RegisterNode(info1).ok());
 
-    NodeInfo info2;
+    meta::NodeInfo info2;
     info2.node_id = core::MakeNodeId(2);
-    info2.type = NodeType::DATA_NODE;
-    info2.status = NodeStatus::HEALTHY;
+    info2.type = meta::NodeType::DATA_NODE;
+    info2.status = meta::NodeStatus::HEALTHY;
     info2.address = "node2:50051";
     REQUIRE(coordinator->RegisterNode(info2).ok());
 

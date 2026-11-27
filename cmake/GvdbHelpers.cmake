@@ -6,12 +6,24 @@ function(_gvdb_configure_target target)
   set_target_properties(${target} PROPERTIES COMPILE_WARNING_AS_ERROR ${GVDB_WARNINGS_AS_ERRORS})
 endfunction()
 
-# gvdb_add_library(<name> SOURCES <file>... [PUBLIC_DEPS <dep>...] [PRIVATE_DEPS <dep>...])
+# gvdb_add_library(<name> [SOURCES <file>...] [PUBLIC_DEPS <dep>...] [PRIVATE_DEPS <dep>...])
 #
-# Creates the static library gvdb_<name> and its alias gvdb::<name>.
+# Creates the static library gvdb_<name> and its alias gvdb::<name>. Without
+# SOURCES, the library is header-only: an INTERFACE target that gives the
+# include directory and PUBLIC_DEPS to the targets that link it.
 function(gvdb_add_library name)
   cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "SOURCES;PUBLIC_DEPS;PRIVATE_DEPS")
   set(target gvdb_${name})
+  if(NOT arg_SOURCES)
+    if(arg_PRIVATE_DEPS)
+      message(FATAL_ERROR "gvdb_add_library(${name}): a header-only library has no PRIVATE_DEPS")
+    endif()
+    add_library(${target} INTERFACE)
+    add_library(gvdb::${name} ALIAS ${target})
+    target_include_directories(${target} INTERFACE "${PROJECT_SOURCE_DIR}/include")
+    target_link_libraries(${target} INTERFACE ${arg_PUBLIC_DEPS})
+    return()
+  endif()
   add_library(${target} STATIC ${arg_SOURCES})
   add_library(gvdb::${name} ALIAS ${target})
   target_include_directories(${target} PUBLIC "${PROJECT_SOURCE_DIR}/include")

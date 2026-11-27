@@ -157,7 +157,7 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_DropAndRecreateGetsNewIdAndParams") 
   auto new_segments = resolver_->GetSegmentIds("recreated");
   REQUIRE(new_segments.ok());
   REQUIRE_EQ(new_segments->size(), 1);
-  CHECK_EQ((*new_segments)[0], cluster::ShardSegmentId(*new_id, 0));
+  CHECK_EQ((*new_segments)[0], core::ShardSegmentId(*new_id, 0));
   CHECK_EQ(segment_store_->GetSegmentCount(), 1);
 
   const auto* new_segment = segment_store_->GetSegment((*new_segments)[0]);
@@ -239,7 +239,7 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetSegmentIdsMultiShard") {
 
   // Each segment ID should be ShardSegmentId(collection_id, shard_index)
   for (uint32_t i = 0; i < 3; ++i) {
-    core::SegmentId expected = cluster::ShardSegmentId(*created, i);
+    core::SegmentId expected = core::ShardSegmentId(*created, i);
     CHECK_EQ((*segs)[i], expected);
   }
 }

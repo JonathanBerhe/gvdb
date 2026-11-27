@@ -4,9 +4,10 @@ gvdb_add_library(auth
     rbac.cpp
     auth_context.cpp
   PUBLIC_DEPS
-    gvdb::utils
     absl::flat_hash_map
     absl::status
     absl::statusor
     absl::strings
+  PRIVATE_DEPS
+    gvdb::utils
 )

@@ -1,11 +1,11 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "network/proto_conversions.h"
+#include "rpc/proto_conversions.h"
 #include "absl/strings/str_format.h"
 
 namespace gvdb {
-namespace network {
+namespace rpc {
 
 // ============================================================================
 // Proto to Core Conversions
@@ -122,42 +122,6 @@ absl::StatusOr<core::Metadata> fromProto(const proto::Metadata& proto_metadata) 
   return metadata;
 }
 
-absl::StatusOr<core::MetricType> metricTypeFromString(const std::string& metric_str) {
-  if (metric_str == "L2") {
-    return core::MetricType::L2;
-  } else if (metric_str == "INNER_PRODUCT") {
-    return core::MetricType::INNER_PRODUCT;
-  } else if (metric_str == "COSINE") {
-    return core::MetricType::COSINE;
-  } else {
-    return absl::InvalidArgumentError(
-        absl::StrFormat("Unknown metric type: %s", metric_str));
-  }
-}
-
-absl::StatusOr<core::IndexType> indexTypeFromString(const std::string& index_str) {
-  if (index_str == "FLAT") {
-    return core::IndexType::FLAT;
-  } else if (index_str == "HNSW") {
-    return core::IndexType::HNSW;
-  } else if (index_str == "IVF_FLAT") {
-    return core::IndexType::IVF_FLAT;
-  } else if (index_str == "IVF_PQ") {
-    return core::IndexType::IVF_PQ;
-  } else if (index_str == "IVF_SQ") {
-    return core::IndexType::IVF_SQ;
-  } else if (index_str == "TURBOQUANT") {
-    return core::IndexType::TURBOQUANT;
-  } else if (index_str == "IVF_TURBOQUANT") {
-    return core::IndexType::IVF_TURBOQUANT;
-  } else if (index_str == "AUTO") {
-    return core::IndexType::AUTO;
-  } else {
-    return absl::InvalidArgumentError(
-        absl::StrFormat("Unknown index type: %s", index_str));
-  }
-}
-
 // ============================================================================
 // Core to Proto Conversions
 // ============================================================================
@@ -172,42 +136,6 @@ void toProto(const core::Vector& vector, proto::Vector* proto_vector) {
 void toProto(const core::SearchResultEntry& entry, proto::SearchResultEntry* proto_entry) {
   proto_entry->set_id(core::ToUInt64(entry.id));
   proto_entry->set_distance(entry.distance);
-}
-
-std::string toString(core::MetricType metric) {
-  switch (metric) {
-    case core::MetricType::L2:
-      return "L2";
-    case core::MetricType::INNER_PRODUCT:
-      return "INNER_PRODUCT";
-    case core::MetricType::COSINE:
-      return "COSINE";
-    default:
-      return "UNKNOWN";
-  }
-}
-
-std::string toString(core::IndexType index) {
-  switch (index) {
-    case core::IndexType::FLAT:
-      return "FLAT";
-    case core::IndexType::HNSW:
-      return "HNSW";
-    case core::IndexType::IVF_FLAT:
-      return "IVF_FLAT";
-    case core::IndexType::IVF_PQ:
-      return "IVF_PQ";
-    case core::IndexType::IVF_SQ:
-      return "IVF_SQ";
-    case core::IndexType::TURBOQUANT:
-      return "TURBOQUANT";
-    case core::IndexType::IVF_TURBOQUANT:
-      return "IVF_TURBOQUANT";
-    case core::IndexType::AUTO:
-      return "AUTO";
-    default:
-      return "UNKNOWN";
-  }
 }
 
 void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata) {
@@ -312,6 +240,111 @@ proto::BackupState toProto(storage::BackupState state) {
 }
 
 // ============================================================================
+// Node Conversions
+// ============================================================================
+
+meta::NodeInfo fromProto(const proto::internal::NodeInfo& proto_info) {
+  meta::NodeInfo info;
+  info.node_id = core::MakeNodeId(proto_info.node_id());
+
+  // Convert node type
+  switch (proto_info.node_type()) {
+    case proto::internal::NodeType::NODE_TYPE_COORDINATOR:
+      info.type = meta::NodeType::COORDINATOR;
+      break;
+    case proto::internal::NodeType::NODE_TYPE_DATA_NODE:
+      info.type = meta::NodeType::DATA_NODE;
+      break;
+    case proto::internal::NodeType::NODE_TYPE_QUERY_NODE:
+      info.type = meta::NodeType::QUERY_NODE;
+      break;
+    case proto::internal::NodeType::NODE_TYPE_PROXY:
+      info.type = meta::NodeType::PROXY;
+      break;
+    default:
+      info.type = meta::NodeType::QUERY_NODE;  // Default
+      break;
+  }
+
+  // Convert status - map proto READY to HEALTHY
+  switch (proto_info.status()) {
+    case proto::internal::NodeStatus::NODE_STATUS_STARTING:
+      info.status = meta::NodeStatus::STARTING;
+      break;
+    case proto::internal::NodeStatus::NODE_STATUS_READY:
+      info.status = meta::NodeStatus::HEALTHY;  // Map READY to HEALTHY
+      break;
+    case proto::internal::NodeStatus::NODE_STATUS_DEGRADED:
+      info.status = meta::NodeStatus::DEGRADED;
+      break;
+    case proto::internal::NodeStatus::NODE_STATUS_DOWN:
+      info.status = meta::NodeStatus::FAILED;  // Map DOWN to FAILED
+      break;
+    case proto::internal::NodeStatus::NODE_STATUS_DRAINING:
+      info.status = meta::NodeStatus::LEAVING;  // Graceful shutdown in progress
+      break;
+    default:
+      info.status = meta::NodeStatus::HEALTHY;  // Default
+      break;
+  }
+
+  info.address = proto_info.grpc_address();
+  info.memory_capacity_bytes = proto_info.memory_total_bytes();
+  info.memory_used_bytes = proto_info.memory_used_bytes();
+  info.disk_capacity_bytes = proto_info.disk_total_bytes();
+  info.disk_used_bytes = proto_info.disk_used_bytes();
+  info.cpu_usage_percent = 0.0f;  // Not in proto, leave at 0
+  info.last_heartbeat_ts = 0;  // Not available from proto, handled by NodeRegistry
+
+  return info;
+}
+
+void toProto(const meta::NodeInfo& info, proto::internal::NodeInfo* proto_info) {
+  proto_info->set_node_id(core::ToUInt32(info.node_id));
+
+  switch (info.type) {
+    case meta::NodeType::COORDINATOR:
+      proto_info->set_node_type(proto::internal::NodeType::NODE_TYPE_COORDINATOR);
+      break;
+    case meta::NodeType::DATA_NODE:
+      proto_info->set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+      break;
+    case meta::NodeType::QUERY_NODE:
+      proto_info->set_node_type(proto::internal::NodeType::NODE_TYPE_QUERY_NODE);
+      break;
+    case meta::NodeType::PROXY:
+      proto_info->set_node_type(proto::internal::NodeType::NODE_TYPE_PROXY);
+      break;
+  }
+
+  switch (info.status) {
+    case meta::NodeStatus::STARTING:
+      proto_info->set_status(proto::internal::NodeStatus::NODE_STATUS_STARTING);
+      break;
+    case meta::NodeStatus::HEALTHY:
+      proto_info->set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+      break;
+    case meta::NodeStatus::DEGRADED:
+      proto_info->set_status(proto::internal::NodeStatus::NODE_STATUS_DEGRADED);
+      break;
+    case meta::NodeStatus::FAILED:
+      proto_info->set_status(proto::internal::NodeStatus::NODE_STATUS_DOWN);
+      break;
+    case meta::NodeStatus::LEAVING:
+      proto_info->set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
+      break;
+  }
+
+  proto_info->set_grpc_address(info.address);
+  proto_info->set_memory_total_bytes(info.memory_capacity_bytes);
+  proto_info->set_memory_used_bytes(info.memory_used_bytes);
+  proto_info->set_disk_total_bytes(info.disk_capacity_bytes);
+  proto_info->set_disk_used_bytes(info.disk_used_bytes);
+}
+
+// ============================================================================
+// Status Conversions
+// ============================================================================
 
 grpc::Status toGrpcStatus(const absl::Status& status) {
   if (status.ok()) {
@@ -380,5 +413,5 @@ absl::Status fromGrpcStatus(const grpc::Status& grpc_status) {
   return absl::Status(absl_code, grpc_status.error_message());
 }
 
-} // namespace network
+}  // namespace rpc
 } // namespace gvdb
