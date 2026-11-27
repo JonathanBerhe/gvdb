@@ -6,8 +6,8 @@
 #include <string>
 #include <utility>
 
-#include "storage/objstore/filesystem_object_store.h"
 #include "common/logger.h"
+#include "storage/objstore/filesystem_object_store.h"
 
 #ifdef GVDB_HAS_S3
 #include "storage/objstore/s3_object_store.h"
@@ -19,8 +19,7 @@
 namespace gvdb {
 namespace storage {
 
-absl::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(
-    const ObjectStoreConfig& config) {
+absl::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(const ObjectStoreConfig& config) {
   const std::string& type = config.type;
 
   // Filesystem tier: always available (no SDK). bucket = root directory.
@@ -71,7 +70,8 @@ absl::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(
     if (type == "s3" || type == "minio") {
       common::Logger::Instance().Warn(
           "object_store.type=\"{}\" requires object_store.endpoint to be set; "
-          "object storage is DISABLED (local disk only).", type);
+          "object storage is DISABLED (local disk only).",
+          type);
     }
     return std::unique_ptr<IObjectStore>(nullptr);
   }

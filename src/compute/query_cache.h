@@ -6,8 +6,8 @@
 #include <cstdint>
 #include <functional>
 #include <list>
-#include <optional>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
@@ -24,10 +24,8 @@ struct CacheKey {
   uint64_t filter_hash;
 
   bool operator==(const CacheKey& other) const {
-    return collection_id == other.collection_id &&
-           vector_hash == other.vector_hash &&
-           top_k == other.top_k &&
-           filter_hash == other.filter_hash;
+    return collection_id == other.collection_id && vector_hash == other.vector_hash &&
+           top_k == other.top_k && filter_hash == other.filter_hash;
   }
 };
 
@@ -43,10 +41,8 @@ struct CacheKeyHash {
 
 // Build a CacheKey from search parameters.
 // vector_data/vector_size are used to compute a hash of the query vector.
-CacheKey MakeCacheKey(core::CollectionId collection_id,
-                      const float* vector_data, size_t vector_size,
-                      uint32_t top_k,
-                      const std::string& filter = "");
+CacheKey MakeCacheKey(core::CollectionId collection_id, const float* vector_data,
+                      size_t vector_size, uint32_t top_k, const std::string& filter = "");
 
 // Thread-safe LRU query result cache.
 class QueryCache {

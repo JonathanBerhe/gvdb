@@ -72,9 +72,7 @@ void StartLogging(const std::string& data_dir, const std::string& file_name,
   }
 }
 
-void StartMetricsServer(int port) {
-  common::MetricsRegistry::Instance().StartMetricsServer(port);
-}
+void StartMetricsServer(int port) { common::MetricsRegistry::Instance().StartMetricsServer(port); }
 
 std::shared_ptr<grpc::ServerCredentials> MakeServerCredentials(const config::TlsConfig& tls) {
   if (tls.enabled && !tls.cert_path.empty() && !tls.key_path.empty()) {

@@ -28,8 +28,7 @@ namespace storage {
 class SegmentManager : public ISegmentStore {
  public:
   // Constructor
-  explicit SegmentManager(const std::string& base_path,
-                          core::IIndexFactory* index_factory,
+  explicit SegmentManager(const std::string& base_path, core::IIndexFactory* index_factory,
                           size_t max_segment_size = Segment::kMaxSegmentSize);
 
   // Disable copy and move (contains mutex and unique_ptr)
@@ -42,54 +41,44 @@ class SegmentManager : public ISegmentStore {
 
   // ========== Segment Lifecycle ==========
 
-  [[nodiscard]] absl::StatusOr<core::SegmentId> CreateSegment(
-      core::CollectionId collection_id,
-      core::Dimension dimension,
-      core::MetricType metric) override;
+  [[nodiscard]] absl::StatusOr<core::SegmentId> CreateSegment(core::CollectionId collection_id,
+                                                              core::Dimension dimension,
+                                                              core::MetricType metric) override;
 
-  [[nodiscard]] absl::Status CreateSegmentWithId(
-      core::SegmentId segment_id,
-      core::CollectionId collection_id,
-      core::Dimension dimension,
-      core::MetricType metric,
-      core::IndexType index_type) override;
+  [[nodiscard]] absl::Status CreateSegmentWithId(core::SegmentId segment_id,
+                                                 core::CollectionId collection_id,
+                                                 core::Dimension dimension, core::MetricType metric,
+                                                 core::IndexType index_type) override;
 
   [[nodiscard]] Segment* GetSegment(core::SegmentId id) override;
   [[nodiscard]] const Segment* GetSegment(core::SegmentId id) const override;
 
-  [[nodiscard]] absl::Status SealSegment(
-      core::SegmentId id,
-      const core::IndexConfig& index_config) override;
+  [[nodiscard]] absl::Status SealSegment(core::SegmentId id,
+                                         const core::IndexConfig& index_config) override;
 
   [[nodiscard]] absl::Status FlushSegment(core::SegmentId id) override;
 
-  [[nodiscard]] absl::Status DropSegment(
-      core::SegmentId id, bool delete_files = false) override;
+  [[nodiscard]] absl::Status DropSegment(core::SegmentId id, bool delete_files = false) override;
 
   [[nodiscard]] absl::Status LoadSegment(core::SegmentId id);
 
-  [[nodiscard]] absl::Status AddReplicatedSegment(
-      std::unique_ptr<Segment> segment) override;
+  [[nodiscard]] absl::Status AddReplicatedSegment(std::unique_ptr<Segment> segment) override;
 
   // ========== Data Operations ==========
 
-  [[nodiscard]] absl::Status WriteVectors(
-      core::SegmentId segment_id,
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids) override;
+  [[nodiscard]] absl::Status WriteVectors(core::SegmentId segment_id,
+                                          const std::vector<core::Vector>& vectors,
+                                          const std::vector<core::VectorId>& ids) override;
 
   [[nodiscard]] absl::StatusOr<core::SearchResult> SearchCollection(
-      core::CollectionId collection_id,
-      const core::Vector& query,
-      int k) const override;
+      core::CollectionId collection_id, const core::Vector& query, int k) const override;
 
   // ========== Active Segment Rotation ==========
 
   void SetSealCallback(SealCallback callback) override;
 
-  [[nodiscard]] Segment* GetWritableSegment(
-      core::CollectionId collection_id,
-      size_t required_bytes = 0) override;
+  [[nodiscard]] Segment* GetWritableSegment(core::CollectionId collection_id,
+                                            size_t required_bytes = 0) override;
 
   [[nodiscard]] std::vector<core::SegmentId> GetAllSegmentIds() const;
 
@@ -104,9 +93,7 @@ class SegmentManager : public ISegmentStore {
 
   [[nodiscard]] size_t GetSegmentCount() const override;
 
-  [[nodiscard]] size_t GetMaxSegmentSize() const override {
-    return max_segment_size_;
-  }
+  [[nodiscard]] size_t GetMaxSegmentSize() const override { return max_segment_size_; }
 
   void Clear() override;
 
@@ -130,8 +117,7 @@ class SegmentManager : public ISegmentStore {
   std::unordered_map<core::SegmentId, std::unique_ptr<Segment>> segments_;
 
   // Collection to segments mapping (for efficient collection queries)
-  std::unordered_map<core::CollectionId, std::vector<core::SegmentId>>
-      collection_segments_;
+  std::unordered_map<core::CollectionId, std::vector<core::SegmentId>> collection_segments_;
 
   // Thread safety
   mutable std::shared_mutex mutex_;
@@ -152,4 +138,3 @@ class SegmentManager : public ISegmentStore {
 
 }  // namespace storage
 }  // namespace gvdb
-

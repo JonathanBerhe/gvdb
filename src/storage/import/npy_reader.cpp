@@ -20,8 +20,7 @@ static constexpr size_t kMagicLen = 6;
 absl::StatusOr<NpyHeader> NpyReader::ReadHeader(const std::string& file_path) {
   std::ifstream file(file_path, std::ios::binary);
   if (!file.is_open()) {
-    return absl::NotFoundError(
-        absl::StrCat("Cannot open .npy file: ", file_path));
+    return absl::NotFoundError(absl::StrCat("Cannot open .npy file: ", file_path));
   }
 
   // Read magic bytes
@@ -51,8 +50,7 @@ absl::StatusOr<NpyHeader> NpyReader::ReadHeader(const std::string& file_path) {
     file.read(reinterpret_cast<char*>(&header_len), 4);
   } else {
     return absl::InvalidArgumentError(
-        absl::StrCat("Unsupported .npy version: ", major_version, ".",
-                      minor_version));
+        absl::StrCat("Unsupported .npy version: ", major_version, ".", minor_version));
   }
   if (!file || header_len == 0 || header_len > 1024 * 1024) {
     return absl::InvalidArgumentError("Invalid .npy header length");
@@ -73,14 +71,12 @@ absl::StatusOr<NpyHeader> NpyReader::ReadHeader(const std::string& file_path) {
   std::regex descr_re(R"('descr'\s*:\s*'([^']+)')");
   std::smatch descr_match;
   if (!std::regex_search(header_str, descr_match, descr_re)) {
-    return absl::InvalidArgumentError(
-        "Missing 'descr' in .npy header");
+    return absl::InvalidArgumentError("Missing 'descr' in .npy header");
   }
   std::string descr = descr_match[1].str();
   if (descr != "<f4" && descr != "float32") {
     return absl::InvalidArgumentError(
-        absl::StrCat("Unsupported .npy dtype: '", descr,
-                      "' (only '<f4' / float32 supported)"));
+        absl::StrCat("Unsupported .npy dtype: '", descr, "' (only '<f4' / float32 supported)"));
   }
 
   // Parse 'fortran_order' — must be False
@@ -104,8 +100,7 @@ absl::StatusOr<NpyHeader> NpyReader::ReadHeader(const std::string& file_path) {
       return absl::InvalidArgumentError(
           "1D .npy arrays are not supported (expected 2D shape (N, D))");
     }
-    return absl::InvalidArgumentError(
-        "Failed to parse 'shape' from .npy header");
+    return absl::InvalidArgumentError("Failed to parse 'shape' from .npy header");
   }
 
   size_t num_vectors = std::stoull(shape_match[1].str());
@@ -121,9 +116,9 @@ absl::StatusOr<NpyHeader> NpyReader::ReadHeader(const std::string& file_path) {
   return NpyHeader{num_vectors, dimension, data_offset};
 }
 
-absl::StatusOr<std::vector<std::pair<core::VectorId, core::Vector>>>
-NpyReader::ReadChunk(const std::string& file_path, const NpyHeader& header,
-                     size_t start_row, size_t count, uint64_t start_id) {
+absl::StatusOr<std::vector<std::pair<core::VectorId, core::Vector>>> NpyReader::ReadChunk(
+    const std::string& file_path, const NpyHeader& header, size_t start_row, size_t count,
+    uint64_t start_id) {
   if (start_row >= header.num_vectors) {
     return std::vector<std::pair<core::VectorId, core::Vector>>{};
   }
@@ -133,8 +128,7 @@ NpyReader::ReadChunk(const std::string& file_path, const NpyHeader& header,
 
   std::ifstream file(file_path, std::ios::binary);
   if (!file.is_open()) {
-    return absl::NotFoundError(
-        absl::StrCat("Cannot open .npy file: ", file_path));
+    return absl::NotFoundError(absl::StrCat("Cannot open .npy file: ", file_path));
   }
 
   // Seek to the start of the chunk
@@ -152,8 +146,7 @@ NpyReader::ReadChunk(const std::string& file_path, const NpyHeader& header,
             static_cast<std::streamsize>(total_floats * sizeof(float)));
   if (!file) {
     return absl::InternalError(
-        absl::StrCat("Failed to read ", actual_count,
-                      " vectors from .npy file"));
+        absl::StrCat("Failed to read ", actual_count, " vectors from .npy file"));
   }
 
   // Build result
@@ -162,9 +155,8 @@ NpyReader::ReadChunk(const std::string& file_path, const NpyHeader& header,
 
   for (size_t i = 0; i < actual_count; ++i) {
     auto id = core::VectorId(start_id + i);
-    std::vector<float> values(
-        buffer.begin() + static_cast<ptrdiff_t>(i * header.dimension),
-        buffer.begin() + static_cast<ptrdiff_t>((i + 1) * header.dimension));
+    std::vector<float> values(buffer.begin() + static_cast<ptrdiff_t>(i * header.dimension),
+                              buffer.begin() + static_cast<ptrdiff_t>((i + 1) * header.dimension));
     core::Vector vec(std::move(values));
     result.emplace_back(id, std::move(vec));
   }

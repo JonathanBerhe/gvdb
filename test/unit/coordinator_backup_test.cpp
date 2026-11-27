@@ -37,12 +37,12 @@ namespace {
 // Per-call record. The tests inspect this to assert the
 // Freeze → Backup → Unfreeze order and the create-time primary push.
 struct RecordedCall {
-  std::string method;          // "FreezeWrites" | "BackupShard" | ...
+  std::string method;  // "FreezeWrites" | "BackupShard" | ...
   uint32_t shard_id = 0;
   std::string fence_token;
   std::string backup_id;
   uint32_t collection_id = 0;
-  uint64_t term = 0;           // PreparePromote only
+  uint64_t term = 0;  // PreparePromote only
 };
 
 // IInternalServiceClient mock that records every call and returns OK with
@@ -51,7 +51,7 @@ struct RecordedCall {
 // recording vector (the factory hands out fresh client objects per dial).
 struct MockState {
   mutable std::mutex mu;
-  std::vector<RecordedCall> calls;     // in temporal order across all shards
+  std::vector<RecordedCall> calls;  // in temporal order across all shards
   // When true, PreparePromote returns UNAVAILABLE (after recording the
   // attempt), exercising CreateCollection's best-effort push tolerance.
   std::atomic<bool> fail_prepare_promote{false};
@@ -64,17 +64,14 @@ struct MockState {
 
 class MockClient : public IInternalServiceClient {
  public:
-  explicit MockClient(std::shared_ptr<MockState> state)
-      : state_(std::move(state)) {}
+  explicit MockClient(std::shared_ptr<MockState> state) : state_(std::move(state)) {}
 
-  grpc::Status CreateSegment(grpc::ClientContext*,
-                             const proto::internal::CreateSegmentRequest&,
+  grpc::Status CreateSegment(grpc::ClientContext*, const proto::internal::CreateSegmentRequest&,
                              proto::internal::CreateSegmentResponse* r) override {
     r->set_success(true);
     return grpc::Status::OK;
   }
-  grpc::Status DeleteSegment(grpc::ClientContext*,
-                             const proto::internal::DeleteSegmentRequest&,
+  grpc::Status DeleteSegment(grpc::ClientContext*, const proto::internal::DeleteSegmentRequest&,
                              proto::internal::DeleteSegmentResponse* r) override {
     r->set_success(true);
     return grpc::Status::OK;
@@ -85,18 +82,15 @@ class MockClient : public IInternalServiceClient {
     r->set_success(true);
     return grpc::Status::OK;
   }
-  grpc::Status GetSegment(grpc::ClientContext*,
-                          const proto::internal::GetSegmentRequest&,
+  grpc::Status GetSegment(grpc::ClientContext*, const proto::internal::GetSegmentRequest&,
                           proto::internal::GetSegmentResponse* /*r*/) override {
     return grpc::Status::OK;
   }
-  grpc::Status ListSegments(grpc::ClientContext*,
-                            const proto::internal::ListSegmentsRequest&,
+  grpc::Status ListSegments(grpc::ClientContext*, const proto::internal::ListSegmentsRequest&,
                             proto::internal::ListSegmentsResponse* /*r*/) override {
     return grpc::Status::OK;
   }
-  grpc::Status PausePrimary(grpc::ClientContext*,
-                            const proto::internal::PausePrimaryRequest&,
+  grpc::Status PausePrimary(grpc::ClientContext*, const proto::internal::PausePrimaryRequest&,
                             proto::internal::PausePrimaryResponse* r) override {
     r->set_success(true);
     return grpc::Status::OK;
@@ -104,37 +98,31 @@ class MockClient : public IInternalServiceClient {
   grpc::Status PreparePromote(grpc::ClientContext*,
                               const proto::internal::PreparePromoteRequest& req,
                               proto::internal::PreparePromoteResponse* r) override {
-    state_->Record(RecordedCall{"PreparePromote", req.shard_id(), "", "", 0,
-                                req.new_term()});
+    state_->Record(RecordedCall{"PreparePromote", req.shard_id(), "", "", 0, req.new_term()});
     if (state_->fail_prepare_promote.load()) {
-      return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                           "mock: PreparePromote unavailable");
+      return grpc::Status(grpc::StatusCode::UNAVAILABLE, "mock: PreparePromote unavailable");
     }
     r->set_success(true);
     return grpc::Status::OK;
   }
 
-  grpc::Status FreezeWrites(grpc::ClientContext*,
-                            const proto::internal::FreezeWritesRequest& req,
+  grpc::Status FreezeWrites(grpc::ClientContext*, const proto::internal::FreezeWritesRequest& req,
                             proto::internal::FreezeWritesResponse* r) override {
-    state_->Record(RecordedCall{"FreezeWrites", req.shard_id(),
-                                req.fence_token(), "", 0});
+    state_->Record(RecordedCall{"FreezeWrites", req.shard_id(), req.fence_token(), "", 0});
     r->set_success(true);
     return grpc::Status::OK;
   }
-  grpc::Status BackupShard(grpc::ClientContext*,
-                           const proto::internal::BackupShardRequest& req,
+  grpc::Status BackupShard(grpc::ClientContext*, const proto::internal::BackupShardRequest& req,
                            proto::internal::BackupShardResponse* r) override {
-    state_->Record(RecordedCall{"BackupShard", req.shard_id(), "",
-                                req.backup_id(), req.collection_id()});
+    state_->Record(
+        RecordedCall{"BackupShard", req.shard_id(), "", req.backup_id(), req.collection_id()});
     r->set_success(true);
     // Return a synthetic shard manifest key the coordinator will record
     // in the top-level manifest. The body of that manifest is never
     // physically uploaded by the mock, the test only inspects the
     // top-level manifest the coordinator writes.
-    r->set_shard_manifest_key(
-        "backups/" + req.backup_id() + "/shards/" +
-        std::to_string(req.shard_id()) + "/shard.manifest.json");
+    r->set_shard_manifest_key("backups/" + req.backup_id() + "/shards/" +
+                              std::to_string(req.shard_id()) + "/shard.manifest.json");
     r->set_bytes_uploaded(1024);
     auto* seg = r->add_segments();
     seg->set_segment_id(100 + req.shard_id());
@@ -143,11 +131,9 @@ class MockClient : public IInternalServiceClient {
     seg->set_size_bytes(1024);
     return grpc::Status::OK;
   }
-  grpc::Status RestoreShard(grpc::ClientContext*,
-                            const proto::internal::RestoreShardRequest& req,
+  grpc::Status RestoreShard(grpc::ClientContext*, const proto::internal::RestoreShardRequest& req,
                             proto::internal::RestoreShardResponse* r) override {
-    state_->Record(RecordedCall{"RestoreShard", req.shard_id(), "",
-                                req.backup_id(),
+    state_->Record(RecordedCall{"RestoreShard", req.shard_id(), "", req.backup_id(),
                                 req.target_collection_id()});
     r->set_success(true);
     r->set_segments_restored(1);
@@ -156,8 +142,7 @@ class MockClient : public IInternalServiceClient {
   grpc::Status UnfreezeWrites(grpc::ClientContext*,
                               const proto::internal::UnfreezeWritesRequest& req,
                               proto::internal::UnfreezeWritesResponse* r) override {
-    state_->Record(RecordedCall{"UnfreezeWrites", req.shard_id(),
-                                req.fence_token(), "", 0});
+    state_->Record(RecordedCall{"UnfreezeWrites", req.shard_id(), req.fence_token(), "", 0});
     r->set_success(true);
     return grpc::Status::OK;
   }
@@ -168,12 +153,12 @@ class MockClient : public IInternalServiceClient {
 
 class MockFactory : public IInternalServiceClientFactory {
  public:
-  explicit MockFactory(std::shared_ptr<MockState> state)
-      : state_(std::move(state)) {}
-  std::unique_ptr<IInternalServiceClient> CreateClient(
-      core::NodeId, const std::string& /*addr*/) override {
+  explicit MockFactory(std::shared_ptr<MockState> state) : state_(std::move(state)) {}
+  std::unique_ptr<IInternalServiceClient> CreateClient(core::NodeId,
+                                                       const std::string& /*addr*/) override {
     return std::make_unique<MockClient>(state_);
   }
+
  private:
   std::shared_ptr<MockState> state_;
 };
@@ -215,14 +200,13 @@ struct CoordinatorBackupFixture {
     ropts.s3_bucket = "test-bucket";
     ropts.staging_dir = (temp_dir / "restore").string();
     ropts.max_concurrent_jobs = 1;
-    restore_manager = std::make_shared<storage::RestoreManager>(
-        std::move(ropts));
+    restore_manager = std::make_shared<storage::RestoreManager>(std::move(ropts));
 
-    coordinator = std::make_unique<Coordinator>(
-        shard_manager, node_registry,
-        CoordinatorOptions{.client_factory = factory,
-                           .backup_manager = backup_manager,
-                           .restore_manager = restore_manager});
+    coordinator =
+        std::make_unique<Coordinator>(shard_manager, node_registry,
+                                      CoordinatorOptions{.client_factory = factory,
+                                                         .backup_manager = backup_manager,
+                                                         .restore_manager = restore_manager});
 
     // Register through the coordinator so ShardManager's hash ring is
     // populated, otherwise AssignShard falls back to a degenerate
@@ -246,15 +230,13 @@ struct CoordinatorBackupFixture {
 
 // Wait until the backup reaches a terminal state. Returns that state, or
 // RUNNING when it is still not done after the WaitFor timeout.
-storage::BackupState WaitForBackup(storage::BackupManager& mgr,
-                                   const std::string& id) {
+storage::BackupState WaitForBackup(storage::BackupManager& mgr, const std::string& id) {
   auto state = storage::BackupState::RUNNING;
   const bool done = gvdb::test::WaitFor([&] {
     auto s = mgr.GetStatus(id);
     REQUIRE(s.ok());
     state = s->state;
-    return state == storage::BackupState::COMPLETED ||
-           state == storage::BackupState::FAILED ||
+    return state == storage::BackupState::COMPLETED || state == storage::BackupState::FAILED ||
            state == storage::BackupState::CANCELLED;
   });
   return done ? state : storage::BackupState::RUNNING;
@@ -263,163 +245,160 @@ storage::BackupState WaitForBackup(storage::BackupManager& mgr,
 }  // namespace
 
 TEST_SUITE("CoordinatorBackup") {
+  TEST_CASE_FIXTURE(CoordinatorBackupFixture,
+                    "two-shard backup issues Freeze → Backup → Unfreeze per shard") {
+    // 2 shards, single-replica, primaries land on node1 and node2 by
+    // round-robin in AssignShardsToCollection.
+    auto coll_or =
+        coordinator->CreateCollection("products", 128, core::MetricType::L2, core::IndexType::FLAT,
+                                      /*replication_factor=*/1, /*num_shards=*/2);
+    REQUIRE(coll_or.ok());
 
-TEST_CASE_FIXTURE(CoordinatorBackupFixture,
-                  "two-shard backup issues Freeze → Backup → Unfreeze per shard") {
-  // 2 shards, single-replica, primaries land on node1 and node2 by
-  // round-robin in AssignShardsToCollection.
-  auto coll_or = coordinator->CreateCollection(
-      "products", 128, core::MetricType::L2, core::IndexType::FLAT,
-      /*replication_factor=*/1, /*num_shards=*/2);
-  REQUIRE(coll_or.ok());
+    storage::BackupTarget target{storage::S3BackupTarget{"test-bucket", "bk"}};
+    auto bid_or = coordinator->StartBackupDistributed("products", target, "bk-fixed");
+    REQUIRE(bid_or.ok());
+    REQUIRE_EQ(*bid_or, "bk-fixed");
 
-  storage::BackupTarget target{storage::S3BackupTarget{"test-bucket", "bk"}};
-  auto bid_or = coordinator->StartBackupDistributed(
-      "products", target, "bk-fixed");
-  REQUIRE(bid_or.ok());
-  REQUIRE_EQ(*bid_or, "bk-fixed");
+    auto final_state = WaitForBackup(*backup_manager, *bid_or);
+    REQUIRE_EQ(final_state, storage::BackupState::COMPLETED);
 
-  auto final_state = WaitForBackup(*backup_manager, *bid_or);
-  REQUIRE_EQ(final_state, storage::BackupState::COMPLETED);
-
-  // Verify per-shard call sequence: each distinct shard must see
-  // exactly Freeze → Backup → Unfreeze in that order. Scope the check
-  // to the three backup methods; collection creation also pushes a
-  // PreparePromote per shard, which is asserted by its own tests below.
-  std::map<uint32_t, std::vector<std::string>> per_shard_methods;
-  {
-    std::lock_guard<std::mutex> lk(mock_state->mu);
-    for (const auto& c : mock_state->calls) {
-      if (c.method == "FreezeWrites" || c.method == "BackupShard" ||
-          c.method == "UnfreezeWrites") {
-        per_shard_methods[c.shard_id].push_back(c.method);
+    // Verify per-shard call sequence: each distinct shard must see
+    // exactly Freeze → Backup → Unfreeze in that order. Scope the check
+    // to the three backup methods; collection creation also pushes a
+    // PreparePromote per shard, which is asserted by its own tests below.
+    std::map<uint32_t, std::vector<std::string>> per_shard_methods;
+    {
+      std::lock_guard<std::mutex> lk(mock_state->mu);
+      for (const auto& c : mock_state->calls) {
+        if (c.method == "FreezeWrites" || c.method == "BackupShard" ||
+            c.method == "UnfreezeWrites") {
+          per_shard_methods[c.shard_id].push_back(c.method);
+        }
       }
     }
-  }
-  REQUIRE_EQ(per_shard_methods.size(), 2u);
-  for (const auto& [shard_id, methods] : per_shard_methods) {
-    REQUIRE_EQ(methods.size(), 3u);
-    CHECK_EQ(methods[0], "FreezeWrites");
-    CHECK_EQ(methods[1], "BackupShard");
-    CHECK_EQ(methods[2], "UnfreezeWrites");
-  }
+    REQUIRE_EQ(per_shard_methods.size(), 2u);
+    for (const auto& [shard_id, methods] : per_shard_methods) {
+      REQUIRE_EQ(methods.size(), 3u);
+      CHECK_EQ(methods[0], "FreezeWrites");
+      CHECK_EQ(methods[1], "BackupShard");
+      CHECK_EQ(methods[2], "UnfreezeWrites");
+    }
 
-  // Verify that BackupShard carried the right backup_id and a non-zero
-  // collection_id (regression guard: an earlier draft hardcoded 0).
-  bool saw_nonzero_collection = false;
-  {
-    std::lock_guard<std::mutex> lk(mock_state->mu);
-    for (const auto& c : mock_state->calls) {
-      if (c.method == "BackupShard") {
-        CHECK_EQ(c.backup_id, "bk-fixed");
-        if (c.collection_id != 0) saw_nonzero_collection = true;
+    // Verify that BackupShard carried the right backup_id and a non-zero
+    // collection_id (regression guard: an earlier draft hardcoded 0).
+    bool saw_nonzero_collection = false;
+    {
+      std::lock_guard<std::mutex> lk(mock_state->mu);
+      for (const auto& c : mock_state->calls) {
+        if (c.method == "BackupShard") {
+          CHECK_EQ(c.backup_id, "bk-fixed");
+          if (c.collection_id != 0) saw_nonzero_collection = true;
+        }
       }
     }
+    CHECK(saw_nonzero_collection);
+
+    // Verify the top-level manifest was uploaded to the InMemoryObjectStore
+    // and references both shards.
+    auto top = object_store->GetObject("bk/backups/bk-fixed/backup.manifest.json");
+    REQUIRE(top.ok());
+    auto manifest = storage::BackupManifest::DeserializeTop(*top);
+    REQUIRE(manifest.ok());
+    CHECK_EQ(manifest->backup_id, "bk-fixed");
+    CHECK_EQ(manifest->collection.collection_name, "products");
+    CHECK_EQ(manifest->collection.num_shards, 2u);
+    REQUIRE_EQ(manifest->shards.size(), 2u);
   }
-  CHECK(saw_nonzero_collection);
 
-  // Verify the top-level manifest was uploaded to the InMemoryObjectStore
-  // and references both shards.
-  auto top = object_store->GetObject(
-      "bk/backups/bk-fixed/backup.manifest.json");
-  REQUIRE(top.ok());
-  auto manifest = storage::BackupManifest::DeserializeTop(*top);
-  REQUIRE(manifest.ok());
-  CHECK_EQ(manifest->backup_id, "bk-fixed");
-  CHECK_EQ(manifest->collection.collection_name, "products");
-  CHECK_EQ(manifest->collection.num_shards, 2u);
-  REQUIRE_EQ(manifest->shards.size(), 2u);
-}
+  TEST_CASE_FIXTURE(CoordinatorBackupFixture,
+                    "StartBackupDistributed without manager returns UNIMPLEMENTED") {
+    // A coordinator binary not configured for backups has no backup manager.
+    Coordinator without_backup(shard_manager, node_registry,
+                               CoordinatorOptions{.client_factory = factory});
+    storage::BackupTarget target{storage::S3BackupTarget{"test-bucket", "bk"}};
+    auto r = without_backup.StartBackupDistributed("products", target);
+    CHECK_FALSE(r.ok());
+    CHECK_EQ(r.status().code(), absl::StatusCode::kUnimplemented);
+  }
 
-TEST_CASE_FIXTURE(CoordinatorBackupFixture,
-                  "StartBackupDistributed without manager returns UNIMPLEMENTED") {
-  // A coordinator binary not configured for backups has no backup manager.
-  Coordinator without_backup(shard_manager, node_registry,
-                             CoordinatorOptions{.client_factory = factory});
-  storage::BackupTarget target{storage::S3BackupTarget{"test-bucket", "bk"}};
-  auto r = without_backup.StartBackupDistributed("products", target);
-  CHECK_FALSE(r.ok());
-  CHECK_EQ(r.status().code(), absl::StatusCode::kUnimplemented);
-}
+  TEST_CASE_FIXTURE(CoordinatorBackupFixture,
+                    "GetDistributedBackupStatus surfaces NotFound for unknown id") {
+    auto r = coordinator->GetDistributedBackupStatus("never-allocated");
+    CHECK_FALSE(r.ok());
+    CHECK_EQ(r.status().code(), absl::StatusCode::kNotFound);
+  }
 
-TEST_CASE_FIXTURE(CoordinatorBackupFixture,
-                  "GetDistributedBackupStatus surfaces NotFound for unknown id") {
-  auto r = coordinator->GetDistributedBackupStatus("never-allocated");
-  CHECK_FALSE(r.ok());
-  CHECK_EQ(r.status().code(), absl::StatusCode::kNotFound);
-}
+  TEST_CASE_FIXTURE(CoordinatorBackupFixture,
+                    "StartRestoreDistributed rejects existing target without overwrite") {
+    // Create the target collection so a restore without overwrite hits
+    // ALREADY_EXISTS, exercises the overwrite gate.
+    auto coll_or = coordinator->CreateCollection("existing", 64, core::MetricType::L2,
+                                                 core::IndexType::FLAT, 1, 1);
+    REQUIRE(coll_or.ok());
 
-TEST_CASE_FIXTURE(CoordinatorBackupFixture,
-                  "StartRestoreDistributed rejects existing target without overwrite") {
-  // Create the target collection so a restore without overwrite hits
-  // ALREADY_EXISTS, exercises the overwrite gate.
-  auto coll_or = coordinator->CreateCollection(
-      "existing", 64, core::MetricType::L2, core::IndexType::FLAT, 1, 1);
-  REQUIRE(coll_or.ok());
+    storage::BackupTarget source{storage::S3BackupTarget{"test-bucket", "bk"}};
+    // The manifest doesn't exist; the coordinator should fail the lookup
+    // before the overwrite check. To exercise the overwrite gate
+    // independently, we'd need to seed a manifest. For this commit we
+    // assert the call path returns an error rather than the specific
+    // status code.
+    auto r = coordinator->StartRestoreDistributed(source, "missing-backup", "existing",
+                                                  /*overwrite=*/false);
+    CHECK_FALSE(r.ok());
+  }
 
-  storage::BackupTarget source{storage::S3BackupTarget{"test-bucket", "bk"}};
-  // The manifest doesn't exist; the coordinator should fail the lookup
-  // before the overwrite check. To exercise the overwrite gate
-  // independently, we'd need to seed a manifest. For this commit we
-  // assert the call path returns an error rather than the specific
-  // status code.
-  auto r = coordinator->StartRestoreDistributed(
-      source, "missing-backup", "existing", /*overwrite=*/false);
-  CHECK_FALSE(r.ok());
-}
+  // CreateCollection must push the initial primary record (PreparePromote)
+  // to each shard's primary data-node so its write gate accepts inserts
+  // immediately, instead of bouncing "no primary record" until the next
+  // heartbeat cycle.
+  TEST_CASE_FIXTURE(CoordinatorBackupFixture,
+                    "CreateCollection pushes initial primary record per shard") {
+    auto coll_or = coordinator->CreateCollection("promote_push", 16, core::MetricType::L2,
+                                                 core::IndexType::FLAT,
+                                                 /*replication_factor=*/1, /*num_shards=*/2);
+    REQUIRE(coll_or.ok());
 
-// CreateCollection must push the initial primary record (PreparePromote)
-// to each shard's primary data-node so its write gate accepts inserts
-// immediately, instead of bouncing "no primary record" until the next
-// heartbeat cycle.
-TEST_CASE_FIXTURE(CoordinatorBackupFixture,
-                  "CreateCollection pushes initial primary record per shard") {
-  auto coll_or = coordinator->CreateCollection(
-      "promote_push", 16, core::MetricType::L2, core::IndexType::FLAT,
-      /*replication_factor=*/1, /*num_shards=*/2);
-  REQUIRE(coll_or.ok());
-
-  std::map<uint32_t, uint64_t> promoted;  // shard_id -> pushed term
-  {
-    std::lock_guard<std::mutex> lk(mock_state->mu);
-    for (const auto& c : mock_state->calls) {
-      if (c.method == "PreparePromote") {
-        // Each shard must be promoted exactly once.
-        CHECK_EQ(promoted.count(c.shard_id), 0u);
-        promoted[c.shard_id] = c.term;
+    std::map<uint32_t, uint64_t> promoted;  // shard_id -> pushed term
+    {
+      std::lock_guard<std::mutex> lk(mock_state->mu);
+      for (const auto& c : mock_state->calls) {
+        if (c.method == "PreparePromote") {
+          // Each shard must be promoted exactly once.
+          CHECK_EQ(promoted.count(c.shard_id), 0u);
+          promoted[c.shard_id] = c.term;
+        }
       }
     }
-  }
-  REQUIRE_EQ(promoted.size(), 2u);
-  for (const auto& [shard_id, pushed_term] : promoted) {
-    auto view = shard_manager->GetPrimaryNodeAndTerm(
-        core::MakeShardId(static_cast<uint16_t>(shard_id)));
-    REQUIRE(view.ok());
-    CHECK_EQ(pushed_term, view->term);
-    CHECK_GT(pushed_term, 0u);
-  }
-}
-
-// The push is best-effort: a node that can't apply it right now syncs
-// via heartbeat instead. CreateCollection must still succeed.
-TEST_CASE_FIXTURE(CoordinatorBackupFixture,
-                  "CreateCollection succeeds when the primary push fails") {
-  mock_state->fail_prepare_promote.store(true);
-
-  auto coll_or = coordinator->CreateCollection(
-      "promote_push_degraded", 16, core::MetricType::L2,
-      core::IndexType::FLAT, /*replication_factor=*/1, /*num_shards=*/2);
-  REQUIRE(coll_or.ok());
-
-  // The push was attempted for both shards even though it failed.
-  int attempts = 0;
-  {
-    std::lock_guard<std::mutex> lk(mock_state->mu);
-    for (const auto& c : mock_state->calls) {
-      if (c.method == "PreparePromote") ++attempts;
+    REQUIRE_EQ(promoted.size(), 2u);
+    for (const auto& [shard_id, pushed_term] : promoted) {
+      auto view =
+          shard_manager->GetPrimaryNodeAndTerm(core::MakeShardId(static_cast<uint16_t>(shard_id)));
+      REQUIRE(view.ok());
+      CHECK_EQ(pushed_term, view->term);
+      CHECK_GT(pushed_term, 0u);
     }
   }
-  CHECK_EQ(attempts, 2);
-}
+
+  // The push is best-effort: a node that can't apply it right now syncs
+  // via heartbeat instead. CreateCollection must still succeed.
+  TEST_CASE_FIXTURE(CoordinatorBackupFixture,
+                    "CreateCollection succeeds when the primary push fails") {
+    mock_state->fail_prepare_promote.store(true);
+
+    auto coll_or = coordinator->CreateCollection("promote_push_degraded", 16, core::MetricType::L2,
+                                                 core::IndexType::FLAT, /*replication_factor=*/1,
+                                                 /*num_shards=*/2);
+    REQUIRE(coll_or.ok());
+
+    // The push was attempted for both shards even though it failed.
+    int attempts = 0;
+    {
+      std::lock_guard<std::mutex> lk(mock_state->mu);
+      for (const auto& c : mock_state->calls) {
+        if (c.method == "PreparePromote") ++attempts;
+      }
+    }
+    CHECK_EQ(attempts, 2);
+  }
 
 }  // TEST_SUITE("CoordinatorBackup")

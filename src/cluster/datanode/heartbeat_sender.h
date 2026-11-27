@@ -3,11 +3,11 @@
 
 #pragma once
 
-#include "internal.grpc.pb.h"
 #include <atomic>
 #include <memory>
 #include <string>
 #include <thread>
+#include "internal.grpc.pb.h"
 
 namespace gvdb {
 namespace cluster {
@@ -23,10 +23,8 @@ class HeartbeatSender {
   // node's local "am I primary for shard X at term Y?" view in sync with
   // the coordinator. The caller owns the tracker, and it must outlive this
   // HeartbeatSender. Null skips the update (query nodes, tests).
-  HeartbeatSender(const std::string& coordinator_address,
-                  int node_id,
-                  const std::string& grpc_address,
-                  proto::internal::NodeType node_type,
+  HeartbeatSender(const std::string& coordinator_address, int node_id,
+                  const std::string& grpc_address, proto::internal::NodeType node_type,
                   std::atomic<bool>& shutdown_flag,
                   PrimaryTermTracker* primary_term_tracker = nullptr);
   ~HeartbeatSender();

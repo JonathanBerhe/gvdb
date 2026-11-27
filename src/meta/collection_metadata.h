@@ -36,31 +36,28 @@ struct CollectionMetadata {
   core::Timestamp updated_at;
 
   CollectionMetadata()
-    : collection_id(core::kInvalidCollectionId),
-      dimension(0),
-      metric_type(core::MetricType::L2),
-      index_type(core::IndexType::FLAT),
-      replication_factor(1),
-      total_vectors(0),
-      total_size_bytes(0),
-      created_at(0),
-      updated_at(0) {}
+      : collection_id(core::kInvalidCollectionId),
+        dimension(0),
+        metric_type(core::MetricType::L2),
+        index_type(core::IndexType::FLAT),
+        replication_factor(1),
+        total_vectors(0),
+        total_size_bytes(0),
+        created_at(0),
+        updated_at(0) {}
 
-  CollectionMetadata(core::CollectionId id,
-                     const std::string& name,
-                     core::Dimension dim,
-                     core::MetricType metric,
-                     core::IndexType index)
-    : collection_id(id),
-      collection_name(name),
-      dimension(dim),
-      metric_type(metric),
-      index_type(index),
-      replication_factor(1),
-      total_vectors(0),
-      total_size_bytes(0),
-      created_at(0),
-      updated_at(0) {}
+  CollectionMetadata(core::CollectionId id, const std::string& name, core::Dimension dim,
+                     core::MetricType metric, core::IndexType index)
+      : collection_id(id),
+        collection_name(name),
+        dimension(dim),
+        metric_type(metric),
+        index_type(index),
+        replication_factor(1),
+        total_vectors(0),
+        total_size_bytes(0),
+        created_at(0),
+        updated_at(0) {}
 };
 
 }  // namespace meta

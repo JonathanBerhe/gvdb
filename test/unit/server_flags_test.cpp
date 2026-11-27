@@ -56,8 +56,8 @@ TEST_CASE("FlagSet stores values and keeps the defaults of flags that are not gi
   flags.AddInt("--node-id", "ID", "", &node_id);
   flags.AddSize("--memory-limit-gb", "SIZE", "", &memory_gb);
 
-  CHECK_FALSE(ParseArgs(flags, {"--bind-address", "host:2", "--node-id", "42",
-                                "--memory-limit-gb", "16"}));
+  CHECK_FALSE(
+      ParseArgs(flags, {"--bind-address", "host:2", "--node-id", "42", "--memory-limit-gb", "16"}));
   CHECK_EQ(address, "host:2");
   CHECK_EQ(data_dir, "/default");
   CHECK_EQ(node_id, 42);

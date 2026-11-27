@@ -34,14 +34,12 @@ class QueryNodeTest {
 
     index_factory_ = std::make_unique<index::IndexFactory>();
 
-    segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_.str(), index_factory_.get());
+    segment_store_ =
+        std::make_shared<storage::SegmentManager>(test_dir_.str(), index_factory_.get());
 
-    query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *segment_store_);
+    query_executor_ = std::make_shared<compute::QueryExecutor>(*segment_store_);
 
-    query_node_ = std::make_unique<QueryNode>(
-        segment_store_, query_executor_, memory_limit_);
+    query_node_ = std::make_unique<QueryNode>(segment_store_, query_executor_, memory_limit_);
   }
 
   ~QueryNodeTest() {
@@ -53,8 +51,7 @@ class QueryNodeTest {
 
   // Helper: create a segment with vectors and return its ID
   core::SegmentId CreatePopulatedSegment(size_t num_vectors) {
-    auto segment_result = segment_store_->CreateSegment(
-        collection_id_, dimension_, metric_);
+    auto segment_result = segment_store_->CreateSegment(collection_id_, dimension_, metric_);
     REQUIRE(segment_result.ok());
     auto segment_id = segment_result.value();
 
@@ -218,8 +215,8 @@ TEST_CASE_FIXTURE(QueryNodeTest, "Memory tracking decreases on unload") {
 
 TEST_CASE_FIXTURE(QueryNodeTest, "Eviction when memory limit reached") {
   // Use a very small memory limit to trigger eviction
-  auto small_limit_node = std::make_unique<QueryNode>(
-      segment_store_, query_executor_, 1);  // 1 byte limit
+  auto small_limit_node =
+      std::make_unique<QueryNode>(segment_store_, query_executor_, 1);  // 1 byte limit
 
   auto seg1 = CreatePopulatedSegment(10);
   auto seg2 = CreatePopulatedSegment(10);
@@ -240,8 +237,8 @@ TEST_CASE_FIXTURE(QueryNodeTest, "Eviction when memory limit reached") {
   size_t one_seg_size = seg_ptr->GetMemoryUsage();
 
   // Limit can hold exactly one segment (plus a small margin to avoid rounding)
-  auto medium_limit_node = std::make_unique<QueryNode>(
-      segment_store_, query_executor_, one_seg_size + 1);
+  auto medium_limit_node =
+      std::make_unique<QueryNode>(segment_store_, query_executor_, one_seg_size + 1);
 
   auto load1 = medium_limit_node->LoadSegment(seg1);
   REQUIRE(load1.ok());

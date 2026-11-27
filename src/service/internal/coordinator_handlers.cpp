@@ -4,13 +4,13 @@
 // RPCs that the coordinator answers: shard map, collection metadata,
 // query routing, heartbeats and cluster health, Raft membership.
 
-#include "service/internal/internal_service.h"
-#include "core/type_names.h"
-#include "cluster/coordinator/node_registry.h"
 #include "cluster/coordinator/coordinator.h"
-#include "consensus/raft_node.h"
+#include "cluster/coordinator/node_registry.h"
 #include "common/logger.h"
+#include "consensus/raft_node.h"
+#include "core/type_names.h"
 #include "core/types.h"
+#include "service/internal/internal_service.h"
 
 namespace gvdb {
 namespace service {
@@ -20,8 +20,7 @@ namespace service {
 // =============================================================================
 
 grpc::Status InternalService::GetShardAssignments(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::GetShardAssignmentsRequest* request,
+    grpc::ServerContext* /*context*/, const proto::internal::GetShardAssignmentsRequest* request,
     proto::internal::GetShardAssignmentsResponse* response) {
   try {
     uint32_t collection_id = request->collection_id();
@@ -49,8 +48,7 @@ grpc::Status InternalService::GetShardAssignments(
 }
 
 grpc::Status InternalService::RebalanceShards(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::RebalanceShardsRequest* request,
+    grpc::ServerContext* /*context*/, const proto::internal::RebalanceShardsRequest* request,
     proto::internal::RebalanceShardsResponse* response) {
   try {
     uint32_t collection_id = request->collection_id();
@@ -70,8 +68,7 @@ grpc::Status InternalService::RebalanceShards(
     }
 
     response->set_shards_moved(*result);
-    response->set_message(
-        absl::StrFormat("Rebalanced %d shards", *result));
+    response->set_message(absl::StrFormat("Rebalanced %d shards", *result));
     return grpc::Status::OK;
 
   } catch (const std::exception& e) {
@@ -85,8 +82,7 @@ grpc::Status InternalService::RebalanceShards(
 // =============================================================================
 
 grpc::Status InternalService::GetCollectionMetadata(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::GetCollectionMetadataRequest* request,
+    grpc::ServerContext* /*context*/, const proto::internal::GetCollectionMetadataRequest* request,
     proto::internal::GetCollectionMetadataResponse* response) {
   try {
     // Check if coordinator is available
@@ -105,7 +101,8 @@ grpc::Status InternalService::GetCollectionMetadata(
       metadata_result = coordinator_->GetCollectionMetadata(core::MakeCollectionId(collection_id));
     } else if (request->has_collection_name()) {
       const std::string& collection_name = request->collection_name();
-      common::Logger::Instance().Debug("GetCollectionMetadata: collection_name={}", collection_name);
+      common::Logger::Instance().Debug("GetCollectionMetadata: collection_name={}",
+                                       collection_name);
       metadata_result = coordinator_->GetCollectionMetadata(collection_name);
     } else {
       return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
@@ -136,8 +133,7 @@ grpc::Status InternalService::GetCollectionMetadata(
 
     common::Logger::Instance().Debug("GetCollectionMetadata: found collection '{}' (id={}, dim={})",
                                      metadata.collection_name,
-                                     core::ToUInt32(metadata.collection_id),
-                                     metadata.dimension);
+                                     core::ToUInt32(metadata.collection_id), metadata.dimension);
 
     return grpc::Status::OK;
 
@@ -151,10 +147,9 @@ grpc::Status InternalService::GetCollectionMetadata(
 // Query Routing and Execution
 // =============================================================================
 
-grpc::Status InternalService::RouteQuery(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::RouteQueryRequest* request,
-    proto::internal::RouteQueryResponse* response) {
+grpc::Status InternalService::RouteQuery(grpc::ServerContext* /*context*/,
+                                         const proto::internal::RouteQueryRequest* request,
+                                         proto::internal::RouteQueryResponse* response) {
   try {
     const std::string& collection_name = request->collection_name();
 
@@ -163,14 +158,14 @@ grpc::Status InternalService::RouteQuery(
     // Need coordinator to look up collection metadata
     if (!coordinator_) {
       return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
-          "RouteQuery requires coordinator (only available on coordinator nodes)");
+                          "RouteQuery requires coordinator (only available on coordinator nodes)");
     }
 
     // Get collection metadata to find shard assignments
     auto metadata_result = coordinator_->GetCollectionMetadata(collection_name);
     if (!metadata_result.ok()) {
       return grpc::Status(grpc::StatusCode::NOT_FOUND,
-          std::string(metadata_result.status().message()));
+                          std::string(metadata_result.status().message()));
     }
 
     const auto& metadata = *metadata_result;
@@ -217,15 +212,13 @@ grpc::Status InternalService::RouteQuery(
         if (!node_registry_->GetNode(core::ToUInt32(nid), &node)) {
           return {std::string{}, false};
         }
-        return {node.info.grpc_address(),
-                node_registry_->IsNodeRoutable(core::ToUInt32(nid))};
+        return {node.info.grpc_address(), node_registry_->IsNodeRoutable(core::ToUInt32(nid))};
       };
 
       auto [primary_address, primary_routable] = resolve(primary_id);
 
       std::vector<core::NodeId> replicas;
-      if (auto replicas_result = shard_manager_->GetReplicaNodes(shard_id);
-          replicas_result.ok()) {
+      if (auto replicas_result = shard_manager_->GetReplicaNodes(shard_id); replicas_result.ok()) {
         for (auto replica : *replicas_result) {
           if (replica == primary_id) continue;  // primary handled separately
           replicas.push_back(replica);
@@ -236,8 +229,7 @@ grpc::Status InternalService::RouteQuery(
       auto* shard_opts = response->add_per_shard_options();
       shard_opts->set_shard_id(core::ToUInt16(shard_id));
 
-      auto add_option = [&](core::NodeId nid, const std::string& addr,
-                            bool is_primary) {
+      auto add_option = [&](core::NodeId nid, const std::string& addr, bool is_primary) {
         auto* opt = shard_opts->add_options();
         opt->set_node_id(core::ToUInt32(nid));
         opt->set_node_address(addr);
@@ -299,16 +291,14 @@ grpc::Status InternalService::RouteQuery(
 // Health Monitoring
 // =============================================================================
 
-grpc::Status InternalService::Heartbeat(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::HeartbeatRequest* request,
-    proto::internal::HeartbeatResponse* response) {
+grpc::Status InternalService::Heartbeat(grpc::ServerContext* /*context*/,
+                                        const proto::internal::HeartbeatRequest* request,
+                                        proto::internal::HeartbeatResponse* response) {
   try {
     const auto& node_info = request->node_info();
 
     common::Logger::Instance().Debug("Heartbeat: node_id={}, type={}, status={}",
-                                     node_info.node_id(),
-                                     static_cast<int>(node_info.node_type()),
+                                     node_info.node_id(), static_cast<int>(node_info.node_type()),
                                      static_cast<int>(node_info.status()));
 
     // Update node registry if available
@@ -352,8 +342,7 @@ grpc::Status InternalService::Heartbeat(
 }
 
 grpc::Status InternalService::GetClusterHealth(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::GetClusterHealthRequest* /*request*/,
+    grpc::ServerContext* /*context*/, const proto::internal::GetClusterHealthRequest* /*request*/,
     proto::internal::GetClusterHealthResponse* response) {
   try {
     common::Logger::Instance().Debug("GetClusterHealth");
@@ -407,8 +396,7 @@ grpc::Status InternalService::GetClusterHealth(
 }
 
 grpc::Status InternalService::GetLeaderInfo(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::GetLeaderInfoRequest* /*request*/,
+    grpc::ServerContext* /*context*/, const proto::internal::GetLeaderInfoRequest* /*request*/,
     proto::internal::GetLeaderInfoResponse* response) {
   // SECURITY NOTE: InternalService is unauthenticated today: any in-cluster
   // client that can reach :50051 can read leader identity and term. The
@@ -449,10 +437,9 @@ grpc::Status InternalService::GetLeaderInfo(
 // Single-node coordinators respond with success=false because there is
 // no Raft cluster to join.
 
-grpc::Status InternalService::JoinCluster(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::JoinClusterRequest* request,
-    proto::internal::JoinClusterResponse* response) {
+grpc::Status InternalService::JoinCluster(grpc::ServerContext* /*context*/,
+                                          const proto::internal::JoinClusterRequest* request,
+                                          proto::internal::JoinClusterResponse* response) {
   if (!raft_node_) {
     response->set_success(false);
     response->set_message("single-node mode; no Raft cluster to join");
@@ -466,9 +453,8 @@ grpc::Status InternalService::JoinCluster(
     return grpc::Status::OK;
   }
 
-  auto st = raft_node_->AddPeer(
-      static_cast<int32_t>(request->node_id()),
-      request->raft_advertise_address());
+  auto st = raft_node_->AddPeer(static_cast<int32_t>(request->node_id()),
+                                request->raft_advertise_address());
   response->set_success(st.ok());
   if (st.ok()) {
     response->set_message("peer added");
@@ -479,10 +465,9 @@ grpc::Status InternalService::JoinCluster(
   return grpc::Status::OK;
 }
 
-grpc::Status InternalService::RemovePeer(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::RemovePeerRequest* request,
-    proto::internal::RemovePeerResponse* response) {
+grpc::Status InternalService::RemovePeer(grpc::ServerContext* /*context*/,
+                                         const proto::internal::RemovePeerRequest* request,
+                                         proto::internal::RemovePeerResponse* response) {
   if (!raft_node_) {
     response->set_success(false);
     response->set_message("single-node mode; no Raft cluster to modify");
@@ -517,8 +502,7 @@ grpc::Status InternalService::RemovePeer(
 // non-leader redirects (same pattern as RemovePeer above).
 
 grpc::Status InternalService::GetRaftMembership(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::GetRaftMembershipRequest* /*request*/,
+    grpc::ServerContext* /*context*/, const proto::internal::GetRaftMembershipRequest* /*request*/,
     proto::internal::GetRaftMembershipResponse* response) {
   if (!raft_node_) {
     // Single-node mode: the "cluster" is just self. Report node_id=1
@@ -543,8 +527,7 @@ grpc::Status InternalService::GetRaftMembership(
 }
 
 grpc::Status InternalService::TransferLeadership(
-    grpc::ServerContext* /*context*/,
-    const proto::internal::TransferLeadershipRequest* request,
+    grpc::ServerContext* /*context*/, const proto::internal::TransferLeadershipRequest* request,
     proto::internal::TransferLeadershipResponse* response) {
   if (!raft_node_) {
     response->set_success(false);
@@ -558,8 +541,7 @@ grpc::Status InternalService::TransferLeadership(
     return grpc::Status::OK;
   }
 
-  auto st = raft_node_->YieldLeadership(
-      static_cast<int32_t>(request->target_node_id()));
+  auto st = raft_node_->YieldLeadership(static_cast<int32_t>(request->target_node_id()));
   response->set_success(st.ok());
   if (st.ok()) {
     response->set_message("leadership transferred");

@@ -27,8 +27,7 @@ using namespace gvdb;
 
 namespace {
 
-std::vector<core::Vector> RandomVectors(size_t n, core::Dimension dim,
-                                         unsigned seed = 42) {
+std::vector<core::Vector> RandomVectors(size_t n, core::Dimension dim, unsigned seed = 42) {
   std::mt19937 rng(seed);
   std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
   std::vector<core::Vector> vecs;
@@ -60,8 +59,7 @@ void BuildOrExit(core::IVectorIndex& idx, const std::vector<core::Vector>& vecto
 }
 
 // Returns median of N runs in milliseconds
-double BenchSearch(core::IVectorIndex* idx, const core::Vector& query,
-                   int k, int runs) {
+double BenchSearch(core::IVectorIndex* idx, const core::Vector& query, int k, int runs) {
   // Warm up
   for (int i = 0; i < 3; ++i) (void)idx->Search(query, k);
 
@@ -83,8 +81,8 @@ double BenchSearch(core::IVectorIndex* idx, const core::Vector& query,
 void PrintRow(const char* label, double cpu_ms, double metal_ms) {
   double speedup = (metal_ms > 0) ? cpu_ms / metal_ms : 0;
   const char* arrow = (speedup < 1.0) ? " <-- CPU faster" : "";
-  std::printf("  %12s  |  %8.2f ms  |  %8.2f ms  |  %5.1fx%s\n",
-              label, cpu_ms, metal_ms, speedup, arrow);
+  std::printf("  %12s  |  %8.2f ms  |  %8.2f ms  |  %5.1fx%s\n", label, cpu_ms, metal_ms, speedup,
+              arrow);
 }
 
 }  // namespace
@@ -110,10 +108,10 @@ int main() {
   {
     const core::Dimension DIM = 768;
     std::printf("FLAT L2 Search (top-k=%d, dim=%d)\n", K, DIM);
-    std::printf("  %12s  |  %13s  |  %11s  |  %s\n",
-                "Vectors", "CPU (faiss)", "Metal GPU", "Speedup");
-    std::printf("  %12s--+--%13s--+--%11s--+--%s\n",
-                "------------", "-------------", "-----------", "-------");
+    std::printf("  %12s  |  %13s  |  %11s  |  %s\n", "Vectors", "CPU (faiss)", "Metal GPU",
+                "Speedup");
+    std::printf("  %12s--+--%13s--+--%11s--+--%s\n", "------------", "-------------", "-----------",
+                "-------");
 
     size_t counts[] = {1000, 10000, 50000, 100000, 500000, 1000000, 2000000};
     for (size_t n : counts) {
@@ -142,10 +140,10 @@ int main() {
   {
     const size_t N = 100000;
     std::printf("FLAT L2 Search (top-k=%d, vectors=%zu, varying dim)\n", K, N);
-    std::printf("  %12s  |  %13s  |  %11s  |  %s\n",
-                "Dimension", "CPU (faiss)", "Metal GPU", "Speedup");
-    std::printf("  %12s--+--%13s--+--%11s--+--%s\n",
-                "------------", "-------------", "-----------", "-------");
+    std::printf("  %12s  |  %13s  |  %11s  |  %s\n", "Dimension", "CPU (faiss)", "Metal GPU",
+                "Speedup");
+    std::printf("  %12s--+--%13s--+--%11s--+--%s\n", "------------", "-------------", "-----------",
+                "-------");
 
     core::Dimension dims[] = {128, 384, 768, 1536};
     for (core::Dimension dim : dims) {

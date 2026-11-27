@@ -24,4 +24,3 @@ absl::StatusOr<std::vector<std::pair<size_t, size_t>>> SplitBatchBySize(
 
 }  // namespace storage
 }  // namespace gvdb
-

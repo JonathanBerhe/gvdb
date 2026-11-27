@@ -38,51 +38,42 @@ class ISegmentStore {
 
   // Create a new growing segment (auto-assigns segment_id)
   [[nodiscard]] virtual absl::StatusOr<core::SegmentId> CreateSegment(
-      core::CollectionId collection_id,
-      core::Dimension dimension,
-      core::MetricType metric) = 0;
+      core::CollectionId collection_id, core::Dimension dimension, core::MetricType metric) = 0;
 
   // Create segment with specific ID (for distributed mode - called via RPC)
-  [[nodiscard]] virtual absl::Status CreateSegmentWithId(
-      core::SegmentId segment_id,
-      core::CollectionId collection_id,
-      core::Dimension dimension,
-      core::MetricType metric,
-      core::IndexType index_type) = 0;
+  [[nodiscard]] virtual absl::Status CreateSegmentWithId(core::SegmentId segment_id,
+                                                         core::CollectionId collection_id,
+                                                         core::Dimension dimension,
+                                                         core::MetricType metric,
+                                                         core::IndexType index_type) = 0;
 
   // Get a segment by ID (returns nullptr if not found)
   [[nodiscard]] virtual Segment* GetSegment(core::SegmentId id) = 0;
   [[nodiscard]] virtual const Segment* GetSegment(core::SegmentId id) const = 0;
 
   // Seal a segment (build index, make immutable)
-  [[nodiscard]] virtual absl::Status SealSegment(
-      core::SegmentId id,
-      const core::IndexConfig& index_config) = 0;
+  [[nodiscard]] virtual absl::Status SealSegment(core::SegmentId id,
+                                                 const core::IndexConfig& index_config) = 0;
 
   // Flush a segment to persistent storage
   [[nodiscard]] virtual absl::Status FlushSegment(core::SegmentId id) = 0;
 
   // Drop a segment (remove from memory and optionally delete from disk)
-  [[nodiscard]] virtual absl::Status DropSegment(
-      core::SegmentId id, bool delete_files = false) = 0;
+  [[nodiscard]] virtual absl::Status DropSegment(core::SegmentId id, bool delete_files = false) = 0;
 
   // Add replicated segment (from network transfer)
-  [[nodiscard]] virtual absl::Status AddReplicatedSegment(
-      std::unique_ptr<Segment> segment) = 0;
+  [[nodiscard]] virtual absl::Status AddReplicatedSegment(std::unique_ptr<Segment> segment) = 0;
 
   // ========== Data Operations ==========
 
   // Write vectors to a segment
-  [[nodiscard]] virtual absl::Status WriteVectors(
-      core::SegmentId segment_id,
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids) = 0;
+  [[nodiscard]] virtual absl::Status WriteVectors(core::SegmentId segment_id,
+                                                  const std::vector<core::Vector>& vectors,
+                                                  const std::vector<core::VectorId>& ids) = 0;
 
   // Search across all segments in a collection
   [[nodiscard]] virtual absl::StatusOr<core::SearchResult> SearchCollection(
-      core::CollectionId collection_id,
-      const core::Vector& query,
-      int k) const = 0;
+      core::CollectionId collection_id, const core::Vector& query, int k) const = 0;
 
   // ========== Active Segment Rotation ==========
 
@@ -96,9 +87,8 @@ class ISegmentStore {
   // Get a writable GROWING segment for a collection.
   // If the active segment is full, rotates: creates a new segment,
   // invokes the seal callback for the old one, and returns the new one.
-  [[nodiscard]] virtual Segment* GetWritableSegment(
-      core::CollectionId collection_id,
-      size_t required_bytes = 0) = 0;
+  [[nodiscard]] virtual Segment* GetWritableSegment(core::CollectionId collection_id,
+                                                    size_t required_bytes = 0) = 0;
 
   // Run TTL sweep loop — blocks until shutdown. Sweeps expired vectors from
   // GROWING segments at periodic interval.
@@ -129,4 +119,3 @@ class ISegmentStore {
 
 }  // namespace storage
 }  // namespace gvdb
-

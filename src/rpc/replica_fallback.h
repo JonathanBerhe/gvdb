@@ -26,8 +26,7 @@ inline constexpr std::chrono::milliseconds kReplicaFallbackMinPerAttempt{20};
 // Per-attempt deadline upper bound. A generous overall deadline divided
 // by few candidates can produce many-second budgets; cap so a single
 // dead node can't stall failover by more than a couple of seconds.
-inline constexpr std::chrono::milliseconds kReplicaFallbackMaxPerAttempt{
-    2000};
+inline constexpr std::chrono::milliseconds kReplicaFallbackMaxPerAttempt{2000};
 
 // Outcome of a CallWithReplicaFallback invocation. final_status is OK iff
 // at least one option succeeded; on a non-OK return, attempts records how
@@ -48,7 +47,7 @@ bool IsTransientReplicaError(grpc::StatusCode code);
 // One attempt against one candidate: the context carries the attempt
 // deadline, and `target_address` is the address of the candidate node.
 using ReplicaCallFn = absl::FunctionRef<grpc::Status(grpc::ClientContext* context,
-                                                    const std::string& target_address)>;
+                                                     const std::string& target_address)>;
 
 // Returns the client for a node address, or null when the node cannot be
 // dialed.
@@ -56,7 +55,7 @@ using DialFn = absl::FunctionRef<proto::VectorDBService::Stub*(const std::string
 
 // Sends the request through the client that DialFn returned.
 using StubCallFn = absl::FunctionRef<grpc::Status(grpc::ClientContext* context,
-                                                 proto::VectorDBService::Stub* stub)>;
+                                                  proto::VectorDBService::Stub* stub)>;
 
 // Iterate a per-shard candidate list and attempt the supplied gRPC call
 // against each option in order. Returns on the first OK status, on the

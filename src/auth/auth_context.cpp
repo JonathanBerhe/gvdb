@@ -10,17 +10,11 @@ namespace {
 thread_local std::string g_current_key;
 }  // namespace
 
-void AuthContext::SetCurrentKey(const std::string& key) {
-  g_current_key = key;
-}
+void AuthContext::SetCurrentKey(const std::string& key) { g_current_key = key; }
 
-const std::string& AuthContext::GetCurrentKey() {
-  return g_current_key;
-}
+const std::string& AuthContext::GetCurrentKey() { return g_current_key; }
 
-void AuthContext::Clear() {
-  g_current_key.clear();
-}
+void AuthContext::Clear() { g_current_key.clear(); }
 
 }  // namespace auth
 }  // namespace gvdb

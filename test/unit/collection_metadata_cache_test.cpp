@@ -14,21 +14,15 @@ using namespace gvdb::service;
 
 class CollectionMetadataCacheTest {
  public:
-  CollectionMetadataCacheTest() {
-    cache_ = std::make_unique<CollectionMetadataCache>();
-  }
+  CollectionMetadataCacheTest() { cache_ = std::make_unique<CollectionMetadataCache>(); }
 
   std::unique_ptr<CollectionMetadataCache> cache_;
 };
 
 // Test basic put and get by name
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "PutAndGetByName") {
-  meta::CollectionMetadata metadata(
-      static_cast<core::CollectionId>(1),
-      "test_collection",
-      128,
-      core::MetricType::L2,
-      core::IndexType::HNSW);
+  meta::CollectionMetadata metadata(static_cast<core::CollectionId>(1), "test_collection", 128,
+                                    core::MetricType::L2, core::IndexType::HNSW);
 
   cache_->Put(metadata);
 
@@ -50,22 +44,16 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "GetNonExistentByName") {
 
 // Test update existing collection
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "UpdateCollection") {
-  meta::CollectionMetadata metadata1(
-      static_cast<core::CollectionId>(1),
-      "test_collection",
-      128,
-      core::MetricType::L2,
-      core::IndexType::FLAT);
+  meta::CollectionMetadata metadata1(static_cast<core::CollectionId>(1), "test_collection", 128,
+                                     core::MetricType::L2, core::IndexType::FLAT);
 
   cache_->Put(metadata1);
 
   // Update with different parameters
-  meta::CollectionMetadata metadata2(
-      static_cast<core::CollectionId>(1),
-      "test_collection",
-      256,  // Changed dimension
-      core::MetricType::COSINE,  // Changed metric
-      core::IndexType::HNSW);  // Changed index
+  meta::CollectionMetadata metadata2(static_cast<core::CollectionId>(1), "test_collection",
+                                     256,                       // Changed dimension
+                                     core::MetricType::COSINE,  // Changed metric
+                                     core::IndexType::HNSW);    // Changed index
 
   cache_->Put(metadata2);
 
@@ -80,21 +68,13 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "UpdateCollection") {
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "Size") {
   CHECK_EQ(cache_->Size(), 0);
 
-  meta::CollectionMetadata metadata1(
-      static_cast<core::CollectionId>(1),
-      "collection1",
-      128,
-      core::MetricType::L2,
-      core::IndexType::FLAT);
+  meta::CollectionMetadata metadata1(static_cast<core::CollectionId>(1), "collection1", 128,
+                                     core::MetricType::L2, core::IndexType::FLAT);
   cache_->Put(metadata1);
   CHECK_EQ(cache_->Size(), 1);
 
-  meta::CollectionMetadata metadata2(
-      static_cast<core::CollectionId>(2),
-      "collection2",
-      256,
-      core::MetricType::COSINE,
-      core::IndexType::HNSW);
+  meta::CollectionMetadata metadata2(static_cast<core::CollectionId>(2), "collection2", 256,
+                                     core::MetricType::COSINE, core::IndexType::HNSW);
   cache_->Put(metadata2);
   CHECK_EQ(cache_->Size(), 2);
 }
@@ -103,12 +83,8 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "Size") {
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "MultipleCollections") {
   std::vector<meta::CollectionMetadata> collections;
   for (int i = 1; i <= 10; ++i) {
-    collections.emplace_back(
-        static_cast<core::CollectionId>(i),
-        "collection_" + std::to_string(i),
-        128 * i,
-        core::MetricType::L2,
-        core::IndexType::FLAT);
+    collections.emplace_back(static_cast<core::CollectionId>(i), "collection_" + std::to_string(i),
+                             128 * i, core::MetricType::L2, core::IndexType::FLAT);
     cache_->Put(collections.back());
   }
 
@@ -127,12 +103,9 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "MultipleCollections") {
 TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentReads") {
   // Populate cache
   for (int i = 1; i <= 100; ++i) {
-    meta::CollectionMetadata metadata(
-        static_cast<core::CollectionId>(i),
-        "collection_" + std::to_string(i),
-        128,
-        core::MetricType::L2,
-        core::IndexType::FLAT);
+    meta::CollectionMetadata metadata(static_cast<core::CollectionId>(i),
+                                      "collection_" + std::to_string(i), 128, core::MetricType::L2,
+                                      core::IndexType::FLAT);
     cache_->Put(metadata);
   }
 
@@ -168,12 +141,9 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentWrites") {
     threads.emplace_back([this, t]() {
       for (int i = 0; i < 10; ++i) {
         int id = t * 10 + i + 1;
-        meta::CollectionMetadata metadata(
-            static_cast<core::CollectionId>(id),
-            "collection_" + std::to_string(id),
-            128,
-            core::MetricType::L2,
-            core::IndexType::FLAT);
+        meta::CollectionMetadata metadata(static_cast<core::CollectionId>(id),
+                                          "collection_" + std::to_string(id), 128,
+                                          core::MetricType::L2, core::IndexType::FLAT);
         cache_->Put(metadata);
       }
     });
@@ -205,12 +175,9 @@ TEST_CASE_FIXTURE(CollectionMetadataCacheTest, "ConcurrentReadsAndWrites") {
     writers.emplace_back([this, t]() {
       for (int count = 0; count < 50; ++count) {
         int id = t * 50 + count + 1;
-        meta::CollectionMetadata metadata(
-            static_cast<core::CollectionId>(id),
-            "collection_" + std::to_string(id),
-            128,
-            core::MetricType::L2,
-            core::IndexType::FLAT);
+        meta::CollectionMetadata metadata(static_cast<core::CollectionId>(id),
+                                          "collection_" + std::to_string(id), 128,
+                                          core::MetricType::L2, core::IndexType::FLAT);
         cache_->Put(metadata);
         std::this_thread::sleep_for(std::chrono::microseconds(10));
       }

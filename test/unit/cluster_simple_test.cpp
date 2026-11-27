@@ -2,14 +2,14 @@
 // Licensed under the Apache License, Version 2.0
 
 #include <doctest/doctest.h>
-#include "cluster/shard_manager.h"
+#include <algorithm>
+#include <chrono>
 #include "cluster/coordinator/coordinator.h"
 #include "cluster/coordinator/node_registry.h"
+#include "cluster/shard_manager.h"
 #include "core/types.h"
 #include "internal.grpc.pb.h"
 #include "support/temp_dir.h"
-#include <algorithm>
-#include <chrono>
 
 using namespace gvdb;
 using namespace gvdb::cluster;
@@ -137,12 +137,10 @@ TEST_CASE_FIXTURE(CoordinatorTest, "CreateCollection") {
   proto_node.set_grpc_address("localhost:50051");
   node_registry_->UpdateNode(proto_node);
 
-  auto result = coordinator_->CreateCollection(
-      "test_collection",
-      128,  // dimension
-      core::MetricType::L2,
-      core::IndexType::FLAT,
-      1);  // replication_factor
+  auto result = coordinator_->CreateCollection("test_collection",
+                                               128,  // dimension
+                                               core::MetricType::L2, core::IndexType::FLAT,
+                                               1);  // replication_factor
 
   REQUIRE(result.ok());
   CHECK_NE(*result, core::kInvalidCollectionId);
@@ -164,13 +162,13 @@ TEST_CASE_FIXTURE(CoordinatorTest, "DuplicateCollectionName") {
   node_registry_->UpdateNode(proto_node);
 
   // Create first collection
-  auto result1 = coordinator_->CreateCollection(
-      "test_collection", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto result1 = coordinator_->CreateCollection("test_collection", 128, core::MetricType::L2,
+                                                core::IndexType::FLAT, 1);
   REQUIRE(result1.ok());
 
   // Try to create duplicate
-  auto result2 = coordinator_->CreateCollection(
-      "test_collection", 64, core::MetricType::COSINE, core::IndexType::HNSW, 1);
+  auto result2 = coordinator_->CreateCollection("test_collection", 64, core::MetricType::COSINE,
+                                                core::IndexType::HNSW, 1);
   CHECK_FALSE(result2.ok());
 }
 
@@ -185,8 +183,10 @@ TEST_CASE_FIXTURE(CoordinatorTest, "ListCollections") {
 
   // Create multiple collections
   (void)coordinator_->CreateCollection("coll1", 64, core::MetricType::L2, core::IndexType::FLAT, 1);
-  (void)coordinator_->CreateCollection("coll2", 128, core::MetricType::COSINE, core::IndexType::HNSW, 1);
-  (void)coordinator_->CreateCollection("coll3", 256, core::MetricType::INNER_PRODUCT, core::IndexType::IVF_FLAT, 1);
+  (void)coordinator_->CreateCollection("coll2", 128, core::MetricType::COSINE,
+                                       core::IndexType::HNSW, 1);
+  (void)coordinator_->CreateCollection("coll3", 256, core::MetricType::INNER_PRODUCT,
+                                       core::IndexType::IVF_FLAT, 1);
 
   auto collections = coordinator_->ListCollections();
   CHECK_EQ(collections.size(), 3);
@@ -200,8 +200,8 @@ TEST_CASE_FIXTURE(CoordinatorTest, "DropCollection") {
   proto_node.set_grpc_address("localhost:50051");
   node_registry_->UpdateNode(proto_node);
 
-  auto create_result = coordinator_->CreateCollection(
-      "test_collection", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto create_result = coordinator_->CreateCollection("test_collection", 128, core::MetricType::L2,
+                                                      core::IndexType::FLAT, 1);
   REQUIRE(create_result.ok());
 
   auto drop_status = coordinator_->DropCollection("test_collection");
@@ -227,8 +227,8 @@ TEST_CASE_FIXTURE(CoordinatorTest, "DropAndRecreateCollection") {
   proto_node.set_grpc_address("localhost:50051");
   node_registry_->UpdateNode(proto_node);
 
-  auto create_result1 = coordinator_->CreateCollection(
-      "test_collection", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto create_result1 = coordinator_->CreateCollection("test_collection", 128, core::MetricType::L2,
+                                                       core::IndexType::FLAT, 1);
   REQUIRE(create_result1.ok());
   auto collection_id1 = *create_result1;
 
@@ -286,8 +286,8 @@ TEST_CASE_FIXTURE(CoordinatorTest, "AssignShardsFailsWithoutDataNodes") {
   // Create a collection manually (bypass AssignShards inside CreateCollection)
   // We need a collection_id in the map for AssignShardsToCollection to find it.
   // Use CreateCollection which will itself fail at AssignShards with no data nodes.
-  auto result = coordinator_->CreateCollection(
-      "orphan_collection", 64, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto result = coordinator_->CreateCollection("orphan_collection", 64, core::MetricType::L2,
+                                               core::IndexType::FLAT, 1);
   CHECK_FALSE(result.ok());
   CHECK(absl::IsFailedPrecondition(result.status()));
 }
@@ -312,8 +312,8 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleFailedNodePromotesReplica") {
   REQUIRE(coordinator_->RegisterNode(replica_info).ok());
 
   // Create a collection (will assign shards with replication_factor=1 by default)
-  auto coll_result = coordinator_->CreateCollection(
-      "test_failover", 64, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto coll_result = coordinator_->CreateCollection("test_failover", 64, core::MetricType::L2,
+                                                    core::IndexType::FLAT, 1);
   REQUIRE(coll_result.ok());
 
   // Get shard info from the collection metadata
@@ -504,8 +504,8 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleDrainingNodeDropsReplicaEntry") {
   // Replica dropped.
   auto replicas_after = shard_manager->GetReplicaNodes(shard);
   REQUIRE(replicas_after.ok());
-  CHECK(std::find(replicas_after->begin(), replicas_after->end(), replica_id)
-        == replicas_after->end());
+  CHECK(std::find(replicas_after->begin(), replicas_after->end(), replica_id) ==
+        replicas_after->end());
 
   // Draining node fully unregistered.
   auto remaining = shard_manager->GetShardsForNode(replica_id);
@@ -516,8 +516,7 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleDrainingNodeDropsReplicaEntry") {
 // draining node (best-effort) and log. This is safer than silently
 // dropping data; the heartbeat-timeout failure path takes over once the
 // pod exits.
-TEST_CASE_FIXTURE(CoordinatorTest,
-                  "HandleDrainingNodeNoReplicaLeavesShardInPlace") {
+TEST_CASE_FIXTURE(CoordinatorTest, "HandleDrainingNodeNoReplicaLeavesShardInPlace") {
   auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
   auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
   auto coord = std::make_unique<Coordinator>(shard_manager, node_registry);
@@ -561,8 +560,7 @@ TEST_CASE_FIXTURE(CoordinatorTest, "DetectNewDataNodesStartsEmpty") {
 }
 
 // Registering a new data node is detected; the known set grows by one.
-TEST_CASE_FIXTURE(CoordinatorTest,
-                  "DetectNewDataNodesTracksFreshlyJoinedNode") {
+TEST_CASE_FIXTURE(CoordinatorTest, "DetectNewDataNodesTracksFreshlyJoinedNode") {
   auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
   auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
   auto coord = std::make_unique<Coordinator>(shard_manager, node_registry);
@@ -583,8 +581,7 @@ TEST_CASE_FIXTURE(CoordinatorTest,
 
 // Calling DetectNewDataNodes twice with no changes is idempotent, no new
 // entries.
-TEST_CASE_FIXTURE(CoordinatorTest,
-                  "DetectNewDataNodesIsIdempotentWithoutNewJoin") {
+TEST_CASE_FIXTURE(CoordinatorTest, "DetectNewDataNodesIsIdempotentWithoutNewJoin") {
   auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
   auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
   auto coord = std::make_unique<Coordinator>(shard_manager, node_registry);
@@ -635,8 +632,7 @@ TEST_CASE_FIXTURE(CoordinatorTest, "DetectNewDataNodesSkipsDrainingNodes") {
 // rebalance worker, records the result, and allows subsequent triggers only
 // after it finishes. The NullInternalServiceClientFactory is sufficient:
 // ExecuteRebalancePlan returns cleanly when there is nothing to rebalance.
-TEST_CASE_FIXTURE(CoordinatorTest,
-                  "DetectNewDataNodesSpawnsWorkerWhenClientFactoryPresent") {
+TEST_CASE_FIXTURE(CoordinatorTest, "DetectNewDataNodesSpawnsWorkerWhenClientFactoryPresent") {
   auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
   auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
   auto client_factory = std::make_shared<NullInternalServiceClientFactory>();
@@ -657,8 +653,7 @@ TEST_CASE_FIXTURE(CoordinatorTest,
   coord->DetectNewDataNodes();
 
   // Wait for the detached worker to finish (bounded).
-  REQUIRE(coord->WaitForAutoRebalanceIdleForTesting(
-      std::chrono::seconds(5)));
+  REQUIRE(coord->WaitForAutoRebalanceIdleForTesting(std::chrono::seconds(5)));
 
   auto last = coord->GetLastAutoRebalance();
   REQUIRE(last.has_value());
@@ -669,8 +664,7 @@ TEST_CASE_FIXTURE(CoordinatorTest,
 
 // Debounce: with the debounce window set to a large value, a second call
 // immediately after the first is suppressed, no new worker spawns.
-TEST_CASE_FIXTURE(CoordinatorTest,
-                  "DetectNewDataNodesDebouncesSecondCall") {
+TEST_CASE_FIXTURE(CoordinatorTest, "DetectNewDataNodesDebouncesSecondCall") {
   auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
   auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
   auto client_factory = std::make_shared<NullInternalServiceClientFactory>();
@@ -688,8 +682,7 @@ TEST_CASE_FIXTURE(CoordinatorTest,
   node_registry->UpdateNode(a);
 
   coord->DetectNewDataNodes();
-  REQUIRE(coord->WaitForAutoRebalanceIdleForTesting(
-      std::chrono::seconds(5)));
+  REQUIRE(coord->WaitForAutoRebalanceIdleForTesting(std::chrono::seconds(5)));
   auto after_first = coord->GetLastAutoRebalance();
   REQUIRE(after_first.has_value());
 
@@ -716,8 +709,7 @@ TEST_CASE_FIXTURE(CoordinatorTest,
 
 // Pruning: when a node finishes draining and is unregistered, the known
 // set forgets it so a rejoin (same id) is detected as a fresh scale-up.
-TEST_CASE_FIXTURE(CoordinatorTest,
-                  "DetectNewDataNodesPrunesOnDrainCompletion") {
+TEST_CASE_FIXTURE(CoordinatorTest, "DetectNewDataNodesPrunesOnDrainCompletion") {
   auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
   auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
   auto coord = std::make_unique<Coordinator>(shard_manager, node_registry);
@@ -804,13 +796,10 @@ TEST_CASE_FIXTURE(CoordinatorTest, "CreateCollectionMultiShard") {
   node_registry_->UpdateNode(node2);
 
   // Create a collection with 4 shards
-  auto result = coordinator_->CreateCollection(
-      "multi_shard_collection",
-      256,
-      core::MetricType::COSINE,
-      core::IndexType::HNSW,
-      1,   // replication_factor
-      4);  // num_shards
+  auto result = coordinator_->CreateCollection("multi_shard_collection", 256,
+                                               core::MetricType::COSINE, core::IndexType::HNSW,
+                                               1,   // replication_factor
+                                               4);  // num_shards
 
   REQUIRE(result.ok());
 
@@ -833,12 +822,9 @@ TEST_CASE_FIXTURE(CoordinatorTest, "CreateCollectionReplicationFactorExceedsNode
   node_registry_->UpdateNode(node1);
 
   // Try to create collection with replication_factor=3 but only 1 node
-  auto result = coordinator_->CreateCollection(
-      "over_replicated",
-      128,
-      core::MetricType::L2,
-      core::IndexType::FLAT,
-      3);  // replication_factor > available nodes
+  auto result = coordinator_->CreateCollection("over_replicated", 128, core::MetricType::L2,
+                                               core::IndexType::FLAT,
+                                               3);  // replication_factor > available nodes
 
   CHECK_FALSE(result.ok());
   CHECK(absl::IsFailedPrecondition(result.status()));
@@ -848,9 +834,9 @@ TEST_CASE_FIXTURE(CoordinatorTest, "RegistryPersistsAcrossRestart") {
   gvdb::test::ScopedTempDir tmp("gvdb_coordinator_registry_test");
   const std::string reg_dir = tmp.str();
   // A coordinator that persists its registry in reg_dir.
-  coordinator_ = std::make_unique<Coordinator>(
-      std::make_shared<ShardManager>(16, ShardingStrategy::HASH), node_registry_,
-      CoordinatorOptions{.registry_dir = reg_dir});
+  coordinator_ =
+      std::make_unique<Coordinator>(std::make_shared<ShardManager>(16, ShardingStrategy::HASH),
+                                    node_registry_, CoordinatorOptions{.registry_dir = reg_dir});
 
   meta::NodeInfo node_info;
   node_info.node_id = core::MakeNodeId(1);
@@ -862,20 +848,18 @@ TEST_CASE_FIXTURE(CoordinatorTest, "RegistryPersistsAcrossRestart") {
   // First boot: no file yet is not an error.
   REQUIRE(coordinator_->LoadRegistry().ok());
 
-  auto id1 = coordinator_->CreateCollection(
-      "persist_a", 128, core::MetricType::L2, core::IndexType::FLAT, 1, 2);
+  auto id1 = coordinator_->CreateCollection("persist_a", 128, core::MetricType::L2,
+                                            core::IndexType::FLAT, 1, 2);
   REQUIRE(id1.ok());
-  auto id2 = coordinator_->CreateCollection(
-      "persist_b", 64, core::MetricType::COSINE, core::IndexType::HNSW, 1);
+  auto id2 = coordinator_->CreateCollection("persist_b", 64, core::MetricType::COSINE,
+                                            core::IndexType::HNSW, 1);
   REQUIRE(id2.ok());
   REQUIRE(coordinator_->DropCollection("persist_b").ok());
 
   // "Restart": a fresh coordinator over fresh in-memory state, pointed at
   // the same registry dir.
-  auto shard_manager2 =
-      std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
-  auto node_registry2 =
-      std::make_shared<NodeRegistry>(std::chrono::seconds(30));
+  auto shard_manager2 = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
+  auto node_registry2 = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
   Coordinator restarted(shard_manager2, node_registry2,
                         CoordinatorOptions{.registry_dir = reg_dir});
   REQUIRE(restarted.LoadRegistry().ok());
@@ -895,16 +879,15 @@ TEST_CASE_FIXTURE(CoordinatorTest, "RegistryPersistsAcrossRestart") {
 
   // Shard assignments came back: shard 0 has the original primary with a
   // non-zero monotonic term.
-  auto restored_view =
-      shard_manager2->GetPrimaryNodeAndTerm(core::MakeShardId(0));
+  auto restored_view = shard_manager2->GetPrimaryNodeAndTerm(core::MakeShardId(0));
   REQUIRE(restored_view.ok());
   CHECK_EQ(restored_view->node_id, core::MakeNodeId(1));
   CHECK_GT(restored_view->term, 0);
 
   // New collections must not collide with restored ids.
   REQUIRE(restarted.RegisterNode(node_info).ok());
-  auto id3 = restarted.CreateCollection(
-      "persist_c", 32, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto id3 =
+      restarted.CreateCollection("persist_c", 32, core::MetricType::L2, core::IndexType::FLAT, 1);
   REQUIRE(id3.ok());
   CHECK_NE(*id3, *id1);
   CHECK_NE(*id3, *id2);
@@ -922,35 +905,31 @@ class MockClient : public IInternalServiceClient {
   int get_segment_calls = 0;
   int replicate_segment_calls = 0;
 
-  grpc::Status CreateSegment(
-      grpc::ClientContext*, const proto::internal::CreateSegmentRequest&,
-      proto::internal::CreateSegmentResponse* resp) override {
+  grpc::Status CreateSegment(grpc::ClientContext*, const proto::internal::CreateSegmentRequest&,
+                             proto::internal::CreateSegmentResponse* resp) override {
     resp->set_success(true);
     return grpc::Status::OK;
   }
-  grpc::Status DeleteSegment(
-      grpc::ClientContext*, const proto::internal::DeleteSegmentRequest&,
-      proto::internal::DeleteSegmentResponse* resp) override {
+  grpc::Status DeleteSegment(grpc::ClientContext*, const proto::internal::DeleteSegmentRequest&,
+                             proto::internal::DeleteSegmentResponse* resp) override {
     resp->set_success(true);
     return grpc::Status::OK;
   }
-  grpc::Status ReplicateSegment(
-      grpc::ClientContext*, const proto::internal::ReplicateSegmentRequest&,
-      proto::internal::ReplicateSegmentResponse* resp) override {
+  grpc::Status ReplicateSegment(grpc::ClientContext*,
+                                const proto::internal::ReplicateSegmentRequest&,
+                                proto::internal::ReplicateSegmentResponse* resp) override {
     replicate_segment_calls++;
     resp->set_success(true);
     return grpc::Status::OK;
   }
-  grpc::Status GetSegment(
-      grpc::ClientContext*, const proto::internal::GetSegmentRequest&,
-      proto::internal::GetSegmentResponse* resp) override {
+  grpc::Status GetSegment(grpc::ClientContext*, const proto::internal::GetSegmentRequest&,
+                          proto::internal::GetSegmentResponse* resp) override {
     get_segment_calls++;
     resp->set_segment_data("fake_data");
     return grpc::Status::OK;
   }
-  grpc::Status ListSegments(
-      grpc::ClientContext*, const proto::internal::ListSegmentsRequest& req,
-      proto::internal::ListSegmentsResponse* resp) override {
+  grpc::Status ListSegments(grpc::ClientContext*, const proto::internal::ListSegmentsRequest& req,
+                            proto::internal::ListSegmentsResponse* resp) override {
     if (list_fails) {
       return grpc::Status(grpc::StatusCode::UNAVAILABLE, "down");
     }
@@ -965,42 +944,36 @@ class MockClient : public IInternalServiceClient {
   // Read-repair tests don't drive a primary swap; default the two-phase
   // RPCs to OK so the abstract base contract is satisfied. A dedicated
   // primary-swap test harness exercises them with assertions.
-  grpc::Status PausePrimary(
-      grpc::ClientContext*, const proto::internal::PausePrimaryRequest&,
-      proto::internal::PausePrimaryResponse* resp) override {
+  grpc::Status PausePrimary(grpc::ClientContext*, const proto::internal::PausePrimaryRequest&,
+                            proto::internal::PausePrimaryResponse* resp) override {
     resp->set_success(true);
     return grpc::Status::OK;
   }
-  grpc::Status PreparePromote(
-      grpc::ClientContext*, const proto::internal::PreparePromoteRequest&,
-      proto::internal::PreparePromoteResponse* resp) override {
+  grpc::Status PreparePromote(grpc::ClientContext*, const proto::internal::PreparePromoteRequest&,
+                              proto::internal::PreparePromoteResponse* resp) override {
     resp->set_success(true);
     return grpc::Status::OK;
   }
   // Read-repair tests don't drive a backup; default the backup-orchestration
   // RPCs to OK so the abstract base contract is satisfied. A dedicated
   // backup harness exercises them with assertions.
-  grpc::Status BackupShard(
-      grpc::ClientContext*, const proto::internal::BackupShardRequest&,
-      proto::internal::BackupShardResponse* resp) override {
+  grpc::Status BackupShard(grpc::ClientContext*, const proto::internal::BackupShardRequest&,
+                           proto::internal::BackupShardResponse* resp) override {
     resp->set_success(true);
     return grpc::Status::OK;
   }
-  grpc::Status RestoreShard(
-      grpc::ClientContext*, const proto::internal::RestoreShardRequest&,
-      proto::internal::RestoreShardResponse* resp) override {
+  grpc::Status RestoreShard(grpc::ClientContext*, const proto::internal::RestoreShardRequest&,
+                            proto::internal::RestoreShardResponse* resp) override {
     resp->set_success(true);
     return grpc::Status::OK;
   }
-  grpc::Status FreezeWrites(
-      grpc::ClientContext*, const proto::internal::FreezeWritesRequest&,
-      proto::internal::FreezeWritesResponse* resp) override {
+  grpc::Status FreezeWrites(grpc::ClientContext*, const proto::internal::FreezeWritesRequest&,
+                            proto::internal::FreezeWritesResponse* resp) override {
     resp->set_success(true);
     return grpc::Status::OK;
   }
-  grpc::Status UnfreezeWrites(
-      grpc::ClientContext*, const proto::internal::UnfreezeWritesRequest&,
-      proto::internal::UnfreezeWritesResponse* resp) override {
+  grpc::Status UnfreezeWrites(grpc::ClientContext*, const proto::internal::UnfreezeWritesRequest&,
+                              proto::internal::UnfreezeWritesResponse* resp) override {
     resp->set_success(true);
     return grpc::Status::OK;
   }
@@ -1011,8 +984,8 @@ class MockClientFactory : public IInternalServiceClientFactory {
  public:
   std::map<std::string, MockClient*> client_map;
 
-  std::unique_ptr<IInternalServiceClient> CreateClient(
-      core::NodeId, const std::string& address) override {
+  std::unique_ptr<IInternalServiceClient> CreateClient(core::NodeId,
+                                                       const std::string& address) override {
     auto it = client_map.find(address);
     if (it == client_map.end()) return nullptr;
     return std::make_unique<MockClient>(*it->second);
@@ -1045,12 +1018,12 @@ class ReadRepairTest {
     factory_->client_map["node2:50051"] = &replica_mock_;
 
     coordinator_ = std::make_unique<Coordinator>(shard_manager, node_registry_,
-        CoordinatorOptions{.client_factory = factory_});
+                                                 CoordinatorOptions{.client_factory = factory_});
   }
 
   core::CollectionId CreateReplicatedCollection(const std::string& name) {
-    auto result = coordinator_->CreateCollection(
-        name, 128, core::MetricType::L2, core::IndexType::FLAT, 2);
+    auto result =
+        coordinator_->CreateCollection(name, 128, core::MetricType::L2, core::IndexType::FLAT, 2);
     return result.ok() ? *result : core::kInvalidCollectionId;
   }
 
@@ -1084,8 +1057,8 @@ TEST_CASE_FIXTURE(ReadRepairTest, "ReadRepair_NoActionWhenConsistent") {
 }
 
 TEST_CASE_FIXTURE(ReadRepairTest, "ReadRepair_SkipsSingleReplicaCollections") {
-  auto result = coordinator_->CreateCollection(
-      "single_replica", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto result = coordinator_->CreateCollection("single_replica", 128, core::MetricType::L2,
+                                               core::IndexType::FLAT, 1);
   REQUIRE(result.ok());
 
   coordinator_->RunConsistencyCheck();
@@ -1204,8 +1177,7 @@ TEST_CASE_FIXTURE(ShardManagerTest, "CalculateRebalancePlan_SkipsMigratingShards
 
   // Set node 1's shards to MIGRATING
   for (int i = 0; i < 4; ++i) {
-    REQUIRE(shard_manager_->SetShardState(core::MakeShardId(i),
-                                           ShardState::MIGRATING).ok());
+    REQUIRE(shard_manager_->SetShardState(core::MakeShardId(i), ShardState::MIGRATING).ok());
   }
 
   auto moves = shard_manager_->CalculateRebalancePlan();

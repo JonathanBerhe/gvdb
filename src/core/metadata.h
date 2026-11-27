@@ -42,26 +42,22 @@ using Metadata = std::map<std::string, MetadataValue>;
  * @brief Comparison operators for metadata filtering
  */
 enum class ComparisonOp {
-  EQUAL,              // =
-  NOT_EQUAL,          // !=
-  LESS_THAN,          // <
-  LESS_EQUAL,         // <=
-  GREATER_THAN,       // >
-  GREATER_EQUAL,      // >=
-  IN,                 // IN (value1, value2, ...)
-  NOT_IN,             // NOT IN (value1, value2, ...)
-  LIKE,               // LIKE 'pattern%'
-  NOT_LIKE            // NOT LIKE 'pattern%'
+  EQUAL,          // =
+  NOT_EQUAL,      // !=
+  LESS_THAN,      // <
+  LESS_EQUAL,     // <=
+  GREATER_THAN,   // >
+  GREATER_EQUAL,  // >=
+  IN,             // IN (value1, value2, ...)
+  NOT_IN,         // NOT IN (value1, value2, ...)
+  LIKE,           // LIKE 'pattern%'
+  NOT_LIKE        // NOT LIKE 'pattern%'
 };
 
 /**
  * @brief Logical operators for combining filters
  */
-enum class LogicalOp {
-  AND,
-  OR,
-  NOT
-};
+enum class LogicalOp { AND, OR, NOT };
 
 /**
  * @brief Compare two metadata values
@@ -73,18 +69,13 @@ enum class LogicalOp {
  *
  * Note: Type checking is performed at runtime
  */
-bool CompareMetadataValues(
-    const MetadataValue& left,
-    ComparisonOp op,
-    const MetadataValue& right);
+bool CompareMetadataValues(const MetadataValue& left, ComparisonOp op, const MetadataValue& right);
 
 /**
  * @brief Compare metadata value against a list (for IN/NOT_IN operators)
  */
-bool CompareMetadataValueInList(
-    const MetadataValue& value,
-    bool negate,
-    const std::vector<MetadataValue>& list);
+bool CompareMetadataValueInList(const MetadataValue& value, bool negate,
+                                const std::vector<MetadataValue>& list);
 
 /**
  * @brief Check if a string matches a LIKE pattern
@@ -148,14 +139,10 @@ absl::Status ValidateMetadata(const Metadata& metadata);
 class MetadataSerializer {
  public:
   // Serialize single metadata entry to output stream
-  static void SerializeEntry(
-      const std::string& key,
-      const MetadataValue& value,
-      std::ostream& os);
+  static void SerializeEntry(const std::string& key, const MetadataValue& value, std::ostream& os);
 
   // Deserialize single metadata entry from input stream
-  static absl::StatusOr<std::pair<std::string, MetadataValue>> DeserializeEntry(
-      std::istream& is);
+  static absl::StatusOr<std::pair<std::string, MetadataValue>> DeserializeEntry(std::istream& is);
 
   // Serialize entire metadata map to output stream
   static void Serialize(const Metadata& metadata, std::ostream& os);
@@ -164,12 +151,7 @@ class MetadataSerializer {
   static absl::StatusOr<Metadata> Deserialize(std::istream& is);
 
  private:
-  enum class TypeTag : uint8_t {
-    INT64 = 0,
-    DOUBLE = 1,
-    STRING = 2,
-    BOOL = 3
-  };
+  enum class TypeTag : uint8_t { INT64 = 0, DOUBLE = 1, STRING = 2, BOOL = 3 };
 
   static TypeTag GetTypeTag(const MetadataValue& value);
 };

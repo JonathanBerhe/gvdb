@@ -6,13 +6,13 @@
 #include <atomic>
 #include <string>
 
-#include "service/vectordb/vectordb_service.h"
-#include "service/vectordb/collection_resolver.h"
 #include "cluster/coordinator/coordinator.h"
-#include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "internal.grpc.pb.h"
+#include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
+#include "storage/segment/segment_manager.h"
 #include "support/grpc_server.h"
 #include "support/temp_dir.h"
 
@@ -38,8 +38,7 @@ class MockCoordinatorInternalService : public proto::internal::InternalService::
     get_collection_metadata_calls++;
 
     if (should_fail) {
-      return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                          "Coordinator unavailable");
+      return grpc::Status(grpc::StatusCode::UNAVAILABLE, "Coordinator unavailable");
     }
 
     // Return mock collection metadata
@@ -80,10 +79,9 @@ struct VectorDBServiceDistributedTest {
   VectorDBServiceDistributedTest() {
     // Create index factory and segment manager
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_.str(), index_factory_.get());
-    query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *segment_store_);
+    segment_store_ =
+        std::make_shared<storage::SegmentManager>(test_dir_.str(), index_factory_.get());
+    query_executor_ = std::make_shared<compute::QueryExecutor>(*segment_store_);
 
     // The mock coordinator InternalService listens on a port that the
     // operating system picks. TestGrpcServer listens once it is built, and
@@ -91,10 +89,9 @@ struct VectorDBServiceDistributedTest {
     REQUIRE(coordinator_server_.ok());
 
     // Create VectorDBService in DISTRIBUTED mode
-    auto resolver =
-        service::MakeCachedCoordinatorResolver(coordinator_server_.address());
-    service_ = std::make_unique<service::VectorDBService>(
-        segment_store_, query_executor_, std::move(resolver));
+    auto resolver = service::MakeCachedCoordinatorResolver(coordinator_server_.address());
+    service_ = std::make_unique<service::VectorDBService>(segment_store_, query_executor_,
+                                                          std::move(resolver));
   }
 
   ~VectorDBServiceDistributedTest() {
@@ -280,13 +277,15 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "SearchNonexistentCollectionFa
 
 TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "CoordinatorLookupErrorIsNotCached") {
   auto segment_id = core::ShardSegmentId(core::MakeCollectionId(42), 0);
-  REQUIRE(segment_store_->CreateSegmentWithId(
-      segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2,
-      core::IndexType::FLAT).ok());
+  REQUIRE(segment_store_
+              ->CreateSegmentWithId(segment_id, core::MakeCollectionId(42), 128,
+                                    core::MetricType::L2, core::IndexType::FLAT)
+              .ok());
   auto* segment = segment_store_->GetSegment(segment_id);
   REQUIRE_NE(segment, nullptr);
-  REQUIRE(segment->AddVectors({core::Vector(std::vector<float>(128, 1.0f))},
-                              {core::MakeVectorId(1)}).ok());
+  REQUIRE(
+      segment->AddVectors({core::Vector(std::vector<float>(128, 1.0f))}, {core::MakeVectorId(1)})
+          .ok());
 
   auto search = [&](proto::SearchResponse* response) {
     grpc::ServerContext context;

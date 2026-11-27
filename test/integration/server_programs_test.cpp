@@ -15,9 +15,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <fcntl.h>
 #include <chrono>
 #include <cstring>
-#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -80,8 +80,7 @@ class Program {
     posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, log_file_.c_str(),
                                      O_WRONLY | O_CREAT | O_TRUNC, 0644);
     posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
-    const int error = posix_spawn(&pid_, path.c_str(), &actions, nullptr, argv.data(),
-                                  envp.data());
+    const int error = posix_spawn(&pid_, path.c_str(), &actions, nullptr, argv.data(), envp.data());
     posix_spawn_file_actions_destroy(&actions);
     REQUIRE_MESSAGE(error == 0, "posix_spawn " << path << ": " << std::strerror(error));
   }
@@ -100,8 +99,8 @@ class Program {
   // program does not exit within `timeout` or when a signal ends it.
   int Wait(seconds timeout = seconds(30)) {
     int status = 0;
-    const bool exited = WaitFor([&] { return ::waitpid(pid_, &status, WNOHANG) == pid_; },
-                                timeout, std::chrono::milliseconds(20));
+    const bool exited = WaitFor([&] { return ::waitpid(pid_, &status, WNOHANG) == pid_; }, timeout,
+                                std::chrono::milliseconds(20));
     if (!exited) return -1;
     pid_ = -1;
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;

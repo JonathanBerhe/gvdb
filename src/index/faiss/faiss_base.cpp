@@ -6,8 +6,8 @@
 #include <cstring>
 #include <fstream>
 
-#include <faiss/index_io.h>
 #include <faiss/impl/AuxIndexStructures.h>
+#include <faiss/index_io.h>
 
 #ifdef GVDB_HAS_CUDA
 #include <faiss/gpu/GpuCloner.h>
@@ -29,8 +29,7 @@ using SearchLock = std::unique_lock<std::shared_mutex>;
 using SearchLock = std::shared_lock<std::shared_mutex>;
 #endif
 
-FaissIndexBase::FaissIndexBase(std::unique_ptr<faiss::Index> index,
-                               core::MetricType metric)
+FaissIndexBase::FaissIndexBase(std::unique_ptr<faiss::Index> index, core::MetricType metric)
     : index_(std::move(index)), metric_type_(metric), is_trained_(false) {
   // Check if index is already trained (FLAT doesn't need training)
   is_trained_ = index_->is_trained;
@@ -39,15 +38,14 @@ FaissIndexBase::FaissIndexBase(std::unique_ptr<faiss::Index> index,
 FaissIndexBase::~FaissIndexBase() = default;
 
 absl::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
-                                    const std::vector<core::VectorId>& ids) {
+                                   const std::vector<core::VectorId>& ids) {
   if (vectors.empty()) {
     return absl::InvalidArgumentError("Cannot build index with empty vectors");
   }
 
   if (vectors.size() != ids.size()) {
     return absl::InvalidArgumentError(
-        absl::StrCat("Vector and ID count mismatch: ", vectors.size(), " vs ",
-                     ids.size()));
+        absl::StrCat("Vector and ID count mismatch: ", vectors.size(), " vs ", ids.size()));
   }
 
   std::unique_lock lock(mutex_);
@@ -56,8 +54,7 @@ absl::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
   if (!index_->is_trained) {
     auto training_data = VectorsToFloatArray(vectors);
     auto train_status = ExecuteFaissOperation(
-        [&]() { index_->train(vectors.size(), training_data.data()); },
-        "Train");
+        [&]() { index_->train(vectors.size(), training_data.data()); }, "Train");
     if (!train_status.ok()) {
       return train_status;
     }
@@ -71,8 +68,7 @@ absl::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
   }
 
   auto add_status = ExecuteFaissOperation(
-      [&]() { index_->add_with_ids(vectors.size(), float_data.data(),
-                                   faiss_ids.data()); },
+      [&]() { index_->add_with_ids(vectors.size(), float_data.data(), faiss_ids.data()); },
       "Build");
   if (!add_status.ok()) {
     return add_status;
@@ -82,8 +78,7 @@ absl::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
   return absl::OkStatus();
 }
 
-absl::Status FaissIndexBase::Add(const core::Vector& vector,
-                                  core::VectorId id) {
+absl::Status FaissIndexBase::Add(const core::Vector& vector, core::VectorId id) {
   std::unique_lock lock(mutex_);
 
   if (!index_->is_trained) {
@@ -93,13 +88,12 @@ absl::Status FaissIndexBase::Add(const core::Vector& vector,
   auto float_data = VectorToFloatArray(vector);
   faiss::idx_t faiss_id = VectorIdToIdx(id);
 
-  return ExecuteFaissOperation(
-      [&]() { index_->add_with_ids(1, float_data.data(), &faiss_id); }, "Add");
+  return ExecuteFaissOperation([&]() { index_->add_with_ids(1, float_data.data(), &faiss_id); },
+                               "Add");
 }
 
-absl::Status FaissIndexBase::AddBatch(
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids) {
+absl::Status FaissIndexBase::AddBatch(const std::vector<core::Vector>& vectors,
+                                      const std::vector<core::VectorId>& ids) {
   if (vectors.empty()) {
     return absl::OkStatus();
   }
@@ -121,8 +115,7 @@ absl::Status FaissIndexBase::AddBatch(
   }
 
   return ExecuteFaissOperation(
-      [&]() { index_->add_with_ids(vectors.size(), float_data.data(),
-                                   faiss_ids.data()); },
+      [&]() { index_->add_with_ids(vectors.size(), float_data.data(), faiss_ids.data()); },
       "AddBatch");
 }
 
@@ -134,11 +127,9 @@ absl::Status FaissIndexBase::Remove(core::VectorId /*id*/) {
   return absl::UnimplementedError("Remove not supported for this index type");
 }
 
-absl::StatusOr<core::SearchResult> FaissIndexBase::Search(
-    const core::Vector& query, int k) {
+absl::StatusOr<core::SearchResult> FaissIndexBase::Search(const core::Vector& query, int k) {
   if (k <= 0) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("k must be positive, got ", k));
+    return absl::InvalidArgumentError(absl::StrCat("k must be positive, got ", k));
   }
 
   SearchLock lock(mutex_);
@@ -156,8 +147,7 @@ absl::StatusOr<core::SearchResult> FaissIndexBase::Search(
 
   return ExecuteFaissOperationWithReturn<core::SearchResult>(
       [&]() {
-        index_->search(1, float_query.data(), k, distances.data(),
-                      labels.data());
+        index_->search(1, float_query.data(), k, distances.data(), labels.data());
 
         core::SearchResult result(k);
         for (int i = 0; i < k; ++i) {
@@ -170,8 +160,8 @@ absl::StatusOr<core::SearchResult> FaissIndexBase::Search(
       "Search");
 }
 
-absl::StatusOr<core::SearchResult> FaissIndexBase::SearchRange(
-    const core::Vector& query, float radius) {
+absl::StatusOr<core::SearchResult> FaissIndexBase::SearchRange(const core::Vector& query,
+                                                               float radius) {
   SearchLock lock(mutex_);
 
   if (index_->ntotal == 0) {
@@ -188,8 +178,7 @@ absl::StatusOr<core::SearchResult> FaissIndexBase::SearchRange(
 
         core::SearchResult result;
         for (size_t i = range_result.lims[0]; i < range_result.lims[1]; ++i) {
-          result.AddEntry(IdxToVectorId(range_result.labels[i]),
-                         range_result.distances[i]);
+          result.AddEntry(IdxToVectorId(range_result.labels[i]), range_result.distances[i]);
         }
         return result;
       },
@@ -221,8 +210,7 @@ absl::StatusOr<std::vector<core::SearchResult>> FaissIndexBase::SearchBatch(
 
   return ExecuteFaissOperationWithReturn<std::vector<core::SearchResult>>(
       [&]() {
-        index_->search(nq, float_queries.data(), k, distances.data(),
-                      labels.data());
+        index_->search(nq, float_queries.data(), k, distances.data(), labels.data());
 
         std::vector<core::SearchResult> results(nq);
         for (size_t i = 0; i < nq; ++i) {
@@ -257,8 +245,7 @@ core::Dimension FaissIndexBase::GetDimension() const {
 
 core::MetricType FaissIndexBase::GetMetricType() const { return metric_type_; }
 
-absl::Status FaissIndexBase::Train(
-    const std::vector<core::Vector>& training_data) {
+absl::Status FaissIndexBase::Train(const std::vector<core::Vector>& training_data) {
   if (training_data.empty()) {
     return absl::InvalidArgumentError("Training data cannot be empty");
   }
@@ -270,9 +257,8 @@ absl::Status FaissIndexBase::Train(
   }
 
   auto float_data = VectorsToFloatArray(training_data);
-  return ExecuteFaissOperation(
-      [&]() { index_->train(training_data.size(), float_data.data()); },
-      "Train");
+  return ExecuteFaissOperation([&]() { index_->train(training_data.size(), float_data.data()); },
+                               "Train");
 }
 
 bool FaissIndexBase::IsTrained() const {
@@ -290,15 +276,14 @@ absl::Status FaissIndexBase::Serialize(const std::string& path) const {
     // for the write. The temporary CPU clone is discarded after the write.
     return ExecuteFaissOperation(
         [&]() {
-          std::unique_ptr<faiss::Index> cpu(
-              faiss::gpu::index_gpu_to_cpu(index_.get()));
+          std::unique_ptr<faiss::Index> cpu(faiss::gpu::index_gpu_to_cpu(index_.get()));
           faiss::write_index(cpu.get(), path.c_str());
         },
         "Serialize");
   }
 #endif
-  return ExecuteFaissOperation(
-      [&]() { faiss::write_index(index_.get(), path.c_str()); }, "Serialize");
+  return ExecuteFaissOperation([&]() { faiss::write_index(index_.get(), path.c_str()); },
+                               "Serialize");
 }
 
 absl::Status FaissIndexBase::Deserialize(const std::string& path) {
@@ -324,8 +309,7 @@ void FaissIndexBase::MaybeCloneToGpu() {
     return;
   }
   gpu_res_ = std::make_unique<faiss::gpu::StandardGpuResources>();
-  faiss::Index* gpu_idx =
-      faiss::gpu::index_cpu_to_gpu(gpu_res_.get(), 0, index_.get());
+  faiss::Index* gpu_idx = faiss::gpu::index_cpu_to_gpu(gpu_res_.get(), 0, index_.get());
   index_.reset(gpu_idx);
   gpu_resident_ = true;
 #endif
@@ -333,15 +317,13 @@ void FaissIndexBase::MaybeCloneToGpu() {
 
 // Helper implementations
 
-std::vector<float> FaissIndexBase::VectorToFloatArray(
-    const core::Vector& vec) {
+std::vector<float> FaissIndexBase::VectorToFloatArray(const core::Vector& vec) {
   std::vector<float> result(vec.dimension());
   std::memcpy(result.data(), vec.data(), vec.dimension() * sizeof(float));
   return result;
 }
 
-std::vector<float> FaissIndexBase::VectorsToFloatArray(
-    const std::vector<core::Vector>& vectors) {
+std::vector<float> FaissIndexBase::VectorsToFloatArray(const std::vector<core::Vector>& vectors) {
   if (vectors.empty()) {
     return {};
   }
@@ -350,8 +332,7 @@ std::vector<float> FaissIndexBase::VectorsToFloatArray(
   std::vector<float> result(vectors.size() * dim);
 
   for (size_t i = 0; i < vectors.size(); ++i) {
-    std::memcpy(result.data() + i * dim, vectors[i].data(),
-                dim * sizeof(float));
+    std::memcpy(result.data() + i * dim, vectors[i].data(), dim * sizeof(float));
   }
 
   return result;

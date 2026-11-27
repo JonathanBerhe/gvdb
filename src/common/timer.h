@@ -27,16 +27,12 @@ class Timer {
 
   // Get elapsed time in microseconds
   [[nodiscard]] int64_t ElapsedMicros() const {
-    return std::chrono::duration_cast<std::chrono::microseconds>(
-               clock_() - start_)
-        .count();
+    return std::chrono::duration_cast<std::chrono::microseconds>(clock_() - start_).count();
   }
 
   // Get elapsed time in milliseconds
   [[nodiscard]] int64_t ElapsedMillis() const {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               clock_() - start_)
-        .count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(clock_() - start_).count();
   }
 
  private:
@@ -46,4 +42,3 @@ class Timer {
 
 }  // namespace common
 }  // namespace gvdb
-

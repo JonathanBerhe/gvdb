@@ -14,9 +14,8 @@ namespace index {
 // Supports Product Quantization (PQ) and Scalar Quantization (SQ)
 class FaissIVFIndex : public FaissIndexBase {
  public:
-  FaissIVFIndex(core::Dimension dimension, core::MetricType metric,
-                int nlist = 100, int nprobe = 10,
-                IVFQuantizationType quantization = IVFQuantizationType::NONE,
+  FaissIVFIndex(core::Dimension dimension, core::MetricType metric, int nlist = 100,
+                int nprobe = 10, IVFQuantizationType quantization = IVFQuantizationType::NONE,
                 int pq_m = 8, int pq_nbits = 8);
   ~FaissIVFIndex() override = default;
 
@@ -31,9 +30,10 @@ class FaissIVFIndex : public FaissIndexBase {
   [[nodiscard]] bool SupportsGpu() const override { return true; }
 
  private:
-  static std::unique_ptr<faiss::Index> CreateIVFIndex(
-      core::Dimension dimension, core::MetricType metric, int nlist,
-      IVFQuantizationType quantization, int pq_m, int pq_nbits);
+  static std::unique_ptr<faiss::Index> CreateIVFIndex(core::Dimension dimension,
+                                                      core::MetricType metric, int nlist,
+                                                      IVFQuantizationType quantization, int pq_m,
+                                                      int pq_nbits);
 
   int nprobe_;
   IVFQuantizationType quantization_;
@@ -41,4 +41,3 @@ class FaissIVFIndex : public FaissIndexBase {
 
 }  // namespace index
 }  // namespace gvdb
-

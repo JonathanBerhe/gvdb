@@ -6,11 +6,11 @@
 #include <memory>
 #include <mutex>
 
-#include "spdlog/spdlog.h"
 #include "spdlog/async.h"
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/rotating_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
+#include "spdlog/spdlog.h"
 
 namespace gvdb {
 namespace common {
@@ -92,14 +92,10 @@ absl::Status Logger::Initialize(const LogConfig& config) {
       // Initialize thread pool for async logging
       spdlog::init_thread_pool(config.async_queue_size, 1);
       instance_->logger_ = std::make_shared<spdlog::async_logger>(
-          "gvdb",
-          sinks.begin(),
-          sinks.end(),
-          spdlog::thread_pool(),
+          "gvdb", sinks.begin(), sinks.end(), spdlog::thread_pool(),
           spdlog::async_overflow_policy::block);
     } else {
-      instance_->logger_ = std::make_shared<spdlog::logger>(
-          "gvdb", sinks.begin(), sinks.end());
+      instance_->logger_ = std::make_shared<spdlog::logger>("gvdb", sinks.begin(), sinks.end());
     }
 
     instance_->logger_->set_level(ToSpdlogLevel(config.level));
@@ -110,8 +106,7 @@ absl::Status Logger::Initialize(const LogConfig& config) {
 
   } catch (const spdlog::spdlog_ex& ex) {
     instance_.reset();
-    return absl::InternalError(
-        std::string("Failed to initialize logger: ") + ex.what());
+    return absl::InternalError(std::string("Failed to initialize logger: ") + ex.what());
   }
 
   return absl::OkStatus();

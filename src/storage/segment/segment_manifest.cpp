@@ -5,12 +5,12 @@
 
 #include "common/json_util.h"
 
-#include <sstream>
 #include <regex>
+#include <sstream>
 
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
-#include "absl/strings/numbers.h"
 #include "absl/strings/strip.h"
 
 namespace gvdb {
@@ -30,14 +30,11 @@ using common::json::ParseUint64;
 std::string EntryToJson(const ManifestEntry& e) {
   std::ostringstream ss;
   ss << "{"
-     << "\"segment_id\":" << e.segment_id
-     << ",\"collection_id\":" << e.collection_id
-     << ",\"dimension\":" << e.dimension
-     << ",\"metric\":" << e.metric
-     << ",\"index_type\":" << e.index_type
-     << ",\"vector_count\":" << e.vector_count
-     << ",\"size_bytes\":" << e.size_bytes
-     << ",\"uploaded_at\":\"" << EscapeJson(e.uploaded_at) << "\""
+     << "\"segment_id\":" << e.segment_id << ",\"collection_id\":" << e.collection_id
+     << ",\"dimension\":" << e.dimension << ",\"metric\":" << e.metric
+     << ",\"index_type\":" << e.index_type << ",\"vector_count\":" << e.vector_count
+     << ",\"size_bytes\":" << e.size_bytes << ",\"uploaded_at\":\"" << EscapeJson(e.uploaded_at)
+     << "\""
      << "}";
   return ss.str();
 }
@@ -46,8 +43,7 @@ absl::StatusOr<ManifestEntry> ParseEntry(const std::string& json) {
   ManifestEntry e;
   if (!ParseUint32(json, "segment_id", e.segment_id) ||
       !ParseUint32(json, "collection_id", e.collection_id) ||
-      !ParseInt32(json, "dimension", e.dimension) ||
-      !ParseInt32(json, "metric", e.metric) ||
+      !ParseInt32(json, "dimension", e.dimension) || !ParseInt32(json, "metric", e.metric) ||
       !ParseInt32(json, "index_type", e.index_type) ||
       !ParseUint64(json, "vector_count", e.vector_count) ||
       !ParseUint64(json, "size_bytes", e.size_bytes)) {
@@ -78,8 +74,7 @@ std::vector<std::string> SplitJsonArray(const std::string& json) {
 
 }  // namespace
 
-std::string SegmentManifest::Serialize(
-    const std::vector<ManifestEntry>& entries) {
+std::string SegmentManifest::Serialize(const std::vector<ManifestEntry>& entries) {
   std::ostringstream ss;
   ss << "{\"version\":1,\"segments\":[";
   for (size_t i = 0; i < entries.size(); ++i) {
@@ -90,8 +85,7 @@ std::string SegmentManifest::Serialize(
   return ss.str();
 }
 
-absl::StatusOr<std::vector<ManifestEntry>> SegmentManifest::Deserialize(
-    const std::string& json) {
+absl::StatusOr<std::vector<ManifestEntry>> SegmentManifest::Deserialize(const std::string& json) {
   if (json.empty()) {
     return std::vector<ManifestEntry>{};
   }
@@ -123,9 +117,8 @@ absl::StatusOr<std::vector<ManifestEntry>> SegmentManifest::Deserialize(
   return entries;
 }
 
-std::string SegmentManifest::AddEntry(
-    const std::string& existing_json,
-    const ManifestEntry& entry) {
+std::string SegmentManifest::AddEntry(const std::string& existing_json,
+                                      const ManifestEntry& entry) {
   auto result = Deserialize(existing_json);
   std::vector<ManifestEntry> entries;
   if (result.ok()) {
@@ -147,9 +140,7 @@ std::string SegmentManifest::AddEntry(
   return Serialize(entries);
 }
 
-std::string SegmentManifest::RemoveEntry(
-    const std::string& existing_json,
-    uint32_t segment_id) {
+std::string SegmentManifest::RemoveEntry(const std::string& existing_json, uint32_t segment_id) {
   auto result = Deserialize(existing_json);
   if (!result.ok()) return existing_json;
 

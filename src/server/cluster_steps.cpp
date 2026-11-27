@@ -16,8 +16,10 @@
 namespace gvdb {
 namespace server {
 
-absl::StatusOr<std::unique_ptr<consensus::RaftNode>> StartRaft(const consensus::RaftConfig& config) {
-  auto created = consensus::RaftNode::Create(config, std::make_shared<cluster::GrpcRaftPeerClient>());
+absl::StatusOr<std::unique_ptr<consensus::RaftNode>> StartRaft(
+    const consensus::RaftConfig& config) {
+  auto created =
+      consensus::RaftNode::Create(config, std::make_shared<cluster::GrpcRaftPeerClient>());
   if (!created.ok()) return WithPrefix("Failed to start Raft: ", created.status());
   std::unique_ptr<consensus::RaftNode> raft = std::move(*created);
   if (auto status = raft->Start(); !status.ok()) {
@@ -56,8 +58,8 @@ void RemoveSelfFromRaft(const consensus::RaftNode& raft, int node_id,
   // Kubernetes gives a pod by default.
   std::string leader_target = resolve_target(raft.GetLeaderId());
   for (int attempt = 0; attempt < 2 && !leader_target.empty(); ++attempt) {
-    common::Logger::Instance().Info("Self-removing node_id={} via leader {} (attempt {})",
-                                    node_id, leader_target, attempt);
+    common::Logger::Instance().Info("Self-removing node_id={} via leader {} (attempt {})", node_id,
+                                    leader_target, attempt);
     auto channel = grpc::CreateChannel(leader_target, grpc::InsecureChannelCredentials());
     auto stub = proto::internal::InternalService::NewStub(channel);
     proto::internal::RemovePeerRequest req;

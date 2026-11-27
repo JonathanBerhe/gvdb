@@ -26,8 +26,7 @@ TEST_CASE("BuildDnsChannelArgs sets aggressive resolution/reconnect tuning") {
 
   auto find_int = [&](const char* key) -> int {
     for (size_t i = 0; i < c_args.num_args; ++i) {
-      if (std::string(c_args.args[i].key) == key &&
-          c_args.args[i].type == GRPC_ARG_INTEGER) {
+      if (std::string(c_args.args[i].key) == key && c_args.args[i].type == GRPC_ARG_INTEGER) {
         return c_args.args[i].value.integer;
       }
     }
@@ -35,20 +34,16 @@ TEST_CASE("BuildDnsChannelArgs sets aggressive resolution/reconnect tuning") {
   };
   auto find_string = [&](const char* key) -> std::string {
     for (size_t i = 0; i < c_args.num_args; ++i) {
-      if (std::string(c_args.args[i].key) == key &&
-          c_args.args[i].type == GRPC_ARG_STRING) {
+      if (std::string(c_args.args[i].key) == key && c_args.args[i].type == GRPC_ARG_STRING) {
         return c_args.args[i].value.string;
       }
     }
     return "";
   };
 
-  CHECK_EQ(find_int(GRPC_ARG_DNS_MIN_TIME_BETWEEN_RESOLUTIONS_MS),
-           kDnsMinTimeBetweenResolutionsMs);
-  CHECK_EQ(find_int(GRPC_ARG_INITIAL_RECONNECT_BACKOFF_MS),
-           kInitialReconnectBackoffMs);
-  CHECK_EQ(find_int(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS),
-           kMaxReconnectBackoffMs);
+  CHECK_EQ(find_int(GRPC_ARG_DNS_MIN_TIME_BETWEEN_RESOLUTIONS_MS), kDnsMinTimeBetweenResolutionsMs);
+  CHECK_EQ(find_int(GRPC_ARG_INITIAL_RECONNECT_BACKOFF_MS), kInitialReconnectBackoffMs);
+  CHECK_EQ(find_int(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS), kMaxReconnectBackoffMs);
   CHECK_EQ(find_string(GRPC_ARG_LB_POLICY_NAME), "round_robin");
 }
 

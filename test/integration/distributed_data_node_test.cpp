@@ -12,17 +12,17 @@
 #include <string>
 
 #include "cluster/coordinator/coordinator.h"
-#include "cluster/shard_manager.h"
-#include "cluster/coordinator/node_registry.h"
 #include "cluster/coordinator/internal_client.h"
+#include "cluster/coordinator/node_registry.h"
 #include "cluster/datanode/primary_term_tracker.h"
+#include "cluster/shard_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "service/internal/internal_service.h"
-#include "service/vectordb/vectordb_service.h"
-#include "service/vectordb/collection_resolver.h"
-#include "storage/segment/segment_manager.h"
 #include "internal.grpc.pb.h"
+#include "service/internal/internal_service.h"
+#include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
+#include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 
@@ -34,8 +34,8 @@ namespace {
 // Starts a server on a free local port with the given services and the
 // 256 MB message limits of the production servers. Sets *address to
 // "localhost:<port>".
-std::unique_ptr<grpc::Server> StartServer(
-    std::initializer_list<grpc::Service*> services, std::string* address) {
+std::unique_ptr<grpc::Server> StartServer(std::initializer_list<grpc::Service*> services,
+                                          std::string* address) {
   grpc::ServerBuilder builder;
   int port = 0;
   builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
@@ -72,18 +72,16 @@ class DistributedDataNodeTest {
 
     coord_segment_store_ = std::make_shared<storage::SegmentManager>(
         (dir_ / "coordinator").string(), index_factory_.get());
-    coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *coord_segment_store_);
+    coord_query_executor_ = std::make_shared<compute::QueryExecutor>(*coord_segment_store_);
 
     // --- Data node setup (separate storage) ---
     // The data node starts first, so that the coordinator finds its address
     // in the NodeRegistry and sends it CreateSegment RPCs.
-    dn_segment_store_ = std::make_shared<storage::SegmentManager>(
-        (dir_ / "data_node").string(), index_factory_.get());
-    dn_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *dn_segment_store_);
-    auto dn_shard_manager = std::make_shared<cluster::ShardManager>(
-        8, cluster::ShardingStrategy::HASH);
+    dn_segment_store_ = std::make_shared<storage::SegmentManager>((dir_ / "data_node").string(),
+                                                                  index_factory_.get());
+    dn_query_executor_ = std::make_shared<compute::QueryExecutor>(*dn_segment_store_);
+    auto dn_shard_manager =
+        std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
     dn_internal_service_ = std::make_unique<service::InternalService>(
         dn_shard_manager, dn_segment_store_, dn_query_executor_);
     dn_server_ = StartServer({dn_internal_service_.get()}, &dn_server_address_);
@@ -100,7 +98,8 @@ class DistributedDataNodeTest {
     // Create coordinator's InternalService (serves GetCollectionMetadata)
     coord_internal_service_ = std::make_unique<service::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
-        service::InternalServiceOptions{.node_registry = node_registry_, .coordinator = coordinator_});
+        service::InternalServiceOptions{.node_registry = node_registry_,
+                                        .coordinator = coordinator_});
 
     // Create coordinator's VectorDBService
     auto coord_resolver = service::MakeCoordinatorResolver(coordinator_);
@@ -108,9 +107,8 @@ class DistributedDataNodeTest {
         coord_segment_store_, coord_query_executor_, std::move(coord_resolver));
 
     // Start coordinator gRPC server (InternalService + VectorDBService)
-    coord_server_ = StartServer(
-        {coord_internal_service_.get(), coord_vectordb_service_.get()},
-        &coord_server_address_);
+    coord_server_ = StartServer({coord_internal_service_.get(), coord_vectordb_service_.get()},
+                                &coord_server_address_);
 
     // Create data node VectorDBService pointing at coordinator
     auto dn_resolver = service::MakeCachedCoordinatorResolver(coord_server_address_);
@@ -136,12 +134,11 @@ class DistributedDataNodeTest {
   // address. The fixture owns it, so that the destructor can close the
   // coordinator's channel to it before it shuts the server down.
   std::string StartSecondDataNode(cluster::PrimaryTermTracker* tracker = nullptr) {
-    dn2_segment_store_ = std::make_shared<storage::SegmentManager>(
-        (dir_ / "data_node_2").string(), index_factory_.get());
-    dn2_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *dn2_segment_store_);
-    auto dn2_shard_manager = std::make_shared<cluster::ShardManager>(
-        8, cluster::ShardingStrategy::HASH);
+    dn2_segment_store_ = std::make_shared<storage::SegmentManager>((dir_ / "data_node_2").string(),
+                                                                   index_factory_.get());
+    dn2_query_executor_ = std::make_shared<compute::QueryExecutor>(*dn2_segment_store_);
+    auto dn2_shard_manager =
+        std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
     dn2_internal_service_ = std::make_unique<service::InternalService>(
         dn2_shard_manager, dn2_segment_store_, dn2_query_executor_,
         service::InternalServiceOptions{.primary_term_tracker = tracker});
@@ -237,8 +234,7 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "CoordinatorCreatesIvfPqAfterFlatDrop
   INFO("FLAT CreateCollection failed: " << flat_status.error_message());
   REQUIRE(flat_status.ok());
 
-  auto flat_segment_id = core::ShardSegmentId(
-      core::CollectionId(flat_resp.collection_id()), 0);
+  auto flat_segment_id = core::ShardSegmentId(core::CollectionId(flat_resp.collection_id()), 0);
   auto* flat_segment = dn_segment_store_->GetSegment(flat_segment_id);
   REQUIRE_NE(flat_segment, nullptr);
   CHECK_EQ(flat_segment->GetDimension(), 384);
@@ -270,8 +266,7 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "CoordinatorCreatesIvfPqAfterFlatDrop
   REQUIRE(ivf_status.ok());
   CHECK_NE(ivf_resp.collection_id(), flat_resp.collection_id());
 
-  auto ivf_segment_id = core::ShardSegmentId(
-      core::CollectionId(ivf_resp.collection_id()), 0);
+  auto ivf_segment_id = core::ShardSegmentId(core::CollectionId(ivf_resp.collection_id()), 0);
   auto* ivf_segment = dn_segment_store_->GetSegment(ivf_segment_id);
   INFO("IVF_PQ segment not found on data node after CreateCollection");
   REQUIRE_NE(ivf_segment, nullptr);
@@ -427,7 +422,8 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "GetVectorsOnDataNode") {
 }
 
 // TODO: Rewrite for multi-shard -- needs separate fixture with 2 data nodes
-TEST_CASE_FIXTURE(DistributedDataNodeTest, "DistributedSearchAcrossDataNodes" * doctest::skip(true)) {
+TEST_CASE_FIXTURE(DistributedDataNodeTest,
+                  "DistributedSearchAcrossDataNodes" * doctest::skip(true)) {
   // Create collection via coordinator
   proto::CreateCollectionRequest create_req;
   create_req.set_collection_name("test_distributed_search");
@@ -464,8 +460,7 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "DistributedSearchAcrossDataNodes" * 
   // It should fan out to data nodes via distributed search
   auto qn_segment_manager = std::make_shared<storage::SegmentManager>(
       (dir_ / "query_node").string(), index_factory_.get());
-  auto qn_query_executor = std::make_shared<compute::QueryExecutor>(
-      *qn_segment_manager);
+  auto qn_query_executor = std::make_shared<compute::QueryExecutor>(*qn_segment_manager);
   auto qn_resolver = service::MakeCachedCoordinatorResolver(coord_server_address_);
   auto qn_service = std::make_unique<service::VectorDBService>(
       qn_segment_manager, qn_query_executor, std::move(qn_resolver));

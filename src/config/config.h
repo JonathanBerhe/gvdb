@@ -25,10 +25,10 @@ namespace config {
  */
 struct TlsConfig {
   bool enabled = false;
-  std::string cert_path;       // Server certificate (PEM)
-  std::string key_path;        // Server private key (PEM)
-  std::string ca_cert_path;    // CA certificate for client verification (PEM, optional)
-  bool mutual_tls = false;     // Require client certificates
+  std::string cert_path;     // Server certificate (PEM)
+  std::string key_path;      // Server private key (PEM)
+  std::string ca_cert_path;  // CA certificate for client verification (PEM, optional)
+  bool mutual_tls = false;   // Require client certificates
 };
 
 struct ServerConfig {
@@ -68,10 +68,10 @@ struct StorageConfig {
  */
 struct IndexConfig {
   std::string default_index_type = "HNSW";
-  size_t hnsw_m = 16;              // HNSW parameter M
-  size_t hnsw_ef_construction = 200; // HNSW ef_construction
-  size_t hnsw_ef_search = 100;      // HNSW ef_search (default)
-  size_t ivf_nlist = 100;           // IVF number of clusters
+  size_t hnsw_m = 16;                 // HNSW parameter M
+  size_t hnsw_ef_construction = 200;  // HNSW ef_construction
+  size_t hnsw_ef_search = 100;        // HNSW ef_search (default)
+  size_t ivf_nlist = 100;             // IVF number of clusters
   bool use_gpu = false;
 };
 

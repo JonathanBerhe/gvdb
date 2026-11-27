@@ -483,10 +483,8 @@ TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "StartOnExistingEmptyDirs") {
     REQUIRE_NE(self, nullptr);
     CHECK_EQ(self->get_endpoint(), "localhost:9000");
 
-    config->get_servers().push_back(
-        nuraft::cs_new<nuraft::srv_config>(2, "localhost:9001"));
-    config->get_servers().push_back(
-        nuraft::cs_new<nuraft::srv_config>(3, "localhost:9002"));
+    config->get_servers().push_back(nuraft::cs_new<nuraft::srv_config>(2, "localhost:9001"));
+    config->get_servers().push_back(nuraft::cs_new<nuraft::srv_config>(3, "localhost:9002"));
     mgr.save_config(*config);
 
     auto log_store = mgr.load_log_store();

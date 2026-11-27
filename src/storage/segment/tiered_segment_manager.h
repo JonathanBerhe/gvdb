@@ -13,12 +13,12 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "storage/segment/segment_store.h"
-#include "storage/segment/segment_manager.h"
+#include "common/thread_pool.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_cache.h"
+#include "storage/segment/segment_manager.h"
 #include "storage/segment/segment_manifest.h"
-#include "common/thread_pool.h"
+#include "storage/segment/segment_store.h"
 
 namespace gvdb {
 namespace storage {
@@ -35,61 +35,50 @@ namespace storage {
 // SegmentManager, with S3 upload/download/discovery added on top.
 class TieredSegmentManager : public ISegmentStore {
  public:
-  TieredSegmentManager(
-      std::unique_ptr<SegmentManager> local,
-      std::unique_ptr<IObjectStore> object_store,
-      std::unique_ptr<SegmentCache> cache,
-      const std::string& prefix,
-      int upload_threads = 2,
-      // Base delay before the first upload retry. Doubles per attempt up to a
-      // hard cap. Kept configurable so tests can drive retries in milliseconds.
-      std::chrono::milliseconds retry_base_delay = std::chrono::seconds(3));
+  TieredSegmentManager(std::unique_ptr<SegmentManager> local,
+                       std::unique_ptr<IObjectStore> object_store,
+                       std::unique_ptr<SegmentCache> cache, const std::string& prefix,
+                       int upload_threads = 2,
+                       // Base delay before the first upload retry. Doubles per attempt up to a
+                       // hard cap. Kept configurable so tests can drive retries in milliseconds.
+                       std::chrono::milliseconds retry_base_delay = std::chrono::seconds(3));
 
   ~TieredSegmentManager() override;
 
   // ── ISegmentStore implementation ──
 
-  [[nodiscard]] absl::StatusOr<core::SegmentId> CreateSegment(
-      core::CollectionId collection_id,
-      core::Dimension dimension,
-      core::MetricType metric) override;
+  [[nodiscard]] absl::StatusOr<core::SegmentId> CreateSegment(core::CollectionId collection_id,
+                                                              core::Dimension dimension,
+                                                              core::MetricType metric) override;
 
-  [[nodiscard]] absl::Status CreateSegmentWithId(
-      core::SegmentId segment_id,
-      core::CollectionId collection_id,
-      core::Dimension dimension,
-      core::MetricType metric,
-      core::IndexType index_type) override;
+  [[nodiscard]] absl::Status CreateSegmentWithId(core::SegmentId segment_id,
+                                                 core::CollectionId collection_id,
+                                                 core::Dimension dimension, core::MetricType metric,
+                                                 core::IndexType index_type) override;
 
   [[nodiscard]] Segment* GetSegment(core::SegmentId id) override;
   [[nodiscard]] const Segment* GetSegment(core::SegmentId id) const override;
 
-  [[nodiscard]] absl::Status SealSegment(
-      core::SegmentId id,
-      const core::IndexConfig& index_config) override;
+  [[nodiscard]] absl::Status SealSegment(core::SegmentId id,
+                                         const core::IndexConfig& index_config) override;
 
   [[nodiscard]] absl::Status FlushSegment(core::SegmentId id) override;
 
-  [[nodiscard]] absl::Status DropSegment(
-      core::SegmentId id, bool delete_files = false) override;
+  [[nodiscard]] absl::Status DropSegment(core::SegmentId id, bool delete_files = false) override;
 
-  [[nodiscard]] absl::Status AddReplicatedSegment(
-      std::unique_ptr<Segment> segment) override;
+  [[nodiscard]] absl::Status AddReplicatedSegment(std::unique_ptr<Segment> segment) override;
 
-  [[nodiscard]] absl::Status WriteVectors(
-      core::SegmentId segment_id,
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids) override;
+  [[nodiscard]] absl::Status WriteVectors(core::SegmentId segment_id,
+                                          const std::vector<core::Vector>& vectors,
+                                          const std::vector<core::VectorId>& ids) override;
 
   [[nodiscard]] absl::StatusOr<core::SearchResult> SearchCollection(
-      core::CollectionId collection_id,
-      const core::Vector& query, int k) const override;
+      core::CollectionId collection_id, const core::Vector& query, int k) const override;
 
   void SetSealCallback(SealCallback callback) override;
 
-  [[nodiscard]] Segment* GetWritableSegment(
-      core::CollectionId collection_id,
-      size_t required_bytes = 0) override;
+  [[nodiscard]] Segment* GetWritableSegment(core::CollectionId collection_id,
+                                            size_t required_bytes = 0) override;
 
   void RunTTLSweepLoop(const std::atomic<bool>& shutdown) override;
 
@@ -100,9 +89,7 @@ class TieredSegmentManager : public ISegmentStore {
 
   [[nodiscard]] size_t GetSegmentCount() const override;
 
-  [[nodiscard]] size_t GetMaxSegmentSize() const override {
-    return local_->GetMaxSegmentSize();
-  }
+  [[nodiscard]] size_t GetMaxSegmentSize() const override { return local_->GetMaxSegmentSize(); }
 
   void Clear() override;
 
@@ -178,8 +165,7 @@ class TieredSegmentManager : public ISegmentStore {
   void RetryLoop();
 
   // Backoff before the next attempt given the number of failures so far.
-  [[nodiscard]] std::chrono::steady_clock::duration BackoffDelay(
-      uint32_t attempts) const;
+  [[nodiscard]] std::chrono::steady_clock::duration BackoffDelay(uint32_t attempts) const;
 
   // Re-enqueue uploads for segments that are FLUSHED locally but absent from
   // the remote manifest (their original upload never reached the cold tier).
@@ -202,11 +188,9 @@ class TieredSegmentManager : public ISegmentStore {
   absl::Status EnsureSegmentLoaded(core::SegmentId id) const;
 
   // Build S3 key for a segment file
-  [[nodiscard]] std::string MakeS3Key(
-      uint32_t collection_id, uint32_t segment_id,
-      const std::string& filename) const;
+  [[nodiscard]] std::string MakeS3Key(uint32_t collection_id, uint32_t segment_id,
+                                      const std::string& filename) const;
 };
 
 }  // namespace storage
 }  // namespace gvdb
-

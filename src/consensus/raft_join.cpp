@@ -39,22 +39,18 @@ absl::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec) {
   RaftPeerSpec out;
   std::string id_str = strip(trimmed.substr(0, first_colon));
   if (id_str.find_first_of(" \t\r\n") != std::string::npos) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Raft peer id contains whitespace in: ", spec));
+    return absl::InvalidArgumentError(absl::StrCat("Raft peer id contains whitespace in: ", spec));
   }
   try {
     out.id = std::stoi(id_str);
   } catch (const std::exception&) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Raft peer id must be an integer in: ", spec));
+    return absl::InvalidArgumentError(absl::StrCat("Raft peer id must be an integer in: ", spec));
   }
   if (out.id <= 0) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Raft peer id must be > 0 in: ", spec));
+    return absl::InvalidArgumentError(absl::StrCat("Raft peer id must be > 0 in: ", spec));
   }
   out.endpoint = strip(trimmed.substr(first_colon + 1));
-  if (out.endpoint.empty() ||
-      out.endpoint.find(':') == std::string::npos ||
+  if (out.endpoint.empty() || out.endpoint.find(':') == std::string::npos ||
       out.endpoint.find(':') == out.endpoint.size() - 1 ||
       out.endpoint.find_first_of(" \t\r\n") != std::string::npos) {
     return absl::InvalidArgumentError(
@@ -63,10 +59,9 @@ absl::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec) {
   return out;
 }
 
-absl::StatusOr<PeerListPlan> PrepareRaftPeerList(
-    int self_id,
-    const std::vector<std::string>& declared_peers,
-    size_t persisted_cluster_size) {
+absl::StatusOr<PeerListPlan> PrepareRaftPeerList(int self_id,
+                                                 const std::vector<std::string>& declared_peers,
+                                                 size_t persisted_cluster_size) {
   PeerListPlan plan;
   std::set<int> seen_ids;
   bool self_found = false;
@@ -77,18 +72,16 @@ absl::StatusOr<PeerListPlan> PrepareRaftPeerList(
 
     if (!seen_ids.insert(parsed->id).second) {
       return absl::InvalidArgumentError(
-          absl::StrCat("Duplicate Raft peer id ", parsed->id,
-                       " in --raft-peers"));
+          absl::StrCat("Duplicate Raft peer id ", parsed->id, " in --raft-peers"));
     }
     if (parsed->id == self_id) self_found = true;
     plan.peers.push_back(*parsed);
   }
 
   if (!plan.peers.empty() && !self_found) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("--node-id ", self_id,
-                     " does not appear in --raft-peers, the declared "
-                     "peer list must include this node"));
+    return absl::InvalidArgumentError(absl::StrCat("--node-id ", self_id,
+                                                   " does not appear in --raft-peers, the declared "
+                                                   "peer list must include this node"));
   }
 
   // Seed when the persisted config is fresh or single-self; trust otherwise.
@@ -118,19 +111,17 @@ std::optional<RaftNode::LeaderProbeResult> RaftNode::ProbePeersForLeader() const
     if (target.empty()) continue;
     auto info = peer_client_->GetLeaderInfo(target, std::chrono::milliseconds(1500));
     if (!info.ok()) {
-      common::Logger::Instance().Debug(
-          "Peer probe: {} unreachable ({})", target, info.status().message());
+      common::Logger::Instance().Debug("Peer probe: {} unreachable ({})", target,
+                                       info.status().message());
       continue;
     }
     if (info->leader_id > 0) {
-      common::Logger::Instance().Info(
-          "Peer probe: {} reports leader_id={} (term={})",
-          target, info->leader_id, info->current_term);
+      common::Logger::Instance().Info("Peer probe: {} reports leader_id={} (term={})", target,
+                                      info->leader_id, info->current_term);
       return LeaderProbeResult{info->leader_id, target};
     }
-    common::Logger::Instance().Debug(
-        "Peer probe: {} has no leader yet (term={})",
-        target, info->current_term);
+    common::Logger::Instance().Debug("Peer probe: {} has no leader yet (term={})", target,
+                                     info->current_term);
   }
   return std::nullopt;
 }
@@ -149,13 +140,11 @@ absl::Status RaftNode::AnnounceJoinToCluster() {
   // typically commits in 100-300ms; snapshot-install for log catch-up
   // can extend that to seconds. 20s total budget accommodates both.
   if (joining_peer_.empty() || config_.coordinator_grpc_peers.empty()) {
-    return absl::FailedPreconditionError(
-        "AnnounceJoinToCluster called without joining_peer_ set");
+    return absl::FailedPreconditionError("AnnounceJoinToCluster called without joining_peer_ set");
   }
 
-  const std::string self_endpoint = config_.advertise_address.empty()
-      ? config_.listen_address
-      : config_.advertise_address;
+  const std::string self_endpoint =
+      config_.advertise_address.empty() ? config_.listen_address : config_.advertise_address;
 
   // Relies on the render-layer invariant that coordinator_grpc_peers
   // iterates ordinals 0..N-1 in the same order as --raft-peers. Validated
@@ -179,16 +168,14 @@ absl::Status RaftNode::AnnounceJoinToCluster() {
   int attempt = 0;
   while (std::chrono::steady_clock::now() < deadline) {
     ++attempt;
-    auto reply = peer_client_->JoinCluster(target, config_.node_id, self_endpoint,
-                                           std::chrono::seconds(5));
+    auto reply =
+        peer_client_->JoinCluster(target, config_.node_id, self_endpoint, std::chrono::seconds(5));
     if (!reply.ok()) {
-      common::Logger::Instance().Warn(
-          "JoinCluster attempt {} to {} transport failure: {}",
-          attempt, target, reply.status().message());
+      common::Logger::Instance().Warn("JoinCluster attempt {} to {} transport failure: {}", attempt,
+                                      target, reply.status().message());
     } else if (reply->success) {
-      common::Logger::Instance().Info(
-          "JoinCluster succeeded on attempt {} via {}: {}",
-          attempt, target, reply->message);
+      common::Logger::Instance().Info("JoinCluster succeeded on attempt {} via {}: {}", attempt,
+                                      target, reply->message);
       joining_peer_.clear();
       return absl::OkStatus();
     } else if (reply->current_leader_id > 0) {
@@ -196,9 +183,8 @@ absl::Status RaftNode::AnnounceJoinToCluster() {
       // consuming extra backoff (the target was simply wrong).
       std::string new_target = resolve_leader_target(reply->current_leader_id);
       if (!new_target.empty() && new_target != target) {
-        common::Logger::Instance().Info(
-            "JoinCluster redirected to leader_id={} ({})",
-            reply->current_leader_id, new_target);
+        common::Logger::Instance().Info("JoinCluster redirected to leader_id={} ({})",
+                                        reply->current_leader_id, new_target);
         target = new_target;
         continue;
       }
@@ -219,19 +205,17 @@ absl::Status RaftNode::AnnounceJoinToCluster() {
     // Exponential backoff, capped at kMaxBackoff. Don't oversleep the deadline.
     auto remaining = deadline - std::chrono::steady_clock::now();
     if (remaining <= std::chrono::milliseconds(0)) break;
-    auto remaining_ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(remaining);
+    auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(remaining);
     auto sleep_for = std::min(backoff, remaining_ms);
     std::this_thread::sleep_for(sleep_for);
     // kMaxBackoff is seconds; cast to milliseconds for comparison.
-    auto max_backoff_ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(kMaxBackoff);
+    auto max_backoff_ms = std::chrono::duration_cast<std::chrono::milliseconds>(kMaxBackoff);
     backoff = std::min(backoff * 2, max_backoff_ms);
   }
 
-  return absl::UnavailableError(absl::StrCat(
-      "AnnounceJoinToCluster: no coordinator accepted the join after ",
-      attempt, " attempts within ", kTotalBudget.count(), "s"));
+  return absl::UnavailableError(
+      absl::StrCat("AnnounceJoinToCluster: no coordinator accepted the join after ", attempt,
+                   " attempts within ", kTotalBudget.count(), "s"));
 }
 
 }  // namespace consensus

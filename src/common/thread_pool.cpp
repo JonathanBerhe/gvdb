@@ -28,9 +28,7 @@ ThreadPool::ThreadPool(size_t threads) : stop_(false) {
           std::unique_lock<std::mutex> lock(this->queue_mutex_);
 
           // Wait for a task or stop signal
-          this->condition_.wait(lock, [this] {
-            return this->stop_ || !this->tasks_.empty();
-          });
+          this->condition_.wait(lock, [this] { return this->stop_ || !this->tasks_.empty(); });
 
           // Exit if stopped and no more tasks
           if (this->stop_ && this->tasks_.empty()) {

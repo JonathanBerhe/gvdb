@@ -6,13 +6,13 @@
 #include <filesystem>
 
 #include "cluster/datanode/data_node.h"
+#include "core/types.h"
+#include "core/vector.h"
 #include "index/index_factory.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_cache.h"
 #include "storage/segment/segment_manager.h"
 #include "storage/segment/tiered_segment_manager.h"
-#include "core/types.h"
-#include "core/vector.h"
 #include "support/temp_dir.h"
 #include "support/vectors.h"
 #include "support/wait.h"
@@ -29,8 +29,7 @@ class DataNodeTest {
   DataNodeTest() {
     auto factory = std::make_unique<index::IndexFactory>();
     factory_ptr_ = factory.get();
-    segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_.str(), factory_ptr_);
+    segment_store_ = std::make_shared<storage::SegmentManager>(test_dir_.str(), factory_ptr_);
     data_node_ = std::make_unique<DataNode>(std::move(factory), segment_store_);
 
     collection_id_ = core::MakeCollectionId(1);
@@ -177,19 +176,16 @@ TEST_CASE("BuildIndex flushes sealed segment to the tiered object store") {
   auto local = std::make_unique<storage::SegmentManager>(dir, factory_ptr);
   auto object_store = std::make_unique<storage::InMemoryObjectStore>();
   auto* store = object_store.get();  // non-owning, for inspection
-  auto cache = std::make_unique<storage::SegmentCache>(
-      cache_dir, 256 * 1024 * 1024);
-  std::shared_ptr<storage::ISegmentStore> tiered =
-      std::make_shared<storage::TieredSegmentManager>(
-          std::move(local), std::move(object_store), std::move(cache),
-          "test-prefix", /*upload_threads=*/1);
+  auto cache = std::make_unique<storage::SegmentCache>(cache_dir, 256 * 1024 * 1024);
+  std::shared_ptr<storage::ISegmentStore> tiered = std::make_shared<storage::TieredSegmentManager>(
+      std::move(local), std::move(object_store), std::move(cache), "test-prefix",
+      /*upload_threads=*/1);
 
   cluster::DataNode data_node(std::move(factory), tiered);
 
   auto collection_id = core::MakeCollectionId(1);
   auto dimension = core::Dimension(32);
-  auto seg_id = *tiered->CreateSegment(collection_id, dimension,
-                                       core::MetricType::L2);
+  auto seg_id = *tiered->CreateSegment(collection_id, dimension, core::MetricType::L2);
   auto vectors = gvdb::test::RandomVectors(50, dimension);
   auto ids = gvdb::test::SequentialIds(50);
   REQUIRE(tiered->WriteVectors(seg_id, vectors, ids).ok());
@@ -235,7 +231,8 @@ TEST_CASE_FIXTURE(DataNodeTest, "ProcessBuildQueue empty queue returns 0") {
 
 TEST_CASE_FIXTURE(DataNodeTest, "ProcessBuildQueue handles failed tasks") {
   // Schedule a task for a nonexistent segment
-  REQUIRE(data_node_->ScheduleBuildTask({core::MakeSegmentId(999), core::IndexType::FLAT, 10}).ok());
+  REQUIRE(
+      data_node_->ScheduleBuildTask({core::MakeSegmentId(999), core::IndexType::FLAT, 10}).ok());
 
   // Also schedule a valid one
   auto seg = CreateSegmentWithVectors(50);

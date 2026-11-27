@@ -23,8 +23,7 @@ class BM25Index : public ITextIndex {
 
   absl::Status AddDocument(core::VectorId id, const std::string& text) override;
 
-  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
-      const std::string& query, int k) override;
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(const std::string& query, int k) override;
 
  private:
   struct Posting {

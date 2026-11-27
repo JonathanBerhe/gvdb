@@ -24,17 +24,16 @@ using gvdb::test::ScopedTempDir;
 namespace {
 
 // Helper: write a valid .npy float32 file with shape (num_vectors, dimension)
-std::string WriteTestNpy(const std::string& dir, size_t num_vectors,
-                         size_t dimension, const std::string& name = "test.npy") {
+std::string WriteTestNpy(const std::string& dir, size_t num_vectors, size_t dimension,
+                         const std::string& name = "test.npy") {
   fs::create_directories(dir);
   std::string path = dir + "/" + name;
 
   // Build header dict
   std::string header_dict = "{'descr': '<f4', 'fortran_order': False, 'shape': (" +
-                            std::to_string(num_vectors) + ", " +
-                            std::to_string(dimension) + "), }";
+                            std::to_string(num_vectors) + ", " + std::to_string(dimension) + "), }";
   // Pad to align data to 64 bytes (v1: preamble is 10 bytes + header_len)
-  size_t preamble = 10;  // magic(6) + version(2) + header_len(2)
+  size_t preamble = 10;                                     // magic(6) + version(2) + header_len(2)
   size_t total_header = preamble + header_dict.size() + 1;  // +1 for newline
   size_t padding = (64 - (total_header % 64)) % 64;
   header_dict += std::string(padding, ' ');
@@ -210,7 +209,6 @@ TEST_SUITE("NpyReader") {
 // ============================================================================
 
 TEST_SUITE("BulkImporter") {
-
   // Common test fixture setup
   struct BulkImportFixture {
     // Declared first, so the folder is removed after everything that uses it.
@@ -226,8 +224,8 @@ TEST_SUITE("BulkImporter") {
       data_dir = test_dir + "/data";
       temp_dir = test_dir + "/tmp";
       index_factory = std::make_unique<gvdb::index::IndexFactory>();
-      segment_store = std::make_shared<gvdb::storage::SegmentManager>(
-          data_dir + "/segments", index_factory.get());
+      segment_store = std::make_shared<gvdb::storage::SegmentManager>(data_dir + "/segments",
+                                                                      index_factory.get());
       object_store = std::make_unique<gvdb::storage::InMemoryObjectStore>();
     }
 
@@ -239,8 +237,8 @@ TEST_SUITE("BulkImporter") {
     }
 
     // Create a collection segment so GetWritableSegment works
-    gvdb::core::CollectionId SetupCollection(gvdb::core::Dimension dim,
-                                              gvdb::core::MetricType metric = gvdb::core::MetricType::L2) {
+    gvdb::core::CollectionId SetupCollection(
+        gvdb::core::Dimension dim, gvdb::core::MetricType metric = gvdb::core::MetricType::L2) {
       auto collection_id = gvdb::core::CollectionId(1);
       auto seg_result = segment_store->CreateSegment(collection_id, dim, metric);
       REQUIRE(seg_result.ok());
@@ -251,8 +249,8 @@ TEST_SUITE("BulkImporter") {
           [store](gvdb::core::SegmentId sid, gvdb::core::IndexType idx_type) {
             auto* seg = store->GetSegment(sid);
             if (!seg) return;
-            auto config = gvdb::core::ResolveAutoIndexConfig(
-                idx_type, seg->GetVectorCount(), seg->GetDimension(), seg->GetMetric());
+            auto config = gvdb::core::ResolveAutoIndexConfig(idx_type, seg->GetVectorCount(),
+                                                             seg->GetDimension(), seg->GetMetric());
             (void)store->SealSegment(sid, config);
           });
 
@@ -267,10 +265,8 @@ TEST_SUITE("BulkImporter") {
     gvdb::storage::BulkImporter importer(segment_store, object_store.get(), temp_dir, 2);
 
     auto job_result = importer.StartImport(
-        "test_collection", cid, 4, gvdb::core::MetricType::L2,
-        gvdb::core::IndexType::FLAT,
-        "s3://bucket/test/vectors.npy",
-        gvdb::storage::ImportFormat::NUMPY);
+        "test_collection", cid, 4, gvdb::core::MetricType::L2, gvdb::core::IndexType::FLAT,
+        "s3://bucket/test/vectors.npy", gvdb::storage::ImportFormat::NUMPY);
     REQUIRE(job_result.ok());
 
     auto import_id = *job_result;
@@ -292,11 +288,9 @@ TEST_SUITE("BulkImporter") {
 
     gvdb::storage::BulkImporter importer(segment_store, object_store.get(), temp_dir, 2);
 
-    auto result = importer.StartImport(
-        "test", cid, 4, gvdb::core::MetricType::L2,
-        gvdb::core::IndexType::FLAT,
-        "http://not-s3/file.npy",
-        gvdb::storage::ImportFormat::NUMPY);
+    auto result = importer.StartImport("test", cid, 4, gvdb::core::MetricType::L2,
+                                       gvdb::core::IndexType::FLAT, "http://not-s3/file.npy",
+                                       gvdb::storage::ImportFormat::NUMPY);
     CHECK(!result.ok());
     CHECK(result.status().code() == absl::StatusCode::kInvalidArgument);
   }
@@ -306,11 +300,9 @@ TEST_SUITE("BulkImporter") {
 
     gvdb::storage::BulkImporter importer(segment_store, object_store.get(), temp_dir, 2);
 
-    auto result = importer.StartImport(
-        "test", cid, 4, gvdb::core::MetricType::L2,
-        gvdb::core::IndexType::FLAT,
-        "",
-        gvdb::storage::ImportFormat::NUMPY);
+    auto result =
+        importer.StartImport("test", cid, 4, gvdb::core::MetricType::L2,
+                             gvdb::core::IndexType::FLAT, "", gvdb::storage::ImportFormat::NUMPY);
     CHECK(!result.ok());
   }
 
@@ -321,10 +313,8 @@ TEST_SUITE("BulkImporter") {
     gvdb::storage::BulkImporter importer(segment_store, object_store.get(), temp_dir, 2);
 
     auto job_result = importer.StartImport(
-        "test", cid, 4, gvdb::core::MetricType::L2,
-        gvdb::core::IndexType::FLAT,
-        "s3://bucket/nonexistent/file.npy",
-        gvdb::storage::ImportFormat::NUMPY);
+        "test", cid, 4, gvdb::core::MetricType::L2, gvdb::core::IndexType::FLAT,
+        "s3://bucket/nonexistent/file.npy", gvdb::storage::ImportFormat::NUMPY);
     REQUIRE(job_result.ok());
 
     // Wait for failure
@@ -337,16 +327,14 @@ TEST_SUITE("BulkImporter") {
   }
 
   TEST_CASE_FIXTURE(BulkImportFixture, "Import detects dimension mismatch") {
-    auto cid = SetupCollection(8);  // Collection expects dim=8
+    auto cid = SetupCollection(8);           // Collection expects dim=8
     UploadNpy("test/wrong_dim.npy", 10, 4);  // File has dim=4
 
     gvdb::storage::BulkImporter importer(segment_store, object_store.get(), temp_dir, 2);
 
     auto job_result = importer.StartImport(
-        "test", cid, 8, gvdb::core::MetricType::L2,
-        gvdb::core::IndexType::FLAT,
-        "s3://bucket/test/wrong_dim.npy",
-        gvdb::storage::ImportFormat::NUMPY);
+        "test", cid, 8, gvdb::core::MetricType::L2, gvdb::core::IndexType::FLAT,
+        "s3://bucket/test/wrong_dim.npy", gvdb::storage::ImportFormat::NUMPY);
     REQUIRE(job_result.ok());
 
     // Wait for failure
@@ -364,19 +352,15 @@ TEST_SUITE("BulkImporter") {
 
     gvdb::storage::BulkImporter importer(segment_store, object_store.get(), temp_dir, 2);
 
-    auto job1 = importer.StartImport(
-        "test", cid, 4, gvdb::core::MetricType::L2,
-        gvdb::core::IndexType::FLAT,
-        "s3://bucket/test/idem.npy",
-        gvdb::storage::ImportFormat::NUMPY);
+    auto job1 = importer.StartImport("test", cid, 4, gvdb::core::MetricType::L2,
+                                     gvdb::core::IndexType::FLAT, "s3://bucket/test/idem.npy",
+                                     gvdb::storage::ImportFormat::NUMPY);
     REQUIRE(job1.ok());
 
     // Second call with same URI + collection should return same job
-    auto job2 = importer.StartImport(
-        "test", cid, 4, gvdb::core::MetricType::L2,
-        gvdb::core::IndexType::FLAT,
-        "s3://bucket/test/idem.npy",
-        gvdb::storage::ImportFormat::NUMPY);
+    auto job2 = importer.StartImport("test", cid, 4, gvdb::core::MetricType::L2,
+                                     gvdb::core::IndexType::FLAT, "s3://bucket/test/idem.npy",
+                                     gvdb::storage::ImportFormat::NUMPY);
     REQUIRE(job2.ok());
     CHECK(*job1 == *job2);
   }
@@ -396,11 +380,9 @@ TEST_SUITE("BulkImporter") {
 
     gvdb::storage::BulkImporter importer(segment_store, object_store.get(), temp_dir, 2);
 
-    auto job_result = importer.StartImport(
-        "test", cid, 4, gvdb::core::MetricType::L2,
-        gvdb::core::IndexType::FLAT,
-        "s3://bucket/test/big.npy",
-        gvdb::storage::ImportFormat::NUMPY);
+    auto job_result = importer.StartImport("test", cid, 4, gvdb::core::MetricType::L2,
+                                           gvdb::core::IndexType::FLAT, "s3://bucket/test/big.npy",
+                                           gvdb::storage::ImportFormat::NUMPY);
     REQUIRE(job_result.ok());
 
     // Wait until a worker has picked the job up
@@ -441,20 +423,20 @@ TEST_SUITE("BulkImporter") {
     gvdb::storage::BulkImporter importer(segment_store, object_store.get(), temp_dir, 2);
 
     auto job1 = importer.StartImport("test", cid, 4, gvdb::core::MetricType::L2,
-        gvdb::core::IndexType::FLAT, "s3://bucket/test/a.npy",
-        gvdb::storage::ImportFormat::NUMPY);
+                                     gvdb::core::IndexType::FLAT, "s3://bucket/test/a.npy",
+                                     gvdb::storage::ImportFormat::NUMPY);
     REQUIRE(job1.ok());
 
     auto job2 = importer.StartImport("test2", cid, 4, gvdb::core::MetricType::L2,
-        gvdb::core::IndexType::FLAT, "s3://bucket/test/b.npy",
-        gvdb::storage::ImportFormat::NUMPY);
+                                     gvdb::core::IndexType::FLAT, "s3://bucket/test/b.npy",
+                                     gvdb::storage::ImportFormat::NUMPY);
     REQUIRE(job2.ok());
 
     // Third should fail with RESOURCE_EXHAUSTED. StartImport reserves the
     // concurrency slot before it returns, so no wait is needed here.
     auto job3 = importer.StartImport("test3", cid, 4, gvdb::core::MetricType::L2,
-        gvdb::core::IndexType::FLAT, "s3://bucket/test/c.npy",
-        gvdb::storage::ImportFormat::NUMPY);
+                                     gvdb::core::IndexType::FLAT, "s3://bucket/test/c.npy",
+                                     gvdb::storage::ImportFormat::NUMPY);
     // May succeed if first two completed fast, or fail with RESOURCE_EXHAUSTED
     if (!job3.ok()) {
       CHECK(job3.status().code() == absl::StatusCode::kResourceExhausted);
@@ -465,15 +447,14 @@ TEST_SUITE("BulkImporter") {
     ScopedTempDir temp(kTempDirPrefix);
     auto dir = temp.str();
     auto index_factory = std::make_unique<gvdb::index::IndexFactory>();
-    auto segment_store = std::make_shared<gvdb::storage::SegmentManager>(
-        dir + "/segments", index_factory.get());
+    auto segment_store =
+        std::make_shared<gvdb::storage::SegmentManager>(dir + "/segments", index_factory.get());
 
     gvdb::storage::BulkImporter importer(segment_store, nullptr, dir + "/tmp");
 
-    auto result = importer.StartImport(
-        "test", gvdb::core::CollectionId(1), 4,
-        gvdb::core::MetricType::L2, gvdb::core::IndexType::FLAT,
-        "s3://bucket/test.npy", gvdb::storage::ImportFormat::NUMPY);
+    auto result = importer.StartImport("test", gvdb::core::CollectionId(1), 4,
+                                       gvdb::core::MetricType::L2, gvdb::core::IndexType::FLAT,
+                                       "s3://bucket/test.npy", gvdb::storage::ImportFormat::NUMPY);
     CHECK(!result.ok());
     CHECK(result.status().code() == absl::StatusCode::kFailedPrecondition);
   }
@@ -485,10 +466,8 @@ TEST_SUITE("BulkImporter") {
     gvdb::storage::BulkImporter importer(segment_store, object_store.get(), temp_dir, 2);
 
     auto job_result = importer.StartImport(
-        "test", cid, 4, gvdb::core::MetricType::L2,
-        gvdb::core::IndexType::FLAT,
-        "s3://bucket/test/progress.npy",
-        gvdb::storage::ImportFormat::NUMPY);
+        "test", cid, 4, gvdb::core::MetricType::L2, gvdb::core::IndexType::FLAT,
+        "s3://bucket/test/progress.npy", gvdb::storage::ImportFormat::NUMPY);
     REQUIRE(job_result.ok());
 
     // Wait for completion and check progress fields

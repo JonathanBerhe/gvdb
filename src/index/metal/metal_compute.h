@@ -39,11 +39,8 @@ class MetalCompute {
   // vec_buf: persistent Metal buffer holding [nb * dim] floats
   // queries: [nq * dim] float array (copied per call — small)
   // distances: output [nq * nb] float array (caller-allocated)
-  void ComputeDistances(const std::string& kernel_name,
-                        const float* queries, size_t nq,
-                        MTL::Buffer* vec_buf, size_t nb,
-                        size_t dim,
-                        float* distances);
+  void ComputeDistances(const std::string& kernel_name, const float* queries, size_t nq,
+                        MTL::Buffer* vec_buf, size_t nb, size_t dim, float* distances);
 
   // Get the Metal device (for external buffer creation)
   MTL::Device* GetDevice() { return device_; }

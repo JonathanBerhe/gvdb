@@ -4,13 +4,13 @@
 // Read repair (the consistency check across replicas) and segment copies
 // between data nodes.
 
-#include "cluster/coordinator/coordinator.h"
-#include "cluster/coordinator/internal_client.h"
-#include "common/logger.h"
-#include "absl/strings/str_cat.h"
 #include <chrono>
 #include <mutex>
 #include <set>
+#include "absl/strings/str_cat.h"
+#include "cluster/coordinator/coordinator.h"
+#include "cluster/coordinator/internal_client.h"
+#include "common/logger.h"
 
 namespace gvdb {
 namespace cluster {
@@ -19,9 +19,7 @@ namespace cluster {
 // Read Repair: Consistency Checking
 // ============================================================================
 
-void Coordinator::RunConsistencyCheck() {
-  CheckConsistency();
-}
+void Coordinator::RunConsistencyCheck() { CheckConsistency(); }
 
 size_t Coordinator::GetRepairQueueSize() const {
   std::lock_guard lock(repair_mutex_);
@@ -57,11 +55,9 @@ void Coordinator::CheckConsistency() {
       primary_req.set_collection_id(core::ToUInt32(coll_id));
       proto::internal::ListSegmentsResponse primary_resp;
       grpc::ClientContext primary_ctx;
-      primary_ctx.set_deadline(
-          std::chrono::system_clock::now() + std::chrono::seconds(5));
+      primary_ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(5));
 
-      auto primary_status = primary_client->ListSegments(
-          &primary_ctx, primary_req, &primary_resp);
+      auto primary_status = primary_client->ListSegments(&primary_ctx, primary_req, &primary_resp);
       if (!primary_status.ok()) continue;
 
       // Sum vector counts across all segments on primary
@@ -83,11 +79,10 @@ void Coordinator::CheckConsistency() {
         replica_req.set_collection_id(core::ToUInt32(coll_id));
         proto::internal::ListSegmentsResponse replica_resp;
         grpc::ClientContext replica_ctx;
-        replica_ctx.set_deadline(
-            std::chrono::system_clock::now() + std::chrono::seconds(5));
+        replica_ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(5));
 
-        auto replica_status = replica_client->ListSegments(
-            &replica_ctx, replica_req, &replica_resp);
+        auto replica_status =
+            replica_client->ListSegments(&replica_ctx, replica_req, &replica_resp);
         if (!replica_status.ok()) continue;
 
         uint64_t replica_total = 0;
@@ -101,9 +96,8 @@ void Coordinator::CheckConsistency() {
         common::Logger::Instance().Warn(
             "ReadRepair: collection {} shard {} diverged: primary node {} "
             "has {} vectors, replica node {} has {} vectors",
-            core::ToUInt32(coll_id), core::ToUInt16(shard_id),
-            core::ToUInt32(*primary_result), primary_total,
-            core::ToUInt32(replica_node), replica_total);
+            core::ToUInt32(coll_id), core::ToUInt16(shard_id), core::ToUInt32(*primary_result),
+            primary_total, core::ToUInt32(replica_node), replica_total);
 
         {
           std::lock_guard repair_lock(repair_mutex_);
@@ -121,14 +115,12 @@ void Coordinator::CheckConsistency() {
         }
 
         if (repair_status.ok()) {
-          common::Logger::Instance().Info(
-              "ReadRepair: repaired shard {} on replica node {}",
-              core::ToUInt16(shard_id), core::ToUInt32(replica_node));
+          common::Logger::Instance().Info("ReadRepair: repaired shard {} on replica node {}",
+                                          core::ToUInt16(shard_id), core::ToUInt32(replica_node));
         } else {
-          common::Logger::Instance().Error(
-              "ReadRepair: failed to repair shard {} on node {}: {}",
-              core::ToUInt16(shard_id), core::ToUInt32(replica_node),
-              repair_status.message());
+          common::Logger::Instance().Error("ReadRepair: failed to repair shard {} on node {}: {}",
+                                           core::ToUInt16(shard_id), core::ToUInt32(replica_node),
+                                           repair_status.message());
         }
 
         // Rate limit: one repair per cycle
@@ -138,22 +130,16 @@ void Coordinator::CheckConsistency() {
   }
 }
 
-absl::Status Coordinator::RepairSegment(
-    core::SegmentId segment_id,
-    core::NodeId primary_node,
-    core::NodeId stale_replica) {
-  common::Logger::Instance().Info(
-      "ReadRepair: replicating segment {} from node {} to node {}",
-      core::ToUInt32(segment_id), core::ToUInt32(primary_node),
-      core::ToUInt32(stale_replica));
+absl::Status Coordinator::RepairSegment(core::SegmentId segment_id, core::NodeId primary_node,
+                                        core::NodeId stale_replica) {
+  common::Logger::Instance().Info("ReadRepair: replicating segment {} from node {} to node {}",
+                                  core::ToUInt32(segment_id), core::ToUInt32(primary_node),
+                                  core::ToUInt32(stale_replica));
   return ReplicateSegmentData(segment_id, primary_node, stale_replica);
 }
 
-absl::Status Coordinator::ReplicateSegmentData(
-    core::SegmentId segment_id,
-    core::NodeId source_node,
-    core::NodeId target_node) {
-
+absl::Status Coordinator::ReplicateSegmentData(core::SegmentId segment_id, core::NodeId source_node,
+                                               core::NodeId target_node) {
   if (!client_factory_) {
     return absl::FailedPreconditionError("Distributed mode not enabled");
   }
@@ -172,9 +158,8 @@ absl::Status Coordinator::ReplicateSegmentData(
 
   auto get_status = source_client->GetSegment(&get_ctx, get_req, &get_resp);
   if (!get_status.ok()) {
-    return absl::InternalError(
-        absl::StrCat("GetSegment from node ", core::ToUInt32(source_node),
-                     " failed: ", get_status.error_message()));
+    return absl::InternalError(absl::StrCat("GetSegment from node ", core::ToUInt32(source_node),
+                                            " failed: ", get_status.error_message()));
   }
 
   if (get_resp.segment_data().empty()) {
@@ -200,9 +185,9 @@ absl::Status Coordinator::ReplicateSegmentData(
 
   auto rep_status = target_client->ReplicateSegment(&rep_ctx, rep_req, &rep_resp);
   if (!rep_status.ok()) {
-    return absl::InternalError(
-        absl::StrCat("ReplicateSegment to node ", core::ToUInt32(target_node),
-                     " failed: ", rep_status.error_message()));
+    return absl::InternalError(absl::StrCat("ReplicateSegment to node ",
+                                            core::ToUInt32(target_node),
+                                            " failed: ", rep_status.error_message()));
   }
 
   if (!rep_resp.success()) {
@@ -210,8 +195,7 @@ absl::Status Coordinator::ReplicateSegmentData(
   }
 
   common::Logger::Instance().Info("Replicated segment {} from node {} to node {}",
-                                  core::ToUInt32(segment_id),
-                                  core::ToUInt32(source_node),
+                                  core::ToUInt32(segment_id), core::ToUInt32(source_node),
                                   core::ToUInt32(target_node));
   return absl::OkStatus();
 }

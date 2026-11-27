@@ -3,15 +3,15 @@
 
 #pragma once
 
-#include "core/types.h"
-#include "index/index_factory.h"
-#include "storage/segment/segment_store.h"
-#include "absl/status/status.h"
 #include <atomic>
 #include <condition_variable>
 #include <memory>
-#include <queue>
 #include <mutex>
+#include <queue>
+#include "absl/status/status.h"
+#include "core/types.h"
+#include "index/index_factory.h"
+#include "storage/segment/segment_store.h"
 
 namespace gvdb {
 namespace cluster {

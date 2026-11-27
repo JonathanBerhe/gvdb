@@ -78,8 +78,8 @@ void SealFullSegmentsInline(const std::shared_ptr<storage::ISegmentStore>& segme
   segment_store->SetSealCallback([segment_store](core::SegmentId sid, core::IndexType idx_type) {
     auto* seg = segment_store->GetSegment(sid);
     if (!seg) return;
-    auto config = core::ResolveAutoIndexConfig(idx_type, seg->GetVectorCount(),
-                                               seg->GetDimension(), seg->GetMetric());
+    auto config = core::ResolveAutoIndexConfig(idx_type, seg->GetVectorCount(), seg->GetDimension(),
+                                               seg->GetMetric());
     common::Logger::Instance().Info("Auto-sealing segment {} ({} vectors, index={})",
                                     core::ToUInt32(sid), seg->GetVectorCount(),
                                     static_cast<int>(config.index_type));
@@ -93,8 +93,8 @@ void SealFullSegmentsInline(const std::shared_ptr<storage::ISegmentStore>& segme
     // Without the flush, a sealed segment stays in memory only.
     auto flush_status = segment_store->FlushSegment(sid);
     if (!flush_status.ok()) {
-      common::Logger::Instance().Error("Auto-flush failed for segment {}: {}",
-                                       core::ToUInt32(sid), flush_status.message());
+      common::Logger::Instance().Error("Auto-flush failed for segment {}: {}", core::ToUInt32(sid),
+                                       flush_status.message());
     }
   });
 }

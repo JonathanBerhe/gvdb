@@ -16,9 +16,9 @@ namespace turboquant {
 // Precomputed Lloyd-Max quantizer table for Gaussian N(0,1)
 struct LloydMaxTable {
   int bit_width;
-  int num_levels;                  // 2^bit_width
-  std::vector<float> boundaries;   // num_levels - 1 decision boundaries
-  std::vector<float> centroids;    // num_levels reconstruction values
+  int num_levels;                 // 2^bit_width
+  std::vector<float> boundaries;  // num_levels - 1 decision boundaries
+  std::vector<float> centroids;   // num_levels reconstruction values
 };
 
 // Create a Lloyd-Max table for the given bit width
@@ -27,8 +27,8 @@ LloydMaxTable CreateLloydMaxTable(int bit_width);
 // Preprocessed query data for efficient batch search
 struct PreprocessedQuery {
   float norm;
-  std::vector<float> rotated_scaled;   // WHT(q/||q||) * sqrt(padded_dim)
-  std::vector<float> qjl_projected;    // WHT2(WHT1(q/||q||)), first qjl_dim entries
+  std::vector<float> rotated_scaled;  // WHT(q/||q||) * sqrt(padded_dim)
+  std::vector<float> qjl_projected;   // WHT2(WHT1(q/||q||)), first qjl_dim entries
 };
 
 // Core TurboQuant codec: encoding, decoding, and distance estimation.
@@ -38,22 +38,18 @@ struct PreprocessedQuery {
 //   Stage 2 (QJL):        1-bit sign projections of residual for inner-product debiasing
 class TurboQuantCodec {
  public:
-  TurboQuantCodec(core::Dimension dimension, int bit_width,
-                  bool use_qjl, int qjl_dim = 0, uint64_t seed = 42);
+  TurboQuantCodec(core::Dimension dimension, int bit_width, bool use_qjl, int qjl_dim = 0,
+                  uint64_t seed = 42);
 
   // Encode a raw vector into packed codes, norm, residual info, and QJL bits.
-  void Encode(const float* data, core::Dimension dim,
-              std::vector<uint8_t>& codes_out,
-              float& norm_out,
-              float& residual_norm_out,
-              std::vector<uint8_t>& qjl_bits_out) const;
+  void Encode(const float* data, core::Dimension dim, std::vector<uint8_t>& codes_out,
+              float& norm_out, float& residual_norm_out, std::vector<uint8_t>& qjl_bits_out) const;
 
   // Preprocess a query once before scanning all encoded vectors.
   PreprocessedQuery PreprocessQuery(const float* data, core::Dimension dim) const;
 
   // Estimate inner product between preprocessed query and an encoded vector.
-  float EstimateIP(const PreprocessedQuery& query,
-                   const uint8_t* codes, float norm,
+  float EstimateIP(const PreprocessedQuery& query, const uint8_t* codes, float norm,
                    float residual_norm, const uint8_t* qjl_bits) const;
 
   // Bytes of packed storage per vector
@@ -71,8 +67,7 @@ class TurboQuantCodec {
   static void ApplyWHT(float* data, int n);
 
   // Randomized WHT: random sign flip then WHT
-  void ApplyForwardRWHT(float* data, int n,
-                        const std::vector<int8_t>& signs) const;
+  void ApplyForwardRWHT(float* data, int n, const std::vector<int8_t>& signs) const;
 
   // Bit packing for quantized codes
   void PackCode(uint8_t value, int index, uint8_t* packed) const;
@@ -102,4 +97,3 @@ class TurboQuantCodec {
 }  // namespace turboquant
 }  // namespace index
 }  // namespace gvdb
-

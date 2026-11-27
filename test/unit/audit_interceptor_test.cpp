@@ -10,16 +10,16 @@
 #include <string>
 #include <vector>
 
+#include "auth/audit_logger.h"
+#include "auth/rbac.h"
+#include "compute/query_executor.h"
+#include "config/config.h"
+#include "index/index_factory.h"
 #include "rpc/interceptors/audit_interceptor.h"
 #include "rpc/interceptors/auth_processor.h"
-#include "service/vectordb/vectordb_service.h"
 #include "service/vectordb/collection_resolver.h"
-#include "auth/rbac.h"
-#include "auth/audit_logger.h"
-#include "config/config.h"
+#include "service/vectordb/vectordb_service.h"
 #include "storage/segment/segment_manager.h"
-#include "compute/query_executor.h"
-#include "index/index_factory.h"
 #include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 
@@ -39,15 +39,13 @@ std::vector<std::string> ReadLines(const std::string& path) {
 }
 
 // Check if a JSON line contains a key-value pair like "key":"value"
-bool JsonContains(const std::string& json, const std::string& key,
-                  const std::string& value) {
+bool JsonContains(const std::string& json, const std::string& key, const std::string& value) {
   std::string needle = "\"" + key + "\":\"" + value + "\"";
   return json.find(needle) != std::string::npos;
 }
 
 // Check if a JSON line contains a key-value pair like "key":123
-bool JsonContainsInt(const std::string& json, const std::string& key,
-                     int value) {
+bool JsonContainsInt(const std::string& json, const std::string& key, int value) {
   std::string needle = "\"" + key + "\":" + std::to_string(value);
   return json.find(needle) != std::string::npos;
 }
@@ -64,10 +62,9 @@ class AuditIntegrationTest {
     audit_log_path_ = (test_dir_ / "audit.jsonl").string();
 
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_store_ = std::make_shared<storage::SegmentManager>(
-        (test_dir_ / "data").string(), index_factory_.get());
-    query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *segment_store_);
+    segment_store_ = std::make_shared<storage::SegmentManager>((test_dir_ / "data").string(),
+                                                               index_factory_.get());
+    query_executor_ = std::make_shared<compute::QueryExecutor>(*segment_store_);
 
     // Auth config
     auth::AuthConfig auth_config;
@@ -94,17 +91,13 @@ class AuditIntegrationTest {
         service::VectorDBServiceOptions{.rbac_store = rbac_store_});
 
     // Auth interceptor first, audit second
-    std::vector<std::unique_ptr<
-        grpc::experimental::ServerInterceptorFactoryInterface>> creators;
-    creators.push_back(
-        std::make_unique<rpc::ApiKeyAuthInterceptorFactory>(rbac_store_));
-    creators.push_back(
-        std::make_unique<rpc::AuditInterceptorFactory>());
+    std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> creators;
+    creators.push_back(std::make_unique<rpc::ApiKeyAuthInterceptorFactory>(rbac_store_));
+    creators.push_back(std::make_unique<rpc::AuditInterceptorFactory>());
 
     grpc::ServerBuilder builder;
     int port = 0;
-    builder.AddListeningPort("localhost:0",
-                             grpc::InsecureServerCredentials(), &port);
+    builder.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &port);
     builder.RegisterService(service_.get());
     builder.experimental().SetInterceptorCreators(std::move(creators));
     server_ = builder.BuildAndStart();
@@ -121,8 +114,7 @@ class AuditIntegrationTest {
   }
 
   std::unique_ptr<proto::VectorDBService::Stub> MakeStub() {
-    auto channel = grpc::CreateChannel(address_,
-                                       grpc::InsecureChannelCredentials());
+    auto channel = grpc::CreateChannel(address_, grpc::InsecureChannelCredentials());
     return proto::VectorDBService::NewStub(channel);
   }
 
@@ -130,9 +122,7 @@ class AuditIntegrationTest {
   // interceptor writes and flushes the line at PRE_SEND_STATUS, before the
   // server sends the status, so the line is in the file when the client call
   // returns.
-  std::vector<std::string> GetAuditLines() {
-    return ReadLines(audit_log_path_);
-  }
+  std::vector<std::string> GetAuditLines() { return ReadLines(audit_log_path_); }
 
   // Declared first, so the folder is removed after everything that uses it.
   test::ScopedTempDir test_dir_{"gvdb_audit_test"};
@@ -150,8 +140,7 @@ class AuditIntegrationTest {
 // Tests
 // ============================================================================
 
-TEST_CASE_FIXTURE(AuditIntegrationTest,
-                  "CreateCollection produces valid audit JSON") {
+TEST_CASE_FIXTURE(AuditIntegrationTest, "CreateCollection produces valid audit JSON") {
   auto stub = MakeStub();
   proto::CreateCollectionRequest req;
   req.set_collection_name("audit_test_coll");
@@ -176,8 +165,7 @@ TEST_CASE_FIXTURE(AuditIntegrationTest,
   CHECK(entry.find("\"latency_ms\"") != std::string::npos);
 }
 
-TEST_CASE_FIXTURE(AuditIntegrationTest,
-                  "Insert logs collection and item_count") {
+TEST_CASE_FIXTURE(AuditIntegrationTest, "Insert logs collection and item_count") {
   auto stub = MakeStub();
 
   // Create collection first
@@ -201,8 +189,10 @@ TEST_CASE_FIXTURE(AuditIntegrationTest,
     vec->set_id(i + 1);
     auto* v = vec->mutable_vector();
     v->set_dimension(4);
-    v->add_values(1.0f); v->add_values(0.0f);
-    v->add_values(0.0f); v->add_values(1.0f);
+    v->add_values(1.0f);
+    v->add_values(0.0f);
+    v->add_values(0.0f);
+    v->add_values(1.0f);
   }
   proto::InsertResponse resp;
   grpc::ClientContext ctx;
@@ -218,8 +208,7 @@ TEST_CASE_FIXTURE(AuditIntegrationTest,
   CHECK(JsonContainsInt(entry, "item_count", 5));
 }
 
-TEST_CASE_FIXTURE(AuditIntegrationTest,
-                  "HealthCheck is NOT audited") {
+TEST_CASE_FIXTURE(AuditIntegrationTest, "HealthCheck is NOT audited") {
   auto stub = MakeStub();
   proto::HealthCheckRequest req;
   proto::HealthCheckResponse resp;
@@ -233,8 +222,7 @@ TEST_CASE_FIXTURE(AuditIntegrationTest,
   }
 }
 
-TEST_CASE_FIXTURE(AuditIntegrationTest,
-                  "GetStats is NOT audited") {
+TEST_CASE_FIXTURE(AuditIntegrationTest, "GetStats is NOT audited") {
   auto stub = MakeStub();
   proto::GetStatsRequest req;
   proto::GetStatsResponse resp;
@@ -248,8 +236,7 @@ TEST_CASE_FIXTURE(AuditIntegrationTest,
   }
 }
 
-TEST_CASE_FIXTURE(AuditIntegrationTest,
-                  "Unauthenticated request is rejected") {
+TEST_CASE_FIXTURE(AuditIntegrationTest, "Unauthenticated request is rejected") {
   auto stub = MakeStub();
   proto::CreateCollectionRequest req;
   req.set_collection_name("no_auth_coll");
@@ -283,8 +270,7 @@ TEST_CASE_FIXTURE(AuditIntegrationTest,
   (void)found;
 }
 
-TEST_CASE_FIXTURE(AuditIntegrationTest,
-                  "Multiple RPCs produce multiple audit lines") {
+TEST_CASE_FIXTURE(AuditIntegrationTest, "Multiple RPCs produce multiple audit lines") {
   auto stub = MakeStub();
 
   // HealthCheck (should NOT be logged)
@@ -324,8 +310,7 @@ TEST_CASE_FIXTURE(AuditIntegrationTest,
   CHECK(JsonContains(lines[1], "operation", "DropCollection"));
 }
 
-TEST_CASE_FIXTURE(AuditIntegrationTest,
-                  "Latency is greater than zero") {
+TEST_CASE_FIXTURE(AuditIntegrationTest, "Latency is greater than zero") {
   auto stub = MakeStub();
   proto::CreateCollectionRequest req;
   req.set_collection_name("latency_test");
@@ -346,8 +331,7 @@ TEST_CASE_FIXTURE(AuditIntegrationTest,
   CHECK(JsonContainsInt(entry, "grpc_code", 0));
 }
 
-TEST_CASE_FIXTURE(AuditIntegrationTest,
-                  "Permission denied is audited") {
+TEST_CASE_FIXTURE(AuditIntegrationTest, "Permission denied is audited") {
   auto stub = MakeStub();
 
   // Create collection first as admin
@@ -371,8 +355,10 @@ TEST_CASE_FIXTURE(AuditIntegrationTest,
     vec->set_id(1);
     auto* v = vec->mutable_vector();
     v->set_dimension(4);
-    v->add_values(1.0f); v->add_values(0.0f);
-    v->add_values(0.0f); v->add_values(0.0f);
+    v->add_values(1.0f);
+    v->add_values(0.0f);
+    v->add_values(0.0f);
+    v->add_values(0.0f);
     proto::InsertResponse resp;
     grpc::ClientContext ctx;
     ctx.AddMetadata("authorization", "Bearer ro-key");

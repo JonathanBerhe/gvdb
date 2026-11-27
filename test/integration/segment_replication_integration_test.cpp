@@ -9,16 +9,16 @@
 #include <memory>
 
 #include "cluster/coordinator/coordinator.h"
-#include "cluster/shard_manager.h"
 #include "cluster/coordinator/node_registry.h"
+#include "cluster/shard_manager.h"
+#include "common/logger.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "service/internal/internal_service.h"
-#include "service/vectordb/vectordb_service.h"
-#include "service/vectordb/collection_resolver.h"
-#include "storage/segment/segment_manager.h"
-#include "common/logger.h"
 #include "internal.grpc.pb.h"
+#include "service/internal/internal_service.h"
+#include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
+#include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 
@@ -52,14 +52,11 @@ class SegmentReplicationIntegrationTest {
     coord_segment_store_ = std::make_shared<storage::SegmentManager>(
         (dir_ / "coordinator").string(), index_factory_.get());
 
-    coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *coord_segment_store_);
+    coord_query_executor_ = std::make_shared<compute::QueryExecutor>(*coord_segment_store_);
 
     // Create InternalService (serves GetSegment RPC)
     internal_service_ = std::make_unique<service::InternalService>(
-        shard_manager_,
-        coord_segment_store_,
-        coord_query_executor_,
+        shard_manager_, coord_segment_store_, coord_query_executor_,
         service::InternalServiceOptions{.coordinator = coordinator_});
 
     // Start gRPC server for InternalService
@@ -75,18 +72,15 @@ class SegmentReplicationIntegrationTest {
     server_address_ = absl::StrFormat("localhost:%d", server_port_);
 
     // Create data node's segment manager (separate storage, won't have segments initially)
-    data_segment_store_ = std::make_shared<storage::SegmentManager>(
-        (dir_ / "data_node").string(), index_factory_.get());
+    data_segment_store_ = std::make_shared<storage::SegmentManager>((dir_ / "data_node").string(),
+                                                                    index_factory_.get());
 
-    data_query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *data_segment_store_);
+    data_query_executor_ = std::make_shared<compute::QueryExecutor>(*data_segment_store_);
 
     // Create data node's VectorDBService in distributed mode
     auto resolver = service::MakeCachedCoordinatorResolver(server_address_);
     data_vectordb_service_ = std::make_unique<service::VectorDBService>(
-        data_segment_store_,
-        data_query_executor_,
-        std::move(resolver));
+        data_segment_store_, data_query_executor_, std::move(resolver));
   }
 
   ~SegmentReplicationIntegrationTest() {
@@ -125,8 +119,8 @@ class SegmentReplicationIntegrationTest {
 // Test: Data node pulls segment from coordinator on search
 TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "DataNodePullsSegmentOnSearch") {
   // 1. Create collection on coordinator
-  auto collection_id = coordinator_->CreateCollection(
-      "test_collection", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto collection_id = coordinator_->CreateCollection("test_collection", 128, core::MetricType::L2,
+                                                      core::IndexType::FLAT, 1);
   REQUIRE(collection_id.ok());
 
   // 2. Create segment on coordinator using ShardSegmentId scheme
@@ -195,8 +189,8 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "DataNodePullsSegmentOnSear
 // Test: Multiple searches reuse cached segment
 TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCachedSegment") {
   // Create collection and segment on coordinator
-  auto collection_id = coordinator_->CreateCollection(
-      "reuse_test", 64, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto collection_id = coordinator_->CreateCollection("reuse_test", 64, core::MetricType::L2,
+                                                      core::IndexType::FLAT, 1);
   REQUIRE(collection_id.ok());
 
   core::SegmentId segment_id = core::ShardSegmentId(*collection_id, 0);
@@ -220,8 +214,8 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCache
 
   // Create segment on data node too (simulate push replication)
   if (!data_segment_store_->GetSegment(segment_id)) {
-    auto ds = data_segment_store_->CreateSegmentWithId(
-        segment_id, *collection_id, 64, core::MetricType::L2, core::IndexType::FLAT);
+    auto ds = data_segment_store_->CreateSegmentWithId(segment_id, *collection_id, 64,
+                                                       core::MetricType::L2, core::IndexType::FLAT);
     REQUIRE(ds.ok());
     auto* dn_seg = data_segment_store_->GetSegment(segment_id);
     REQUIRE(dn_seg->AddVectors(vectors, ids).ok());
@@ -286,8 +280,8 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCache
 // any unreachable shard is a hard error so callers can act on it.
 TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest,
                   "SearchUnreachableBackendSurfacesUnavailable") {
-  auto collection_id = coordinator_->CreateCollection(
-      "empty_collection", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto collection_id = coordinator_->CreateCollection("empty_collection", 128, core::MetricType::L2,
+                                                      core::IndexType::FLAT, 1);
   REQUIRE(collection_id.ok());
 
   proto::SearchRequest request;
@@ -301,8 +295,7 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest,
 
   grpc::ServerContext context;
   proto::SearchResponse response;
-  grpc::Status status =
-      data_vectordb_service_->Search(&context, &request, &response);
+  grpc::Status status = data_vectordb_service_->Search(&context, &request, &response);
 
   // SearchDistributed must NOT silently drop a shard whose RPC failed.
   //
@@ -330,21 +323,17 @@ class ReadRepairIntegrationTest {
     index_factory_ = std::make_unique<index::IndexFactory>();
 
     // Two separate segment managers simulate two data nodes
-    primary_segment_store_ = std::make_shared<storage::SegmentManager>(
-        (dir_ / "primary").string(), index_factory_.get());
-    replica_segment_store_ = std::make_shared<storage::SegmentManager>(
-        (dir_ / "replica").string(), index_factory_.get());
+    primary_segment_store_ = std::make_shared<storage::SegmentManager>((dir_ / "primary").string(),
+                                                                       index_factory_.get());
+    replica_segment_store_ = std::make_shared<storage::SegmentManager>((dir_ / "replica").string(),
+                                                                       index_factory_.get());
 
-    auto primary_qe = std::make_shared<compute::QueryExecutor>(
-        *primary_segment_store_);
-    auto replica_qe = std::make_shared<compute::QueryExecutor>(
-        *replica_segment_store_);
+    auto primary_qe = std::make_shared<compute::QueryExecutor>(*primary_segment_store_);
+    auto replica_qe = std::make_shared<compute::QueryExecutor>(*replica_segment_store_);
 
     // Shard manager and node registry
-    shard_manager_ = std::make_shared<cluster::ShardManager>(
-        8, cluster::ShardingStrategy::HASH);
-    node_registry_ = std::make_shared<cluster::NodeRegistry>(
-        std::chrono::seconds(30));
+    shard_manager_ = std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
+    node_registry_ = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
 
     // Register two data nodes in node registry
     proto::internal::NodeInfo node1;
@@ -362,8 +351,7 @@ class ReadRepairIntegrationTest {
     node_registry_->UpdateNode(node2);
 
     // Create coordinator without client factory first (we set it after servers start)
-    coordinator_ = std::make_shared<cluster::Coordinator>(
-        shard_manager_, node_registry_);
+    coordinator_ = std::make_shared<cluster::Coordinator>(shard_manager_, node_registry_);
 
     // Start gRPC servers for each "data node", each runs InternalService
     // with its own segment manager
@@ -453,8 +441,8 @@ class ReadRepairIntegrationTest {
 TEST_CASE_FIXTURE(ReadRepairIntegrationTest, "ReadRepairFixesDivergentReplica") {
   // 1. Create collection with replication_factor=2
   //    The coordinator creates the segment on the primary node via RPC.
-  auto coll_result = coordinator_->CreateCollection(
-      "repair_collection", 64, core::MetricType::L2, core::IndexType::FLAT, 2);
+  auto coll_result = coordinator_->CreateCollection("repair_collection", 64, core::MetricType::L2,
+                                                    core::IndexType::FLAT, 2);
   REQUIRE(coll_result.ok());
   auto coll_id = *coll_result;
 
@@ -515,5 +503,5 @@ TEST_CASE_FIXTURE(ReadRepairIntegrationTest, "ReadRepairFixesDivergentReplica") 
   CHECK_EQ(replica_total, 20);
 }
 
-} // namespace test
-} // namespace gvdb
+}  // namespace test
+}  // namespace gvdb

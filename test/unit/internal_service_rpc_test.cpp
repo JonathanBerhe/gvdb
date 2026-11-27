@@ -1,18 +1,18 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "service/internal/internal_service.h"
-#include "cluster/coordinator/coordinator.h"
-#include "cluster/datanode/primary_term_tracker.h"
-#include "cluster/shard_manager.h"
-#include "cluster/coordinator/node_registry.h"
-#include "index/index_factory.h"
-#include "storage/segment/segment_manager.h"
-#include "internal.grpc.pb.h"
-#include "support/temp_dir.h"
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <chrono>
+#include "cluster/coordinator/coordinator.h"
+#include "cluster/coordinator/node_registry.h"
+#include "cluster/datanode/primary_term_tracker.h"
+#include "cluster/shard_manager.h"
+#include "index/index_factory.h"
+#include "internal.grpc.pb.h"
+#include "service/internal/internal_service.h"
+#include "storage/segment/segment_manager.h"
+#include "support/temp_dir.h"
 
 using namespace gvdb;
 using namespace gvdb::service;
@@ -30,8 +30,8 @@ class InternalServiceRpcTest {
     node_registry_ = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
     coordinator_ = std::make_shared<Coordinator>(shard_manager_, node_registry_);
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_store_ = std::make_shared<storage::SegmentManager>(
-        tmp_dir_.str(), index_factory_.get());
+    segment_store_ =
+        std::make_shared<storage::SegmentManager>(tmp_dir_.str(), index_factory_.get());
 
     // Register a fake data node
     proto::internal::NodeInfo proto_node;
@@ -385,8 +385,8 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetSegment_Nonexistent") {
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_Success") {
   // Create a collection in the coordinator
   (void)shard_manager_->RegisterNode(core::MakeNodeId(1));
-  auto coll_result = coordinator_->CreateCollection(
-      "route_test", 128, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto coll_result = coordinator_->CreateCollection("route_test", 128, core::MetricType::L2,
+                                                    core::IndexType::FLAT, 1);
   REQUIRE(coll_result.ok());
 
   // Assign primary node for the shard
@@ -411,9 +411,9 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_Success") {
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_NoCoordinator") {
   // Create service without coordinator
-  auto service_no_coord = std::make_unique<InternalService>(
-      shard_manager_, segment_store_, nullptr,
-      InternalServiceOptions{.node_registry = node_registry_});
+  auto service_no_coord =
+      std::make_unique<InternalService>(shard_manager_, segment_store_, nullptr,
+                                        InternalServiceOptions{.node_registry = node_registry_});
 
   grpc::ServerContext ctx;
   proto::internal::RouteQueryRequest request;
@@ -442,8 +442,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_NonexistentCollection") {
 // prefer_routable_replica, RouteQuery must return a non-draining replica
 // instead of the draining primary. This is the integration-level proof that
 // the drain signal actually sheds query traffic off the draining node.
-TEST_CASE_FIXTURE(InternalServiceRpcTest,
-                  "RouteQuery_PrefersReplicaWhenPrimaryDraining") {
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_PrefersReplicaWhenPrimaryDraining") {
   // Register two data nodes (primary=1, replica=2) with both the registry
   // and the shard manager.
   proto::internal::NodeInfo replica_info;
@@ -456,8 +455,8 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
   (void)shard_manager_->RegisterNode(core::MakeNodeId(1));
   (void)shard_manager_->RegisterNode(core::MakeNodeId(2));
 
-  auto coll = coordinator_->CreateCollection(
-      "drain_route_test", 8, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto coll = coordinator_->CreateCollection("drain_route_test", 8, core::MetricType::L2,
+                                             core::IndexType::FLAT, 1);
   REQUIRE(coll.ok());
   auto metadata = coordinator_->GetCollectionMetadata("drain_route_test");
   REQUIRE(metadata.ok());
@@ -513,12 +512,11 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
 // fall back to the primary rather than returning an empty address. Better to
 // have stale routing than broken routing, the caller will see a connection
 // error on the now-dead node and can retry.
-TEST_CASE_FIXTURE(InternalServiceRpcTest,
-                  "RouteQuery_FallsBackToPrimaryWhenNoReplicaRoutable") {
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_FallsBackToPrimaryWhenNoReplicaRoutable") {
   (void)shard_manager_->RegisterNode(core::MakeNodeId(1));
 
-  auto coll = coordinator_->CreateCollection(
-      "drain_solo", 8, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto coll = coordinator_->CreateCollection("drain_solo", 8, core::MetricType::L2,
+                                             core::IndexType::FLAT, 1);
   REQUIRE(coll.ok());
   auto metadata = coordinator_->GetCollectionMetadata("drain_solo");
   REQUIRE(metadata.ok());
@@ -564,8 +562,8 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
     (void)shard_manager_->RegisterNode(core::MakeNodeId(id));
   }
 
-  auto coll = coordinator_->CreateCollection(
-      "options_test", 8, core::MetricType::L2, core::IndexType::FLAT, 1);
+  auto coll = coordinator_->CreateCollection("options_test", 8, core::MetricType::L2,
+                                             core::IndexType::FLAT, 1);
   REQUIRE(coll.ok());
   auto metadata = coordinator_->GetCollectionMetadata("options_test");
   REQUIRE(metadata.ok());
@@ -601,8 +599,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
 // When the primary is draining and the caller opts into replica fallback,
 // options[0] must be a routable replica and the draining primary must be
 // the *last* fallback (not absent, see RouteQuery_FallsBackToPrimary…).
-TEST_CASE_FIXTURE(InternalServiceRpcTest,
-                  "RouteQuery_OptionsListPlacesDrainingPrimaryLast") {
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_OptionsListPlacesDrainingPrimaryLast") {
   for (uint32_t id = 1; id <= 3; ++id) {
     proto::internal::NodeInfo info;
     info.set_node_id(id);
@@ -613,9 +610,8 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
     (void)shard_manager_->RegisterNode(core::MakeNodeId(id));
   }
 
-  auto coll = coordinator_->CreateCollection(
-      "drain_options_test", 8, core::MetricType::L2,
-      core::IndexType::FLAT, 1);
+  auto coll = coordinator_->CreateCollection("drain_options_test", 8, core::MetricType::L2,
+                                             core::IndexType::FLAT, 1);
   REQUIRE(coll.ok());
   auto metadata = coordinator_->GetCollectionMetadata("drain_options_test");
   REQUIRE(metadata.ok());
@@ -681,9 +677,8 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
   (void)shard_manager_->RegisterNode(core::MakeNodeId(1));
   (void)shard_manager_->RegisterNode(core::MakeNodeId(2));
 
-  auto coll = coordinator_->CreateCollection(
-      "all_replicas_down_test", 8, core::MetricType::L2,
-      core::IndexType::FLAT, 1);
+  auto coll = coordinator_->CreateCollection("all_replicas_down_test", 8, core::MetricType::L2,
+                                             core::IndexType::FLAT, 1);
   REQUIRE(coll.ok());
   auto metadata = coordinator_->GetCollectionMetadata("all_replicas_down_test");
   REQUIRE(metadata.ok());
@@ -721,8 +716,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
 // Writes must always go to the primary; the options list must contain
 // only the primary even when replicas exist. Replica fallback would
 // silently violate write ordering.
-TEST_CASE_FIXTURE(InternalServiceRpcTest,
-                  "RouteQuery_OptionsListWritesPrimaryOnly") {
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_OptionsListWritesPrimaryOnly") {
   for (uint32_t id = 1; id <= 2; ++id) {
     proto::internal::NodeInfo info;
     info.set_node_id(id);
@@ -733,9 +727,8 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
     (void)shard_manager_->RegisterNode(core::MakeNodeId(id));
   }
 
-  auto coll = coordinator_->CreateCollection(
-      "write_options_test", 8, core::MetricType::L2,
-      core::IndexType::FLAT, 1);
+  auto coll = coordinator_->CreateCollection("write_options_test", 8, core::MetricType::L2,
+                                             core::IndexType::FLAT, 1);
   REQUIRE(coll.ok());
   auto metadata = coordinator_->GetCollectionMetadata("write_options_test");
   REQUIRE(metadata.ok());
@@ -871,8 +864,8 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_Degraded") {
   // decides which heartbeats are older than the timeout. The fake time is
   // declared before the registry, so it outlives it.
   auto now = std::chrono::steady_clock::time_point{} + std::chrono::hours(1);
-  auto short_registry = std::make_shared<NodeRegistry>(
-      std::chrono::milliseconds(1), [&now] { return now; });
+  auto short_registry =
+      std::make_shared<NodeRegistry>(std::chrono::milliseconds(1), [&now] { return now; });
 
   // Register three nodes
   proto::internal::NodeInfo n1;
@@ -920,8 +913,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_Degraded") {
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_NoRegistry") {
   // Create service without node registry (single-node mode)
   auto service_no_registry = std::make_unique<InternalService>(
-      shard_manager_, segment_store_, nullptr,
-      InternalServiceOptions{.coordinator = coordinator_});
+      shard_manager_, segment_store_, nullptr, InternalServiceOptions{.coordinator = coordinator_});
 
   grpc::ServerContext ctx;
   proto::internal::GetClusterHealthRequest request;
@@ -1044,8 +1036,8 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "CreateSegment_InvalidIndexType") {
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_WithShardAssignment") {
   // Full end-to-end route query: create collection, assign shards, route
   (void)shard_manager_->RegisterNode(core::MakeNodeId(1));
-  auto coll_result = coordinator_->CreateCollection(
-      "full_route_test", 64, core::MetricType::COSINE, core::IndexType::HNSW, 1);
+  auto coll_result = coordinator_->CreateCollection("full_route_test", 64, core::MetricType::COSINE,
+                                                    core::IndexType::HNSW, 1);
   REQUIRE(coll_result.ok());
 
   auto metadata = coordinator_->GetCollectionMetadata("full_route_test");
@@ -1121,8 +1113,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "PreparePromote_IdempotentReplay") {
   CHECK(snap.is_primary);
 }
 
-TEST_CASE_FIXTURE(InternalServiceRpcTest,
-                  "PreparePromote_RejectsTermRegression") {
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "PreparePromote_RejectsTermRegression") {
   PrimaryTermTracker tracker;
   UseTracker(&tracker);
 
@@ -1166,8 +1157,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "PreparePromote_NewTermZeroRejected") 
   CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
 }
 
-TEST_CASE_FIXTURE(InternalServiceRpcTest,
-                  "PreparePromote_FailsClosedWithoutTracker") {
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "PreparePromote_FailsClosedWithoutTracker") {
   // Default fixture leaves tracker null. The handler must surface
   // FAILED_PRECONDITION rather than crash, so a misrouted RPC sent to
   // a non-data-node host gives a useful error.
@@ -1234,8 +1224,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "PausePrimary_ReplaySafe") {
   CHECK_FALSE(tracker.Get(8).is_primary);
 }
 
-TEST_CASE_FIXTURE(InternalServiceRpcTest,
-                  "PausePrimary_NewTermZeroRejected") {
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "PausePrimary_NewTermZeroRejected") {
   PrimaryTermTracker tracker;
   UseTracker(&tracker);
 
@@ -1250,8 +1239,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
   CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
 }
 
-TEST_CASE_FIXTURE(InternalServiceRpcTest,
-                  "PausePrimary_FailsClosedWithoutTracker") {
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "PausePrimary_FailsClosedWithoutTracker") {
   // Default fixture: tracker is null. Hard-fail.
   grpc::ServerContext ctx;
   proto::internal::PausePrimaryRequest req;

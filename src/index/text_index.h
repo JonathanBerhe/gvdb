@@ -21,8 +21,8 @@ class ITextIndex {
   virtual absl::Status AddDocument(core::VectorId id, const std::string& text) = 0;
 
   // Search for documents matching the query. Returns scored results.
-  [[nodiscard]] virtual absl::StatusOr<core::SearchResult> Search(
-      const std::string& query, int k) = 0;
+  [[nodiscard]] virtual absl::StatusOr<core::SearchResult> Search(const std::string& query,
+                                                                  int k) = 0;
 };
 
 }  // namespace index

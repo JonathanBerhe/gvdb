@@ -22,10 +22,8 @@ TEST_CASE("BackupManifest: top-level round-trip preserves every field") {
   m.created_at_unix_ms = 1747318921000;
   m.vector_count = 1500000;
   m.size_bytes = 2147483648ULL;
-  m.shards.push_back(
-      BackupShardRef{0, "test/backups/bk/shards/0/shard.manifest.json"});
-  m.shards.push_back(
-      BackupShardRef{1, "test/backups/bk/shards/1/shard.manifest.json"});
+  m.shards.push_back(BackupShardRef{0, "test/backups/bk/shards/0/shard.manifest.json"});
+  m.shards.push_back(BackupShardRef{1, "test/backups/bk/shards/1/shard.manifest.json"});
   m.incremental_from = "";
   m.gvdb_version = "1.3.0-rc.1";
 
@@ -48,8 +46,7 @@ TEST_CASE("BackupManifest: top-level round-trip preserves every field") {
   CHECK_EQ(r.size_bytes, 2147483648ULL);
   REQUIRE_EQ(r.shards.size(), 2u);
   CHECK_EQ(r.shards[0].shard_id, 0u);
-  CHECK_EQ(r.shards[0].manifest_key,
-           "test/backups/bk/shards/0/shard.manifest.json");
+  CHECK_EQ(r.shards[0].manifest_key, "test/backups/bk/shards/0/shard.manifest.json");
   CHECK_EQ(r.shards[1].shard_id, 1u);
   CHECK_EQ(r.gvdb_version, "1.3.0-rc.1");
 }
@@ -68,10 +65,8 @@ TEST_CASE("BackupManifest: shard round-trip with nested files") {
   s1.size_bytes = 716'800'000;
   s1.files = {
       {"metadata.txt", "backups/bk/shards/3/segments/1042/metadata.txt", 124},
-      {"vectors.bin", "backups/bk/shards/3/segments/1042/vectors.bin",
-       716'800'000},
-      {"index.faiss", "backups/bk/shards/3/segments/1042/index.faiss",
-       134'217'728},
+      {"vectors.bin", "backups/bk/shards/3/segments/1042/vectors.bin", 716'800'000},
+      {"index.faiss", "backups/bk/shards/3/segments/1042/index.faiss", 134'217'728},
   };
   m.segments.push_back(s1);
 
@@ -82,8 +77,7 @@ TEST_CASE("BackupManifest: shard round-trip with nested files") {
   s2.size_bytes = 36'864'000;
   s2.files = {
       {"metadata.txt", "backups/bk/shards/3/segments/1043/metadata.txt", 89},
-      {"growing.bin", "backups/bk/shards/3/segments/1043/growing.bin",
-       36'864'000},
+      {"growing.bin", "backups/bk/shards/3/segments/1043/growing.bin", 36'864'000},
   };
   m.segments.push_back(s2);
 
@@ -116,16 +110,14 @@ TEST_CASE("BackupManifest: shard round-trip with nested files") {
 }
 
 TEST_CASE("BackupManifest: rejects unsupported version") {
-  std::string bad =
-      R"({"manifest_version":2,"backup_id":"x","collection":{)"
-      R"("collection_id":0,"collection_name":"","dimension":0,"metric":0,)"
-      R"("index_type":0,"num_shards":0,"replication_factor":0},)"
-      R"("created_at_unix_ms":0,"vector_count":0,"size_bytes":0,"shards":[],)"
-      R"("incremental_from":"","gvdb_version":""})";
+  std::string bad = R"({"manifest_version":2,"backup_id":"x","collection":{)"
+                    R"("collection_id":0,"collection_name":"","dimension":0,"metric":0,)"
+                    R"("index_type":0,"num_shards":0,"replication_factor":0},)"
+                    R"("created_at_unix_ms":0,"vector_count":0,"size_bytes":0,"shards":[],)"
+                    R"("incremental_from":"","gvdb_version":""})";
   auto r = BackupManifest::DeserializeTop(bad);
   CHECK_FALSE(r.ok());
-  CHECK(std::string(r.status().message()).find("Unsupported") !=
-        std::string::npos);
+  CHECK(std::string(r.status().message()).find("Unsupported") != std::string::npos);
 }
 
 TEST_CASE("BackupManifest: rejects empty input") {
@@ -148,14 +140,12 @@ TEST_CASE("BackupManifest: handles strings with backslashes and quotes") {
   REQUIRE_EQ(r->segments.size(), 1u);
   REQUIRE_EQ(r->segments[0].files.size(), 1u);
   CHECK_EQ(r->segments[0].files[0].name, "weird\nname");
-  CHECK_EQ(r->segments[0].files[0].key,
-           R"(prefix/path/with\backslash"and\quotes)");
+  CHECK_EQ(r->segments[0].files[0].key, R"(prefix/path/with\backslash"and\quotes)");
 }
 
 TEST_CASE("BackupManifest: key conventions are stable") {
   CHECK_EQ(BackupManifest::BackupRootPrefix("bk-1"), "backups/bk-1");
-  CHECK_EQ(BackupManifest::TopManifestKey("bk-1"),
-           "backups/bk-1/backup.manifest.json");
+  CHECK_EQ(BackupManifest::TopManifestKey("bk-1"), "backups/bk-1/backup.manifest.json");
   CHECK_EQ(BackupManifest::ShardManifestKey("bk-1", 7),
            "backups/bk-1/shards/7/shard.manifest.json");
   CHECK_EQ(BackupManifest::SegmentFileKey("bk-1", 7, 42, "vectors.bin"),

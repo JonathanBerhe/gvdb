@@ -14,12 +14,12 @@
 #include <memory>
 #include <string>
 
+#include "config/config.h"
 #include "object_store_contract.h"
 #include "storage/objstore/filesystem_object_store.h"
 #include "storage/objstore/object_store.h"
 #include "storage/objstore/object_store_factory.h"
 #include "support/temp_dir.h"
-#include "config/config.h"
 
 namespace gvdb {
 namespace storage {
@@ -36,8 +36,7 @@ using test::ScopedTempDir;
 
 struct InMemoryObjectStoreFixture {
   InMemoryObjectStoreFixture()
-      : tmp_dir("gvdb_inmem_objstore"),
-        store(std::make_unique<InMemoryObjectStore>()) {}
+      : tmp_dir("gvdb_inmem_objstore"), store(std::make_unique<InMemoryObjectStore>()) {}
 
   IObjectStore& Get() { return *store; }
 
@@ -46,8 +45,7 @@ struct InMemoryObjectStoreFixture {
 };
 
 struct FilesystemObjectStoreFixture {
-  FilesystemObjectStoreFixture()
-      : tmp_dir("gvdb_fs_objstore") {
+  FilesystemObjectStoreFixture() : tmp_dir("gvdb_fs_objstore") {
     auto created = FilesystemObjectStore::Create((tmp_dir / "store").string());
     REQUIRE(created.ok());
     store = std::move(*created);
@@ -119,22 +117,18 @@ TEST_CASE("FilesystemObjectStore: rejects empty and absolute keys") {
   auto& store = f.Get();
 
   CHECK_EQ(store.PutObject("", "x").code(), absl::StatusCode::kInvalidArgument);
-  CHECK_EQ(store.PutObject("/abs", "x").code(),
-           absl::StatusCode::kInvalidArgument);
+  CHECK_EQ(store.PutObject("/abs", "x").code(), absl::StatusCode::kInvalidArgument);
 }
 
 TEST_CASE("FilesystemObjectStore: rejects keys that escape the root via ..") {
   FilesystemObjectStoreFixture f;
   auto& store = f.Get();
 
-  CHECK_EQ(store.PutObject("../escape", "x").code(),
-           absl::StatusCode::kInvalidArgument);
-  CHECK_EQ(store.PutObject("a/../../escape", "x").code(),
-           absl::StatusCode::kInvalidArgument);
+  CHECK_EQ(store.PutObject("../escape", "x").code(), absl::StatusCode::kInvalidArgument);
+  CHECK_EQ(store.PutObject("a/../../escape", "x").code(), absl::StatusCode::kInvalidArgument);
 }
 
-TEST_CASE(
-    "FilesystemObjectStore: ListObjects hides the reserved .gvdb-tmp subtree") {
+TEST_CASE("FilesystemObjectStore: ListObjects hides the reserved .gvdb-tmp subtree") {
   // Simulate a crashed write that left a file behind under the reserved
   // subtree. ListObjects must not expose it.
   FilesystemObjectStoreFixture f;
@@ -161,12 +155,10 @@ TEST_CASE("FilesystemObjectStore: PutObject creates parent directories") {
   auto& store = f.Get();
 
   REQUIRE(store.PutObject("deep/nested/path/obj.bin", "hello").ok());
-  CHECK(std::filesystem::exists(f.store->Root() / "deep" / "nested" /
-                                 "path" / "obj.bin"));
+  CHECK(std::filesystem::exists(f.store->Root() / "deep" / "nested" / "path" / "obj.bin"));
 }
 
-TEST_CASE(
-    "FilesystemObjectStore: user keys containing '.tmp.' are first-class") {
+TEST_CASE("FilesystemObjectStore: user keys containing '.tmp.' are first-class") {
   // Regression guard for an earlier design that filtered ".tmp." from
   // listings as a sentinel: user-controlled keys like archive.tmp.2024 or
   // configs/.tmp.json were silently hidden. With the reserved-subdir design
@@ -179,10 +171,8 @@ TEST_CASE(
 
   auto listed = store.ListObjects("");
   REQUIRE(listed.ok());
-  CHECK(std::find(listed->begin(), listed->end(), "configs/.tmp.json") !=
-        listed->end());
-  CHECK(std::find(listed->begin(), listed->end(), "archive.tmp.2024") !=
-        listed->end());
+  CHECK(std::find(listed->begin(), listed->end(), "configs/.tmp.json") != listed->end());
+  CHECK(std::find(listed->begin(), listed->end(), "archive.tmp.2024") != listed->end());
 
   auto got = store.GetObject("configs/.tmp.json");
   REQUIRE(got.ok());
@@ -195,8 +185,7 @@ TEST_CASE(
   FilesystemObjectStoreFixture f;
   auto& store = f.Get();
 
-  CHECK_EQ(store.PutObject(".gvdb-tmp/x", "x").code(),
-           absl::StatusCode::kInvalidArgument);
+  CHECK_EQ(store.PutObject(".gvdb-tmp/x", "x").code(), absl::StatusCode::kInvalidArgument);
   CHECK_EQ(store.PutObject(".gvdb-tmp/deep/nested/obj", "x").code(),
            absl::StatusCode::kInvalidArgument);
 
@@ -204,7 +193,6 @@ TEST_CASE(
   // start of the path is fine. Only the leading prefix is reserved.
   CHECK(store.PutObject("logs/.gvdb-tmp-alike", "x").ok());
 }
-
 
 // ============================================================================
 // CreateObjectStore (backend selection from the storage config)

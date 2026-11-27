@@ -24,11 +24,11 @@ enum class NodeType {
 
 // Node status in the cluster
 enum class NodeStatus {
-  STARTING,    // Node is starting up
-  HEALTHY,     // Node is operating normally
-  DEGRADED,    // Node is experiencing issues but still functional
-  FAILED,      // Node has failed and needs recovery
-  LEAVING      // Node is gracefully shutting down
+  STARTING,  // Node is starting up
+  HEALTHY,   // Node is operating normally
+  DEGRADED,  // Node is experiencing issues but still functional
+  FAILED,    // Node has failed and needs recovery
+  LEAVING    // Node is gracefully shutting down
 };
 
 // Information about a node in the cluster, as the coordinator keeps it.
@@ -47,15 +47,15 @@ struct NodeInfo {
   float cpu_usage_percent;
 
   NodeInfo()
-    : node_id(core::kInvalidNodeId),
-      type(NodeType::QUERY_NODE),
-      status(NodeStatus::STARTING),
-      last_heartbeat_ts(0),
-      memory_capacity_bytes(0),
-      memory_used_bytes(0),
-      disk_capacity_bytes(0),
-      disk_used_bytes(0),
-      cpu_usage_percent(0.0f) {}
+      : node_id(core::kInvalidNodeId),
+        type(NodeType::QUERY_NODE),
+        status(NodeStatus::STARTING),
+        last_heartbeat_ts(0),
+        memory_capacity_bytes(0),
+        memory_used_bytes(0),
+        disk_capacity_bytes(0),
+        disk_used_bytes(0),
+        cpu_usage_percent(0.0f) {}
 };
 
 }  // namespace meta

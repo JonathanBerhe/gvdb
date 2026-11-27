@@ -46,8 +46,7 @@ std::vector<float> Row(size_t row, size_t dimension) {
 // (num_vectors, dimension), filled with RowValue.
 std::string BuildNpy(size_t num_vectors, size_t dimension) {
   std::string header_dict = "{'descr': '<f4', 'fortran_order': False, 'shape': (" +
-                            std::to_string(num_vectors) + ", " +
-                            std::to_string(dimension) + "), }";
+                            std::to_string(num_vectors) + ", " + std::to_string(dimension) + "), }";
   // Pad so that the data starts on a 64 byte boundary. The preamble is the
   // magic (6), the version (2) and the header length (2).
   const size_t preamble = 10;
@@ -109,11 +108,8 @@ class GatedObjectStore : public storage::IObjectStore {
   absl::StatusOr<std::string> GetObject(const std::string& key) override {
     return inner_.GetObject(key);
   }
-  absl::Status DeleteObject(const std::string& key) override {
-    return inner_.DeleteObject(key);
-  }
-  absl::StatusOr<std::vector<std::string>> ListObjects(
-      const std::string& prefix) override {
+  absl::Status DeleteObject(const std::string& key) override { return inner_.DeleteObject(key); }
+  absl::StatusOr<std::vector<std::string>> ListObjects(const std::string& prefix) override {
     return inner_.ListObjects(prefix);
   }
   absl::StatusOr<bool> ObjectExists(const std::string& key) override {
@@ -145,16 +141,14 @@ class ImportServiceFixtureBase {
  public:
   explicit ImportServiceFixtureBase(bool with_importer) {
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_store_ = std::make_shared<storage::SegmentManager>(
-        (test_dir_ / "data").string(), index_factory_.get());
-    query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *segment_store_);
+    segment_store_ = std::make_shared<storage::SegmentManager>((test_dir_ / "data").string(),
+                                                               index_factory_.get());
+    query_executor_ = std::make_shared<compute::QueryExecutor>(*segment_store_);
 
     object_store_ = std::make_unique<GatedObjectStore>();
     if (with_importer) {
-      importer_ = std::make_shared<storage::BulkImporter>(
-          segment_store_, object_store_.get(), (test_dir_ / "import_tmp").string(),
-          2);
+      importer_ = std::make_shared<storage::BulkImporter>(segment_store_, object_store_.get(),
+                                                          (test_dir_ / "import_tmp").string(), 2);
     }
 
     auto resolver = service::MakeLocalResolver(segment_store_);
@@ -193,8 +187,7 @@ class ImportServiceFixtureBase {
     REQUIRE(status.ok());
   }
 
-  grpc::Status StartImport(const std::string& collection,
-                           const std::string& source_uri,
+  grpc::Status StartImport(const std::string& collection, const std::string& source_uri,
                            proto::BulkImportResponse* response,
                            proto::ImportFormat format = proto::NUMPY) {
     grpc::ServerContext context;
@@ -213,8 +206,7 @@ class ImportServiceFixtureBase {
     return service_->GetImportStatus(&context, &request, response);
   }
 
-  grpc::Status CancelImport(const std::string& import_id,
-                            proto::CancelImportResponse* response) {
+  grpc::Status CancelImport(const std::string& import_id, proto::CancelImportResponse* response) {
     grpc::ServerContext context;
     proto::CancelImportRequest request;
     request.set_import_id(import_id);
@@ -224,8 +216,7 @@ class ImportServiceFixtureBase {
   // Polls GetImportStatus until the predicate holds or the WaitFor timeout
   // passes, and returns the last response. The callers check its state.
   template <typename Pred>
-  proto::GetImportStatusResponse PollStatus(const std::string& import_id,
-                                            Pred pred) {
+  proto::GetImportStatusResponse PollStatus(const std::string& import_id, Pred pred) {
     proto::GetImportStatusResponse response;
     test::WaitFor([&] {
       response.Clear();
@@ -238,23 +229,19 @@ class ImportServiceFixtureBase {
   }
 
   proto::GetImportStatusResponse WaitForTerminal(const std::string& import_id) {
-    auto response = PollStatus(import_id, [](const auto& r) {
-      return IsTerminal(r.state());
-    });
+    auto response = PollStatus(import_id, [](const auto& r) { return IsTerminal(r.state()); });
     INFO("state=" << proto::ImportState_Name(response.state())
                   << " error=" << response.error_message());
     REQUIRE(IsTerminal(response.state()));
     return response;
   }
 
-  proto::SearchResponse Search(const std::string& collection,
-                               const std::vector<float>& query,
+  proto::SearchResponse Search(const std::string& collection, const std::vector<float>& query,
                                uint32_t top_k) {
     grpc::ServerContext context;
     proto::SearchRequest request;
     request.set_collection_name(collection);
-    request.mutable_query_vector()->set_dimension(
-        static_cast<uint32_t>(query.size()));
+    request.mutable_query_vector()->set_dimension(static_cast<uint32_t>(query.size()));
     for (float v : query) request.mutable_query_vector()->add_values(v);
     request.set_top_k(top_k);
     proto::SearchResponse response;
@@ -264,8 +251,7 @@ class ImportServiceFixtureBase {
     return response;
   }
 
-  proto::GetResponse Get(const std::string& collection,
-                         const std::vector<uint64_t>& ids) {
+  proto::GetResponse Get(const std::string& collection, const std::vector<uint64_t>& ids) {
     grpc::ServerContext context;
     proto::GetRequest request;
     request.set_collection_name(collection);
@@ -365,12 +351,10 @@ TEST_CASE_FIXTURE(ImportServiceTest, "BulkImportRejectsNonS3SourceUri") {
 
 TEST_CASE_FIXTURE(ImportServiceTest, "ImportStatusAndCancelRequireImportId") {
   proto::GetImportStatusResponse status_response;
-  CHECK_EQ(GetImportStatus("", &status_response).error_code(),
-           grpc::StatusCode::INVALID_ARGUMENT);
+  CHECK_EQ(GetImportStatus("", &status_response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
 
   proto::CancelImportResponse cancel_response;
-  CHECK_EQ(CancelImport("", &cancel_response).error_code(),
-           grpc::StatusCode::INVALID_ARGUMENT);
+  CHECK_EQ(CancelImport("", &cancel_response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   CHECK_FALSE(cancel_response.success());
 }
 
@@ -396,8 +380,7 @@ TEST_CASE_FIXTURE(NoImporterServiceTest, "ImportEndpointsUnimplementedWithoutImp
   PutNpy("data/vectors.npy", 10, kDim);
 
   proto::BulkImportResponse start_response;
-  CHECK_EQ(StartImport("coll", "s3://bucket/data/vectors.npy", &start_response)
-               .error_code(),
+  CHECK_EQ(StartImport("coll", "s3://bucket/data/vectors.npy", &start_response).error_code(),
            grpc::StatusCode::UNIMPLEMENTED);
   CHECK(start_response.import_id().empty());
 
@@ -406,8 +389,7 @@ TEST_CASE_FIXTURE(NoImporterServiceTest, "ImportEndpointsUnimplementedWithoutImp
            grpc::StatusCode::UNIMPLEMENTED);
 
   proto::CancelImportResponse cancel_response;
-  CHECK_EQ(CancelImport("imp_any", &cancel_response).error_code(),
-           grpc::StatusCode::UNIMPLEMENTED);
+  CHECK_EQ(CancelImport("imp_any", &cancel_response).error_code(), grpc::StatusCode::UNIMPLEMENTED);
   CHECK_FALSE(cancel_response.success());
 }
 
@@ -462,8 +444,7 @@ TEST_CASE_FIXTURE(ImportServiceTest, "NpyImportCompletesAndVectorsAreSearchable"
     const size_t row = v.id() - 1;
     REQUIRE_EQ(v.vector().values_size(), static_cast<int>(kDim));
     for (size_t d = 0; d < kDim; ++d) {
-      CHECK(v.vector().values(static_cast<int>(d)) ==
-            doctest::Approx(RowValue(row, d)));
+      CHECK(v.vector().values(static_cast<int>(d)) == doctest::Approx(RowValue(row, d)));
     }
   }
 
@@ -504,8 +485,7 @@ TEST_CASE_FIXTURE(ImportServiceTest, "NpyImportWithWrongDimensionFails") {
   auto final_status = WaitForTerminal(start.import_id());
   CHECK_EQ(final_status.state(), proto::IMPORT_FAILED);
   CHECK_EQ(final_status.imported_vectors(), 0u);
-  CHECK(ToLower(final_status.error_message()).find("dimension") !=
-        std::string::npos);
+  CHECK(ToLower(final_status.error_message()).find("dimension") != std::string::npos);
   CHECK_EQ(CollectionVectorCount("coll"), 0u);
 }
 
@@ -557,9 +537,8 @@ TEST_CASE_FIXTURE(ImportServiceTest, "CancelImportStopsRunningJob") {
   proto::BulkImportResponse start;
   REQUIRE(StartImport("coll", "s3://bucket/data/vectors.npy", &start).ok());
 
-  auto running = PollStatus(start.import_id(), [](const auto& r) {
-    return r.state() == proto::IMPORT_RUNNING;
-  });
+  auto running = PollStatus(start.import_id(),
+                            [](const auto& r) { return r.state() == proto::IMPORT_RUNNING; });
   REQUIRE_EQ(running.state(), proto::IMPORT_RUNNING);
 
   proto::CancelImportResponse cancel;

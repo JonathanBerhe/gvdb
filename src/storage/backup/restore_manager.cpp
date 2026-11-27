@@ -10,10 +10,10 @@
 #include <filesystem>
 #include <system_error>
 #include "absl/strings/str_cat.h"
-#include "storage/objstore/filesystem_object_store.h"
-#include "storage/backup/segment_export.h"
 #include "common/logger.h"
 #include "storage/backup/backup_util.h"
+#include "storage/backup/segment_export.h"
+#include "storage/objstore/filesystem_object_store.h"
 
 namespace gvdb {
 namespace storage {
@@ -22,8 +22,7 @@ namespace storage {
 // RestoreManager
 // ============================================================================
 
-RestoreManager::RestoreManager(RestoreManagerOptions opts)
-    : opts_(std::move(opts)) {
+RestoreManager::RestoreManager(RestoreManagerOptions opts) : opts_(std::move(opts)) {
   pool_ = std::make_unique<common::ThreadPool>(
       static_cast<size_t>(std::max(1, opts_.max_concurrent_jobs)));
   std::error_code ec;
@@ -41,31 +40,26 @@ absl::StatusOr<RestoreManager::ResolvedTarget> RestoreManager::ResolveTarget(
   }
   if (auto* s3 = std::get_if<S3BackupTarget>(&source)) {
     if (!opts_.default_object_store) {
-      return absl::FailedPreconditionError(
-          "Server is not configured with an S3 object store");
+      return absl::FailedPreconditionError("Server is not configured with an S3 object store");
     }
     if (!opts_.s3_bucket.empty() && s3->bucket != opts_.s3_bucket) {
-      return absl::InvalidArgumentError(absl::StrCat(
-          "Requested S3 bucket '", s3->bucket,
-          "' does not match server-configured bucket '", opts_.s3_bucket,
-          "'"));
+      return absl::InvalidArgumentError(absl::StrCat("Requested S3 bucket '", s3->bucket,
+                                                     "' does not match server-configured bucket '",
+                                                     opts_.s3_bucket, "'"));
     }
     ResolvedTarget r;
     r.store = opts_.default_object_store;
     r.display_prefix =
-        absl::StrCat("s3://", s3->bucket,
-                     s3->prefix.empty() ? "" : absl::StrCat("/", s3->prefix));
+        absl::StrCat("s3://", s3->bucket, s3->prefix.empty() ? "" : absl::StrCat("/", s3->prefix));
     return r;
   }
   if (auto* loc = std::get_if<LocalBackupTarget>(&source)) {
     if (opts_.local_root_allowlist.empty()) {
-      return absl::FailedPreconditionError(
-          "LocalBackupTarget restore is disabled on this server");
+      return absl::FailedPreconditionError("LocalBackupTarget restore is disabled on this server");
     }
     if (!PathUnderRoot(opts_.local_root_allowlist, loc->path)) {
       return absl::InvalidArgumentError(absl::StrCat(
-          "LocalBackupTarget path '", loc->path,
-          "' is not under the configured allowlist root '",
+          "LocalBackupTarget path '", loc->path, "' is not under the configured allowlist root '",
           opts_.local_root_allowlist, "'"));
     }
     auto store_or = FilesystemObjectStore::Create(loc->path);
@@ -79,8 +73,8 @@ absl::StatusOr<RestoreManager::ResolvedTarget> RestoreManager::ResolveTarget(
   return absl::InvalidArgumentError("Unknown BackupTarget variant");
 }
 
-absl::StatusOr<BackupManifestV1> RestoreManager::ReadManifest(
-    const BackupTarget& source, const std::string& backup_id) {
+absl::StatusOr<BackupManifestV1> RestoreManager::ReadManifest(const BackupTarget& source,
+                                                              const std::string& backup_id) {
   auto rt_or = ResolveTarget(source);
   if (!rt_or.ok()) return rt_or.status();
   auto& rt = *rt_or;
@@ -94,12 +88,11 @@ absl::StatusOr<BackupManifestV1> RestoreManager::ReadManifest(
   return BackupManifest::DeserializeTop(*json_or);
 }
 
-absl::Status RestoreManager::RunShardRestore(
-    const BackupTarget& source,
-    const std::string& backup_id,
-    core::CollectionId target_collection_id,
-    core::ShardId shard_id,
-    std::shared_ptr<ISegmentStore> segment_store) {
+absl::Status RestoreManager::RunShardRestore(const BackupTarget& source,
+                                             const std::string& backup_id,
+                                             core::CollectionId target_collection_id,
+                                             core::ShardId shard_id,
+                                             std::shared_ptr<ISegmentStore> segment_store) {
   if (backup_id.empty()) {
     return absl::InvalidArgumentError("backup_id is required");
   }
@@ -116,9 +109,8 @@ absl::Status RestoreManager::RunShardRestore(
   }
 
   // Fetch shard manifest.
-  auto shard_key = BuildKey(s3_prefix,
-                            BackupManifest::ShardManifestKey(
-                                backup_id, core::ToUInt16(shard_id)));
+  auto shard_key =
+      BuildKey(s3_prefix, BackupManifest::ShardManifestKey(backup_id, core::ToUInt16(shard_id)));
   auto json_or = rt.store->GetObject(shard_key);
   if (!json_or.ok()) return json_or.status();
   auto mani_or = BackupManifest::DeserializeShard(*json_or);
@@ -130,8 +122,7 @@ absl::Status RestoreManager::RunShardRestore(
   std::filesystem::create_directories(opts_.staging_dir, ec);
   auto staging_root =
       std::filesystem::path(opts_.staging_dir) /
-      absl::StrCat("restore-", backup_id, "-shard-",
-                   core::ToUInt16(shard_id), "-", RandomToken());
+      absl::StrCat("restore-", backup_id, "-shard-", core::ToUInt16(shard_id), "-", RandomToken());
   std::filesystem::create_directories(staging_root, ec);
 
   // Inner cleanup helper: Status return preserves the original error
@@ -147,13 +138,12 @@ absl::Status RestoreManager::RunShardRestore(
   // same data-node. core::ShardSegmentId gives the restored segments the
   // same ids that the resolver hands out for fresh segments. The remap is
   // a no-op when the manifest's collection_id already matches the target.
-  const bool remap_needed = !mani_or->segments.empty() &&
+  const bool remap_needed =
+      !mani_or->segments.empty() &&
       mani_or->segments.front().segment_id !=
-          core::ToUInt32(core::ShardSegmentId(target_collection_id,
-                                              core::ToUInt16(shard_id)));
+          core::ToUInt32(core::ShardSegmentId(target_collection_id, core::ToUInt16(shard_id)));
 
-  for (size_t seg_index = 0; seg_index < mani_or->segments.size();
-       ++seg_index) {
+  for (size_t seg_index = 0; seg_index < mani_or->segments.size(); ++seg_index) {
     const auto& seg = mani_or->segments[seg_index];
     auto seg_dir = staging_root / absl::StrCat("segment_", seg.segment_id);
     std::filesystem::create_directories(seg_dir, ec);
@@ -183,8 +173,7 @@ absl::Status RestoreManager::RunShardRestore(
       // eagerly created on CreateCollection: that's exactly what we
       // want for the common one-segment-per-shard restore.
       auto new_seg_id = core::MakeSegmentId(
-          core::ToUInt32(core::ShardSegmentId(target_collection_id,
-                                              core::ToUInt16(shard_id))) +
+          core::ToUInt32(core::ShardSegmentId(target_collection_id, core::ToUInt16(shard_id))) +
           static_cast<uint32_t>(seg_index));
       (*seg_or)->SetSegmentIdForRestore(new_seg_id);
       // Drop any existing segment at this id (the empty
@@ -195,11 +184,9 @@ absl::Status RestoreManager::RunShardRestore(
     }
 
     const auto installed_id = (*seg_or)->GetId();
-    const bool installed_growing =
-        (*seg_or)->GetState() == core::SegmentState::GROWING;
+    const bool installed_growing = (*seg_or)->GetState() == core::SegmentState::GROWING;
 
-    auto add_status =
-        segment_store->AddReplicatedSegment(std::move(*seg_or));
+    auto add_status = segment_store->AddReplicatedSegment(std::move(*seg_or));
     if (!add_status.ok()) {
       cleanup();
       return add_status;
@@ -216,9 +203,8 @@ absl::Status RestoreManager::RunShardRestore(
     if (!installed_growing) {
       auto flush_status = segment_store->FlushSegment(installed_id);
       if (!flush_status.ok()) {
-        common::Logger::Instance().Error(
-            "Failed to flush restored segment {}: {}",
-            core::ToUInt32(installed_id), flush_status.message());
+        common::Logger::Instance().Error("Failed to flush restored segment {}: {}",
+                                         core::ToUInt32(installed_id), flush_status.message());
         cleanup();
         return flush_status;
       }
@@ -230,10 +216,8 @@ absl::Status RestoreManager::RunShardRestore(
 }
 
 absl::StatusOr<std::string> RestoreManager::StartRestoreSingleShard(
-    const BackupTarget& source,
-    const std::string& backup_id,
-    core::CollectionId target_collection_id,
-    core::ShardId shard_id,
+    const BackupTarget& source, const std::string& backup_id,
+    core::CollectionId target_collection_id, core::ShardId shard_id,
     std::shared_ptr<ISegmentStore> segment_store) {
   if (backup_id.empty()) {
     return absl::InvalidArgumentError("backup_id is required");
@@ -266,19 +250,17 @@ absl::StatusOr<std::string> RestoreManager::StartRestoreSingleShard(
   return id;
 }
 
-void RestoreManager::ExecuteSingleShardJob(
-    std::shared_ptr<RestoreJob> job,
-    core::ShardId shard_id,
-    std::shared_ptr<ISegmentStore> segment_store) {
+void RestoreManager::ExecuteSingleShardJob(std::shared_ptr<RestoreJob> job, core::ShardId shard_id,
+                                           std::shared_ptr<ISegmentStore> segment_store) {
   job->state.store(BackupState::RUNNING);
 
   if (job->cancelled.load()) {
     job->state.store(BackupState::CANCELLED);
     return;
   }
-  auto status = RunShardRestore(job->source, job->backup_id,
-                                core::MakeCollectionId(job->target_collection_id),
-                                shard_id, segment_store);
+  auto status =
+      RunShardRestore(job->source, job->backup_id,
+                      core::MakeCollectionId(job->target_collection_id), shard_id, segment_store);
   if (!status.ok()) {
     job->SetError(std::string(status.message()));
     job->state.store(BackupState::FAILED);
@@ -289,10 +271,8 @@ void RestoreManager::ExecuteSingleShardJob(
 }
 
 absl::StatusOr<std::string> RestoreManager::StartRestoreDistributed(
-    const BackupTarget& source,
-    const std::string& backup_id,
-    core::CollectionId target_collection_id,
-    const std::vector<core::ShardId>& shard_ids,
+    const BackupTarget& source, const std::string& backup_id,
+    core::CollectionId target_collection_id, const std::vector<core::ShardId>& shard_ids,
     ShardRestoreExecutor executor) {
   if (backup_id.empty()) {
     return absl::InvalidArgumentError("backup_id is required");
@@ -322,28 +302,24 @@ absl::StatusOr<std::string> RestoreManager::StartRestoreDistributed(
 
   std::vector<core::ShardId> shards_copy = shard_ids;
   (void)pool_->Enqueue(
-      [this, job, shards_copy = std::move(shards_copy),
-       executor = std::move(executor)]() mutable {
-        ExecuteDistributedJob(job, std::move(shards_copy),
-                              std::move(executor));
+      [this, job, shards_copy = std::move(shards_copy), executor = std::move(executor)]() mutable {
+        ExecuteDistributedJob(job, std::move(shards_copy), std::move(executor));
       });
 
   return id;
 }
 
-void RestoreManager::ExecuteDistributedJob(
-    std::shared_ptr<RestoreJob> job,
-    std::vector<core::ShardId> shard_ids,
-    ShardRestoreExecutor executor) {
+void RestoreManager::ExecuteDistributedJob(std::shared_ptr<RestoreJob> job,
+                                           std::vector<core::ShardId> shard_ids,
+                                           ShardRestoreExecutor executor) {
   job->state.store(BackupState::RUNNING);
   if (job->cancelled.load()) {
     job->state.store(BackupState::CANCELLED);
     return;
   }
   for (auto shard_id : shard_ids) {
-    auto status = executor(
-        job->source, job->backup_id,
-        core::MakeCollectionId(job->target_collection_id), shard_id);
+    auto status = executor(job->source, job->backup_id,
+                           core::MakeCollectionId(job->target_collection_id), shard_id);
     if (!status.ok()) {
       job->SetError(std::string(status.message()));
       job->state.store(BackupState::FAILED);
@@ -354,15 +330,13 @@ void RestoreManager::ExecuteDistributedJob(
   job->state.store(BackupState::COMPLETED);
 }
 
-absl::StatusOr<RestoreJobStatus> RestoreManager::GetStatus(
-    const std::string& restore_id) const {
+absl::StatusOr<RestoreJobStatus> RestoreManager::GetStatus(const std::string& restore_id) const {
   std::shared_ptr<RestoreJob> job;
   {
     std::lock_guard<std::mutex> lk(jobs_mutex_);
     auto it = jobs_.find(restore_id);
     if (it == jobs_.end()) {
-      return absl::NotFoundError(
-          absl::StrCat("Restore not found: ", restore_id));
+      return absl::NotFoundError(absl::StrCat("Restore not found: ", restore_id));
     }
     job = it->second;
   }
@@ -373,8 +347,7 @@ absl::StatusOr<RestoreJobStatus> RestoreManager::GetStatus(
   s.shards_completed = job->shards_completed.load();
   s.error_message = job->GetError();
   auto now = std::chrono::steady_clock::now();
-  s.elapsed_seconds =
-      std::chrono::duration<float>(now - job->start_time).count();
+  s.elapsed_seconds = std::chrono::duration<float>(now - job->start_time).count();
   return s;
 }
 

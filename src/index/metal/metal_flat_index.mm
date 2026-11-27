@@ -19,8 +19,7 @@ namespace gvdb {
 namespace index {
 namespace metal {
 
-MetalFlatIndex::MetalFlatIndex(core::Dimension dimension,
-                               core::MetricType metric)
+MetalFlatIndex::MetalFlatIndex(core::Dimension dimension, core::MetricType metric)
     : dimension_(dimension), metric_type_(metric) {}
 
 void MetalFlatIndex::RebuildGpuBuffer() {
@@ -30,22 +29,23 @@ void MetalFlatIndex::RebuildGpuBuffer() {
   }
   if (!vectors_.empty()) {
     gpu_vectors_ = MetalCompute::Instance().GetDevice()->newBuffer(
-        vectors_.data(), vectors_.size() * sizeof(float),
-        MTL::ResourceStorageModeShared);
+        vectors_.data(), vectors_.size() * sizeof(float), MTL::ResourceStorageModeShared);
   }
 }
 
 std::string MetalFlatIndex::KernelName() const {
   switch (metric_type_) {
-    case core::MetricType::L2:             return "l2_distance";
-    case core::MetricType::INNER_PRODUCT:  return "inner_product";
-    case core::MetricType::COSINE:         return "cosine_distance";
+    case core::MetricType::L2:
+      return "l2_distance";
+    case core::MetricType::INNER_PRODUCT:
+      return "inner_product";
+    case core::MetricType::COSINE:
+      return "cosine_distance";
   }
   return "l2_distance";
 }
 
-core::SearchResult MetalFlatIndex::TopK(const float* distances, size_t nb,
-                                         int k) const {
+core::SearchResult MetalFlatIndex::TopK(const float* distances, size_t nb, int k) const {
   // L2/Cosine: smaller = more similar (ascending).
   // Inner product: larger = more similar (descending).
   bool descending = (metric_type_ == core::MetricType::INNER_PRODUCT);
@@ -56,8 +56,7 @@ core::SearchResult MetalFlatIndex::TopK(const float* distances, size_t nb,
   size_t actual_k = std::min(static_cast<size_t>(k), nb);
   std::partial_sort(indices.begin(), indices.begin() + actual_k, indices.end(),
                     [distances, descending](size_t a, size_t b) {
-                      return descending ? distances[a] > distances[b]
-                                        : distances[a] < distances[b];
+                      return descending ? distances[a] > distances[b] : distances[a] < distances[b];
                     });
 
   core::SearchResult result(actual_k);
@@ -67,16 +66,14 @@ core::SearchResult MetalFlatIndex::TopK(const float* distances, size_t nb,
   return result;
 }
 
-absl::Status MetalFlatIndex::Build(
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids) {
+absl::Status MetalFlatIndex::Build(const std::vector<core::Vector>& vectors,
+                                   const std::vector<core::VectorId>& ids) {
   if (vectors.empty()) {
     return absl::InvalidArgumentError("Cannot build index with empty vectors");
   }
   if (vectors.size() != ids.size()) {
     return absl::InvalidArgumentError(
-        absl::StrCat("Vector and ID count mismatch: ", vectors.size(), " vs ",
-                     ids.size()));
+        absl::StrCat("Vector and ID count mismatch: ", vectors.size(), " vs ", ids.size()));
   }
 
   std::unique_lock lock(mutex_);
@@ -85,31 +82,27 @@ absl::Status MetalFlatIndex::Build(
   ids_ = ids;
 
   for (size_t i = 0; i < vectors.size(); ++i) {
-    std::memcpy(vectors_.data() + i * dimension_, vectors[i].data(),
-                dimension_ * sizeof(float));
+    std::memcpy(vectors_.data() + i * dimension_, vectors[i].data(), dimension_ * sizeof(float));
   }
 
   RebuildGpuBuffer();
   return absl::OkStatus();
 }
 
-absl::Status MetalFlatIndex::Add(const core::Vector& vector,
-                                  core::VectorId id) {
+absl::Status MetalFlatIndex::Add(const core::Vector& vector, core::VectorId id) {
   std::unique_lock lock(mutex_);
 
   size_t old_size = vectors_.size();
   vectors_.resize(old_size + dimension_);
-  std::memcpy(vectors_.data() + old_size, vector.data(),
-              dimension_ * sizeof(float));
+  std::memcpy(vectors_.data() + old_size, vector.data(), dimension_ * sizeof(float));
   ids_.push_back(id);
 
   RebuildGpuBuffer();
   return absl::OkStatus();
 }
 
-absl::Status MetalFlatIndex::AddBatch(
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids) {
+absl::Status MetalFlatIndex::AddBatch(const std::vector<core::Vector>& vectors,
+                                      const std::vector<core::VectorId>& ids) {
   if (vectors.empty()) return absl::OkStatus();
   if (vectors.size() != ids.size()) {
     return absl::InvalidArgumentError("Vector and ID count mismatch");
@@ -133,11 +126,9 @@ absl::Status MetalFlatIndex::Remove(core::VectorId /*id*/) {
   return absl::UnimplementedError("Remove not supported for MetalFlatIndex");
 }
 
-absl::StatusOr<core::SearchResult> MetalFlatIndex::Search(
-    const core::Vector& query, int k) {
+absl::StatusOr<core::SearchResult> MetalFlatIndex::Search(const core::Vector& query, int k) {
   if (k <= 0) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("k must be positive, got ", k));
+    return absl::InvalidArgumentError(absl::StrCat("k must be positive, got ", k));
   }
 
   std::shared_lock lock(mutex_);
@@ -151,15 +142,14 @@ absl::StatusOr<core::SearchResult> MetalFlatIndex::Search(
 
   // Dispatch distance computation to Metal GPU
   std::vector<float> distances(nb);
-  MetalCompute::Instance().ComputeDistances(
-      KernelName(), query.data(), 1, gpu_vectors_, nb, dimension_,
-      distances.data());
+  MetalCompute::Instance().ComputeDistances(KernelName(), query.data(), 1, gpu_vectors_, nb,
+                                            dimension_, distances.data());
 
   return TopK(distances.data(), nb, k);
 }
 
-absl::StatusOr<core::SearchResult> MetalFlatIndex::SearchRange(
-    const core::Vector& query, float radius) {
+absl::StatusOr<core::SearchResult> MetalFlatIndex::SearchRange(const core::Vector& query,
+                                                               float radius) {
   std::shared_lock lock(mutex_);
 
   size_t nb = ids_.size();
@@ -168,9 +158,8 @@ absl::StatusOr<core::SearchResult> MetalFlatIndex::SearchRange(
   }
 
   std::vector<float> distances(nb);
-  MetalCompute::Instance().ComputeDistances(
-      KernelName(), query.data(), 1, gpu_vectors_, nb, dimension_,
-      distances.data());
+  MetalCompute::Instance().ComputeDistances(KernelName(), query.data(), 1, gpu_vectors_, nb,
+                                            dimension_, distances.data());
 
   core::SearchResult result;
   for (size_t i = 0; i < nb; ++i) {
@@ -199,15 +188,13 @@ absl::StatusOr<std::vector<core::SearchResult>> MetalFlatIndex::SearchBatch(
   // Flatten queries into contiguous array
   std::vector<float> q_flat(nq * dimension_);
   for (size_t i = 0; i < nq; ++i) {
-    std::memcpy(q_flat.data() + i * dimension_, queries[i].data(),
-                dimension_ * sizeof(float));
+    std::memcpy(q_flat.data() + i * dimension_, queries[i].data(), dimension_ * sizeof(float));
   }
 
   // Batch distance computation on GPU
   std::vector<float> distances(nq * nb);
-  MetalCompute::Instance().ComputeDistances(
-      KernelName(), q_flat.data(), nq, gpu_vectors_, nb, dimension_,
-      distances.data());
+  MetalCompute::Instance().ComputeDistances(KernelName(), q_flat.data(), nq, gpu_vectors_, nb,
+                                            dimension_, distances.data());
 
   // Extract top-k per query
   std::vector<core::SearchResult> results(nq);
@@ -227,13 +214,9 @@ size_t MetalFlatIndex::GetVectorCount() const {
   return ids_.size();
 }
 
-core::Dimension MetalFlatIndex::GetDimension() const {
-  return dimension_;
-}
+core::Dimension MetalFlatIndex::GetDimension() const { return dimension_; }
 
-core::MetricType MetalFlatIndex::GetMetricType() const {
-  return metric_type_;
-}
+core::MetricType MetalFlatIndex::GetMetricType() const { return metric_type_; }
 
 absl::Status MetalFlatIndex::Train(const std::vector<core::Vector>&) {
   return absl::OkStatus();  // FLAT doesn't need training
@@ -259,10 +242,8 @@ absl::Status MetalFlatIndex::Serialize(const std::string& path) const {
   file.write(reinterpret_cast<const char*>(&dim), sizeof(dim));
   file.write(reinterpret_cast<const char*>(&metric), sizeof(metric));
   file.write(reinterpret_cast<const char*>(&count), sizeof(count));
-  file.write(reinterpret_cast<const char*>(vectors_.data()),
-             vectors_.size() * sizeof(float));
-  file.write(reinterpret_cast<const char*>(ids_.data()),
-             ids_.size() * sizeof(core::VectorId));
+  file.write(reinterpret_cast<const char*>(vectors_.data()), vectors_.size() * sizeof(float));
+  file.write(reinterpret_cast<const char*>(ids_.data()), ids_.size() * sizeof(core::VectorId));
 
   return absl::OkStatus();
 }
@@ -287,10 +268,8 @@ absl::Status MetalFlatIndex::Deserialize(const std::string& path) {
   vectors_.resize(count * dimension_);
   ids_.resize(count);
 
-  file.read(reinterpret_cast<char*>(vectors_.data()),
-            vectors_.size() * sizeof(float));
-  file.read(reinterpret_cast<char*>(ids_.data()),
-            ids_.size() * sizeof(core::VectorId));
+  file.read(reinterpret_cast<char*>(vectors_.data()), vectors_.size() * sizeof(float));
+  file.read(reinterpret_cast<char*>(ids_.data()), ids_.size() * sizeof(core::VectorId));
 
   return absl::OkStatus();
 }

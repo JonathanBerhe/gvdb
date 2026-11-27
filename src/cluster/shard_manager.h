@@ -3,15 +3,15 @@
 
 #pragma once
 
-#include "core/types.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include <memory>
-#include <vector>
+#include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <shared_mutex>
-#include <functional>
+#include <vector>
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "core/types.h"
 
 namespace gvdb {
 namespace cluster {
@@ -51,20 +51,20 @@ struct ShardInfo {
   std::vector<std::pair<uint64_t, uint64_t>> key_ranges;
 
   ShardInfo()
-    : shard_id(core::kInvalidShardId),
-      primary_node(core::kInvalidNodeId),
-      state(ShardState::ACTIVE),
-      primary_term(0),
-      data_size_bytes(0),
-      vector_count(0),
-      query_count(0) {}
+      : shard_id(core::kInvalidShardId),
+        primary_node(core::kInvalidNodeId),
+        state(ShardState::ACTIVE),
+        primary_term(0),
+        data_size_bytes(0),
+        vector_count(0),
+        query_count(0) {}
 };
 
 // Shard assignment strategy
 enum class ShardingStrategy {
-  HASH,       // Consistent hashing
-  RANGE,      // Range-based partitioning
-  ROUND_ROBIN // Simple round-robin assignment
+  HASH,        // Consistent hashing
+  RANGE,       // Range-based partitioning
+  ROUND_ROBIN  // Simple round-robin assignment
 };
 
 // Shard manager handles shard distribution and rebalancing
@@ -92,8 +92,7 @@ class ShardManager {
     core::NodeId node_id;
     uint64_t term;
   };
-  absl::StatusOr<PrimaryView> GetPrimaryNodeAndTerm(
-      core::ShardId shard_id) const;
+  absl::StatusOr<PrimaryView> GetPrimaryNodeAndTerm(core::ShardId shard_id) const;
 
   absl::StatusOr<std::vector<core::NodeId>> GetReplicaNodes(core::ShardId shard_id) const;
 
@@ -106,8 +105,7 @@ class ShardManager {
   // reject term regressions (writing a term ≤ existing primary_term)
   // — primary_term is monotonic by contract.
   absl::Status SetPrimaryNode(core::ShardId shard_id, core::NodeId node_id);
-  absl::Status SetPrimaryNode(core::ShardId shard_id, core::NodeId node_id,
-                              uint64_t primary_term);
+  absl::Status SetPrimaryNode(core::ShardId shard_id, core::NodeId node_id, uint64_t primary_term);
 
   absl::Status AddReplica(core::ShardId shard_id, core::NodeId node_id);
   absl::Status RemoveReplica(core::ShardId shard_id, core::NodeId node_id);
@@ -135,10 +133,8 @@ class ShardManager {
   size_t GetTotalShards() const { return num_shards_; }
 
   // Update shard metrics (called by nodes)
-  absl::Status UpdateShardMetrics(core::ShardId shard_id,
-                                   size_t data_size,
-                                   size_t vector_count,
-                                   uint64_t query_count);
+  absl::Status UpdateShardMetrics(core::ShardId shard_id, size_t data_size, size_t vector_count,
+                                  uint64_t query_count);
 
  private:
   size_t num_shards_;

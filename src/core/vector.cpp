@@ -18,8 +18,8 @@ namespace core {
 // ============================================================================
 
 template <typename T, size_t Alignment>
-typename AlignedAllocator<T, Alignment>::pointer
-AlignedAllocator<T, Alignment>::allocate(size_type n) {
+typename AlignedAllocator<T, Alignment>::pointer AlignedAllocator<T, Alignment>::allocate(
+    size_type n) {
   if (n == 0) {
     return nullptr;
   }
@@ -67,15 +67,13 @@ template class AlignedAllocator<float, 32>;
 
 Vector::Vector(Dimension dim) : dimension_(dim), data_(dim, 0.0f) {
   if (dim <= 0) {
-    throw std::invalid_argument(
-        absl::StrCat("Vector dimension must be positive, got ", dim));
+    throw std::invalid_argument(absl::StrCat("Vector dimension must be positive, got ", dim));
   }
 }
 
 Vector::Vector(Dimension dim, const float* data) : dimension_(dim), data_(dim) {
   if (dim <= 0) {
-    throw std::invalid_argument(
-        absl::StrCat("Vector dimension must be positive, got ", dim));
+    throw std::invalid_argument(absl::StrCat("Vector dimension must be positive, got ", dim));
   }
   if (!data) {
     throw std::invalid_argument("Data pointer cannot be null");
@@ -105,8 +103,7 @@ Vector& Vector::operator=(Vector&& other) noexcept {
   return *this;
 }
 
-Vector::Vector(const Vector& other)
-    : dimension_(other.dimension_), data_(other.data_) {}
+Vector::Vector(const Vector& other) : dimension_(other.dimension_), data_(other.data_) {}
 
 Vector& Vector::operator=(const Vector& other) {
   if (this != &other) {
@@ -172,9 +169,7 @@ float Vector::CosineDistance(const Vector& other) const {
 // Utility Functions
 // ============================================================================
 
-Vector ZeroVector(Dimension dim) {
-  return Vector(dim);
-}
+Vector ZeroVector(Dimension dim) { return Vector(dim); }
 
 Vector RandomVector(Dimension dim) {
   static std::random_device rd;

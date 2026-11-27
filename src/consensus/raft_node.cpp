@@ -32,8 +32,7 @@ absl::StatusOr<std::unique_ptr<RaftNode>> RaftNode::Create(
 RaftNode::RaftNode(const RaftConfig& config, std::shared_ptr<IRaftPeerClient> peer_client)
     : config_(config), peer_client_(std::move(peer_client)) {
   common::Logger::Instance().Info("RaftNode created (node_id={}, single_node_mode={})",
-                                 config_.node_id,
-                                 config_.single_node_mode);
+                                  config_.node_id, config_.single_node_mode);
 }
 
 RaftNode::~RaftNode() {
@@ -65,10 +64,10 @@ absl::Status RaftNode::Start() {
     // back to initial-bootstrap semantics only: don't enforce.
     if (!config_.coordinator_grpc_peers.empty() &&
         config_.coordinator_grpc_peers.size() != config_.peers.size()) {
-      return absl::InvalidArgumentError(absl::StrCat(
-          "coordinator_grpc_peers size (", config_.coordinator_grpc_peers.size(),
-          ") must match --raft-peers size (", config_.peers.size(),
-          ") for correct leader-redirect indexing"));
+      return absl::InvalidArgumentError(
+          absl::StrCat("coordinator_grpc_peers size (", config_.coordinator_grpc_peers.size(),
+                       ") must match --raft-peers size (", config_.peers.size(),
+                       ") for correct leader-redirect indexing"));
     }
     if (!config_.coordinator_grpc_peers.empty() && !peer_client_) {
       return absl::InvalidArgumentError(
@@ -85,8 +84,7 @@ absl::Status RaftNode::Start() {
     if (!joining_peer_.empty()) {
       auto join_status = AnnounceJoinToCluster();
       if (!join_status.ok()) {
-        common::Logger::Instance().Error(
-            "AnnounceJoinToCluster failed: {}", join_status.message());
+        common::Logger::Instance().Error("AnnounceJoinToCluster failed: {}", join_status.message());
         return join_status;
       }
     }
@@ -130,9 +128,7 @@ absl::Status RaftNode::Shutdown() {
   return absl::OkStatus();
 }
 
-bool RaftNode::IsRunning() const {
-  return running_.load(std::memory_order_acquire);
-}
+bool RaftNode::IsRunning() const { return running_.load(std::memory_order_acquire); }
 
 bool RaftNode::IsLeader() const {
   // Single-node mode: use cached value
@@ -188,34 +184,29 @@ absl::Status MapNuRaftCode(nuraft::cmd_result_code code, const char* op) {
     case cmd_result_code::OK:
       return absl::OkStatus();
     case cmd_result_code::NOT_LEADER:
-      return absl::FailedPreconditionError(
-          absl::StrCat(op, " rejected: not leader"));
+      return absl::FailedPreconditionError(absl::StrCat(op, " rejected: not leader"));
     case cmd_result_code::SERVER_ALREADY_EXISTS:
       // Idempotent outcome: the peer was already a member. Surface as OK
       // so re-entrancy on a retry doesn't break the caller, but log so
       // the swallow is observable (useful diagnostic when operators chase
       // "why did JoinCluster return success but the peer never joined?").
-      common::Logger::Instance().Info(
-          "{} idempotent: peer already present in cluster_config", op);
+      common::Logger::Instance().Info("{} idempotent: peer already present in cluster_config", op);
       return absl::OkStatus();
     case cmd_result_code::SERVER_NOT_FOUND:
       // Same logic: removing a peer that's not there is a no-op, treat OK.
-      common::Logger::Instance().Info(
-          "{} idempotent: peer not present in cluster_config", op);
+      common::Logger::Instance().Info("{} idempotent: peer not present in cluster_config", op);
       return absl::OkStatus();
     case cmd_result_code::CONFIG_CHANGING:
       return absl::UnavailableError(
           absl::StrCat(op, " busy: another membership change in progress"));
     case cmd_result_code::SERVER_IS_JOINING:
-      return absl::UnavailableError(
-          absl::StrCat(op, " busy: peer still catching up"));
+      return absl::UnavailableError(absl::StrCat(op, " busy: peer still catching up"));
     case cmd_result_code::SERVER_IS_LEAVING:
-      return absl::UnavailableError(
-          absl::StrCat(op, " busy: peer is mid-leave"));
+      return absl::UnavailableError(absl::StrCat(op, " busy: peer is mid-leave"));
     case cmd_result_code::CANNOT_REMOVE_LEADER:
-      return absl::FailedPreconditionError(
-          absl::StrCat(op, " rejected: cannot remove current leader; "
-                           "transfer leadership first"));
+      return absl::FailedPreconditionError(absl::StrCat(op,
+                                                        " rejected: cannot remove current leader; "
+                                                        "transfer leadership first"));
     case cmd_result_code::TIMEOUT:
       return absl::DeadlineExceededError(absl::StrCat(op, " timed out"));
     case cmd_result_code::CANCELLED:
@@ -223,12 +214,10 @@ absl::Status MapNuRaftCode(nuraft::cmd_result_code code, const char* op) {
     case cmd_result_code::BAD_REQUEST:
       return absl::InvalidArgumentError(absl::StrCat(op, " bad request"));
     case cmd_result_code::TERM_MISMATCH:
-      return absl::FailedPreconditionError(
-          absl::StrCat(op, " term mismatch; retry"));
+      return absl::FailedPreconditionError(absl::StrCat(op, " term mismatch; retry"));
     default:
       return absl::InternalError(
-          absl::StrCat(op, " failed with NuRaft code ",
-                       static_cast<int>(code)));
+          absl::StrCat(op, " failed with NuRaft code ", static_cast<int>(code)));
   }
 }
 
@@ -236,8 +225,7 @@ absl::Status MapNuRaftCode(nuraft::cmd_result_code code, const char* op) {
 
 absl::Status RaftNode::AddPeer(int32_t node_id, const std::string& raft_endpoint) {
   if (config_.single_node_mode) {
-    return absl::FailedPreconditionError(
-        "AddPeer not supported in single-node mode");
+    return absl::FailedPreconditionError("AddPeer not supported in single-node mode");
   }
   if (!raft_server_) {
     return absl::FailedPreconditionError("RaftNode not initialized");
@@ -246,13 +234,12 @@ absl::Status RaftNode::AddPeer(int32_t node_id, const std::string& raft_endpoint
   // checking here lets us surface a clearer error to the RPC caller
   // (JoinCluster handler populates current_leader_id from this path).
   if (!raft_server_->is_leader()) {
-    return absl::FailedPreconditionError(
-        absl::StrCat("AddPeer rejected: not leader (current leader=",
-                     raft_server_->get_leader(), ")"));
+    return absl::FailedPreconditionError(absl::StrCat(
+        "AddPeer rejected: not leader (current leader=", raft_server_->get_leader(), ")"));
   }
 
-  common::Logger::Instance().Info(
-      "RaftNode::AddPeer node_id={} endpoint={}", node_id, raft_endpoint);
+  common::Logger::Instance().Info("RaftNode::AddPeer node_id={} endpoint={}", node_id,
+                                  raft_endpoint);
 
   nuraft::srv_config new_srv(node_id, raft_endpoint);
   auto result = raft_server_->add_srv(new_srv);
@@ -269,16 +256,14 @@ absl::Status RaftNode::AddPeer(int32_t node_id, const std::string& raft_endpoint
 
 absl::Status RaftNode::RemovePeer(int32_t node_id) {
   if (config_.single_node_mode) {
-    return absl::FailedPreconditionError(
-        "RemovePeer not supported in single-node mode");
+    return absl::FailedPreconditionError("RemovePeer not supported in single-node mode");
   }
   if (!raft_server_) {
     return absl::FailedPreconditionError("RaftNode not initialized");
   }
   if (!raft_server_->is_leader()) {
-    return absl::FailedPreconditionError(
-        absl::StrCat("RemovePeer rejected: not leader (current leader=",
-                     raft_server_->get_leader(), ")"));
+    return absl::FailedPreconditionError(absl::StrCat(
+        "RemovePeer rejected: not leader (current leader=", raft_server_->get_leader(), ")"));
   }
 
   common::Logger::Instance().Info("RaftNode::RemovePeer node_id={}", node_id);
@@ -294,11 +279,10 @@ absl::Status RaftNode::RemovePeer(int32_t node_id) {
 std::vector<RaftNode::RaftMemberInfo> RaftNode::GetClusterMembership() const {
   std::vector<RaftMemberInfo> out;
   if (config_.single_node_mode) {
-    out.push_back({config_.node_id,
-                   config_.advertise_address.empty()
-                       ? config_.listen_address
-                       : config_.advertise_address,
-                   /*is_learner=*/false});
+    out.push_back(
+        {config_.node_id,
+         config_.advertise_address.empty() ? config_.listen_address : config_.advertise_address,
+         /*is_learner=*/false});
     return out;
   }
   if (!raft_server_) return out;
@@ -308,25 +292,21 @@ std::vector<RaftNode::RaftMemberInfo> RaftNode::GetClusterMembership() const {
 
   for (const auto& srv : cfg->get_servers()) {
     if (!srv) continue;
-    out.push_back({static_cast<int32_t>(srv->get_id()),
-                   srv->get_endpoint(),
-                   srv->is_learner()});
+    out.push_back({static_cast<int32_t>(srv->get_id()), srv->get_endpoint(), srv->is_learner()});
   }
   return out;
 }
 
 absl::Status RaftNode::YieldLeadership(int32_t target_node_id) {
   if (config_.single_node_mode) {
-    return absl::FailedPreconditionError(
-        "YieldLeadership not supported in single-node mode");
+    return absl::FailedPreconditionError("YieldLeadership not supported in single-node mode");
   }
   if (!raft_server_) {
     return absl::FailedPreconditionError("RaftNode not initialized");
   }
   if (!raft_server_->is_leader()) {
-    return absl::FailedPreconditionError(
-        absl::StrCat("YieldLeadership rejected: not leader (current leader=",
-                     raft_server_->get_leader(), ")"));
+    return absl::FailedPreconditionError(absl::StrCat(
+        "YieldLeadership rejected: not leader (current leader=", raft_server_->get_leader(), ")"));
   }
   if (target_node_id == config_.node_id) {
     // No-op: we're already the leader. NuRaft would silently ignore a
@@ -335,9 +315,8 @@ absl::Status RaftNode::YieldLeadership(int32_t target_node_id) {
     return absl::OkStatus();
   }
 
-  common::Logger::Instance().Info(
-      "RaftNode::YieldLeadership target_node_id={} (current leader={})",
-      target_node_id, raft_server_->get_leader());
+  common::Logger::Instance().Info("RaftNode::YieldLeadership target_node_id={} (current leader={})",
+                                  target_node_id, raft_server_->get_leader());
 
   // Kick off the transfer. NuRaft's yield_leadership returns void; we
   // synthesize success by polling get_leader() with a bounded deadline.
@@ -351,16 +330,14 @@ absl::Status RaftNode::YieldLeadership(int32_t target_node_id) {
   const auto deadline = std::chrono::steady_clock::now() + kTransferTimeout;
   while (std::chrono::steady_clock::now() < deadline) {
     if (raft_server_->get_leader() == target_node_id) {
-      common::Logger::Instance().Info(
-          "YieldLeadership: target {} is now leader", target_node_id);
+      common::Logger::Instance().Info("YieldLeadership: target {} is now leader", target_node_id);
       return absl::OkStatus();
     }
     std::this_thread::sleep_for(kPollInterval);
   }
   return absl::DeadlineExceededError(absl::StrCat(
-      "YieldLeadership: target ", target_node_id,
-      " did not become leader within ", kTransferTimeout.count(),
-      "s (current leader=", raft_server_->get_leader(), ")"));
+      "YieldLeadership: target ", target_node_id, " did not become leader within ",
+      kTransferTimeout.count(), "s (current leader=", raft_server_->get_leader(), ")"));
 }
 
 absl::Status RaftNode::InitializeNuRaft() {
@@ -376,9 +353,8 @@ absl::Status RaftNode::InitializeNuRaft() {
   // The NuRaft srv_config endpoint is what peers use to connect to us:
   // prefer the explicit advertise_address (K8s FQDN) and fall back to
   // listen_address for single-node / backward-compat paths.
-  const std::string& advertise = config_.advertise_address.empty()
-      ? config_.listen_address
-      : config_.advertise_address;
+  const std::string& advertise =
+      config_.advertise_address.empty() ? config_.listen_address : config_.advertise_address;
 
   // Persistent log+state so Raft survives coordinator restart (required for HA).
   const std::filesystem::path raft_dir(config_.data_dir);
@@ -399,8 +375,7 @@ absl::Status RaftNode::InitializeNuRaft() {
   // clobbering runtime membership changes.
   if (!config_.peers.empty()) {
     auto existing = state_mgr_->load_config();
-    auto plan = PrepareRaftPeerList(config_.node_id, config_.peers,
-                                    existing->get_servers().size());
+    auto plan = PrepareRaftPeerList(config_.node_id, config_.peers, existing->get_servers().size());
     if (!plan.ok()) return plan.status();
 
     if (plan->needs_seed) {
@@ -434,9 +409,8 @@ absl::Status RaftNode::InitializeNuRaft() {
             existing->get_servers().size());
       }
     } else {
-      common::Logger::Instance().Info(
-          "Using persisted cluster_config with {} server(s)",
-          existing->get_servers().size());
+      common::Logger::Instance().Info("Using persisted cluster_config with {} server(s)",
+                                      existing->get_servers().size());
     }
   }
 
@@ -444,9 +418,8 @@ absl::Status RaftNode::InitializeNuRaft() {
   // Format: "host:port" -> extract port number
   size_t colon_pos = config_.listen_address.find(':');
   if (colon_pos == std::string::npos) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Invalid listen_address format (expected 'host:port'): ",
-                     config_.listen_address));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "Invalid listen_address format (expected 'host:port'): ", config_.listen_address));
   }
 
   std::string port_str = config_.listen_address.substr(colon_pos + 1);
@@ -460,12 +433,12 @@ absl::Status RaftNode::InitializeNuRaft() {
 
   // Create Raft parameters
   nuraft::raft_params params;
-  params.heart_beat_interval_ = 100;           // 100ms heartbeat
-  params.election_timeout_lower_bound_ = 200;  // 200ms min election timeout
-  params.election_timeout_upper_bound_ = 400;  // 400ms max election timeout
-  params.reserved_log_items_ = 10000;          // Keep 10k log entries before snapshot
-  params.snapshot_distance_ = 5000;            // Create snapshot every 5k operations
-  params.client_req_timeout_ = 3000;           // 3s timeout for client requests
+  params.heart_beat_interval_ = 100;                      // 100ms heartbeat
+  params.election_timeout_lower_bound_ = 200;             // 200ms min election timeout
+  params.election_timeout_upper_bound_ = 400;             // 400ms max election timeout
+  params.reserved_log_items_ = 10000;                     // Keep 10k log entries before snapshot
+  params.snapshot_distance_ = 5000;                       // Create snapshot every 5k operations
+  params.client_req_timeout_ = 3000;                      // 3s timeout for client requests
   params.return_method_ = nuraft::raft_params::blocking;  // Blocking mode for simplicity
 
   // Initialize Raft launcher
@@ -478,23 +451,15 @@ absl::Status RaftNode::InitializeNuRaft() {
   init_opts.skip_initial_election_timeout_ = false;  // Participate in election immediately
   init_opts.start_server_in_constructor_ = true;
 
-  raft_server_ = launcher_->init(
-      state_machine_,
-      state_mgr_,
-      nuraft_logger_,
-      port,
-      asio_opts,
-      params,
-      init_opts);
+  raft_server_ = launcher_->init(state_machine_, state_mgr_, nuraft_logger_, port, asio_opts,
+                                 params, init_opts);
 
   if (!raft_server_) {
     return absl::InternalError("Failed to initialize NuRaft launcher (returned null server)");
   }
 
-  common::Logger::Instance().Info(
-      "NuRaft initialized successfully (node_id={}, endpoint={})",
-      config_.node_id,
-      config_.listen_address);
+  common::Logger::Instance().Info("NuRaft initialized successfully (node_id={}, endpoint={})",
+                                  config_.node_id, config_.listen_address);
 
   // Note: Leader election will happen asynchronously
   // Use IsLeader() to check leadership status

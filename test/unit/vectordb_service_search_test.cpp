@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "compute/query_cache.h"
 #include "compute/query_executor.h"
 #include "core/types.h"
 #include "index/index_factory.h"
@@ -22,7 +23,6 @@
 #include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 #include "support/vectors.h"
-#include "compute/query_cache.h"
 
 using namespace gvdb;
 
@@ -64,8 +64,7 @@ void SetSparse(const std::vector<uint32_t>& indices, const std::vector<float>& v
   for (auto v : values) out->add_values(v);
 }
 
-void SetStringField(proto::Metadata* metadata, const std::string& key,
-                    const std::string& value) {
+void SetStringField(proto::Metadata* metadata, const std::string& key, const std::string& value) {
   (*metadata->mutable_fields())[key].set_string_value(value);
 }
 
@@ -105,7 +104,8 @@ double ReferenceDistance(proto::CreateCollectionRequest::MetricType metric,
   }
 }
 
-std::vector<uint64_t> Ids(const google::protobuf::RepeatedPtrField<proto::SearchResultEntry>& results) {
+std::vector<uint64_t> Ids(
+    const google::protobuf::RepeatedPtrField<proto::SearchResultEntry>& results) {
   std::vector<uint64_t> ids;
   for (const auto& r : results) ids.push_back(r.id());
   return ids;
@@ -127,9 +127,7 @@ void CheckDistancesNonDecreasing(const Results& results) {
 }
 
 // The values of a core::Vector as a plain float vector.
-std::vector<float> ToFloats(const core::Vector& v) {
-  return {v.data(), v.data() + v.dimension()};
-}
+std::vector<float> ToFloats(const core::Vector& v) { return {v.data(), v.data() + v.dimension()}; }
 
 }  // namespace
 
@@ -141,14 +139,14 @@ class SearchServiceTest {
  public:
   explicit SearchServiceTest(std::shared_ptr<compute::QueryCache> cache = nullptr) {
     index_factory_ = std::make_unique<index::IndexFactory>();
-    segment_store_ = std::make_shared<storage::SegmentManager>(
-        test_dir_.str(), index_factory_.get());
-    query_executor_ = std::make_shared<compute::QueryExecutor>(
-        *segment_store_, nullptr, std::move(cache));
+    segment_store_ =
+        std::make_shared<storage::SegmentManager>(test_dir_.str(), index_factory_.get());
+    query_executor_ =
+        std::make_shared<compute::QueryExecutor>(*segment_store_, nullptr, std::move(cache));
 
     auto resolver = service::MakeLocalResolver(segment_store_);
-    service_ = std::make_unique<service::VectorDBService>(
-        segment_store_, query_executor_, std::move(resolver));
+    service_ = std::make_unique<service::VectorDBService>(segment_store_, query_executor_,
+                                                          std::move(resolver));
   }
 
   ~SearchServiceTest() {
@@ -163,8 +161,7 @@ class SearchServiceTest {
   uint32_t CreateCollection(
       const std::string& name, uint32_t dimension,
       proto::CreateCollectionRequest::MetricType metric = proto::CreateCollectionRequest::L2,
-      proto::CreateCollectionRequest::IndexType index_type =
-          proto::CreateCollectionRequest::FLAT) {
+      proto::CreateCollectionRequest::IndexType index_type = proto::CreateCollectionRequest::FLAT) {
     grpc::ServerContext context;
     proto::CreateCollectionRequest request;
     request.set_collection_name(name);
@@ -184,8 +181,7 @@ class SearchServiceTest {
     return service_->ListCollections(&context, &request, response);
   }
 
-  grpc::Status Insert(const proto::InsertRequest& request,
-                      proto::InsertResponse* response) {
+  grpc::Status Insert(const proto::InsertRequest& request, proto::InsertResponse* response) {
     grpc::ServerContext context;
     return service_->Insert(&context, &request, response);
   }
@@ -223,8 +219,7 @@ class SearchServiceTest {
     return service_->HybridSearch(&context, &request, response);
   }
 
-  grpc::Status Search(const proto::SearchRequest& request,
-                      proto::SearchResponse* response) {
+  grpc::Status Search(const proto::SearchRequest& request, proto::SearchResponse* response) {
     grpc::ServerContext context;
     return service_->Search(&context, &request, response);
   }
@@ -279,8 +274,7 @@ class RangeSearchTest : public SearchServiceTest {
   }
 
   // All points sorted by exact distance to the query.
-  std::vector<std::pair<double, uint64_t>> SortedByDistance(
-      const std::vector<float>& query) const {
+  std::vector<std::pair<double, uint64_t>> SortedByDistance(const std::vector<float>& query) const {
     std::vector<std::pair<double, uint64_t>> out;
     for (const auto& [id, values] : points_) out.emplace_back(Distance(query, values), id);
     std::sort(out.begin(), out.end());
@@ -343,11 +337,9 @@ TEST_CASE_FIXTURE(RangeSearchTest, "RangeSearchReturnsExactlyThePointsInsideTheR
   for (const auto& r : response.results()) {
     got.insert(r.id());
     CHECK(r.distance() <= radius);
-    CHECK(r.distance() ==
-          doctest::Approx(L2(query, points_.at(r.id()))).epsilon(1e-4));
+    CHECK(r.distance() == doctest::Approx(L2(query, points_.at(r.id()))).epsilon(1e-4));
     REQUIRE(r.has_metadata());
-    CHECK_EQ(r.metadata().fields().at("name").string_value(),
-             "v" + std::to_string(r.id()));
+    CHECK_EQ(r.metadata().fields().at("name").string_value(), "v" + std::to_string(r.id()));
   }
   CHECK_EQ(got, expected);
   CheckDistancesNonDecreasing(response.results());
@@ -368,8 +360,7 @@ TEST_CASE_FIXTURE(RangeSearchTest, "RangeSearchFromAnOffCollectionQuery") {
 
   REQUIRE_EQ(response.results_size(), 35);
   CHECK_EQ(response.results(0).id(), sorted[0].second);
-  CHECK(response.results(0).distance() ==
-        doctest::Approx(sorted[0].first).epsilon(1e-4));
+  CHECK(response.results(0).distance() == doctest::Approx(sorted[0].first).epsilon(1e-4));
 
   std::set<uint64_t> expected;
   for (size_t i = 0; i < 35; ++i) expected.insert(sorted[i].second);
@@ -492,46 +483,40 @@ TEST_CASE_FIXTURE(RangeSearchTest, "RangeSearchArgumentErrors") {
     auto request = MakeRequest(query, 1.0f);
     request.clear_collection_name();
     proto::RangeSearchResponse response;
-    CHECK_EQ(RangeSearch(request, &response).error_code(),
-             grpc::StatusCode::INVALID_ARGUMENT);
+    CHECK_EQ(RangeSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   }
 
   SUBCASE("missing query vector") {
     auto request = MakeRequest(query, 1.0f);
     request.clear_query_vector();
     proto::RangeSearchResponse response;
-    CHECK_EQ(RangeSearch(request, &response).error_code(),
-             grpc::StatusCode::INVALID_ARGUMENT);
+    CHECK_EQ(RangeSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   }
 
   SUBCASE("zero radius") {
     auto request = MakeRequest(query, 0.0f);
     proto::RangeSearchResponse response;
-    CHECK_EQ(RangeSearch(request, &response).error_code(),
-             grpc::StatusCode::INVALID_ARGUMENT);
+    CHECK_EQ(RangeSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   }
 
   SUBCASE("negative radius") {
     auto request = MakeRequest(query, -1.0f);
     proto::RangeSearchResponse response;
-    CHECK_EQ(RangeSearch(request, &response).error_code(),
-             grpc::StatusCode::INVALID_ARGUMENT);
+    CHECK_EQ(RangeSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   }
 
   SUBCASE("query vector whose dimension field disagrees with its values") {
     auto request = MakeRequest(query, 1.0f);
     request.mutable_query_vector()->set_dimension(kDim + 1);
     proto::RangeSearchResponse response;
-    CHECK_EQ(RangeSearch(request, &response).error_code(),
-             grpc::StatusCode::INVALID_ARGUMENT);
+    CHECK_EQ(RangeSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   }
 
   SUBCASE("unknown collection") {
     auto request = MakeRequest(query, 1.0f);
     request.set_collection_name("no_such_collection");
     proto::RangeSearchResponse response;
-    CHECK_EQ(RangeSearch(request, &response).error_code(),
-             grpc::StatusCode::NOT_FOUND);
+    CHECK_EQ(RangeSearch(request, &response).error_code(), grpc::StatusCode::NOT_FOUND);
   }
 }
 
@@ -539,7 +524,8 @@ TEST_CASE_FIXTURE(RangeSearchTest, "RangeSearchArgumentErrors") {
 // RangeSearch (FLAT, COSINE)
 // ============================================================================
 
-TEST_CASE_FIXTURE(CosineRangeSearchTest, "CosineRangeSearchReturnsExactlyThePointsInsideTheRadius") {
+TEST_CASE_FIXTURE(CosineRangeSearchTest,
+                  "CosineRangeSearchReturnsExactlyThePointsInsideTheRadius") {
   // The result set, order and distances (1 - cos) match a brute-force scan.
   auto check = [this](const std::vector<float>& query, size_t n) {
     const float radius = RadiusCovering(query, n);
@@ -564,8 +550,7 @@ TEST_CASE_FIXTURE(CosineRangeSearchTest, "CosineRangeSearchReturnsExactlyThePoin
       CHECK(r.distance() ==
             doctest::Approx(CosineDistance(query, points_.at(r.id()))).epsilon(1e-4));
       REQUIRE(r.has_metadata());
-      CHECK_EQ(r.metadata().fields().at("name").string_value(),
-               "v" + std::to_string(r.id()));
+      CHECK_EQ(r.metadata().fields().at("name").string_value(), "v" + std::to_string(r.id()));
     }
     CHECK_EQ(got, expected);
     CheckDistancesNonDecreasing(response.results());
@@ -767,10 +752,8 @@ TEST_CASE_FIXTURE(HybridSearchTest, "HybridSearchVectorOnly") {
   CHECK_EQ(search_response.results(0).id(), 1);
   CHECK_EQ(search_response.results(1).id(), 5);
   CHECK(search_response.results(0).distance() == doctest::Approx(0.0f));
-  CHECK(search_response.results(1).distance() ==
-        doctest::Approx(std::sqrt(0.02f)).epsilon(1e-4));
-  CHECK(search_response.results(2).distance() ==
-        doctest::Approx(std::sqrt(2.0f)).epsilon(1e-4));
+  CHECK(search_response.results(1).distance() == doctest::Approx(std::sqrt(0.02f)).epsilon(1e-4));
+  CHECK(search_response.results(2).distance() == doctest::Approx(std::sqrt(2.0f)).epsilon(1e-4));
 }
 
 TEST_CASE_FIXTURE(HybridSearchTest, "HybridSearchWeightsDecideBetweenSignals") {
@@ -829,8 +812,7 @@ TEST_CASE_FIXTURE(HybridSearchTest, "HybridSearchArgumentErrors") {
     auto request = MakeRequest();
     request.set_top_k(5);
     proto::HybridSearchResponse response;
-    CHECK_EQ(HybridSearch(request, &response).error_code(),
-             grpc::StatusCode::INVALID_ARGUMENT);
+    CHECK_EQ(HybridSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   }
 
   SUBCASE("unknown collection") {
@@ -839,8 +821,7 @@ TEST_CASE_FIXTURE(HybridSearchTest, "HybridSearchArgumentErrors") {
     request.set_text_query("running");
     request.set_top_k(5);
     proto::HybridSearchResponse response;
-    CHECK_EQ(HybridSearch(request, &response).error_code(),
-             grpc::StatusCode::NOT_FOUND);
+    CHECK_EQ(HybridSearch(request, &response).error_code(), grpc::StatusCode::NOT_FOUND);
   }
 
   SUBCASE("empty collection name") {
@@ -858,8 +839,7 @@ TEST_CASE_FIXTURE(HybridSearchTest, "HybridSearchArgumentErrors") {
     request.mutable_query_vector()->set_dimension(4);
     request.set_top_k(5);
     proto::HybridSearchResponse response;
-    CHECK_EQ(HybridSearch(request, &response).error_code(),
-             grpc::StatusCode::INVALID_ARGUMENT);
+    CHECK_EQ(HybridSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   }
 
   SUBCASE("sparse query with mismatched indices and values") {
@@ -870,8 +850,7 @@ TEST_CASE_FIXTURE(HybridSearchTest, "HybridSearchArgumentErrors") {
     request.set_sparse_weight(1.0f);
     request.set_top_k(5);
     proto::HybridSearchResponse response;
-    CHECK_EQ(HybridSearch(request, &response).error_code(),
-             grpc::StatusCode::INVALID_ARGUMENT);
+    CHECK_EQ(HybridSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   }
 
   SUBCASE("sparse query with unsorted indices") {
@@ -880,8 +859,7 @@ TEST_CASE_FIXTURE(HybridSearchTest, "HybridSearchArgumentErrors") {
     request.set_sparse_weight(1.0f);
     request.set_top_k(5);
     proto::HybridSearchResponse response;
-    CHECK_EQ(HybridSearch(request, &response).error_code(),
-             grpc::StatusCode::INVALID_ARGUMENT);
+    CHECK_EQ(HybridSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   }
 }
 
@@ -899,8 +877,7 @@ class SparseSearchTest : public SearchServiceTest {
   }
 
   proto::HybridSearchRequest SparseOnly(const std::vector<uint32_t>& indices,
-                                        const std::vector<float>& values,
-                                        uint32_t top_k) const {
+                                        const std::vector<float>& values, uint32_t top_k) const {
     proto::HybridSearchRequest request;
     request.set_collection_name(kCollection);
     SetSparse(indices, values, request.mutable_sparse_query());
@@ -959,8 +936,8 @@ TEST_CASE_FIXTURE(SearchServiceTest, "SparseSearchOrderOnALargerCorpus") {
     SetProtoVector({f, -f, 0.5f * f, 1.0f}, v->mutable_vector());
     SetStringField(v->mutable_metadata(), "name", "d" + std::to_string(id));
     if (id <= 60) {
-      SetSparse({0, static_cast<uint32_t>(100 + id)},
-                {0.01f * static_cast<float>(id), 1.0f}, v->mutable_sparse_vector());
+      SetSparse({0, static_cast<uint32_t>(100 + id)}, {0.01f * static_cast<float>(id), 1.0f},
+                v->mutable_sparse_vector());
     }
   }
   proto::InsertResponse insert_response;
@@ -1201,8 +1178,7 @@ class SearchFilterTest : public SearchServiceTest {
     CHECK_EQ(std::set<uint64_t>(ids.begin(), ids.end()), expected);
     for (const auto& r : response.results()) {
       REQUIRE(products_.count(r.id()) == 1);
-      CHECK(r.distance() ==
-            doctest::Approx(L2(kQuery, products_.at(r.id()).vector)).epsilon(1e-4));
+      CHECK(r.distance() == doctest::Approx(L2(kQuery, products_.at(r.id()).vector)).epsilon(1e-4));
     }
     return response;
   }
@@ -1237,27 +1213,24 @@ class SearchFilterTest : public SearchServiceTest {
     CHECK_EQ(in_stock.bool_value(), p.in_stock);
   }
 
-  static inline const std::vector<float> kQuery = {0.3f, -0.1f, 0.2f, 0.0f,
-                                                   -0.4f, 0.1f, 0.25f, -0.2f};
+  static inline const std::vector<float> kQuery = {0.3f,  -0.1f, 0.2f,  0.0f,
+                                                   -0.4f, 0.1f,  0.25f, -0.2f};
   std::unordered_map<uint64_t, Product> products_;
 };
 
 TEST_CASE_FIXTURE(SearchFilterTest, "SearchFilterReturnsExactlyTheMatchingRows") {
   SUBCASE("int64 comparison AND string equality") {
-    const auto expected = Matching([](const Product& p) {
-      return p.price < 150 && p.brand == "Nike";
-    });
+    const auto expected =
+        Matching([](const Product& p) { return p.price < 150 && p.brand == "Nike"; });
     auto response = SearchExpecting("price < 150 AND brand = 'Nike'", true, expected);
     for (const auto& r : response.results()) CheckMetadata(r);
   }
 
   SUBCASE("nested AND and OR with bool and double comparisons") {
-    const auto nike = Matching([](const Product& p) {
-      return p.in_stock && p.brand == "Nike" && p.price < 100;
-    });
-    const auto adidas = Matching([](const Product& p) {
-      return p.in_stock && p.brand == "Adidas" && p.rating > 4.0;
-    });
+    const auto nike =
+        Matching([](const Product& p) { return p.in_stock && p.brand == "Nike" && p.price < 100; });
+    const auto adidas = Matching(
+        [](const Product& p) { return p.in_stock && p.brand == "Adidas" && p.rating > 4.0; });
     // Each OR branch matches rows, and the bool term removes some rows that
     // would match a branch without it.
     REQUIRE_FALSE(nike.empty());
@@ -1277,17 +1250,14 @@ TEST_CASE_FIXTURE(SearchFilterTest, "SearchFilterReturnsExactlyTheMatchingRows")
   }
 
   SUBCASE("LIKE with a leading wildcard") {
-    const auto expected = Matching([](const Product& p) {
-      return p.category.ends_with("ing");
-    });
+    const auto expected = Matching([](const Product& p) { return p.category.ends_with("ing"); });
     auto response = SearchExpecting("category LIKE '%ing'", true, expected);
     for (const auto& r : response.results()) CheckMetadata(r);
   }
 
   SUBCASE("IN list") {
-    const auto expected = Matching([](const Product& p) {
-      return p.brand == "Nike" || p.brand == "Adidas";
-    });
+    const auto expected =
+        Matching([](const Product& p) { return p.brand == "Nike" || p.brand == "Adidas"; });
     auto response = SearchExpecting("brand IN ('Nike', 'Adidas')", true, expected);
     for (const auto& r : response.results()) CheckMetadata(r);
   }
@@ -1333,8 +1303,7 @@ std::unordered_map<uint64_t, std::vector<float>> MatrixPoints(uint32_t dimension
 
   // Ids 4 to count, seeded with the dimension.
   const auto random = test::RandomVectors(static_cast<size_t>(count - 3),
-                                          static_cast<core::Dimension>(dimension),
-                                          dimension);
+                                          static_cast<core::Dimension>(dimension), dimension);
   for (int i = 4; i <= count; ++i) {
     std::vector<float> values = ToFloats(random[static_cast<size_t>(i - 4)]);
     values[0] = -std::fabs(values[0]);
@@ -1359,10 +1328,10 @@ TEST_CASE_FIXTURE(SearchServiceTest, "EveryIndexTypeAndMetricCreatesInsertsAndSe
   const std::vector<Case> cases = {
       {"auto_l2", Req::AUTO, core::IndexType::AUTO, Req::L2, "L2", 8, 1},
       {"hnsw_cosine", Req::HNSW, core::IndexType::HNSW, Req::COSINE, "COSINE", 12, 2},
-      {"ivf_turboquant_cosine", Req::IVF_TURBOQUANT, core::IndexType::IVF_TURBOQUANT,
-       Req::COSINE, "COSINE", 16, 2},
-      {"ivf_pq_ip", Req::IVF_PQ, core::IndexType::IVF_PQ, Req::INNER_PRODUCT,
-       "INNER_PRODUCT", 16, 3},
+      {"ivf_turboquant_cosine", Req::IVF_TURBOQUANT, core::IndexType::IVF_TURBOQUANT, Req::COSINE,
+       "COSINE", 16, 2},
+      {"ivf_pq_ip", Req::IVF_PQ, core::IndexType::IVF_PQ, Req::INNER_PRODUCT, "INNER_PRODUCT", 16,
+       3},
       {"ivf_sq_l2", Req::IVF_SQ, core::IndexType::IVF_SQ, Req::L2, "L2", 10, 1},
       {"ivf_flat_l2", Req::IVF_FLAT, core::IndexType::IVF_FLAT, Req::L2, "L2", 6, 1},
       {"flat_cosine", Req::FLAT, core::IndexType::FLAT, Req::COSINE, "COSINE", 8, 2},
@@ -1409,10 +1378,9 @@ TEST_CASE_FIXTURE(SearchServiceTest, "EveryIndexTypeAndMetricCreatesInsertsAndSe
   REQUIRE_EQ(static_cast<size_t>(list.collections_size()), cases.size());
   for (const auto& c : cases) {
     CAPTURE(c.name);
-    const auto it = std::find_if(list.collections().begin(), list.collections().end(),
-                                 [&c](const proto::CollectionInfo& info) {
-                                   return info.collection_name() == c.name;
-                                 });
+    const auto it = std::find_if(
+        list.collections().begin(), list.collections().end(),
+        [&c](const proto::CollectionInfo& info) { return info.collection_name() == c.name; });
     REQUIRE(it != list.collections().end());
     CHECK_EQ(it->dimension(), c.dimension);
     CHECK_EQ(it->metric_type(), c.metric_name);

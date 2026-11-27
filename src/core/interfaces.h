@@ -28,14 +28,14 @@ class IVectorIndex {
 
   // Build index from a batch of vectors
   [[nodiscard]] virtual absl::Status Build(const std::vector<Vector>& vectors,
-                                       const std::vector<VectorId>& ids) = 0;
+                                           const std::vector<VectorId>& ids) = 0;
 
   // Add a single vector to the index
   [[nodiscard]] virtual absl::Status Add(const Vector& vector, VectorId id) = 0;
 
   // Add multiple vectors to the index (batch operation)
   [[nodiscard]] virtual absl::Status AddBatch(const std::vector<Vector>& vectors,
-                                         const std::vector<VectorId>& ids) = 0;
+                                              const std::vector<VectorId>& ids) = 0;
 
   // Remove a vector from the index
   [[nodiscard]] virtual absl::Status Remove(VectorId id) = 0;
@@ -43,12 +43,11 @@ class IVectorIndex {
   // Search operations
 
   // Search for k nearest neighbors
-  [[nodiscard]] virtual absl::StatusOr<SearchResult> Search(
-      const Vector& query, int k) = 0;
+  [[nodiscard]] virtual absl::StatusOr<SearchResult> Search(const Vector& query, int k) = 0;
 
   // Range search: find all vectors within a radius
-  [[nodiscard]] virtual absl::StatusOr<SearchResult> SearchRange(
-      const Vector& query, float radius) = 0;
+  [[nodiscard]] virtual absl::StatusOr<SearchResult> SearchRange(const Vector& query,
+                                                                 float radius) = 0;
 
   // Batch search: multiple queries at once
   [[nodiscard]] virtual absl::StatusOr<std::vector<SearchResult>> SearchBatch(
@@ -100,4 +99,3 @@ class IIndexFactory {
 
 }  // namespace core
 }  // namespace gvdb
-

@@ -18,52 +18,54 @@ namespace storage {
 // ============================================================================
 
 std::string ScalarIndex::ValueToKey(const core::MetadataValue& value) {
-  return std::visit([](const auto& v) -> std::string {
-    using T = std::decay_t<decltype(v)>;
-    if constexpr (std::is_same_v<T, int64_t>) {
-      return "i:" + std::to_string(v);
-    } else if constexpr (std::is_same_v<T, double>) {
-      return "d:" + std::to_string(v);
-    } else if constexpr (std::is_same_v<T, std::string>) {
-      return "s:" + v;
-    } else if constexpr (std::is_same_v<T, bool>) {
-      return v ? "b:1" : "b:0";
-    }
-    return "";
-  }, value);
+  return std::visit(
+      [](const auto& v) -> std::string {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, int64_t>) {
+          return "i:" + std::to_string(v);
+        } else if constexpr (std::is_same_v<T, double>) {
+          return "d:" + std::to_string(v);
+        } else if constexpr (std::is_same_v<T, std::string>) {
+          return "s:" + v;
+        } else if constexpr (std::is_same_v<T, bool>) {
+          return v ? "b:1" : "b:0";
+        }
+        return "";
+      },
+      value);
 }
 
 std::string ScalarIndex::ValueToSortKey(const core::MetadataValue& value) {
-  return std::visit([](const auto& v) -> std::string {
-    using T = std::decay_t<decltype(v)>;
-    if constexpr (std::is_same_v<T, int64_t>) {
-      // Encode int64_t as a fixed-width string that sorts lexicographically
-      // Flip sign bit so negative numbers sort before positive
-      uint64_t encoded = static_cast<uint64_t>(v) ^ (1ULL << 63);
-      char buf[17];
-      snprintf(buf, sizeof(buf), "%016llx",
-               static_cast<unsigned long long>(encoded));
-      return std::string("i:") + buf;
-    } else if constexpr (std::is_same_v<T, double>) {
-      // IEEE 754 double to sortable bytes
-      uint64_t bits;
-      std::memcpy(&bits, &v, sizeof(bits));
-      if (bits & (1ULL << 63)) {
-        bits = ~bits;  // Negative: flip all bits
-      } else {
-        bits ^= (1ULL << 63);  // Positive: flip sign bit
-      }
-      char buf[17];
-      snprintf(buf, sizeof(buf), "%016llx",
-               static_cast<unsigned long long>(bits));
-      return std::string("d:") + buf;
-    } else if constexpr (std::is_same_v<T, std::string>) {
-      return "s:" + v;
-    } else if constexpr (std::is_same_v<T, bool>) {
-      return v ? "b:1" : "b:0";
-    }
-    return "";
-  }, value);
+  return std::visit(
+      [](const auto& v) -> std::string {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, int64_t>) {
+          // Encode int64_t as a fixed-width string that sorts lexicographically
+          // Flip sign bit so negative numbers sort before positive
+          uint64_t encoded = static_cast<uint64_t>(v) ^ (1ULL << 63);
+          char buf[17];
+          snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(encoded));
+          return std::string("i:") + buf;
+        } else if constexpr (std::is_same_v<T, double>) {
+          // IEEE 754 double to sortable bytes
+          uint64_t bits;
+          std::memcpy(&bits, &v, sizeof(bits));
+          if (bits & (1ULL << 63)) {
+            bits = ~bits;  // Negative: flip all bits
+          } else {
+            bits ^= (1ULL << 63);  // Positive: flip sign bit
+          }
+          char buf[17];
+          snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(bits));
+          return std::string("d:") + buf;
+        } else if constexpr (std::is_same_v<T, std::string>) {
+          return "s:" + v;
+        } else if constexpr (std::is_same_v<T, bool>) {
+          return v ? "b:1" : "b:0";
+        }
+        return "";
+      },
+      value);
 }
 
 void ScalarIndex::Add(uint64_t vector_id, const core::MetadataValue& value) {
@@ -94,7 +96,7 @@ VectorIdSet ScalarIndex::LookupEqual(const core::MetadataValue& value) const {
 }
 
 VectorIdSet ScalarIndex::LookupRange(const core::MetadataValue* min_val,
-                                      const core::MetadataValue* max_val) const {
+                                     const core::MetadataValue* max_val) const {
   VectorIdSet result;
 
   auto begin = sorted_index_.begin();
@@ -116,8 +118,7 @@ VectorIdSet ScalarIndex::LookupRange(const core::MetadataValue* min_val,
   return result;
 }
 
-VectorIdSet ScalarIndex::LookupIn(
-    const std::vector<core::MetadataValue>& values) const {
+VectorIdSet ScalarIndex::LookupIn(const std::vector<core::MetadataValue>& values) const {
   VectorIdSet result;
   for (const auto& value : values) {
     auto key = ValueToKey(value);
@@ -132,8 +133,7 @@ VectorIdSet ScalarIndex::LookupIn(
 VectorIdSet ScalarIndex::LookupPrefix(const std::string& prefix) const {
   VectorIdSet result;
   std::string search_prefix = "s:" + prefix;
-  for (auto it = sorted_index_.lower_bound(search_prefix);
-       it != sorted_index_.end(); ++it) {
+  for (auto it = sorted_index_.lower_bound(search_prefix); it != sorted_index_.end(); ++it) {
     if (it->first.compare(0, search_prefix.size(), search_prefix) != 0) {
       break;  // Past the prefix range
     }
@@ -150,15 +150,13 @@ ScalarIndex& ScalarIndexSet::GetOrCreateIndex(const std::string& field) {
   return field_indexes_[field];
 }
 
-void ScalarIndexSet::IndexVector(uint64_t vector_id,
-                                  const core::Metadata& metadata) {
+void ScalarIndexSet::IndexVector(uint64_t vector_id, const core::Metadata& metadata) {
   for (const auto& [field, value] : metadata) {
     GetOrCreateIndex(field).Add(vector_id, value);
   }
 }
 
-void ScalarIndexSet::RemoveVector(uint64_t vector_id,
-                                   const core::Metadata& metadata) {
+void ScalarIndexSet::RemoveVector(uint64_t vector_id, const core::Metadata& metadata) {
   for (const auto& [field, value] : metadata) {
     auto it = field_indexes_.find(field);
     if (it != field_indexes_.end()) {
@@ -175,8 +173,7 @@ void ScalarIndexSet::BuildFromMetadata(
   }
 }
 
-std::optional<VectorIdSet> ScalarIndexSet::Evaluate(
-    const core::FilterNode& filter) const {
+std::optional<VectorIdSet> ScalarIndexSet::Evaluate(const core::FilterNode& filter) const {
   // Try to resolve the filter using scalar indexes
   // Returns std::nullopt if the filter references unindexed fields
 
@@ -237,10 +234,10 @@ std::optional<VectorIdSet> ScalarIndexSet::Evaluate(
       if (left_result && right_result) {
         // Intersect both sets
         VectorIdSet result;
-        const auto& smaller = left_result->size() < right_result->size()
-                                  ? *left_result : *right_result;
-        const auto& larger = left_result->size() < right_result->size()
-                                 ? *right_result : *left_result;
+        const auto& smaller =
+            left_result->size() < right_result->size() ? *left_result : *right_result;
+        const auto& larger =
+            left_result->size() < right_result->size() ? *right_result : *left_result;
         for (uint64_t id : smaller) {
           if (larger.count(id)) {
             result.insert(id);

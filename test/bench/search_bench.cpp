@@ -18,13 +18,13 @@
 #include <system_error>
 #include <vector>
 
+#include "common/logger.h"
 #include "compute/query_executor.h"
 #include "core/config.h"
 #include "core/types.h"
 #include "core/vector.h"
 #include "index/index_factory.h"
 #include "storage/segment/segment_manager.h"
-#include "common/logger.h"
 
 using namespace gvdb;
 
@@ -67,8 +67,7 @@ std::filesystem::path MakeScratchDir() {
   auto tmp = std::filesystem::temp_directory_path(ec);
   if (ec) Fail("finding the temp folder: " + ec.message());
   std::random_device rd;
-  auto dir = tmp / ("gvdb_search_bench_" + std::to_string(rd()) + "_" +
-                    std::to_string(rd()));
+  auto dir = tmp / ("gvdb_search_bench_" + std::to_string(rd()) + "_" + std::to_string(rd()));
   std::filesystem::create_directories(dir, ec);
   if (ec) Fail("creating scratch folder " + dir.string() + ": " + ec.message());
   return dir;
@@ -77,8 +76,7 @@ std::filesystem::path MakeScratchDir() {
 // Uniform floats in [-1, 1) from a xorshift generator. It is much faster than
 // std::uniform_real_distribution in a Debug build, which matters at 77M
 // floats per row.
-std::vector<core::Vector> RandomVectors(size_t n, core::Dimension dim,
-                                        uint64_t seed) {
+std::vector<core::Vector> RandomVectors(size_t n, core::Dimension dim, uint64_t seed) {
   uint64_t state = seed * 0x9E3779B97F4A7C15ULL + 1;
   std::vector<core::Vector> vecs;
   vecs.reserve(n);
@@ -118,21 +116,17 @@ struct RowResult {
 // through the query executor. The executor has no cache, so every run does
 // the full search.
 RowResult BenchRow(core::IndexType type, core::Dimension dim,
-                   const std::vector<core::Vector>& vectors,
-                   const std::vector<core::VectorId>& ids,
+                   const std::vector<core::Vector>& vectors, const std::vector<core::VectorId>& ids,
                    const std::vector<core::Vector>& queries) {
   const auto collection_id = core::MakeCollectionId(1);
   index::IndexFactory factory;
-  storage::SegmentManager segments((g_scratch_dir / "segments").string(),
-                                   &factory);
+  storage::SegmentManager segments((g_scratch_dir / "segments").string(), &factory);
 
-  const auto label = std::string(IndexName(type)) + " dim=" +
-                     std::to_string(dim) + " n=" +
-                     std::to_string(vectors.size());
+  const auto label = std::string(IndexName(type)) + " dim=" + std::to_string(dim) +
+                     " n=" + std::to_string(vectors.size());
 
   auto build_start = std::chrono::steady_clock::now();
-  auto segment_id = segments.CreateSegment(collection_id, dim,
-                                           core::MetricType::L2);
+  auto segment_id = segments.CreateSegment(collection_id, dim, core::MetricType::L2);
   if (!segment_id.ok()) Fail("CreateSegment (" + label + ")", segment_id.status());
 
   auto status = segments.WriteVectors(*segment_id, vectors, ids);
@@ -152,9 +146,8 @@ RowResult BenchRow(core::IndexType type, core::Dimension dim,
     auto result = executor.Search(collection_id, query, kTopK);
     if (!result.ok()) Fail("Search (" + label + ")", result.status());
     if (result->entries.size() != static_cast<size_t>(kTopK)) {
-      Fail("Search (" + label + ") returned " +
-           std::to_string(result->entries.size()) + " results, expected " +
-           std::to_string(kTopK));
+      Fail("Search (" + label + ") returned " + std::to_string(result->entries.size()) +
+           " results, expected " + std::to_string(kTopK));
     }
   };
 
@@ -179,19 +172,16 @@ RowResult BenchRow(core::IndexType type, core::Dimension dim,
 }
 
 void PrintHeader() {
-  std::printf("  %5s  |  %5s  |  %8s  |  %9s  |  %11s  |  %11s  |  %8s\n",
-              "Index", "Dim", "Vectors", "Build", "Median", "p95", "QPS");
-  std::printf("  %5s--+--%5s--+--%8s--+--%9s--+--%11s--+--%11s--+--%8s\n",
-              "-----", "-----", "--------", "---------", "-----------",
-              "-----------", "--------");
+  std::printf("  %5s  |  %5s  |  %8s  |  %9s  |  %11s  |  %11s  |  %8s\n", "Index", "Dim",
+              "Vectors", "Build", "Median", "p95", "QPS");
+  std::printf("  %5s--+--%5s--+--%8s--+--%9s--+--%11s--+--%11s--+--%8s\n", "-----", "-----",
+              "--------", "---------", "-----------", "-----------", "--------");
 }
 
-void PrintRow(core::IndexType type, core::Dimension dim, size_t n,
-              const RowResult& row) {
+void PrintRow(core::IndexType type, core::Dimension dim, size_t n, const RowResult& row) {
   double qps = row.median_ms > 0 ? 1000.0 / row.median_ms : 0;
   std::printf("  %5s  |  %5d  |  %8zu  |  %7.2f s  |  %8.3f ms  |  %8.3f ms  |  %8.0f\n",
-              IndexName(type), dim, n, row.build_s, row.median_ms, row.p95_ms,
-              qps);
+              IndexName(type), dim, n, row.build_s, row.median_ms, row.p95_ms, qps);
   std::fflush(stdout);
 }
 
@@ -202,8 +192,8 @@ int main() {
 
   std::printf("GVDB CPU Search Benchmark (QueryExecutor over FAISS segments)\n");
   std::printf("==============================================================\n\n");
-  std::printf("L2, top-k=%d, median and p95 of %d searches (%d distinct queries),\n",
-              kTopK, kRuns, kDistinctQueries);
+  std::printf("L2, top-k=%d, median and p95 of %d searches (%d distinct queries),\n", kTopK, kRuns,
+              kDistinctQueries);
   const core::IndexConfig defaults;
   std::printf("one sealed segment per row, HNSW M=%d ef_construction=%d ef_search=%d\n\n",
               defaults.hnsw_params.M, defaults.hnsw_params.ef_construction,
@@ -231,8 +221,8 @@ int main() {
     // exception that escaped the index wrapper.
     Fail(std::string("unexpected exception: ") + ex.what());
   }
-  auto total_s = std::chrono::duration<double>(
-      std::chrono::steady_clock::now() - total_start).count();
+  auto total_s =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - total_start).count();
 
   std::printf("\nDone in %.1f s.\n", total_s);
   Cleanup();

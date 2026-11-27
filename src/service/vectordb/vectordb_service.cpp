@@ -5,31 +5,30 @@
 // the segment lookups that the handlers in this folder share.
 
 #include "service/vectordb/vectordb_service.h"
-#include "core/status.h"
-#include "service/vectordb/collection_resolver.h"
-#include "rpc/primary_term_header.h"
-#include "cluster/datanode/primary_term_tracker.h"
-#include "cluster/datanode/shard_write_gate.h"
-#include "auth/audit_context.h"
-#include "auth/auth_context.h"
-#include "storage/backup/backup_manager.h"
-#include "storage/backup/restore_manager.h"
-#include "common/logger.h"
-#include "absl/strings/str_cat.h"
-#include "internal.grpc.pb.h"
+#include <grpcpp/grpcpp.h>
 #include <optional>
 #include <unordered_set>
 #include <utility>
-#include <grpcpp/grpcpp.h>
+#include "absl/strings/str_cat.h"
+#include "auth/audit_context.h"
+#include "auth/auth_context.h"
+#include "cluster/datanode/primary_term_tracker.h"
+#include "cluster/datanode/shard_write_gate.h"
+#include "common/logger.h"
+#include "core/status.h"
+#include "internal.grpc.pb.h"
+#include "rpc/primary_term_header.h"
+#include "service/vectordb/collection_resolver.h"
+#include "storage/backup/backup_manager.h"
+#include "storage/backup/restore_manager.h"
 
 namespace gvdb {
 namespace service {
 
-VectorDBService::VectorDBService(
-    std::shared_ptr<storage::ISegmentStore> segment_store,
-    std::shared_ptr<compute::QueryExecutor> query_executor,
-    std::unique_ptr<ICollectionResolver> resolver,
-    VectorDBServiceOptions options)
+VectorDBService::VectorDBService(std::shared_ptr<storage::ISegmentStore> segment_store,
+                                 std::shared_ptr<compute::QueryExecutor> query_executor,
+                                 std::unique_ptr<ICollectionResolver> resolver,
+                                 VectorDBServiceOptions options)
     : segment_store_(std::move(segment_store)),
       query_executor_(std::move(query_executor)),
       resolver_(std::move(resolver)),
@@ -42,22 +41,19 @@ VectorDBService::VectorDBService(
       shard_write_gate_(options.shard_write_gate) {
   common::Logger::Instance().Info(
       "VectorDBService initialized (RBAC {}, BulkImport {}, Backup {}, Restore {})",
-      rbac_store_ ? "enabled" : "disabled",
-      bulk_importer_ ? "enabled" : "disabled",
-      backup_manager_ ? "enabled" : "disabled",
-      restore_manager_ ? "enabled" : "disabled");
+      rbac_store_ ? "enabled" : "disabled", bulk_importer_ ? "enabled" : "disabled",
+      backup_manager_ ? "enabled" : "disabled", restore_manager_ ? "enabled" : "disabled");
 }
 
 VectorDBService::~VectorDBService() = default;
 
-grpc::Status VectorDBService::CheckPermission(
-    auth::Permission perm, const std::string& collection_name) const {
+grpc::Status VectorDBService::CheckPermission(auth::Permission perm,
+                                              const std::string& collection_name) const {
   if (!rbac_store_) return grpc::Status::OK;
 
   const auto& key = auth::AuthContext::GetCurrentKey();
   if (key.empty()) {
-    return grpc::Status(grpc::StatusCode::UNAUTHENTICATED,
-        "No API key in auth context");
+    return grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "No API key in auth context");
   }
 
   auto* role = rbac_store_->Lookup(key);
@@ -67,12 +63,12 @@ grpc::Status VectorDBService::CheckPermission(
 
   if (!auth::HasPermission(role->role, perm)) {
     return grpc::Status(grpc::StatusCode::PERMISSION_DENIED,
-        "Role does not have permission for this operation");
+                        "Role does not have permission for this operation");
   }
 
   if (!collection_name.empty() && !auth::HasCollectionAccess(*role, collection_name)) {
     return grpc::Status(grpc::StatusCode::PERMISSION_DENIED,
-        "Access denied for collection: " + collection_name);
+                        "Access denied for collection: " + collection_name);
   }
 
   return grpc::Status::OK;
@@ -102,9 +98,9 @@ std::optional<core::Metadata> VectorDBService::FindMetadata(
 // Helpers
 // ============================================================================
 
-grpc::Status VectorDBService::EvaluateWriteGate(
-    grpc::ServerContext* context, const std::string& collection_name,
-    uint64_t sample_vector_id) {
+grpc::Status VectorDBService::EvaluateWriteGate(grpc::ServerContext* context,
+                                                const std::string& collection_name,
+                                                uint64_t sample_vector_id) {
   // Single-node / tests / query-nodes: no tracker plumbed in, gate is
   // a no-op for the primary-term check. The shard-freeze fence is
   // consulted independently: a single-node BackupManager binary can
@@ -130,36 +126,34 @@ grpc::Status VectorDBService::EvaluateWriteGate(
   if (!seg_ids.ok() || seg_ids->empty()) {
     common::Logger::Instance().Debug(
         "Write gate: resolver could not produce segment list for '{}'; "
-        "deferring to handler-level error", collection_name);
+        "deferring to handler-level error",
+        collection_name);
     return grpc::Status::OK;
   }
   const uint32_t num_shards = static_cast<uint32_t>(seg_ids->size());
-  const uint32_t shard_id =
-      core::ShardIndexForVector(sample_vector_id, num_shards);
+  const uint32_t shard_id = core::ShardIndexForVector(sample_vector_id, num_shards);
 
   // Per-shard backup freeze: a frozen shard rejects writes for the
   // duration of an in-flight backup, regardless of primary-term state.
   // Checked BEFORE the primary-term check because a frozen shard's
   // term is fine: we just need writes to back off briefly.
   if (has_freeze_gate &&
-      shard_write_gate_->IsFrozen(core::MakeShardId(
-          static_cast<uint16_t>(shard_id)))) {
-    return grpc::Status(grpc::StatusCode::RESOURCE_EXHAUSTED, absl::StrCat(
-        "shard ", shard_id,
-        " is frozen for backup; retry after the backup completes"));
+      shard_write_gate_->IsFrozen(core::MakeShardId(static_cast<uint16_t>(shard_id)))) {
+    return grpc::Status(grpc::StatusCode::RESOURCE_EXHAUSTED,
+                        absl::StrCat("shard ", shard_id,
+                                     " is frozen for backup; retry after the backup completes"));
   }
 
   if (!has_tracker) return grpc::Status::OK;
   if (!hdr.has_term) {
-    common::Logger::Instance().Debug(
-        "Write to '{}' has no {} header; accepting (back-compat path)",
-        collection_name, rpc::kPrimaryTermHeader);
+    common::Logger::Instance().Debug("Write to '{}' has no {} header; accepting (back-compat path)",
+                                     collection_name, rpc::kPrimaryTermHeader);
     return grpc::Status::OK;
   }
   if (hdr.parse_error) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-        std::string("malformed ") + rpc::kPrimaryTermHeader +
-        " header (must be decimal uint64)");
+    return grpc::Status(
+        grpc::StatusCode::INVALID_ARGUMENT,
+        std::string("malformed ") + rpc::kPrimaryTermHeader + " header (must be decimal uint64)");
   }
 
   using D = cluster::PrimaryTermTracker::AcceptDecision;
@@ -172,15 +166,15 @@ grpc::Status VectorDBService::EvaluateWriteGate(
       // the proxy to re-route via fresh RouteQuery and retry: the
       // replica-fallback helper classifies ABORTED as transient.
       auto snap = primary_term_tracker_->Get(shard_id);
-      return grpc::Status(grpc::StatusCode::ABORTED, absl::StrCat(
-          "stale shard term for shard ", shard_id,
-          " (request term=", hdr.term, ", current term=", snap.term, ")"));
+      return grpc::Status(grpc::StatusCode::ABORTED,
+                          absl::StrCat("stale shard term for shard ", shard_id, " (request term=",
+                                       hdr.term, ", current term=", snap.term, ")"));
     }
     case D::NotPrimary: {
       auto snap = primary_term_tracker_->Get(shard_id);
-      return grpc::Status(grpc::StatusCode::ABORTED, absl::StrCat(
-          "not primary for shard ", shard_id,
-          " (current term=", snap.term, "); re-route via RouteQuery"));
+      return grpc::Status(grpc::StatusCode::ABORTED,
+                          absl::StrCat("not primary for shard ", shard_id,
+                                       " (current term=", snap.term, "); re-route via RouteQuery"));
     }
     case D::UnknownShard:
       // Heartbeat hasn't synced yet, OR the proxy's routing genuinely
@@ -188,9 +182,9 @@ grpc::Status VectorDBService::EvaluateWriteGate(
       // observers can tell the two apart. Caller (proxy) should re-
       // route via fresh RouteQuery; we don't tag it ABORTED because
       // the cure is the same but the diagnosis is different.
-      return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, absl::StrCat(
-          "no primary record for shard ", shard_id,
-          " on this data-node; re-route via RouteQuery"));
+      return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+                          absl::StrCat("no primary record for shard ", shard_id,
+                                       " on this data-node; re-route via RouteQuery"));
   }
   return grpc::Status::OK;
 }
@@ -204,7 +198,7 @@ storage::Segment* VectorDBService::GetOrReplicateSegment(core::SegmentId segment
   if (!stub) return nullptr;
 
   common::Logger::Instance().Info("Segment {} not found locally, pulling from coordinator",
-                                 static_cast<uint64_t>(core::ToUInt32(segment_id)));
+                                  static_cast<uint64_t>(core::ToUInt32(segment_id)));
 
   grpc::ClientContext context;
   proto::internal::GetSegmentRequest request;
@@ -221,7 +215,7 @@ storage::Segment* VectorDBService::GetOrReplicateSegment(core::SegmentId segment
 
   if (!response.has_segment_info() || response.segment_data().empty()) {
     common::Logger::Instance().Warn("Segment {} not found on coordinator",
-                                   static_cast<uint64_t>(core::ToUInt32(segment_id)));
+                                    static_cast<uint64_t>(core::ToUInt32(segment_id)));
     return nullptr;
   }
 
@@ -236,20 +230,19 @@ storage::Segment* VectorDBService::GetOrReplicateSegment(core::SegmentId segment
   auto add_status = segment_store_->AddReplicatedSegment(std::move(segment_result.value()));
   if (!add_status.ok()) {
     common::Logger::Instance().Error("Failed to add replicated segment {}: {}",
-                                     response.segment_info().segment_id(),
-                                     add_status.message());
+                                     response.segment_info().segment_id(), add_status.message());
     return nullptr;
   }
 
   common::Logger::Instance().Info("Replicated segment {} ({} vectors)",
-                                 response.segment_info().segment_id(),
-                                 response.segment_info().vector_count());
+                                  response.segment_info().segment_id(),
+                                  response.segment_info().vector_count());
 
   return segment_store_->GetSegment(segment_id);
 }
 
-absl::StatusOr<std::vector<storage::Segment*>>
-VectorDBService::CollectCollectionSegments(const std::string& collection_name) {
+absl::StatusOr<std::vector<storage::Segment*>> VectorDBService::CollectCollectionSegments(
+    const std::string& collection_name) {
   // The resolver knows the shard-primary segments but not the rotated ones
   // auto-seal created; those live in the store keyed by collection id. Start
   // from the primaries (so the replica-fallback pull still applies to them),

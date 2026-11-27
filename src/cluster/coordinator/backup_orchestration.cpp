@@ -3,12 +3,12 @@
 //
 // Backups and restores fanned out to the data nodes of each shard.
 
-#include "cluster/coordinator/coordinator.h"
-#include "core/status.h"
-#include "cluster/coordinator/internal_client.h"
-#include "rpc/proto_conversions.h"
-#include "common/logger.h"
 #include "absl/strings/str_cat.h"
+#include "cluster/coordinator/coordinator.h"
+#include "cluster/coordinator/internal_client.h"
+#include "common/logger.h"
+#include "core/status.h"
+#include "rpc/proto_conversions.h"
 
 namespace gvdb {
 namespace cluster {
@@ -56,12 +56,10 @@ constexpr int64_t kBackupFreezeLeaseMs = 60'000;  // 60 s, matches gate cap
 }  // namespace
 
 absl::StatusOr<std::string> Coordinator::StartBackupDistributed(
-    const std::string& collection_name,
-    const storage::BackupTarget& target,
+    const std::string& collection_name, const storage::BackupTarget& target,
     const std::string& requested_backup_id) {
   if (!backup_manager_) {
-    return absl::UnimplementedError(
-        "Backup is not configured on this coordinator");
+    return absl::UnimplementedError("Backup is not configured on this coordinator");
   }
   auto coll_or = GetCollectionMetadata(collection_name);
   if (!coll_or.ok()) return coll_or.status();
@@ -83,20 +81,19 @@ absl::StatusOr<std::string> Coordinator::StartBackupDistributed(
   // the data-node's lease auto-expires, and the upload is already done.
   auto* self = this;
   const auto collection_id = coll.collection_id;
-  auto executor = [self, collection_id](
-      const std::string& backup_id, core::ShardId shard_id,
-      uint64_t primary_term,
-      const storage::BackupTarget& target_inner)
-      -> absl::StatusOr<storage::ShardBackupResult> {
+  auto executor =
+      [self, collection_id](
+          const std::string& backup_id, core::ShardId shard_id, uint64_t primary_term,
+          const storage::BackupTarget& target_inner) -> absl::StatusOr<storage::ShardBackupResult> {
     (void)primary_term;  // recorded for forensics, not consulted here
 
     auto primary = self->shard_manager_->GetPrimaryNode(shard_id);
     if (!primary.ok()) return primary.status();
     auto* client = self->GetOrCreateDataNodeClient(*primary);
     if (!client) {
-      return absl::UnavailableError(absl::StrCat(
-          "Cannot dial primary node ", core::ToUInt32(*primary),
-          " for shard ", core::ToUInt16(shard_id)));
+      return absl::UnavailableError(absl::StrCat("Cannot dial primary node ",
+                                                 core::ToUInt32(*primary), " for shard ",
+                                                 core::ToUInt16(shard_id)));
     }
 
     // 1. Freeze.
@@ -109,14 +106,13 @@ absl::StatusOr<std::string> Coordinator::StartBackupDistributed(
       grpc::ClientContext ctx;
       auto status = client->FreezeWrites(&ctx, req, &resp);
       if (!status.ok()) {
-        return absl::UnavailableError(absl::StrCat(
-            "FreezeWrites for shard ", core::ToUInt16(shard_id),
-            " failed: ", status.error_message()));
+        return absl::UnavailableError(absl::StrCat("FreezeWrites for shard ",
+                                                   core::ToUInt16(shard_id),
+                                                   " failed: ", status.error_message()));
       }
       if (!resp.success()) {
         return absl::FailedPreconditionError(absl::StrCat(
-            "FreezeWrites for shard ", core::ToUInt16(shard_id),
-            " refused: ", resp.message()));
+            "FreezeWrites for shard ", core::ToUInt16(shard_id), " refused: ", resp.message()));
       }
     }
 
@@ -146,40 +142,33 @@ absl::StatusOr<std::string> Coordinator::StartBackupDistributed(
         common::Logger::Instance().Warn(
             "UnfreezeWrites for shard {} after backup {} failed: {}; "
             "lease will auto-expire",
-            core::ToUInt16(shard_id), backup_id,
-            unfreeze_status.error_message());
+            core::ToUInt16(shard_id), backup_id, unfreeze_status.error_message());
       }
     }
 
     // 4. Propagate the backup result.
     if (!backup_status.ok()) {
-      return absl::UnavailableError(absl::StrCat(
-          "BackupShard for shard ", core::ToUInt16(shard_id),
-          " failed: ", backup_status.error_message()));
+      return absl::UnavailableError(absl::StrCat("BackupShard for shard ", core::ToUInt16(shard_id),
+                                                 " failed: ", backup_status.error_message()));
     }
     if (!backup_resp.success()) {
-      return absl::InternalError(absl::StrCat(
-          "BackupShard for shard ", core::ToUInt16(shard_id),
-          " refused: ", backup_resp.message()));
+      return absl::InternalError(absl::StrCat("BackupShard for shard ", core::ToUInt16(shard_id),
+                                              " refused: ", backup_resp.message()));
     }
     return FromBackupShardResponse(backup_resp);
   };
 
   return backup_manager_->StartBackupDistributed(
-      collection_name, coll.collection_id, coll.dimension, coll.metric_type,
-      coll.index_type, static_cast<uint32_t>(coll.replication_factor),
-      shard_ids, primary_terms, target, executor,
+      collection_name, coll.collection_id, coll.dimension, coll.metric_type, coll.index_type,
+      static_cast<uint32_t>(coll.replication_factor), shard_ids, primary_terms, target, executor,
       requested_backup_id);
 }
 
 absl::StatusOr<std::string> Coordinator::StartRestoreDistributed(
-    const storage::BackupTarget& source,
-    const std::string& backup_id,
-    const std::string& target_collection_name,
-    bool overwrite) {
+    const storage::BackupTarget& source, const std::string& backup_id,
+    const std::string& target_collection_name, bool overwrite) {
   if (!restore_manager_) {
-    return absl::UnimplementedError(
-        "Restore is not configured on this coordinator");
+    return absl::UnimplementedError("Restore is not configured on this coordinator");
   }
   if (backup_id.empty()) {
     return absl::InvalidArgumentError("backup_id is required");
@@ -199,20 +188,18 @@ absl::StatusOr<std::string> Coordinator::StartRestoreDistributed(
     auto existing = GetCollectionMetadata(target_collection_name);
     if (existing.ok()) {
       if (!overwrite) {
-        return absl::AlreadyExistsError(absl::StrCat(
-            "Target collection '", target_collection_name,
-            "' already exists; pass overwrite=true to drop and recreate"));
+        return absl::AlreadyExistsError(
+            absl::StrCat("Target collection '", target_collection_name,
+                         "' already exists; pass overwrite=true to drop and recreate"));
       }
       RETURN_IF_ERROR(DropCollection(target_collection_name));
     }
   }
-  auto create_or = CreateCollection(
-      target_collection_name,
-      static_cast<core::Dimension>(m.collection.dimension),
-      static_cast<core::MetricType>(m.collection.metric),
-      static_cast<core::IndexType>(m.collection.index_type),
-      m.collection.replication_factor,
-      m.collection.num_shards);
+  auto create_or =
+      CreateCollection(target_collection_name, static_cast<core::Dimension>(m.collection.dimension),
+                       static_cast<core::MetricType>(m.collection.metric),
+                       static_cast<core::IndexType>(m.collection.index_type),
+                       m.collection.replication_factor, m.collection.num_shards);
   if (!create_or.ok()) return create_or.status();
   auto target_collection_id = *create_or;
 
@@ -223,18 +210,15 @@ absl::StatusOr<std::string> Coordinator::StartRestoreDistributed(
   std::vector<core::ShardId> shard_ids = coll_or->shard_ids;
 
   auto* self = this;
-  auto executor = [self](
-      const storage::BackupTarget& source_inner,
-      const std::string& bkp_id,
-      core::CollectionId target_id,
-      core::ShardId shard_id) -> absl::Status {
+  auto executor = [self](const storage::BackupTarget& source_inner, const std::string& bkp_id,
+                         core::CollectionId target_id, core::ShardId shard_id) -> absl::Status {
     auto primary = self->shard_manager_->GetPrimaryNode(shard_id);
     if (!primary.ok()) return primary.status();
     auto* client = self->GetOrCreateDataNodeClient(*primary);
     if (!client) {
-      return absl::UnavailableError(absl::StrCat(
-          "Cannot dial primary node ", core::ToUInt32(*primary),
-          " for shard ", core::ToUInt16(shard_id)));
+      return absl::UnavailableError(absl::StrCat("Cannot dial primary node ",
+                                                 core::ToUInt32(*primary), " for shard ",
+                                                 core::ToUInt16(shard_id)));
     }
     proto::internal::RestoreShardRequest req;
     req.set_backup_id(bkp_id);
@@ -245,36 +229,33 @@ absl::StatusOr<std::string> Coordinator::StartRestoreDistributed(
     grpc::ClientContext ctx;
     auto status = client->RestoreShard(&ctx, req, &resp);
     if (!status.ok()) {
-      return absl::UnavailableError(absl::StrCat(
-          "RestoreShard for shard ", core::ToUInt16(shard_id),
-          " failed: ", status.error_message()));
+      return absl::UnavailableError(absl::StrCat("RestoreShard for shard ",
+                                                 core::ToUInt16(shard_id),
+                                                 " failed: ", status.error_message()));
     }
     if (!resp.success()) {
-      return absl::InternalError(absl::StrCat(
-          "RestoreShard for shard ", core::ToUInt16(shard_id),
-          " refused: ", resp.message()));
+      return absl::InternalError(absl::StrCat("RestoreShard for shard ", core::ToUInt16(shard_id),
+                                              " refused: ", resp.message()));
     }
     return absl::OkStatus();
   };
 
-  return restore_manager_->StartRestoreDistributed(
-      source, backup_id, target_collection_id, shard_ids, executor);
+  return restore_manager_->StartRestoreDistributed(source, backup_id, target_collection_id,
+                                                   shard_ids, executor);
 }
 
-absl::StatusOr<storage::BackupJobStatus>
-Coordinator::GetDistributedBackupStatus(const std::string& backup_id) const {
+absl::StatusOr<storage::BackupJobStatus> Coordinator::GetDistributedBackupStatus(
+    const std::string& backup_id) const {
   if (!backup_manager_) {
-    return absl::UnimplementedError(
-        "Backup is not configured on this coordinator");
+    return absl::UnimplementedError("Backup is not configured on this coordinator");
   }
   return backup_manager_->GetStatus(backup_id);
 }
 
-absl::StatusOr<storage::RestoreJobStatus>
-Coordinator::GetDistributedRestoreStatus(const std::string& restore_id) const {
+absl::StatusOr<storage::RestoreJobStatus> Coordinator::GetDistributedRestoreStatus(
+    const std::string& restore_id) const {
   if (!restore_manager_) {
-    return absl::UnimplementedError(
-        "Restore is not configured on this coordinator");
+    return absl::UnimplementedError("Restore is not configured on this coordinator");
   }
   return restore_manager_->GetStatus(restore_id);
 }

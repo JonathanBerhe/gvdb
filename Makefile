@@ -1,4 +1,4 @@
-.PHONY: build build-release test test-s3 coverage check-layers clean \
+.PHONY: build build-release test test-s3 coverage check-layers format check-format clean \
        run stop monitoring-up monitoring-down \
        docker-build kind-create kind-load deploy \
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
@@ -30,6 +30,12 @@ CMAKE_EXTRA     ?=
 PYTHON_SDK_DIR   = clients/python
 NPROC           := $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 CONNECTORS_DIR   = connectors
+# clang-format from PyPI, pinned to the major version of the Clang that CI
+# uses. uvx downloads it on first use.
+CLANG_FORMAT_VERSION = 22.1.8
+CLANG_FORMAT     = uvx --from clang-format==$(CLANG_FORMAT_VERSION) clang-format
+# The C++ sources that .clang-format covers.
+FORMAT_FILES     = git ls-files -z 'src/*.h' 'src/*.cpp' 'src/*.mm' 'test/*.h' 'test/*.cpp'
 
 # ---------------------------------------------------------------------------
 # Local development
@@ -68,6 +74,14 @@ test:
 # Every module in src/ includes only the modules before it in the layer order.
 check-layers:
 	@python3 tools/check_layers.py
+
+# Formats the C++ sources in place with the style in .clang-format.
+format:
+	@$(FORMAT_FILES) | xargs -0 $(CLANG_FORMAT) -i
+
+# Fails when a C++ source does not match .clang-format. CI runs it.
+check-format:
+	@$(FORMAT_FILES) | xargs -0 $(CLANG_FORMAT) --dry-run --Werror
 
 # Line coverage of src/ per file, from the unit and integration
 # tests. The report lands in build/coverage/coverage.

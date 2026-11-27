@@ -23,21 +23,16 @@ bool IsPublicMethod(const std::string& method) {
 }
 }  // namespace
 
-ApiKeyAuthInterceptor::ApiKeyAuthInterceptor(
-    grpc::experimental::ServerRpcInfo* info,
-    const auth::RbacStore* rbac_store)
+ApiKeyAuthInterceptor::ApiKeyAuthInterceptor(grpc::experimental::ServerRpcInfo* info,
+                                             const auth::RbacStore* rbac_store)
     : info_(info), rbac_store_(rbac_store) {}
 
-void ApiKeyAuthInterceptor::Intercept(
-    grpc::experimental::InterceptorBatchMethods* methods) {
-
+void ApiKeyAuthInterceptor::Intercept(grpc::experimental::InterceptorBatchMethods* methods) {
   // Clear stale thread-local auth state from previous RPC on this thread
   auth::AuthContext::Clear();
 
   if (!rejected_ && methods->QueryInterceptionHookPoint(
-          grpc::experimental::InterceptionHookPoints::
-              POST_RECV_INITIAL_METADATA)) {
-
+                        grpc::experimental::InterceptionHookPoints::POST_RECV_INITIAL_METADATA)) {
     // Skip auth for public endpoints
     std::string method(info_->method());
     if (IsPublicMethod(method)) {
@@ -54,8 +49,9 @@ void ApiKeyAuthInterceptor::Intercept(
     auto it = metadata.find("authorization");
     if (it == metadata.end()) {
       should_reject = true;
-      reject_status = grpc::Status(grpc::StatusCode::UNAUTHENTICATED,
-          "Missing authorization header. Use: authorization: Bearer <api-key>");
+      reject_status =
+          grpc::Status(grpc::StatusCode::UNAUTHENTICATED,
+                       "Missing authorization header. Use: authorization: Bearer <api-key>");
     } else {
       std::string auth_value(it->second.data(), it->second.length());
       const std::string prefix = "Bearer ";
@@ -64,14 +60,13 @@ void ApiKeyAuthInterceptor::Intercept(
           auth_value.substr(0, prefix.length()) != prefix) {
         should_reject = true;
         reject_status = grpc::Status(grpc::StatusCode::UNAUTHENTICATED,
-            "Invalid authorization format. Expected: Bearer <api-key>");
+                                     "Invalid authorization format. Expected: Bearer <api-key>");
       } else {
         std::string key = auth_value.substr(prefix.length());
         auto* role = rbac_store_->Lookup(key);
         if (!role) {
           should_reject = true;
-          reject_status = grpc::Status(grpc::StatusCode::UNAUTHENTICATED,
-              "Invalid API key");
+          reject_status = grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "Invalid API key");
         } else {
           // Authentication passed — store key in thread-local for service to read
           auth::AuthContext::SetCurrentKey(key);
@@ -95,8 +90,7 @@ ApiKeyAuthInterceptorFactory::ApiKeyAuthInterceptorFactory(
                                   rbac_store_->Size());
 }
 
-grpc::experimental::Interceptor*
-ApiKeyAuthInterceptorFactory::CreateServerInterceptor(
+grpc::experimental::Interceptor* ApiKeyAuthInterceptorFactory::CreateServerInterceptor(
     grpc::experimental::ServerRpcInfo* info) {
   return new ApiKeyAuthInterceptor(info, rbac_store_.get());
 }

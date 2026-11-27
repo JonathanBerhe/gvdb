@@ -26,29 +26,26 @@ namespace turboquant {
 //   - Near-optimal inner-product preservation at 1-8 bits per dimension
 class TurboQuantIndex : public core::IVectorIndex {
  public:
-  TurboQuantIndex(core::Dimension dimension, core::MetricType metric,
-                  int bit_width = 4, bool use_qjl = true, int qjl_dim = 0);
+  TurboQuantIndex(core::Dimension dimension, core::MetricType metric, int bit_width = 4,
+                  bool use_qjl = true, int qjl_dim = 0);
   ~TurboQuantIndex() override = default;
 
   // IVectorIndex implementation
-  [[nodiscard]] absl::Status Build(
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids) override;
+  [[nodiscard]] absl::Status Build(const std::vector<core::Vector>& vectors,
+                                   const std::vector<core::VectorId>& ids) override;
 
-  [[nodiscard]] absl::Status Add(const core::Vector& vector,
-                                  core::VectorId id) override;
+  [[nodiscard]] absl::Status Add(const core::Vector& vector, core::VectorId id) override;
 
-  [[nodiscard]] absl::Status AddBatch(
-      const std::vector<core::Vector>& vectors,
-      const std::vector<core::VectorId>& ids) override;
+  [[nodiscard]] absl::Status AddBatch(const std::vector<core::Vector>& vectors,
+                                      const std::vector<core::VectorId>& ids) override;
 
   [[nodiscard]] absl::Status Remove(core::VectorId id) override;
 
-  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
-      const core::Vector& query, int k) override;
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(const core::Vector& query,
+                                                          int k) override;
 
-  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRange(
-      const core::Vector& query, float radius) override;
+  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRange(const core::Vector& query,
+                                                               float radius) override;
 
   [[nodiscard]] absl::StatusOr<std::vector<core::SearchResult>> SearchBatch(
       const std::vector<core::Vector>& queries, int k) override;
@@ -58,8 +55,7 @@ class TurboQuantIndex : public core::IVectorIndex {
   [[nodiscard]] core::Dimension GetDimension() const override;
   [[nodiscard]] core::MetricType GetMetricType() const override;
 
-  [[nodiscard]] absl::Status Train(
-      const std::vector<core::Vector>& training_data) override;
+  [[nodiscard]] absl::Status Train(const std::vector<core::Vector>& training_data) override;
   [[nodiscard]] bool IsTrained() const override;
 
   [[nodiscard]] absl::Status Serialize(const std::string& path) const override;
@@ -72,8 +68,7 @@ class TurboQuantIndex : public core::IVectorIndex {
   absl::Status EncodeAndStore(const core::Vector& vector, core::VectorId id);
 
   // Convert estimated inner product to metric-appropriate distance
-  float IPToDistance(float estimated_ip, float x_norm,
-                     const PreprocessedQuery& query) const;
+  float IPToDistance(float estimated_ip, float x_norm, const PreprocessedQuery& query) const;
 
   TurboQuantCodec codec_;
   core::MetricType metric_type_;
@@ -81,8 +76,8 @@ class TurboQuantIndex : public core::IVectorIndex {
   // Contiguous storage for encoded vectors
   std::vector<float> norms_;
   std::vector<float> residual_norms_;
-  std::vector<uint8_t> codes_;       // size = num_vectors * codec_.CodeBytesPerVector()
-  std::vector<uint8_t> qjl_bits_;    // size = num_vectors * codec_.QJLBytesPerVector()
+  std::vector<uint8_t> codes_;     // size = num_vectors * codec_.CodeBytesPerVector()
+  std::vector<uint8_t> qjl_bits_;  // size = num_vectors * codec_.QJLBytesPerVector()
   std::vector<core::VectorId> ids_;
   std::vector<bool> deleted_;
 
@@ -94,4 +89,3 @@ class TurboQuantIndex : public core::IVectorIndex {
 }  // namespace turboquant
 }  // namespace index
 }  // namespace gvdb
-

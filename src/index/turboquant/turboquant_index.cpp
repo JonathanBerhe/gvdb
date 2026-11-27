@@ -41,8 +41,7 @@ void WriteVector(std::ofstream& out, const std::vector<T>& vec) {
 template <typename T>
 bool ReadVector(std::ifstream& in, std::vector<T>& vec, size_t count) {
   vec.resize(count);
-  in.read(reinterpret_cast<char*>(vec.data()),
-          static_cast<std::streamsize>(count * sizeof(T)));
+  in.read(reinterpret_cast<char*>(vec.data()), static_cast<std::streamsize>(count * sizeof(T)));
   return in.good();
 }
 
@@ -52,19 +51,16 @@ bool ReadVector(std::ifstream& in, std::vector<T>& vec, size_t count) {
 // Construction
 // ============================================================================
 
-TurboQuantIndex::TurboQuantIndex(core::Dimension dimension,
-                                   core::MetricType metric,
-                                   int bit_width, bool use_qjl, int qjl_dim)
-    : codec_(dimension, bit_width, use_qjl, qjl_dim),
-      metric_type_(metric) {}
+TurboQuantIndex::TurboQuantIndex(core::Dimension dimension, core::MetricType metric, int bit_width,
+                                 bool use_qjl, int qjl_dim)
+    : codec_(dimension, bit_width, use_qjl, qjl_dim), metric_type_(metric) {}
 
 // ============================================================================
 // Building and modification
 // ============================================================================
 
-absl::Status TurboQuantIndex::Build(
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids) {
+absl::Status TurboQuantIndex::Build(const std::vector<core::Vector>& vectors,
+                                    const std::vector<core::VectorId>& ids) {
   if (vectors.size() != ids.size()) {
     return absl::InvalidArgumentError("vectors and ids size mismatch");
   }
@@ -96,9 +92,9 @@ absl::Status TurboQuantIndex::Build(
   // Encode each vector (Build replaces all data)
   for (size_t i = 0; i < n; i++) {
     if (vectors[i].dimension() != codec_.dimension()) {
-      return absl::InvalidArgumentError(
-          absl::StrCat("vector ", i, " dimension mismatch: expected ",
-                       codec_.dimension(), ", got ", vectors[i].dimension()));
+      return absl::InvalidArgumentError(absl::StrCat("vector ", i, " dimension mismatch: expected ",
+                                                     codec_.dimension(), ", got ",
+                                                     vectors[i].dimension()));
     }
     RETURN_IF_ERROR(EncodeAndStore(vectors[i], ids[i]));
   }
@@ -106,24 +102,21 @@ absl::Status TurboQuantIndex::Build(
   return absl::OkStatus();
 }
 
-absl::Status TurboQuantIndex::Add(const core::Vector& vector,
-                                    core::VectorId id) {
+absl::Status TurboQuantIndex::Add(const core::Vector& vector, core::VectorId id) {
   if (vector.dimension() != codec_.dimension()) {
     return absl::InvalidArgumentError("dimension mismatch");
   }
   return EncodeAndStore(vector, id);
 }
 
-absl::Status TurboQuantIndex::AddBatch(
-    const std::vector<core::Vector>& vectors,
-    const std::vector<core::VectorId>& ids) {
+absl::Status TurboQuantIndex::AddBatch(const std::vector<core::Vector>& vectors,
+                                       const std::vector<core::VectorId>& ids) {
   if (vectors.size() != ids.size()) {
     return absl::InvalidArgumentError("vectors and ids size mismatch");
   }
   for (size_t i = 0; i < vectors.size(); i++) {
     if (vectors[i].dimension() != codec_.dimension()) {
-      return absl::InvalidArgumentError(
-          absl::StrCat("vector ", i, " dimension mismatch"));
+      return absl::InvalidArgumentError(absl::StrCat("vector ", i, " dimension mismatch"));
     }
     RETURN_IF_ERROR(EncodeAndStore(vectors[i], ids[i]));
   }
@@ -145,8 +138,7 @@ absl::Status TurboQuantIndex::Remove(core::VectorId id) {
 // Search
 // ============================================================================
 
-absl::StatusOr<core::SearchResult> TurboQuantIndex::Search(
-    const core::Vector& query, int k) {
+absl::StatusOr<core::SearchResult> TurboQuantIndex::Search(const core::Vector& query, int k) {
   if (query.dimension() != codec_.dimension()) {
     return absl::InvalidArgumentError("query dimension mismatch");
   }
@@ -174,11 +166,9 @@ absl::StatusOr<core::SearchResult> TurboQuantIndex::Search(
     if (deleted_[i]) continue;
 
     const uint8_t* vec_codes = codes_.data() + i * code_stride;
-    const uint8_t* vec_qjl =
-        codec_.use_qjl() ? qjl_bits_.data() + i * qjl_stride : nullptr;
+    const uint8_t* vec_qjl = codec_.use_qjl() ? qjl_bits_.data() + i * qjl_stride : nullptr;
 
-    float ip = codec_.EstimateIP(pq, vec_codes, norms_[i],
-                                  residual_norms_[i], vec_qjl);
+    float ip = codec_.EstimateIP(pq, vec_codes, norms_[i], residual_norms_[i], vec_qjl);
     float dist = IPToDistance(ip, norms_[i], pq);
 
     if (static_cast<int>(heap.size()) < k) {
@@ -206,8 +196,8 @@ absl::StatusOr<core::SearchResult> TurboQuantIndex::Search(
   return result;
 }
 
-absl::StatusOr<core::SearchResult> TurboQuantIndex::SearchRange(
-    const core::Vector& query, float radius) {
+absl::StatusOr<core::SearchResult> TurboQuantIndex::SearchRange(const core::Vector& query,
+                                                                float radius) {
   if (query.dimension() != codec_.dimension()) {
     return absl::InvalidArgumentError("query dimension mismatch");
   }
@@ -224,11 +214,9 @@ absl::StatusOr<core::SearchResult> TurboQuantIndex::SearchRange(
     if (deleted_[i]) continue;
 
     const uint8_t* vec_codes = codes_.data() + i * code_stride;
-    const uint8_t* vec_qjl =
-        codec_.use_qjl() ? qjl_bits_.data() + i * qjl_stride : nullptr;
+    const uint8_t* vec_qjl = codec_.use_qjl() ? qjl_bits_.data() + i * qjl_stride : nullptr;
 
-    float ip = codec_.EstimateIP(pq, vec_codes, norms_[i],
-                                  residual_norms_[i], vec_qjl);
+    float ip = codec_.EstimateIP(pq, vec_codes, norms_[i], residual_norms_[i], vec_qjl);
     float dist = IPToDistance(ip, norms_[i], pq);
 
     if (dist <= radius) {
@@ -257,10 +245,8 @@ absl::StatusOr<std::vector<core::SearchResult>> TurboQuantIndex::SearchBatch(
 
 size_t TurboQuantIndex::GetMemoryUsage() const {
   std::shared_lock lock(mutex_);
-  return codes_.size() + qjl_bits_.size() +
-         norms_.size() * sizeof(float) +
-         residual_norms_.size() * sizeof(float) +
-         ids_.size() * sizeof(core::VectorId) +
+  return codes_.size() + qjl_bits_.size() + norms_.size() * sizeof(float) +
+         residual_norms_.size() * sizeof(float) + ids_.size() * sizeof(core::VectorId) +
          num_vectors_;  // deleted_ bitmap
 }
 
@@ -273,16 +259,11 @@ size_t TurboQuantIndex::GetVectorCount() const {
   return count;
 }
 
-core::Dimension TurboQuantIndex::GetDimension() const {
-  return codec_.dimension();
-}
+core::Dimension TurboQuantIndex::GetDimension() const { return codec_.dimension(); }
 
-core::MetricType TurboQuantIndex::GetMetricType() const {
-  return metric_type_;
-}
+core::MetricType TurboQuantIndex::GetMetricType() const { return metric_type_; }
 
-absl::Status TurboQuantIndex::Train(
-    const std::vector<core::Vector>& /*training_data*/) {
+absl::Status TurboQuantIndex::Train(const std::vector<core::Vector>& /*training_data*/) {
   // TurboQuant is data-oblivious — no training required
   return absl::OkStatus();
 }
@@ -291,9 +272,7 @@ bool TurboQuantIndex::IsTrained() const {
   return true;  // Always trained (data-oblivious)
 }
 
-core::IndexType TurboQuantIndex::GetIndexType() const {
-  return core::IndexType::TURBOQUANT;
-}
+core::IndexType TurboQuantIndex::GetIndexType() const { return core::IndexType::TURBOQUANT; }
 
 // ============================================================================
 // Serialization
@@ -434,15 +413,13 @@ absl::Status TurboQuantIndex::Deserialize(const std::string& path) {
 // Private helpers
 // ============================================================================
 
-absl::Status TurboQuantIndex::EncodeAndStore(const core::Vector& vector,
-                                               core::VectorId id) {
+absl::Status TurboQuantIndex::EncodeAndStore(const core::Vector& vector, core::VectorId id) {
   std::vector<uint8_t> vec_codes;
   float norm = 0.0f;
   float residual_norm = 0.0f;
   std::vector<uint8_t> vec_qjl;
 
-  codec_.Encode(vector.data(), vector.dimension(),
-                vec_codes, norm, residual_norm, vec_qjl);
+  codec_.Encode(vector.data(), vector.dimension(), vec_codes, norm, residual_norm, vec_qjl);
 
   std::unique_lock lock(mutex_);
 
@@ -460,7 +437,7 @@ absl::Status TurboQuantIndex::EncodeAndStore(const core::Vector& vector,
 }
 
 float TurboQuantIndex::IPToDistance(float estimated_ip, float x_norm,
-                                     const PreprocessedQuery& query) const {
+                                    const PreprocessedQuery& query) const {
   switch (metric_type_) {
     case core::MetricType::L2:
       // L2^2 = ||x||^2 + ||q||^2 - 2*IP

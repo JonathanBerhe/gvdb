@@ -30,9 +30,7 @@ std::string BuildKey(const std::string& prefix, const std::string& suffix) {
 
 std::string RFC3339Now() {
   auto now = std::chrono::system_clock::now();
-  auto secs = std::chrono::duration_cast<std::chrono::seconds>(
-                  now.time_since_epoch())
-                  .count();
+  auto secs = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
   std::time_t t = static_cast<std::time_t>(secs);
   std::tm tm{};
 #if defined(_WIN32)
@@ -58,11 +56,9 @@ std::string RandomToken(size_t len) {
 bool PathUnderRoot(const std::string& root, const std::string& child) {
   if (root.empty()) return false;
   std::error_code ec;
-  auto r = std::filesystem::weakly_canonical(
-      std::filesystem::path(root), ec);
+  auto r = std::filesystem::weakly_canonical(std::filesystem::path(root), ec);
   if (ec) r = std::filesystem::path(root);
-  auto c = std::filesystem::weakly_canonical(
-      std::filesystem::path(child), ec);
+  auto c = std::filesystem::weakly_canonical(std::filesystem::path(child), ec);
   if (ec) c = std::filesystem::path(child);
   auto rs = r.string();
   auto cs = c.string();
@@ -70,8 +66,7 @@ bool PathUnderRoot(const std::string& root, const std::string& child) {
   if (cs.size() < rs.size()) return false;
   if (cs.compare(0, rs.size(), rs) != 0) return false;
   // Either equal, or the next character is a separator.
-  return cs.size() == rs.size() || cs[rs.size()] == '/' ||
-         cs[rs.size()] == '\\';
+  return cs.size() == rs.size() || cs[rs.size()] == '/' || cs[rs.size()] == '\\';
 }
 
 }  // namespace storage

@@ -43,8 +43,7 @@ namespace test {
 // RouteQuery returns in FIFO order; the last entry "sticks" once
 // drained. This lets a test pre-load "stale-then-fresh" without any
 // timing-based synchronization.
-class PrimarySwapCoordinator
-    : public proto::internal::InternalService::Service {
+class PrimarySwapCoordinator : public proto::internal::InternalService::Service {
  public:
   std::atomic<int> route_query_calls{0};
 
@@ -53,17 +52,15 @@ class PrimarySwapCoordinator
     queue_.push_back({std::move(addr), term});
   }
 
-  grpc::Status RouteQuery(
-      grpc::ServerContext* /*context*/,
-      const proto::internal::RouteQueryRequest* /*request*/,
-      proto::internal::RouteQueryResponse* response) override {
+  grpc::Status RouteQuery(grpc::ServerContext* /*context*/,
+                          const proto::internal::RouteQueryRequest* /*request*/,
+                          proto::internal::RouteQueryResponse* response) override {
     route_query_calls++;
     View v;
     {
       std::lock_guard<std::mutex> lock(mu_);
       if (queue_.empty()) {
-        return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                             "test coordinator: no view queued");
+        return grpc::Status(grpc::StatusCode::UNAVAILABLE, "test coordinator: no view queued");
       }
       v = queue_.front();
       // Pop until exactly one entry remains so the last view "sticks".
@@ -117,37 +114,32 @@ class PrimarySwapDataNode : public proto::VectorDBService::Service {
   // heartbeat) hasn't landed yet.
   void FailWithPreconditionFor(int n) { fail_precondition_remaining_ = n; }
 
-  grpc::Status Upsert(grpc::ServerContext* context,
-                      const proto::UpsertRequest* request,
+  grpc::Status Upsert(grpc::ServerContext* context, const proto::UpsertRequest* request,
                       proto::UpsertResponse* response) override {
     upsert_calls++;
     // Unknown-shard check precedes term evaluation, as on a real node.
     int remaining = fail_precondition_remaining_.load();
     while (remaining > 0 &&
-           !fail_precondition_remaining_.compare_exchange_weak(
-               remaining, remaining - 1)) {
+           !fail_precondition_remaining_.compare_exchange_weak(remaining, remaining - 1)) {
     }
     if (remaining > 0) {
       precondition_calls++;
-      return grpc::Status(
-          grpc::StatusCode::FAILED_PRECONDITION,
-          "primary-swap test: " + label +
-              " has no primary record for shard 0; re-route via RouteQuery");
+      return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+                          "primary-swap test: " + label +
+                              " has no primary record for shard 0; re-route via RouteQuery");
     }
     auto header = rpc::ReadPrimaryTermHeader(context);
     if (header.parse_error) {
-      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                           "primary-swap test: bad term header");
+      return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "primary-swap test: bad term header");
     }
     if (header.has_term) {
       const uint64_t accepted = accepted_term_.load();
       if (header.term != accepted) {
         aborted_calls++;
-        return grpc::Status(
-            grpc::StatusCode::ABORTED,
-            "primary-swap test: " + label + " accepted_term=" +
-                std::to_string(accepted) +
-                " got_term=" + std::to_string(header.term));
+        return grpc::Status(grpc::StatusCode::ABORTED,
+                            "primary-swap test: " + label +
+                                " accepted_term=" + std::to_string(accepted) +
+                                " got_term=" + std::to_string(header.term));
       }
     }
     response->set_upserted_count(request->vectors_size());
@@ -162,8 +154,7 @@ class PrimarySwapDataNode : public proto::VectorDBService::Service {
 namespace {
 
 // Starts a server on a free local port with the given services.
-std::unique_ptr<TestGrpcServer> StartServer(
-    std::initializer_list<grpc::Service*> services) {
+std::unique_ptr<TestGrpcServer> StartServer(std::initializer_list<grpc::Service*> services) {
   auto server = std::make_unique<TestGrpcServer>(services);
   REQUIRE(server->ok());
   return server;
@@ -314,8 +305,7 @@ TEST_CASE_FIXTURE(PrimarySwapTest, "UpsertRetriesWhenPrimaryRecordMissing") {
 // The record never lands within the bounded re-route budget: the proxy
 // gives up and surfaces FAILED_PRECONDITION so the client can retry.
 // It must not spin forever.
-TEST_CASE_FIXTURE(PrimarySwapTest,
-                  "UpsertSurfacesPreconditionAfterExhaustingReroutes") {
+TEST_CASE_FIXTURE(PrimarySwapTest, "UpsertSurfacesPreconditionAfterExhaustingReroutes") {
   coord_->Push(mock_a_address_, /*term=*/1);
   mock_a_->FailWithPreconditionFor(1000);
 

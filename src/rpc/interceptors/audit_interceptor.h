@@ -28,8 +28,7 @@ class AuditInterceptor : public grpc::experimental::Interceptor {
 };
 
 // Factory that creates AuditInterceptor for each RPC
-class AuditInterceptorFactory
-    : public grpc::experimental::ServerInterceptorFactoryInterface {
+class AuditInterceptorFactory : public grpc::experimental::ServerInterceptorFactoryInterface {
  public:
   grpc::experimental::Interceptor* CreateServerInterceptor(
       grpc::experimental::ServerRpcInfo* info) override;

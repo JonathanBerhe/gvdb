@@ -19,10 +19,9 @@ class FaissFlatIndex : public FaissIndexBase {
   [[nodiscard]] core::IndexType GetIndexType() const override;
 
  private:
-  static std::unique_ptr<faiss::Index> CreateFlatIndex(
-      core::Dimension dimension, core::MetricType metric);
+  static std::unique_ptr<faiss::Index> CreateFlatIndex(core::Dimension dimension,
+                                                       core::MetricType metric);
 };
 
 }  // namespace index
 }  // namespace gvdb
-

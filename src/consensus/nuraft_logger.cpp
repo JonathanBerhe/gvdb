@@ -23,13 +23,9 @@ void NuRaftLoggerAdapter::put_details(int level, const char* /*source_file*/,
   }
 }
 
-void NuRaftLoggerAdapter::set_level(int level) {
-  level_ = level;
-}
+void NuRaftLoggerAdapter::set_level(int level) { level_ = level; }
 
-int NuRaftLoggerAdapter::get_level() {
-  return level_;
-}
+int NuRaftLoggerAdapter::get_level() { return level_; }
 
 }  // namespace consensus
 }  // namespace gvdb

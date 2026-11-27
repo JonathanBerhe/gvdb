@@ -4,13 +4,13 @@
 // Node registration, the healthy-node lists and the clients to the data
 // nodes.
 
-#include "cluster/coordinator/coordinator.h"
-#include "core/status.h"
-#include "cluster/coordinator/internal_client.h"
-#include "rpc/proto_conversions.h"
-#include "common/logger.h"
-#include "absl/strings/str_cat.h"
 #include <mutex>
+#include "absl/strings/str_cat.h"
+#include "cluster/coordinator/coordinator.h"
+#include "cluster/coordinator/internal_client.h"
+#include "common/logger.h"
+#include "core/status.h"
+#include "rpc/proto_conversions.h"
 
 namespace gvdb {
 namespace cluster {
@@ -41,9 +41,8 @@ absl::Status Coordinator::RegisterNode(const meta::NodeInfo& node_info) {
   node_registry_->UpdateNode(proto_info);
 
   common::Logger::Instance().Info("Registered node {} (type: {}, address: {})",
-                                 core::ToUInt32(node_info.node_id),
-                                 static_cast<int>(node_info.type),
-                                 node_info.address);
+                                  core::ToUInt32(node_info.node_id),
+                                  static_cast<int>(node_info.type), node_info.address);
 
   return absl::OkStatus();
 }
@@ -115,7 +114,8 @@ IInternalServiceClient* Coordinator::GetOrCreateDataNodeClient(core::NodeId node
   // Get node info from NodeRegistry
   RegisteredNode node;
   if (!node_registry_->GetNode(core::ToUInt32(node_id), &node)) {
-    common::Logger::Instance().Error("Cannot create client for unknown node {}", core::ToUInt32(node_id));
+    common::Logger::Instance().Error("Cannot create client for unknown node {}",
+                                     core::ToUInt32(node_id));
     return nullptr;
   }
 
@@ -124,7 +124,8 @@ IInternalServiceClient* Coordinator::GetOrCreateDataNodeClient(core::NodeId node
   // Use factory to create client
   auto client = client_factory_->CreateClient(node_id, address);
   if (!client) {
-    common::Logger::Instance().Error("Factory failed to create client for node {}", core::ToUInt32(node_id));
+    common::Logger::Instance().Error("Factory failed to create client for node {}",
+                                     core::ToUInt32(node_id));
     return nullptr;
   }
 

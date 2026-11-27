@@ -44,8 +44,7 @@ class ShardWriteGate {
   // a freeze is already active under a different token: the caller
   // should treat that as "another backup is running on this shard".
   // A repeat freeze with the same token refreshes the lease.
-  bool Freeze(core::ShardId shard_id, const std::string& token,
-              int64_t lease_ms);
+  bool Freeze(core::ShardId shard_id, const std::string& token, int64_t lease_ms);
 
   // Unfreeze writes to `shard_id`. Returns true if a freeze was
   // present and the token matched. Returns false if no freeze was
@@ -69,8 +68,7 @@ class ShardWriteGate {
 
   // Erase the entry if its lease has expired. Caller holds the mutex.
   // Returns true iff the entry was erased.
-  bool MaybeExpire(uint16_t key,
-                   std::chrono::steady_clock::time_point now) const;
+  bool MaybeExpire(uint16_t key, std::chrono::steady_clock::time_point now) const;
 
   mutable std::mutex mu_;
   // Mutable so const IsFrozen can lazily evict.
@@ -79,4 +77,3 @@ class ShardWriteGate {
 
 }  // namespace cluster
 }  // namespace gvdb
-
