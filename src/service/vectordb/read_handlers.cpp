@@ -6,7 +6,6 @@
 #include "service/vectordb/vectordb_service.h"
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
-#include "auth/audit_context.h"
 #include "common/logger.h"
 #include "common/metrics.h"
 #include "common/timer.h"
@@ -79,9 +78,8 @@ grpc::Status VectorDBService::RangeSearch(
     grpc::ServerContext* /*context*/,
     const proto::RangeSearchRequest* request,
     proto::RangeSearchResponse* response) {
-  auto perm = CheckPermission(auth::Permission::RANGE_SEARCH, request->collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::RANGE_SEARCH, request->collection_name());
   if (!perm.ok()) return perm;
-  auth::AuditContext::SetCollection(request->collection_name());
   common::Timer timer;
 
   if (request->collection_name().empty()) {
@@ -156,15 +154,8 @@ grpc::Status VectorDBService::RangeSearch(
     rpc::toProto(entry, proto_entry);
 
     if (request->return_metadata()) {
-      for (auto seg_id : segment_ids) {
-        auto* segment = segment_store_->GetSegment(seg_id);
-        if (segment) {
-          auto meta = segment->GetMetadata(entry.id);
-          if (meta.ok()) {
-            rpc::toProto(*meta, proto_entry->mutable_metadata());
-            break;
-          }
-        }
+      if (auto meta = FindMetadata(entry.id, segment_ids)) {
+        rpc::toProto(*meta, proto_entry->mutable_metadata());
       }
     }
   }
@@ -179,9 +170,8 @@ grpc::Status VectorDBService::Search(
     grpc::ServerContext* /*context*/,
     const proto::SearchRequest* request,
     proto::SearchResponse* response) {
-  auto perm = CheckPermission(auth::Permission::SEARCH, request->collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::SEARCH, request->collection_name());
   if (!perm.ok()) return perm;
-  auth::AuditContext::SetCollection(request->collection_name());
 
   common::Timer search_timer;
 
@@ -262,15 +252,8 @@ grpc::Status VectorDBService::Search(
     rpc::toProto(entry, proto_entry);
 
     if (request->return_metadata()) {
-      for (const auto& seg_id : segment_ids) {
-        auto* segment = segment_store_->GetSegment(seg_id);
-        if (segment) {
-          auto meta_result = segment->GetMetadata(entry.id);
-          if (meta_result.ok()) {
-            rpc::toProto(*meta_result, proto_entry->mutable_metadata());
-            break;
-          }
-        }
+      if (auto meta = FindMetadata(entry.id, segment_ids)) {
+        rpc::toProto(*meta, proto_entry->mutable_metadata());
       }
     }
   }
@@ -289,9 +272,8 @@ grpc::Status VectorDBService::HybridSearch(
     grpc::ServerContext* /*context*/,
     const proto::HybridSearchRequest* request,
     proto::HybridSearchResponse* response) {
-  auto perm = CheckPermission(auth::Permission::HYBRID_SEARCH, request->collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::HYBRID_SEARCH, request->collection_name());
   if (!perm.ok()) return perm;
-  auth::AuditContext::SetCollection(request->collection_name());
 
   common::Timer search_timer;
   common::Logger::Instance().Info("HybridSearch: collection={}, text_query='{}'",
@@ -404,15 +386,8 @@ grpc::Status VectorDBService::HybridSearch(
     rpc::toProto(all_entries[i], proto_entry);
 
     if (request->return_metadata()) {
-      for (const auto& seg_id : *segment_ids_result) {
-        auto* segment = segment_store_->GetSegment(seg_id);
-        if (segment) {
-          auto meta_result = segment->GetMetadata(all_entries[i].id);
-          if (meta_result.ok()) {
-            rpc::toProto(*meta_result, proto_entry->mutable_metadata());
-            break;
-          }
-        }
+      if (auto meta = FindMetadata(all_entries[i].id, *segment_ids_result)) {
+        rpc::toProto(*meta, proto_entry->mutable_metadata());
       }
     }
   }
@@ -425,10 +400,8 @@ grpc::Status VectorDBService::Get(
     grpc::ServerContext* /*context*/,
     const proto::GetRequest* request,
     proto::GetResponse* response) {
-  auto perm = CheckPermission(auth::Permission::GET, request->collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::GET, request->collection_name(), request->ids().size());
   if (!perm.ok()) return perm;
-  auth::AuditContext::SetCollection(request->collection_name());
-  auth::AuditContext::SetItemCount(request->ids().size());
 
   common::Logger::Instance().Info("Get: {} IDs from {}",
                                  request->ids().size(),

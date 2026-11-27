@@ -6,6 +6,7 @@
 #include <thread>
 
 #include "auth/audit_context.h"
+#include "core/types.h"
 #include "rpc/dns_channel_args.h"
 #include "rpc/primary_term_header.h"
 #include "rpc/replica_fallback.h"
@@ -284,7 +285,7 @@ grpc::Status ProxyService::Insert(
   }
 
   for (const auto& vec : request->vectors()) {
-    uint32_t shard_idx = static_cast<uint32_t>(vec.id() % num_shards);
+    uint32_t shard_idx = core::ShardIndexForVector(vec.id(), static_cast<uint32_t>(num_shards));
     *shard_reqs[shard_idx].add_vectors() = vec;
   }
 

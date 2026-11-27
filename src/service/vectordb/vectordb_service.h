@@ -11,6 +11,7 @@
 #include "service/vectordb/collection_resolver.h"
 #include "auth/rbac.h"
 #include <memory>
+#include <optional>
 #include <atomic>
 #include <string>
 
@@ -201,6 +202,17 @@ class VectorDBService final : public proto::VectorDBService::Service {
   grpc::Status CheckPermission(auth::Permission perm,
                                 const std::string& collection_name) const;
 
+  // CheckPermission for a request on one collection. When the check passes,
+  // it also records the collection, and the item count when given, for the
+  // audit log.
+  grpc::Status AuthorizeCollection(auth::Permission perm, const std::string& collection_name,
+                                   std::optional<size_t> item_count = std::nullopt) const;
+
+  // The metadata of `id` from the first segment in `segment_ids` that has
+  // it, or nullopt when no segment has it.
+  std::optional<core::Metadata> FindMetadata(core::VectorId id,
+                                             const std::vector<core::SegmentId>& segment_ids) const;
+
   // Get segment locally, or pull from coordinator if in distributed mode
   storage::Segment* GetOrReplicateSegment(core::SegmentId segment_id);
 
@@ -228,7 +240,7 @@ class VectorDBService final : public proto::VectorDBService::Service {
   // from the gRPC client metadata and consults primary_term_tracker_
   // for "is this node primary for the shard at that term?". The
   // sample_vector_id is mapped to a shard_id via the same hash the
-  // proxy uses (vid % num_shards) so the gate fires per-shard, not
+  // proxy uses (core::ShardIndexForVector) so the gate fires per-shard, not
   // per-collection.
   //
   // Behavior:

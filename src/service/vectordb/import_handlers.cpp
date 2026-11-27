@@ -6,7 +6,6 @@
 #include "service/vectordb/vectordb_service.h"
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
-#include "auth/audit_context.h"
 #include <grpcpp/grpcpp.h>
 
 namespace gvdb {
@@ -20,11 +19,8 @@ grpc::Status VectorDBService::BulkImport(
     grpc::ServerContext* /*context*/,
     const proto::BulkImportRequest* request,
     proto::BulkImportResponse* response) {
-  auto perm = CheckPermission(auth::Permission::INSERT,
-                               request->collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::INSERT, request->collection_name());
   if (!perm.ok()) return perm;
-
-  auth::AuditContext::SetCollection(request->collection_name());
 
   if (request->collection_name().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,

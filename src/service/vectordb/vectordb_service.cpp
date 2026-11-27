@@ -9,13 +9,16 @@
 #include "rpc/primary_term_header.h"
 #include "cluster/datanode/primary_term_tracker.h"
 #include "cluster/datanode/shard_write_gate.h"
+#include "auth/audit_context.h"
 #include "auth/auth_context.h"
 #include "storage/backup/backup_manager.h"
 #include "storage/backup/restore_manager.h"
 #include "common/logger.h"
 #include "absl/strings/str_cat.h"
 #include "internal.grpc.pb.h"
+#include <optional>
 #include <unordered_set>
+#include <utility>
 #include <grpcpp/grpcpp.h>
 
 namespace gvdb {
@@ -74,6 +77,27 @@ grpc::Status VectorDBService::CheckPermission(
   return grpc::Status::OK;
 }
 
+grpc::Status VectorDBService::AuthorizeCollection(auth::Permission perm,
+                                                  const std::string& collection_name,
+                                                  std::optional<size_t> item_count) const {
+  auto status = CheckPermission(perm, collection_name);
+  if (!status.ok()) return status;
+  auth::AuditContext::SetCollection(collection_name);
+  if (item_count) auth::AuditContext::SetItemCount(static_cast<int64_t>(*item_count));
+  return grpc::Status::OK;
+}
+
+std::optional<core::Metadata> VectorDBService::FindMetadata(
+    core::VectorId id, const std::vector<core::SegmentId>& segment_ids) const {
+  for (auto seg_id : segment_ids) {
+    auto* segment = segment_store_->GetSegment(seg_id);
+    if (!segment) continue;
+    auto meta = segment->GetMetadata(id);
+    if (meta.ok()) return std::move(*meta);
+  }
+  return std::nullopt;
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -98,7 +122,7 @@ grpc::Status VectorDBService::EvaluateWriteGate(
   auto hdr = rpc::ReadPrimaryTermHeader(context);
 
   // Map the request to a shard via the same hash the proxy uses
-  // (vid % num_shards). num_shards comes from the resolver's segment
+  // (core::ShardIndexForVector). num_shards comes from the resolver's segment
   // list: every shard owns one segment by the ShardSegmentId scheme.
   // If the resolver can't answer (collection unknown locally), fall
   // through and let the regular handler return its own error.
@@ -111,7 +135,7 @@ grpc::Status VectorDBService::EvaluateWriteGate(
   }
   const uint32_t num_shards = static_cast<uint32_t>(seg_ids->size());
   const uint32_t shard_id =
-      static_cast<uint32_t>(sample_vector_id % num_shards);
+      core::ShardIndexForVector(sample_vector_id, num_shards);
 
   // Per-shard backup freeze: a frozen shard rejects writes for the
   // duration of an in-flight backup, regardless of primary-term state.

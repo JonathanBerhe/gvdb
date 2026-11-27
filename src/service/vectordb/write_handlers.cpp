@@ -6,13 +6,11 @@
 #include "service/vectordb/vectordb_service.h"
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
-#include "auth/audit_context.h"
 #include "storage/segment/batch_splitter.h"
 #include "common/logger.h"
 #include "common/metrics.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
-#include <chrono>
 #include <unordered_map>
 #include <unordered_set>
 #include <grpcpp/grpcpp.h>
@@ -28,10 +26,8 @@ grpc::Status VectorDBService::Insert(
     grpc::ServerContext* context,
     const proto::InsertRequest* request,
     proto::InsertResponse* response) {
-  auto perm = CheckPermission(auth::Permission::INSERT, request->collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::INSERT, request->collection_name(), request->vectors().size());
   if (!perm.ok()) return perm;
-  auth::AuditContext::SetCollection(request->collection_name());
-  auth::AuditContext::SetItemCount(request->vectors().size());
 
   common::Logger::Instance().Info("Insert: {} vectors into {}",
                                  request->vectors().size(),
@@ -105,8 +101,8 @@ grpc::Status VectorDBService::Insert(
     if (!vec_result.ok()) return rpc::toGrpcStatus(vec_result.status());
 
     core::VectorId vid = vec_result->first;
-    uint32_t shard_idx = static_cast<uint32_t>(
-        core::ToUInt64(vid) % num_shards);
+    uint32_t shard_idx = core::ShardIndexForVector(
+        core::ToUInt64(vid), static_cast<uint32_t>(num_shards));
 
     auto& batch = shard_batches[shard_idx];
     batch.ids.push_back(vid);
@@ -129,9 +125,8 @@ grpc::Status VectorDBService::Insert(
     }
 
     if (proto_vec.ttl_seconds() > 0) {
-      int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
-          std::chrono::system_clock::now().time_since_epoch()).count();
-      batch.expiry_entries[core::ToUInt64(vid)] = now + static_cast<int64_t>(proto_vec.ttl_seconds());
+      batch.expiry_entries[core::ToUInt64(vid)] =
+          storage::Segment::NowEpochSeconds() + static_cast<int64_t>(proto_vec.ttl_seconds());
     }
   }
 
@@ -300,9 +295,8 @@ grpc::Status VectorDBService::StreamInsert(
     if (chunk.vectors().empty()) continue;
     if (collection_name.empty()) collection_name = chunk.collection_name();
     if (!perm_checked) {
-      auto perm = CheckPermission(auth::Permission::STREAM_INSERT, collection_name);
+      auto perm = AuthorizeCollection(auth::Permission::STREAM_INSERT, collection_name);
       if (!perm.ok()) return perm;
-      auth::AuditContext::SetCollection(collection_name);
       perm_checked = true;
     }
 
@@ -332,8 +326,8 @@ grpc::Status VectorDBService::StreamInsert(
       if (!vec_result.ok()) return rpc::toGrpcStatus(vec_result.status());
 
       core::VectorId vid = vec_result->first;
-      uint32_t shard_idx = static_cast<uint32_t>(
-          core::ToUInt64(vid) % num_shards);
+      uint32_t shard_idx = core::ShardIndexForVector(
+          core::ToUInt64(vid), static_cast<uint32_t>(num_shards));
 
       auto& batch = shard_batches[shard_idx];
       batch.ids.push_back(vid);
@@ -407,10 +401,8 @@ grpc::Status VectorDBService::Upsert(
     grpc::ServerContext* context,
     const proto::UpsertRequest* request,
     proto::UpsertResponse* response) {
-  auto perm = CheckPermission(auth::Permission::UPSERT, request->collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::UPSERT, request->collection_name(), request->vectors().size());
   if (!perm.ok()) return perm;
-  auth::AuditContext::SetCollection(request->collection_name());
-  auth::AuditContext::SetItemCount(request->vectors().size());
   if (request->collection_name().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Collection name is required");
   }
@@ -478,9 +470,8 @@ grpc::Status VectorDBService::Upsert(
     }
 
     if (proto_vec.ttl_seconds() > 0) {
-      int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
-          std::chrono::system_clock::now().time_since_epoch()).count();
-      expiry_entries[core::ToUInt64(vec_result->first)] = now + static_cast<int64_t>(proto_vec.ttl_seconds());
+      expiry_entries[core::ToUInt64(vec_result->first)] =
+          storage::Segment::NowEpochSeconds() + static_cast<int64_t>(proto_vec.ttl_seconds());
     }
   }
 
@@ -505,10 +496,8 @@ grpc::Status VectorDBService::Delete(
     grpc::ServerContext* context,
     const proto::DeleteRequest* request,
     proto::DeleteResponse* response) {
-  auto perm = CheckPermission(auth::Permission::DELETE, request->collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::DELETE, request->collection_name(), request->ids().size());
   if (!perm.ok()) return perm;
-  auth::AuditContext::SetCollection(request->collection_name());
-  auth::AuditContext::SetItemCount(request->ids().size());
 
   common::Logger::Instance().Info("Delete: {} IDs from {}",
                                  request->ids().size(),
@@ -627,9 +616,8 @@ grpc::Status VectorDBService::UpdateMetadata(
     grpc::ServerContext* context,
     const proto::UpdateMetadataRequest* request,
     proto::UpdateMetadataResponse* response) {
-  auto perm = CheckPermission(auth::Permission::UPDATE_METADATA, request->collection_name());
+  auto perm = AuthorizeCollection(auth::Permission::UPDATE_METADATA, request->collection_name());
   if (!perm.ok()) return perm;
-  auth::AuditContext::SetCollection(request->collection_name());
 
   common::Logger::Instance().Info("UpdateMetadata: ID {} in {}",
                                  request->id(), request->collection_name());
