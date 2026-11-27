@@ -62,8 +62,8 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
 
   PersistRegistryLocked();
 
-  std::string metric_str = core::toString(metric_type);
-  std::string index_str = core::toString(index_type);
+  std::string metric_str = core::ToString(metric_type);
+  std::string index_str = core::ToString(index_type);
 
   if (!client_factory_) {
     common::Logger::Instance().Info(

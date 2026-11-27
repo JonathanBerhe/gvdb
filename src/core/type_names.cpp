@@ -8,7 +8,7 @@
 namespace gvdb {
 namespace core {
 
-std::string toString(core::MetricType metric) {
+std::string ToString(core::MetricType metric) {
   switch (metric) {
     case core::MetricType::L2:
       return "L2";
@@ -21,7 +21,7 @@ std::string toString(core::MetricType metric) {
   }
 }
 
-std::string toString(core::IndexType index) {
+std::string ToString(core::IndexType index) {
   switch (index) {
     case core::IndexType::FLAT:
       return "FLAT";
@@ -44,7 +44,7 @@ std::string toString(core::IndexType index) {
   }
 }
 
-absl::StatusOr<core::MetricType> metricTypeFromString(const std::string& metric_str) {
+absl::StatusOr<core::MetricType> MetricTypeFromString(const std::string& metric_str) {
   if (metric_str == "L2") {
     return core::MetricType::L2;
   } else if (metric_str == "INNER_PRODUCT") {
@@ -57,7 +57,7 @@ absl::StatusOr<core::MetricType> metricTypeFromString(const std::string& metric_
   }
 }
 
-absl::StatusOr<core::IndexType> indexTypeFromString(const std::string& index_str) {
+absl::StatusOr<core::IndexType> IndexTypeFromString(const std::string& index_str) {
   if (index_str == "FLAT") {
     return core::IndexType::FLAT;
   } else if (index_str == "HNSW") {

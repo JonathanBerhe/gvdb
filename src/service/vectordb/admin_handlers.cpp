@@ -42,11 +42,11 @@ grpc::Status VectorDBService::CreateCollection(
         "Collection name cannot be empty");
   }
 
-  auto metric_result = rpc::fromProto(request->metric());
-  if (!metric_result.ok()) return rpc::toGrpcStatus(metric_result.status());
+  auto metric_result = rpc::FromProto(request->metric());
+  if (!metric_result.ok()) return rpc::ToGrpcStatus(metric_result.status());
 
-  auto index_type_result = rpc::fromProto(request->index_type());
-  if (!index_type_result.ok()) return rpc::toGrpcStatus(index_type_result.status());
+  auto index_type_result = rpc::FromProto(request->index_type());
+  if (!index_type_result.ok()) return rpc::ToGrpcStatus(index_type_result.status());
 
   size_t num_shards = request->num_shards() > 0 ? request->num_shards() : 1;
   auto collection_id_result = resolver_->CreateCollection(
@@ -54,7 +54,7 @@ grpc::Status VectorDBService::CreateCollection(
       *metric_result, *index_type_result, num_shards);
 
   if (!collection_id_result.ok()) {
-    return rpc::toGrpcStatus(collection_id_result.status());
+    return rpc::ToGrpcStatus(collection_id_result.status());
   }
 
   response->set_collection_id(core::ToUInt32(*collection_id_result));
@@ -78,7 +78,7 @@ grpc::Status VectorDBService::DropCollection(
   auto cid_before = resolver_->GetCollectionId(request->collection_name());
 
   auto status = resolver_->DropCollection(request->collection_name());
-  if (!status.ok()) return rpc::toGrpcStatus(status);
+  if (!status.ok()) return rpc::ToGrpcStatus(status);
 
   common::MetricsRegistry::Instance().SetCollectionCount(
       resolver_->CollectionCount());
@@ -105,7 +105,7 @@ grpc::Status VectorDBService::ListCollections(
     info->set_collection_id(core::ToUInt32(coll.collection_id));
     info->set_collection_name(coll.collection_name);
     info->set_dimension(coll.dimension);
-    info->set_metric_type(core::toString(coll.metric_type));
+    info->set_metric_type(core::ToString(coll.metric_type));
     info->set_vector_count(coll.vector_count);
   }
 

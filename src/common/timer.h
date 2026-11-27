@@ -26,14 +26,14 @@ class Timer {
       : clock_(std::move(clock)), start_(clock_()) {}
 
   // Get elapsed time in microseconds
-  [[nodiscard]] int64_t elapsed_micros() const {
+  [[nodiscard]] int64_t ElapsedMicros() const {
     return std::chrono::duration_cast<std::chrono::microseconds>(
                clock_() - start_)
         .count();
   }
 
   // Get elapsed time in milliseconds
-  [[nodiscard]] int64_t elapsed_millis() const {
+  [[nodiscard]] int64_t ElapsedMillis() const {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
                clock_() - start_)
         .count();

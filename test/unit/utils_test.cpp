@@ -165,7 +165,7 @@ TEST_CASE("ThreadPoolTest - EnqueueSimpleTask") {
 
   std::atomic<int> counter{0};
 
-  auto future = pool.enqueue([&counter] {
+  auto future = pool.Enqueue([&counter] {
     counter.fetch_add(1);
     return 42;
   });
@@ -181,7 +181,7 @@ TEST_CASE("ThreadPoolTest - EnqueueMultipleTasks") {
   std::vector<std::future<int>> futures;
 
   for (int i = 0; i < 100; ++i) {
-    futures.push_back(pool.enqueue([&counter, i] {
+    futures.push_back(pool.Enqueue([&counter, i] {
       counter.fetch_add(1);
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
       return i;
@@ -201,7 +201,7 @@ TEST_CASE("ThreadPoolTest - EnqueueWithParameters") {
 
   auto add = [](int a, int b) { return a + b; };
 
-  auto future = pool.enqueue(add, 10, 32);
+  auto future = pool.Enqueue(add, 10, 32);
   CHECK_EQ(future.get(), 42);
 }
 
@@ -214,7 +214,7 @@ TEST_CASE("ThreadPoolTest - ParallelExecution") {
   std::vector<std::future<void>> futures;
 
   for (int i = 0; i < 8; ++i) {
-    futures.push_back(pool.enqueue([&concurrent_count, &max_concurrent] {
+    futures.push_back(pool.Enqueue([&concurrent_count, &max_concurrent] {
       int current = concurrent_count.fetch_add(1) + 1;
 
       // Update max concurrent
@@ -247,7 +247,7 @@ TEST_CASE("ThreadPoolTest - DestructorWaitsForTasks") {
     ThreadPool pool(2);
 
     for (int i = 0; i < 10; ++i) {
-      pool.enqueue([&counter] {
+      pool.Enqueue([&counter] {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         counter.fetch_add(1);
       });
@@ -272,9 +272,9 @@ TEST_CASE("TimerTest - MeasureElapsedTime") {
 
   now += std::chrono::milliseconds(100);
 
-  int64_t elapsed_millis = timer.elapsed_millis();
+  int64_t elapsed_millis = timer.ElapsedMillis();
   CHECK_EQ(elapsed_millis, 100);
-  CHECK_EQ(timer.elapsed_micros(), 100000);
+  CHECK_EQ(timer.ElapsedMicros(), 100000);
 }
 
 // ============================================================================
@@ -292,7 +292,7 @@ class ConfigFileTest {
       REQUIRE(out.is_open());
       out << yaml;
     }
-    return config::Config::load_from_file(path.string());
+    return config::Config::LoadFromFile(path.string());
   }
 
   gvdb::test::ScopedTempDir dir_{"gvdb_config_test"};
@@ -434,13 +434,13 @@ TEST_CASE("UtilsIntegrationTest - ThreadPoolWithTimerAndLogger") {
   Timer overall_timer;
 
   for (int i = 0; i < 10; ++i) {
-    futures.push_back(pool.enqueue([i, &completed] {
+    futures.push_back(pool.Enqueue([i, &completed] {
       Timer task_timer;
 
       // Simulate work
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-      int64_t elapsed = task_timer.elapsed_micros();
+      int64_t elapsed = task_timer.ElapsedMicros();
       Logger::Instance().Info("Task {} completed in {} us", i, elapsed);
 
       completed.fetch_add(1);
@@ -452,7 +452,7 @@ TEST_CASE("UtilsIntegrationTest - ThreadPoolWithTimerAndLogger") {
     future.get();
   }
 
-  int64_t total_elapsed = overall_timer.elapsed_millis();
+  int64_t total_elapsed = overall_timer.ElapsedMillis();
   Logger::Instance().Info("All {} tasks completed in {} ms", completed.load(), total_elapsed);
 
   CHECK_EQ(completed.load(), 10);

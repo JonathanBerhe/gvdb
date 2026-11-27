@@ -409,7 +409,7 @@ class CachedCoordinatorResolver : public ICollectionResolver {
 
     auto status = stub_->RouteQuery(&context, request, &response);
     if (!status.ok()) {
-      return rpc::fromGrpcStatus(status);
+      return rpc::FromGrpcStatus(status);
     }
 
     // Index per_shard_options by shard_id so we can pair with the legacy
@@ -463,7 +463,7 @@ class CachedCoordinatorResolver : public ICollectionResolver {
 
     auto status = stub_->GetCollectionMetadata(&context, request, &response);
     if (!status.ok()) {
-      return rpc::fromGrpcStatus(status);
+      return rpc::FromGrpcStatus(status);
     }
 
     if (!response.found()) {
@@ -476,11 +476,11 @@ class CachedCoordinatorResolver : public ICollectionResolver {
     metadata.collection_name = pm.collection_name();
     metadata.dimension = pm.dimension();
 
-    auto metric = core::metricTypeFromString(pm.metric_type());
+    auto metric = core::MetricTypeFromString(pm.metric_type());
     if (!metric.ok()) return metric.status();
     metadata.metric_type = *metric;
 
-    auto index = core::indexTypeFromString(pm.index_type());
+    auto index = core::IndexTypeFromString(pm.index_type());
     if (!index.ok()) return index.status();
     metadata.index_type = *index;
 

@@ -12,7 +12,7 @@ namespace rpc {
 // Proto to Core Conversions
 // ============================================================================
 
-absl::StatusOr<core::Vector> fromProto(const proto::Vector& proto_vector) {
+absl::StatusOr<core::Vector> FromProto(const proto::Vector& proto_vector) {
   if (proto_vector.values().empty()) {
     return absl::InvalidArgumentError("Vector values cannot be empty");
   }
@@ -28,8 +28,8 @@ absl::StatusOr<core::Vector> fromProto(const proto::Vector& proto_vector) {
 }
 
 absl::StatusOr<std::pair<core::VectorId, core::Vector>>
-fromProto(const proto::VectorWithId& proto_vector_with_id) {
-  auto vector_result = fromProto(proto_vector_with_id.vector());
+FromProto(const proto::VectorWithId& proto_vector_with_id) {
+  auto vector_result = FromProto(proto_vector_with_id.vector());
   if (!vector_result.ok()) {
     return vector_result.status();
   }
@@ -39,7 +39,7 @@ fromProto(const proto::VectorWithId& proto_vector_with_id) {
 }
 
 absl::StatusOr<core::MetricType>
-fromProto(proto::CreateCollectionRequest::MetricType metric) {
+FromProto(proto::CreateCollectionRequest::MetricType metric) {
   switch (metric) {
     case proto::CreateCollectionRequest::L2:
       return core::MetricType::L2;
@@ -54,7 +54,7 @@ fromProto(proto::CreateCollectionRequest::MetricType metric) {
 }
 
 absl::StatusOr<core::IndexType>
-fromProto(proto::CreateCollectionRequest::IndexType index_type) {
+FromProto(proto::CreateCollectionRequest::IndexType index_type) {
   switch (index_type) {
     case proto::CreateCollectionRequest::FLAT:
       return core::IndexType::FLAT;
@@ -78,12 +78,12 @@ fromProto(proto::CreateCollectionRequest::IndexType index_type) {
   }
 }
 
-absl::StatusOr<core::Metadata> fromProto(const proto::Metadata& proto_metadata) {
+absl::StatusOr<core::Metadata> FromProto(const proto::Metadata& proto_metadata) {
   core::Metadata metadata;
 
   for (const auto& [key, proto_value] : proto_metadata.fields()) {
     // Validate key
-    RETURN_IF_ERROR(core::validate_metadata_key(key));
+    RETURN_IF_ERROR(core::ValidateMetadataKey(key));
 
     // Convert value based on which field is set
     core::MetadataValue value;
@@ -101,7 +101,7 @@ absl::StatusOr<core::Metadata> fromProto(const proto::Metadata& proto_metadata) 
     }
 
     // Validate value
-    auto value_validation = core::validate_metadata_value(value);
+    auto value_validation = core::ValidateMetadataValue(value);
     if (!value_validation.ok()) {
       return absl::InvalidArgumentError(
           absl::StrFormat("Invalid metadata value for key '%s': %s",
@@ -112,7 +112,7 @@ absl::StatusOr<core::Metadata> fromProto(const proto::Metadata& proto_metadata) 
   }
 
   // Validate complete metadata
-  RETURN_IF_ERROR(core::validate_metadata(metadata));
+  RETURN_IF_ERROR(core::ValidateMetadata(metadata));
 
   return metadata;
 }
@@ -121,19 +121,19 @@ absl::StatusOr<core::Metadata> fromProto(const proto::Metadata& proto_metadata) 
 // Core to Proto Conversions
 // ============================================================================
 
-void toProto(const core::Vector& vector, proto::Vector* proto_vector) {
+void ToProto(const core::Vector& vector, proto::Vector* proto_vector) {
   proto_vector->set_dimension(vector.dimension());
   for (size_t i = 0; i < static_cast<size_t>(vector.dimension()); ++i) {
     proto_vector->add_values(vector.data()[i]);
   }
 }
 
-void toProto(const core::SearchResultEntry& entry, proto::SearchResultEntry* proto_entry) {
+void ToProto(const core::SearchResultEntry& entry, proto::SearchResultEntry* proto_entry) {
   proto_entry->set_id(core::ToUInt64(entry.id));
   proto_entry->set_distance(entry.distance);
 }
 
-void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata) {
+void ToProto(const core::Metadata& metadata, proto::Metadata* proto_metadata) {
   for (const auto& [key, value] : metadata) {
     proto::MetadataValue* proto_value = &(*proto_metadata->mutable_fields())[key];
 
@@ -153,7 +153,7 @@ void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata) {
 // Sparse Vector Conversions
 // ============================================================================
 
-absl::StatusOr<core::SparseVector> fromProto(const proto::SparseVector& proto_sparse) {
+absl::StatusOr<core::SparseVector> FromProto(const proto::SparseVector& proto_sparse) {
   if (proto_sparse.indices_size() != proto_sparse.values_size()) {
     return absl::InvalidArgumentError(
         absl::StrFormat("Sparse vector indices/values size mismatch: %d indices, %d values",
@@ -175,7 +175,7 @@ absl::StatusOr<core::SparseVector> fromProto(const proto::SparseVector& proto_sp
 // Backup / Restore
 // ============================================================================
 
-absl::StatusOr<storage::BackupTarget> fromProto(
+absl::StatusOr<storage::BackupTarget> FromProto(
     const proto::BackupTarget& proto_target) {
   switch (proto_target.target_case()) {
     case proto::BackupTarget::kS3: {
@@ -200,7 +200,7 @@ absl::StatusOr<storage::BackupTarget> fromProto(
   }
 }
 
-absl::Status toProto(const storage::BackupTarget& target,
+absl::Status ToProto(const storage::BackupTarget& target,
                      proto::BackupTarget* proto_target) {
   if (proto_target == nullptr) {
     return absl::InvalidArgumentError("proto_target is null");
@@ -222,7 +222,7 @@ absl::Status toProto(const storage::BackupTarget& target,
   return absl::InvalidArgumentError("Unknown BackupTarget variant");
 }
 
-proto::BackupState toProto(storage::BackupState state) {
+proto::BackupState ToProto(storage::BackupState state) {
   switch (state) {
     case storage::BackupState::PENDING:   return proto::BACKUP_PENDING;
     case storage::BackupState::RUNNING:   return proto::BACKUP_RUNNING;
@@ -237,7 +237,7 @@ proto::BackupState toProto(storage::BackupState state) {
 // Node Conversions
 // ============================================================================
 
-meta::NodeInfo fromProto(const proto::internal::NodeInfo& proto_info) {
+meta::NodeInfo FromProto(const proto::internal::NodeInfo& proto_info) {
   meta::NodeInfo info;
   info.node_id = core::MakeNodeId(proto_info.node_id());
 
@@ -293,7 +293,7 @@ meta::NodeInfo fromProto(const proto::internal::NodeInfo& proto_info) {
   return info;
 }
 
-void toProto(const meta::NodeInfo& info, proto::internal::NodeInfo* proto_info) {
+void ToProto(const meta::NodeInfo& info, proto::internal::NodeInfo* proto_info) {
   proto_info->set_node_id(core::ToUInt32(info.node_id));
 
   switch (info.type) {
@@ -340,7 +340,7 @@ void toProto(const meta::NodeInfo& info, proto::internal::NodeInfo* proto_info) 
 // Status Conversions
 // ============================================================================
 
-grpc::Status toGrpcStatus(const absl::Status& status) {
+grpc::Status ToGrpcStatus(const absl::Status& status) {
   if (status.ok()) {
     return grpc::Status::OK;
   }
@@ -372,7 +372,7 @@ grpc::Status toGrpcStatus(const absl::Status& status) {
   return grpc::Status(grpc_code, std::string(status.message()));
 }
 
-absl::Status fromGrpcStatus(const grpc::Status& grpc_status) {
+absl::Status FromGrpcStatus(const grpc::Status& grpc_status) {
   if (grpc_status.ok()) {
     return absl::OkStatus();
   }

@@ -184,7 +184,7 @@ void TieredSegmentManager::RetryLoop() {
         uint32_t attempts = entry.second;
         failed_uploads_.erase(core::ToUInt32(seg_id));
         uploading_.insert(core::ToUInt32(seg_id));
-        upload_pool_->enqueue(
+        upload_pool_->Enqueue(
             [this, seg_id, attempts]() { RunUpload(seg_id, attempts); });
       }
       UpdateFailedUploadsMetricLocked();
@@ -240,7 +240,7 @@ void TieredSegmentManager::RedriveUnuploadedSegments() {
     common::Logger::Instance().Info(
         "Re-driving segment {} to object storage (flushed locally but missing "
         "from remote manifest)", seg_key);
-    upload_pool_->enqueue([this, id]() { RunUpload(id, 0); });
+    upload_pool_->Enqueue([this, id]() { RunUpload(id, 0); });
   }
 }
 

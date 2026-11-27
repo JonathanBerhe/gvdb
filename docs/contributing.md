@@ -80,6 +80,7 @@ The C++ code follows these conventions:
 - C++23, set in one place (`GVDB_CXX_STANDARD` in `cmake/GvdbCompilerSettings.cmake`). The fetched dependencies build at the same standard.
 - RAII + smart pointers (no raw `new`/`delete`)
 - `absl::Status` and `absl::StatusOr<T>` for fallible operations, used directly. `core/status.h` includes both and adds `RETURN_IF_ERROR` and `ASSIGN_OR_RETURN`, which return an error to the caller.
+- Functions and methods have UpperCamel names (`ToProto`, `LoadFromFile`). Two kinds keep lower case: accessors that only return a member (`dimension()`, `is_negated()`), and overrides of a third-party interface, such as the NuRaft log store and state machine.
 - Every source and test file starts with the two-line license header (`// Copyright 2026 jonathanberhe` and `// Licensed under the Apache License, Version 2.0`).
 - `-Wall -Wextra -Wpedantic` on every GVDB target, and warnings are errors in every preset
 - Each module is a folder in `src/`. Its headers sit next to its sources, and code includes a header by its path below `src/`, for example `#include "storage/segment/segment.h"`. Headers use `#pragma once`.

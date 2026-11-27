@@ -25,14 +25,14 @@ using nuraft::ulong;
 
 GvdbLogStore::GvdbLogStore(const std::string& db_path)
     : db_path_(db_path) {
-  if (!init_rocksdb()) {
+  if (!InitRocksDb()) {
     throw std::runtime_error("Failed to initialize RocksDB at " + db_path);
   }
   common::Logger::Instance().Info("GvdbLogStore initialized (persistent mode, path={})", db_path_);
 }
 
 GvdbLogStore::~GvdbLogStore() {
-  close_rocksdb();
+  CloseRocksDb();
 }
 
 ulong GvdbLogStore::next_slot() const {
@@ -53,12 +53,12 @@ ptr<log_entry> GvdbLogStore::last_entry() const {
     // Empty log: return dummy entry with term 0
     return nuraft::cs_new<log_entry>(0, nuraft::buffer::alloc(0));
   }
-  auto entry = read_entry_from_db(next - 1);
+  auto entry = ReadEntryFromDb(next - 1);
   if (!entry) {
     // DB claims this index exists (next > start) but read returned null.
     // Log an error so corruption isn't silently masked as "empty log".
     common::Logger::Instance().Error(
-        "last_entry: read_entry_from_db({}) returned null (start={}, next={})",
+        "last_entry: ReadEntryFromDb({}) returned null (start={}, next={})",
         next - 1, start, next);
     return nuraft::cs_new<log_entry>(0, nuraft::buffer::alloc(0));
   }
@@ -70,7 +70,7 @@ ulong GvdbLogStore::append(ptr<log_entry>& entry) {
 
   // Use atomic counter for next index
   ulong index = next_idx_.fetch_add(1, std::memory_order_acq_rel);
-  if (!write_entry_to_db(index, entry)) {
+  if (!WriteEntryToDb(index, entry)) {
     common::Logger::Instance().Error("Failed to persist log entry at index {}", index);
     // Rollback counter on failure
     next_idx_.fetch_sub(1, std::memory_order_acq_rel);
@@ -86,10 +86,10 @@ void GvdbLogStore::write_at(ulong index, ptr<log_entry>& entry) {
   // Delete entries from index+1 to infinity (truncate)
   // RocksDB doesn't have "infinity", so we delete up to a large number
   ulong max_index = index + 100000;  // Reasonable upper bound
-  delete_range_from_db(index + 1, max_index);
+  DeleteRangeFromDb(index + 1, max_index);
 
   // Write the entry at index
-  if (!write_entry_to_db(index, entry)) {
+  if (!WriteEntryToDb(index, entry)) {
     throw std::runtime_error("Failed to write log entry to RocksDB");
   }
 
@@ -110,7 +110,7 @@ ptr<std::vector<ptr<log_entry>>> GvdbLogStore::log_entries(ulong start, ulong en
   result->reserve(end - start);
 
   for (ulong i = start; i < end; ++i) {
-    auto entry = get_entry_internal(i);
+    auto entry = GetEntryInternal(i);
     if (!entry) {
       // Entry not found - log has been compacted or doesn't exist
       common::Logger::Instance().Error(
@@ -125,7 +125,7 @@ ptr<std::vector<ptr<log_entry>>> GvdbLogStore::log_entries(ulong start, ulong en
 
 ptr<log_entry> GvdbLogStore::entry_at(ulong index) {
   std::lock_guard<std::mutex> lock(mutex_);
-  return get_entry_internal(index);
+  return GetEntryInternal(index);
 }
 
 ulong GvdbLogStore::term_at(ulong index) {
@@ -136,7 +136,7 @@ ulong GvdbLogStore::term_at(ulong index) {
     return 0;  // Compacted, return 0
   }
 
-  auto entry = get_entry_internal(index);
+  auto entry = GetEntryInternal(index);
   if (!entry) {
     // Should not happen for valid index >= start_index
     common::Logger::Instance().Error("term_at: entry at index {} not found", index);
@@ -155,7 +155,7 @@ ptr<buffer> GvdbLogStore::pack(ulong index, nuraft::int32 cnt) {
   entry_buffers.reserve(cnt);
 
   for (nuraft::int32 i = 0; i < cnt; ++i) {
-    auto entry = get_entry_internal(index + i);
+    auto entry = GetEntryInternal(index + i);
     if (!entry) {
       common::Logger::Instance().Error("pack: entry at index {} not found", index + i);
       return nullptr;
@@ -196,7 +196,7 @@ void GvdbLogStore::apply_pack(ulong index, buffer& pack) {
 
     // Deserialize and store
     ptr<log_entry> entry = log_entry::deserialize(*entry_buf);
-    if (!write_entry_to_db(current_index, entry)) {
+    if (!WriteEntryToDb(current_index, entry)) {
       // Partial-state on failure: entries N..current_index-1 remain in
       // RocksDB with next_idx_ already advanced, matching append()'s
       // throw-on-IO-error contract. NuRaft's snapshot-install path is
@@ -219,7 +219,7 @@ bool GvdbLogStore::compact(ulong last_log_index) {
 
   // Delete entries from start_idx to last_log_index (inclusive)
   ulong start = start_idx_.load(std::memory_order_acquire);
-  if (!delete_range_from_db(start, last_log_index + 1)) {
+  if (!DeleteRangeFromDb(start, last_log_index + 1)) {
     return false;
   }
 
@@ -258,13 +258,13 @@ bool GvdbLogStore::flush() {
 }
 
 // Private helper
-ptr<log_entry> GvdbLogStore::get_entry_internal(ulong index) const {
+ptr<log_entry> GvdbLogStore::GetEntryInternal(ulong index) const {
   // Caller must hold mutex
-  return read_entry_from_db(index);
+  return ReadEntryFromDb(index);
 }
 
 // RocksDB initialization
-bool GvdbLogStore::init_rocksdb() {
+bool GvdbLogStore::InitRocksDb() {
   namespace fs = std::filesystem;
 
   // Create directory if it doesn't exist
@@ -375,7 +375,7 @@ bool GvdbLogStore::init_rocksdb() {
   return true;
 }
 
-void GvdbLogStore::close_rocksdb() {
+void GvdbLogStore::CloseRocksDb() {
   if (log_cf_) {
     db_->DestroyColumnFamilyHandle(log_cf_);
     log_cf_ = nullptr;
@@ -384,14 +384,14 @@ void GvdbLogStore::close_rocksdb() {
   common::Logger::Instance().Info("RocksDB closed");
 }
 
-std::string GvdbLogStore::make_log_key(ulong index) const {
+std::string GvdbLogStore::MakeLogKey(ulong index) const {
   // Use fixed-width binary key for efficient range scans
   std::string key(sizeof(ulong), '\0');
   std::memcpy(&key[0], &index, sizeof(ulong));
   return key;
 }
 
-bool GvdbLogStore::write_entry_to_db(ulong index, ptr<log_entry>& entry) {
+bool GvdbLogStore::WriteEntryToDb(ulong index, ptr<log_entry>& entry) {
   if (!db_ || !log_cf_) {
     return false;
   }
@@ -399,7 +399,7 @@ bool GvdbLogStore::write_entry_to_db(ulong index, ptr<log_entry>& entry) {
   // Serialize log entry
   auto serialized = entry->serialize();
 
-  std::string key = make_log_key(index);
+  std::string key = MakeLogKey(index);
   rocksdb::Slice value(reinterpret_cast<const char*>(serialized->data_begin()),
                         serialized->size());
 
@@ -416,12 +416,12 @@ bool GvdbLogStore::write_entry_to_db(ulong index, ptr<log_entry>& entry) {
   return true;
 }
 
-ptr<log_entry> GvdbLogStore::read_entry_from_db(ulong index) const {
+ptr<log_entry> GvdbLogStore::ReadEntryFromDb(ulong index) const {
   if (!db_ || !log_cf_) {
     return nullptr;
   }
 
-  std::string key = make_log_key(index);
+  std::string key = MakeLogKey(index);
   std::string value;
 
   rocksdb::Status status = db_->Get(rocksdb::ReadOptions(), log_cf_, key, &value);
@@ -441,13 +441,13 @@ ptr<log_entry> GvdbLogStore::read_entry_from_db(ulong index) const {
   return log_entry::deserialize(*buffer_ptr);
 }
 
-bool GvdbLogStore::delete_range_from_db(ulong start_index, ulong end_index) {
+bool GvdbLogStore::DeleteRangeFromDb(ulong start_index, ulong end_index) {
   if (!db_ || !log_cf_) {
     return false;
   }
 
-  std::string start_key = make_log_key(start_index);
-  std::string end_key = make_log_key(end_index);
+  std::string start_key = MakeLogKey(start_index);
+  std::string end_key = MakeLogKey(end_index);
 
   rocksdb::WriteOptions write_opts;
   write_opts.sync = true;

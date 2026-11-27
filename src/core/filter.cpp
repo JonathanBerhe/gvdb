@@ -42,13 +42,13 @@ ComparisonNode::ComparisonNode(std::string field, ComparisonOp op,
                                MetadataValue value)
     : field_(std::move(field)), op_(op), value_(std::move(value)) {}
 
-bool ComparisonNode::evaluate(const Metadata& metadata) const {
+bool ComparisonNode::Evaluate(const Metadata& metadata) const {
   auto it = metadata.find(field_);
   if (it == metadata.end()) {
     return false;  // Field not present
   }
 
-  return compare_metadata_values(it->second, op_, value_);
+  return CompareMetadataValues(it->second, op_, value_);
 }
 
 // ============================================================================
@@ -59,13 +59,13 @@ InNode::InNode(std::string field, bool negate,
                std::vector<MetadataValue> values)
     : field_(std::move(field)), negate_(negate), values_(std::move(values)) {}
 
-bool InNode::evaluate(const Metadata& metadata) const {
+bool InNode::Evaluate(const Metadata& metadata) const {
   auto it = metadata.find(field_);
   if (it == metadata.end()) {
     return false;  // Field not present
   }
 
-  return compare_metadata_value_in_list(it->second, negate_, values_);
+  return CompareMetadataValueInList(it->second, negate_, values_);
 }
 
 // ============================================================================
@@ -76,14 +76,14 @@ LogicalNode::LogicalNode(LogicalOp op, std::unique_ptr<FilterNode> left,
                          std::unique_ptr<FilterNode> right)
     : op_(op), left_(std::move(left)), right_(std::move(right)) {}
 
-bool LogicalNode::evaluate(const Metadata& metadata) const {
+bool LogicalNode::Evaluate(const Metadata& metadata) const {
   switch (op_) {
     case LogicalOp::AND:
-      return left_->evaluate(metadata) && right_->evaluate(metadata);
+      return left_->Evaluate(metadata) && right_->Evaluate(metadata);
     case LogicalOp::OR:
-      return left_->evaluate(metadata) || right_->evaluate(metadata);
+      return left_->Evaluate(metadata) || right_->Evaluate(metadata);
     case LogicalOp::NOT:
-      return !left_->evaluate(metadata);
+      return !left_->Evaluate(metadata);
   }
   return false;
 }
@@ -98,55 +98,55 @@ FilterParser::FilterParser(const std::string& expression)
 absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse(
     const std::string& expression) {
   FilterParser parser(expression);
-  auto root = parser.parse_expression();
+  auto root = parser.ParseExpression();
   if (!root.ok()) {
     return root.status();
   }
 
-  parser.skip_whitespace();
-  if (!parser.is_at_end()) {
+  parser.SkipWhitespace();
+  if (!parser.IsAtEnd()) {
     return absl::InvalidArgumentError(
         absl::StrCat("Unexpected input at position ", parser.pos_, ": ",
-                     parser.current_context()));
+                     parser.CurrentContext()));
   }
   return root;
 }
 
-absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_expression() {
-  return parse_or_expression();
+absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::ParseExpression() {
+  return ParseOrExpression();
 }
 
-absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_or_expression() {
+absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::ParseOrExpression() {
   std::vector<std::unique_ptr<FilterNode>> operands;
   do {
-    auto operand = parse_and_expression();
+    auto operand = ParseAndExpression();
     if (!operand.ok()) {
       return operand.status();
     }
     operands.push_back(std::move(*operand));
-  } while (match("OR"));
+  } while (Match("OR"));
 
   return BuildBalancedChain(LogicalOp::OR, operands, 0, operands.size());
 }
 
-absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_and_expression() {
+absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::ParseAndExpression() {
   std::vector<std::unique_ptr<FilterNode>> operands;
   do {
-    auto operand = parse_not_expression();
+    auto operand = ParseNotExpression();
     if (!operand.ok()) {
       return operand.status();
     }
     operands.push_back(std::move(*operand));
-  } while (match("AND"));
+  } while (Match("AND"));
 
   return BuildBalancedChain(LogicalOp::AND, operands, 0, operands.size());
 }
 
-absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_not_expression() {
-  if (match("NOT")) {
-    RETURN_IF_ERROR(enter_nesting());
+absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::ParseNotExpression() {
+  if (Match("NOT")) {
+    RETURN_IF_ERROR(EnterNesting());
 
-    auto expr = parse_not_expression();
+    auto expr = ParseNotExpression();
     if (!expr.ok()) {
       return expr.status();
     }
@@ -155,53 +155,53 @@ absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_not_expression()
     return std::make_unique<LogicalNode>(LogicalOp::NOT, std::move(*expr));
   }
 
-  return parse_primary_expression();
+  return ParsePrimaryExpression();
 }
 
-absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_primary_expression() {
-  skip_whitespace();
+absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::ParsePrimaryExpression() {
+  SkipWhitespace();
 
   // Handle parenthesized expressions
-  if (peek() == '(') {
-    advance();  // consume '('
-    RETURN_IF_ERROR(enter_nesting());
+  if (Peek() == '(') {
+    Advance();  // consume '('
+    RETURN_IF_ERROR(EnterNesting());
 
-    auto expr = parse_expression();
+    auto expr = ParseExpression();
     if (!expr.ok()) {
       return expr.status();
     }
 
-    skip_whitespace();
-    if (peek() != ')') {
+    SkipWhitespace();
+    if (Peek() != ')') {
       return absl::InvalidArgumentError(
-          absl::StrCat("Expected ')' at position ", pos_, ": ", current_context()));
+          absl::StrCat("Expected ')' at position ", pos_, ": ", CurrentContext()));
     }
-    advance();  // consume ')'
+    Advance();  // consume ')'
     --depth_;
 
     return expr;
   }
 
   // Parse comparison or IN expression
-  return parse_comparison();
+  return ParseComparison();
 }
 
-absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_comparison() {
-  auto field = parse_identifier();
+absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::ParseComparison() {
+  auto field = ParseIdentifier();
   if (!field.ok()) {
     return field.status();
   }
 
-  skip_whitespace();
+  SkipWhitespace();
 
   // Check for IN/NOT IN and NOT LIKE
-  if (match("NOT")) {
-    skip_whitespace();
-    if (match("IN")) {
-      return parse_in_expression(*field, true);
-    } else if (match("LIKE")) {
-      skip_whitespace();
-      auto value = parse_value();
+  if (Match("NOT")) {
+    SkipWhitespace();
+    if (Match("IN")) {
+      return ParseInExpression(*field, true);
+    } else if (Match("LIKE")) {
+      SkipWhitespace();
+      auto value = ParseValue();
       if (!value.ok()) {
         return value.status();
       }
@@ -212,20 +212,20 @@ absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_comparison() {
     }
   }
 
-  if (match("IN")) {
-    return parse_in_expression(*field, false);
+  if (Match("IN")) {
+    return ParseInExpression(*field, false);
   }
 
   // Parse comparison operator
-  auto op = parse_comparison_operator();
+  auto op = ParseComparisonOperator();
   if (!op.ok()) {
     return op.status();
   }
 
-  skip_whitespace();
+  SkipWhitespace();
 
   // Parse value
-  auto value = parse_value();
+  auto value = ParseValue();
   if (!value.ok()) {
     return value.status();
   }
@@ -233,70 +233,70 @@ absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_comparison() {
   return std::make_unique<ComparisonNode>(*field, *op, *value);
 }
 
-absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_in_expression(
+absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::ParseInExpression(
     const std::string& field, bool negate) {
-  skip_whitespace();
+  SkipWhitespace();
 
-  if (peek() != '(') {
+  if (Peek() != '(') {
     return absl::InvalidArgumentError(
         absl::StrCat("Expected '(' after IN at position ", pos_));
   }
-  advance();  // consume '('
+  Advance();  // consume '('
 
   std::vector<MetadataValue> values;
 
-  skip_whitespace();
-  if (peek() == ')') {
+  SkipWhitespace();
+  if (Peek() == ')') {
     return absl::InvalidArgumentError("IN list cannot be empty");
   }
 
   while (true) {
-    skip_whitespace();
+    SkipWhitespace();
 
-    auto value = parse_value();
+    auto value = ParseValue();
     if (!value.ok()) {
       return value.status();
     }
     values.push_back(*value);
 
-    skip_whitespace();
+    SkipWhitespace();
 
-    if (peek() == ')') {
-      advance();  // consume ')'
+    if (Peek() == ')') {
+      Advance();  // consume ')'
       break;
     }
 
-    if (peek() != ',') {
+    if (Peek() != ',') {
       return absl::InvalidArgumentError(
           absl::StrCat("Expected ',' or ')' in IN list at position ", pos_));
     }
-    advance();  // consume ','
+    Advance();  // consume ','
   }
 
   return std::make_unique<InNode>(field, negate, std::move(values));
 }
 
-void FilterParser::skip_whitespace() {
-  while (!is_at_end() && absl::ascii_isspace(peek())) {
-    advance();
+void FilterParser::SkipWhitespace() {
+  while (!IsAtEnd() && absl::ascii_isspace(Peek())) {
+    Advance();
   }
 }
 
-bool FilterParser::match(const std::string& keyword) {
-  skip_whitespace();
+bool FilterParser::Match(const std::string& keyword) {
+  SkipWhitespace();
 
   size_t start = pos_;
   size_t i = 0;
 
-  while (i < keyword.size() && !is_at_end() &&
-         absl::ascii_toupper(peek()) == keyword[i]) {
-    advance();
+  while (i < keyword.size() && !IsAtEnd() &&
+         absl::ascii_toupper(Peek()) == keyword[i]) {
+    Advance();
     ++i;
   }
 
   if (i == keyword.size()) {
     // Check that keyword is followed by non-identifier character
-    if (!is_at_end() && (absl::ascii_isalnum(peek()) || peek() == '_')) {
+    if (!IsAtEnd() && (absl::ascii_isalnum(Peek()) || Peek() == '_')) {
       pos_ = start;  // Rollback
       return false;
     }
@@ -307,14 +307,14 @@ bool FilterParser::match(const std::string& keyword) {
   return false;
 }
 
-bool FilterParser::match_operator(const std::string& op) {
-  skip_whitespace();
+bool FilterParser::MatchOperator(const std::string& op) {
+  SkipWhitespace();
 
   size_t start = pos_;
   size_t i = 0;
 
-  while (i < op.size() && !is_at_end() && peek() == op[i]) {
-    advance();
+  while (i < op.size() && !IsAtEnd() && Peek() == op[i]) {
+    Advance();
     ++i;
   }
 
@@ -326,59 +326,59 @@ bool FilterParser::match_operator(const std::string& op) {
   return false;
 }
 
-absl::StatusOr<std::string> FilterParser::parse_identifier() {
-  skip_whitespace();
+absl::StatusOr<std::string> FilterParser::ParseIdentifier() {
+  SkipWhitespace();
 
-  if (is_at_end() || (!absl::ascii_isalpha(peek()) && peek() != '_')) {
+  if (IsAtEnd() || (!absl::ascii_isalpha(Peek()) && Peek() != '_')) {
     return absl::InvalidArgumentError(
         absl::StrCat("Expected identifier at position ", pos_));
   }
 
   std::string identifier;
-  while (!is_at_end() && (absl::ascii_isalnum(peek()) || peek() == '_')) {
-    identifier += advance();
+  while (!IsAtEnd() && (absl::ascii_isalnum(Peek()) || Peek() == '_')) {
+    identifier += Advance();
   }
 
   return identifier;
 }
 
-absl::StatusOr<MetadataValue> FilterParser::parse_value() {
-  skip_whitespace();
+absl::StatusOr<MetadataValue> FilterParser::ParseValue() {
+  SkipWhitespace();
 
-  if (is_at_end()) {
+  if (IsAtEnd()) {
     return absl::InvalidArgumentError("Unexpected end of expression");
   }
 
   // String literal
-  if (peek() == '\'' || peek() == '"') {
-    char quote = advance();
+  if (Peek() == '\'' || Peek() == '"') {
+    char quote = Advance();
     std::string value;
 
-    while (!is_at_end() && peek() != quote) {
-      if (peek() == '\\' && !is_at_end()) {
-        advance();  // consume backslash
-        if (!is_at_end()) {
-          value += advance();  // escaped character
+    while (!IsAtEnd() && Peek() != quote) {
+      if (Peek() == '\\' && !IsAtEnd()) {
+        Advance();  // consume backslash
+        if (!IsAtEnd()) {
+          value += Advance();  // escaped character
         }
       } else {
-        value += advance();
+        value += Advance();
       }
     }
 
-    if (is_at_end()) {
+    if (IsAtEnd()) {
       return absl::InvalidArgumentError("Unterminated string literal");
     }
 
-    advance();  // consume closing quote
+    Advance();  // consume closing quote
     return MetadataValue(value);
   }
 
   // Boolean - check for literal "true" or "false"
-  if (absl::ascii_isalpha(peek())) {
+  if (absl::ascii_isalpha(Peek())) {
     size_t start_pos = pos_;
     std::string word;
-    while (!is_at_end() && absl::ascii_isalpha(peek())) {
-      word += advance();
+    while (!IsAtEnd() && absl::ascii_isalpha(Peek())) {
+      word += Advance();
     }
 
     if (word == "true") {
@@ -393,16 +393,16 @@ absl::StatusOr<MetadataValue> FilterParser::parse_value() {
 
   // Number: optional sign, digits, at most one '.'. The sign is converted
   // together with the digits so INT64_MIN is representable.
-  if (absl::ascii_isdigit(peek()) || peek() == '-' || peek() == '+') {
+  if (absl::ascii_isdigit(Peek()) || Peek() == '-' || Peek() == '+') {
     size_t start = pos_;
-    if (peek() == '-' || peek() == '+') {
-      advance();
+    if (Peek() == '-' || Peek() == '+') {
+      Advance();
     }
 
     bool has_digit = false;
     bool has_decimal = false;
-    while (!is_at_end() && (absl::ascii_isdigit(peek()) || peek() == '.')) {
-      if (peek() == '.') {
+    while (!IsAtEnd() && (absl::ascii_isdigit(Peek()) || Peek() == '.')) {
+      if (Peek() == '.') {
         if (has_decimal) {
           return absl::InvalidArgumentError(
               absl::StrCat("Invalid number format at position ", pos_));
@@ -411,7 +411,7 @@ absl::StatusOr<MetadataValue> FilterParser::parse_value() {
       } else {
         has_digit = true;
       }
-      advance();
+      Advance();
     }
 
     if (!has_digit) {
@@ -440,61 +440,61 @@ absl::StatusOr<MetadataValue> FilterParser::parse_value() {
   }
 
   return absl::InvalidArgumentError(
-      absl::StrCat("Expected value at position ", pos_, ": ", current_context()));
+      absl::StrCat("Expected value at position ", pos_, ": ", CurrentContext()));
 }
 
-absl::StatusOr<ComparisonOp> FilterParser::parse_comparison_operator() {
-  skip_whitespace();
+absl::StatusOr<ComparisonOp> FilterParser::ParseComparisonOperator() {
+  SkipWhitespace();
 
   // Check for LIKE/NOT LIKE first
-  if (match("NOT")) {
-    skip_whitespace();
-    if (!match("LIKE")) {
+  if (Match("NOT")) {
+    SkipWhitespace();
+    if (!Match("LIKE")) {
       return absl::InvalidArgumentError("Expected 'LIKE' after 'NOT'");
     }
     return ComparisonOp::NOT_LIKE;
   }
 
-  if (match("LIKE")) {
+  if (Match("LIKE")) {
     return ComparisonOp::LIKE;
   }
 
   // Check two-character operators first
-  if (match_operator("!=")) return ComparisonOp::NOT_EQUAL;
-  if (match_operator("<=")) return ComparisonOp::LESS_EQUAL;
-  if (match_operator(">=")) return ComparisonOp::GREATER_EQUAL;
+  if (MatchOperator("!=")) return ComparisonOp::NOT_EQUAL;
+  if (MatchOperator("<=")) return ComparisonOp::LESS_EQUAL;
+  if (MatchOperator(">=")) return ComparisonOp::GREATER_EQUAL;
 
   // Single-character operators
-  if (match_operator("=")) return ComparisonOp::EQUAL;
-  if (match_operator("<")) return ComparisonOp::LESS_THAN;
-  if (match_operator(">")) return ComparisonOp::GREATER_THAN;
+  if (MatchOperator("=")) return ComparisonOp::EQUAL;
+  if (MatchOperator("<")) return ComparisonOp::LESS_THAN;
+  if (MatchOperator(">")) return ComparisonOp::GREATER_THAN;
 
   return absl::InvalidArgumentError(
       absl::StrCat("Expected comparison operator at position ", pos_));
 }
 
-char FilterParser::peek() const {
-  if (is_at_end()) {
+char FilterParser::Peek() const {
+  if (IsAtEnd()) {
     return '\0';
   }
   return expression_[pos_];
 }
 
-char FilterParser::advance() {
+char FilterParser::Advance() {
   return expression_[pos_++];
 }
 
-bool FilterParser::is_at_end() const {
+bool FilterParser::IsAtEnd() const {
   return pos_ >= expression_.size();
 }
 
-std::string FilterParser::current_context() const {
+std::string FilterParser::CurrentContext() const {
   size_t start = (pos_ > 10) ? pos_ - 10 : 0;
   size_t end = std::min(pos_ + 10, expression_.size());
   return expression_.substr(start, end - start);
 }
 
-absl::Status FilterParser::enter_nesting() {
+absl::Status FilterParser::EnterNesting() {
   if (++depth_ > kMaxNestingDepth) {
     return absl::InvalidArgumentError(
         absl::StrCat("Filter nesting exceeds the maximum depth of ",

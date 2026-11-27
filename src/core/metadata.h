@@ -73,7 +73,7 @@ enum class LogicalOp {
  *
  * Note: Type checking is performed at runtime
  */
-bool compare_metadata_values(
+bool CompareMetadataValues(
     const MetadataValue& left,
     ComparisonOp op,
     const MetadataValue& right);
@@ -81,7 +81,7 @@ bool compare_metadata_values(
 /**
  * @brief Compare metadata value against a list (for IN/NOT_IN operators)
  */
-bool compare_metadata_value_in_list(
+bool CompareMetadataValueInList(
     const MetadataValue& value,
     bool negate,
     const std::vector<MetadataValue>& list);
@@ -103,7 +103,7 @@ bool compare_metadata_value_in_list(
  * - "%running%" matches "best running shoes", "running gear"
  * - "Air_Max" matches "Air Max", "Air-Max"
  */
-bool match_like_pattern(const std::string& value, const std::string& pattern);
+bool MatchLikePattern(const std::string& value, const std::string& pattern);
 
 /**
  * @brief Validate metadata key names
@@ -114,7 +114,7 @@ bool match_like_pattern(const std::string& value, const std::string& pattern);
  * - Cannot be empty
  * - Cannot exceed 255 characters
  */
-absl::Status validate_metadata_key(const std::string& key);
+absl::Status ValidateMetadataKey(const std::string& key);
 
 /**
  * @brief Validate metadata value
@@ -123,7 +123,7 @@ absl::Status validate_metadata_key(const std::string& key);
  * - Strings cannot exceed 64KB
  * - Numbers must be finite (no NaN, Inf)
  */
-absl::Status validate_metadata_value(const MetadataValue& value);
+absl::Status ValidateMetadataValue(const MetadataValue& value);
 
 /**
  * @brief Validate entire metadata map
@@ -131,7 +131,7 @@ absl::Status validate_metadata_value(const MetadataValue& value);
  * Validates all keys and values, enforces limits:
  * - Maximum 100 metadata fields per vector
  */
-absl::Status validate_metadata(const Metadata& metadata);
+absl::Status ValidateMetadata(const Metadata& metadata);
 
 /**
  * @brief Binary serialization for Metadata (for network transfer)

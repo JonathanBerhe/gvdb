@@ -268,7 +268,7 @@ grpc::Status InternalService::CreateSegment(
     }
 
     // Convert string types to enums
-    auto metric_result = core::metricTypeFromString(metric_type_str);
+    auto metric_result = core::MetricTypeFromString(metric_type_str);
     if (!metric_result.ok()) {
       response->set_success(false);
       response->set_message(std::string(metric_result.status().message()));
@@ -276,7 +276,7 @@ grpc::Status InternalService::CreateSegment(
                           std::string(metric_result.status().message()));
     }
 
-    auto index_result = core::indexTypeFromString(index_type_str);
+    auto index_result = core::IndexTypeFromString(index_type_str);
     if (!index_result.ok()) {
       response->set_success(false);
       response->set_message(std::string(index_result.status().message()));
@@ -371,7 +371,7 @@ grpc::Status InternalService::ExecuteShardQuery(
       if (request->return_metadata()) {
         auto meta_result = segment->GetMetadata(entry.id);
         if (meta_result.ok()) {
-          rpc::toProto(*meta_result, result->mutable_metadata());
+          rpc::ToProto(*meta_result, result->mutable_metadata());
         }
       }
     }
@@ -520,9 +520,9 @@ grpc::Status InternalService::BackupShard(
         "BackupShard requires a segment store");
   }
 
-  auto target = rpc::fromProto(request->target());
+  auto target = rpc::FromProto(request->target());
   if (!target.ok()) {
-    return rpc::toGrpcStatus(target.status());
+    return rpc::ToGrpcStatus(target.status());
   }
 
   auto result = backup_manager_->RunShardBackup(
@@ -535,7 +535,7 @@ grpc::Status InternalService::BackupShard(
   if (!result.ok()) {
     response->set_success(false);
     response->set_message(std::string(result.status().message()));
-    return rpc::toGrpcStatus(result.status());
+    return rpc::ToGrpcStatus(result.status());
   }
 
   response->set_success(true);
@@ -566,9 +566,9 @@ grpc::Status InternalService::RestoreShard(
         "RestoreShard requires a segment store");
   }
 
-  auto source = rpc::fromProto(request->source());
+  auto source = rpc::FromProto(request->source());
   if (!source.ok()) {
-    return rpc::toGrpcStatus(source.status());
+    return rpc::ToGrpcStatus(source.status());
   }
 
   auto status = restore_manager_->RunShardRestore(
@@ -580,7 +580,7 @@ grpc::Status InternalService::RestoreShard(
   if (!status.ok()) {
     response->set_success(false);
     response->set_message(std::string(status.message()));
-    return rpc::toGrpcStatus(status);
+    return rpc::ToGrpcStatus(status);
   }
   response->set_success(true);
   response->set_message("Shard restore complete");

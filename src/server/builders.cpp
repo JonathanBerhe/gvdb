@@ -18,15 +18,15 @@ namespace gvdb {
 namespace server {
 
 absl::StatusOr<config::GVDBConfig> LoadConfig(const std::string& path) {
-  if (path.empty()) return config::Config::get_default();
-  auto loaded = config::Config::load_from_file(path);
+  if (path.empty()) return config::Config::GetDefault();
+  auto loaded = config::Config::LoadFromFile(path);
   if (!loaded.ok()) return WithPrefix("Failed to load config: ", loaded.status());
   return std::move(*loaded);
 }
 
 config::GVDBConfig LoadConfigOrDefault(const std::string& path) {
   auto loaded = LoadConfig(path);
-  return loaded.ok() ? std::move(*loaded) : config::Config::get_default();
+  return loaded.ok() ? std::move(*loaded) : config::Config::GetDefault();
 }
 
 absl::StatusOr<SegmentStoreParts> BuildSegmentStore(const config::StorageConfig& storage,
