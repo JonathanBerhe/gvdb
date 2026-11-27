@@ -2,7 +2,8 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "network/vectordb_service.h"
-#include "network/proto_conversions.h"
+#include "core/type_names.h"
+#include "rpc/proto_conversions.h"
 #include "network/collection_resolver.h"
 #include "network/primary_term_header.h"
 #include "network/replica_fallback.h"
@@ -345,7 +346,7 @@ grpc::Status VectorDBService::SearchDistributed(
   // Get shard targets from coordinator
   auto targets_result = resolver_->GetShardTargets(request->collection_name());
   if (!targets_result.ok()) {
-    return toGrpcStatus(targets_result.status());
+    return rpc::toGrpcStatus(targets_result.status());
   }
 
   const auto& targets = *targets_result;
@@ -547,11 +548,11 @@ grpc::Status VectorDBService::CreateCollection(
         "Collection name cannot be empty");
   }
 
-  auto metric_result = fromProto(request->metric());
-  if (!metric_result.ok()) return toGrpcStatus(metric_result.status());
+  auto metric_result = rpc::fromProto(request->metric());
+  if (!metric_result.ok()) return rpc::toGrpcStatus(metric_result.status());
 
-  auto index_type_result = fromProto(request->index_type());
-  if (!index_type_result.ok()) return toGrpcStatus(index_type_result.status());
+  auto index_type_result = rpc::fromProto(request->index_type());
+  if (!index_type_result.ok()) return rpc::toGrpcStatus(index_type_result.status());
 
   size_t num_shards = request->num_shards() > 0 ? request->num_shards() : 1;
   auto collection_id_result = resolver_->CreateCollection(
@@ -559,7 +560,7 @@ grpc::Status VectorDBService::CreateCollection(
       *metric_result, *index_type_result, num_shards);
 
   if (!collection_id_result.ok()) {
-    return toGrpcStatus(collection_id_result.status());
+    return rpc::toGrpcStatus(collection_id_result.status());
   }
 
   response->set_collection_id(core::ToUInt32(*collection_id_result));
@@ -585,7 +586,7 @@ grpc::Status VectorDBService::DropCollection(
   auto cid_before = resolver_->GetCollectionId(request->collection_name());
 
   auto status = resolver_->DropCollection(request->collection_name());
-  if (!status.ok()) return toGrpcStatus(status);
+  if (!status.ok()) return rpc::toGrpcStatus(status);
 
   utils::MetricsRegistry::Instance().SetCollectionCount(
       resolver_->CollectionCount());
@@ -613,7 +614,7 @@ grpc::Status VectorDBService::ListCollections(
     info->set_collection_id(core::ToUInt32(coll.collection_id));
     info->set_collection_name(coll.collection_name);
     info->set_dimension(coll.dimension);
-    info->set_metric_type(toString(coll.metric_type));
+    info->set_metric_type(core::toString(coll.metric_type));
     info->set_vector_count(coll.vector_count);
   }
 
@@ -676,7 +677,7 @@ grpc::Status VectorDBService::Insert(
   // Get all segment IDs for this collection
   auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
   if (!segment_ids_result.ok()) {
-    return toGrpcStatus(segment_ids_result.status());
+    return rpc::toGrpcStatus(segment_ids_result.status());
   }
   const auto& segment_ids = *segment_ids_result;
   size_t num_shards = segment_ids.size();
@@ -684,7 +685,7 @@ grpc::Status VectorDBService::Insert(
   // Get dimension from first segment
   auto* first_segment = segment_store_->GetSegment(segment_ids[0]);
   if (!first_segment) {
-    return toGrpcStatus(absl::NotFoundError("Segment not found"));
+    return rpc::toGrpcStatus(absl::NotFoundError("Segment not found"));
   }
   uint32_t dimension = first_segment->GetDimension();
 
@@ -701,8 +702,8 @@ grpc::Status VectorDBService::Insert(
   std::vector<ShardBatch> shard_batches(num_shards);
 
   for (const auto& proto_vec : request->vectors()) {
-    auto vec_result = fromProto(proto_vec);
-    if (!vec_result.ok()) return toGrpcStatus(vec_result.status());
+    auto vec_result = rpc::fromProto(proto_vec);
+    if (!vec_result.ok()) return rpc::toGrpcStatus(vec_result.status());
 
     core::VectorId vid = vec_result->first;
     uint32_t shard_idx = static_cast<uint32_t>(
@@ -714,16 +715,16 @@ grpc::Status VectorDBService::Insert(
 
     if (proto_vec.has_metadata()) {
       batch.has_metadata = true;
-      auto meta_result = fromProto(proto_vec.metadata());
-      if (!meta_result.ok()) return toGrpcStatus(meta_result.status());
+      auto meta_result = rpc::fromProto(proto_vec.metadata());
+      if (!meta_result.ok()) return rpc::toGrpcStatus(meta_result.status());
       batch.metadata.push_back(std::move(*meta_result));
     } else if (batch.has_metadata) {
       batch.metadata.push_back(core::Metadata{});
     }
 
     if (proto_vec.has_sparse_vector() && proto_vec.sparse_vector().indices_size() > 0) {
-      auto sparse_result = fromProto(proto_vec.sparse_vector());
-      if (!sparse_result.ok()) return toGrpcStatus(sparse_result.status());
+      auto sparse_result = rpc::fromProto(proto_vec.sparse_vector());
+      if (!sparse_result.ok()) return rpc::toGrpcStatus(sparse_result.status());
       batch.has_sparse = true;
       batch.sparse_map[core::ToUInt64(vid)] = std::move(*sparse_result);
     }
@@ -739,7 +740,7 @@ grpc::Status VectorDBService::Insert(
   for (const auto& batch : shard_batches) {
     for (const auto& vec : batch.vectors) {
       if (static_cast<uint32_t>(vec.dimension()) != dimension) {
-        return toGrpcStatus(absl::InvalidArgumentError(
+        return rpc::toGrpcStatus(absl::InvalidArgumentError(
             absl::StrFormat("Vector dimension mismatch: expected %d, got %d",
                             dimension, vec.dimension())));
       }
@@ -772,7 +773,7 @@ grpc::Status VectorDBService::Insert(
     if (!ranges_or.ok()) {
       utils::MetricsRegistry::Instance().RecordInsert(
           request->collection_name(), false, 0);
-      return toGrpcStatus(ranges_or.status());
+      return rpc::toGrpcStatus(ranges_or.status());
     }
 
     const bool single_range = ranges_or->size() == 1;
@@ -854,7 +855,7 @@ grpc::Status VectorDBService::Insert(
       if (!status.ok()) {
         utils::MetricsRegistry::Instance().RecordInsert(
             request->collection_name(), false, 0);
-        return toGrpcStatus(status);
+        return rpc::toGrpcStatus(status);
       }
 
       total_inserted += range_ids.size();
@@ -908,14 +909,14 @@ grpc::Status VectorDBService::StreamInsert(
 
     auto segment_ids_result = resolver_->GetSegmentIds(chunk.collection_name());
     if (!segment_ids_result.ok()) {
-      return toGrpcStatus(segment_ids_result.status());
+      return rpc::toGrpcStatus(segment_ids_result.status());
     }
     const auto& segment_ids = *segment_ids_result;
     size_t num_shards = segment_ids.size();
 
     auto* first_segment = segment_store_->GetSegment(segment_ids[0]);
     if (!first_segment) {
-      return toGrpcStatus(absl::NotFoundError("Segment not found"));
+      return rpc::toGrpcStatus(absl::NotFoundError("Segment not found"));
     }
     uint32_t dimension = first_segment->GetDimension();
 
@@ -928,8 +929,8 @@ grpc::Status VectorDBService::StreamInsert(
     std::vector<ShardBatch> shard_batches(num_shards);
 
     for (const auto& proto_vec : chunk.vectors()) {
-      auto vec_result = fromProto(proto_vec);
-      if (!vec_result.ok()) return toGrpcStatus(vec_result.status());
+      auto vec_result = rpc::fromProto(proto_vec);
+      if (!vec_result.ok()) return rpc::toGrpcStatus(vec_result.status());
 
       core::VectorId vid = vec_result->first;
       uint32_t shard_idx = static_cast<uint32_t>(
@@ -941,8 +942,8 @@ grpc::Status VectorDBService::StreamInsert(
 
       if (proto_vec.has_metadata()) {
         batch.has_metadata = true;
-        auto meta_result = fromProto(proto_vec.metadata());
-        if (!meta_result.ok()) return toGrpcStatus(meta_result.status());
+        auto meta_result = rpc::fromProto(proto_vec.metadata());
+        if (!meta_result.ok()) return rpc::toGrpcStatus(meta_result.status());
         batch.metadata.push_back(std::move(*meta_result));
       } else if (batch.has_metadata) {
         batch.metadata.push_back(core::Metadata{});
@@ -952,7 +953,7 @@ grpc::Status VectorDBService::StreamInsert(
     for (const auto& batch : shard_batches) {
       for (const auto& vec : batch.vectors) {
         if (static_cast<uint32_t>(vec.dimension()) != dimension) {
-          return toGrpcStatus(absl::InvalidArgumentError(
+          return rpc::toGrpcStatus(absl::InvalidArgumentError(
               absl::StrFormat("Vector dimension mismatch: expected %d, got %d",
                               dimension, vec.dimension())));
         }
@@ -975,7 +976,7 @@ grpc::Status VectorDBService::StreamInsert(
 
       if (!status.ok()) {
         utils::MetricsRegistry::Instance().RecordInsert(collection_name, false, 0);
-        return toGrpcStatus(status);
+        return rpc::toGrpcStatus(status);
       }
       total_inserted += batch.ids.size();
     }
@@ -1033,7 +1034,7 @@ grpc::Status VectorDBService::Upsert(
 
   auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
   if (!segment_ids_result.ok()) {
-    return toGrpcStatus(segment_ids_result.status());
+    return rpc::toGrpcStatus(segment_ids_result.status());
   }
   const auto& segment_ids = *segment_ids_result;
 
@@ -1060,17 +1061,17 @@ grpc::Status VectorDBService::Upsert(
   metadata.reserve(request->vectors_size());
 
   for (const auto& proto_vec : request->vectors()) {
-    auto vec_result = fromProto(proto_vec);
+    auto vec_result = rpc::fromProto(proto_vec);
     if (!vec_result.ok()) {
-      return toGrpcStatus(vec_result.status());
+      return rpc::toGrpcStatus(vec_result.status());
     }
     ids.push_back(vec_result->first);
     vectors.push_back(std::move(vec_result->second));
 
     if (proto_vec.has_metadata()) {
-      auto meta_result = fromProto(proto_vec.metadata());
+      auto meta_result = rpc::fromProto(proto_vec.metadata());
       if (!meta_result.ok()) {
-        return toGrpcStatus(meta_result.status());
+        return rpc::toGrpcStatus(meta_result.status());
       }
       metadata.push_back(std::move(*meta_result));
     } else {
@@ -1086,7 +1087,7 @@ grpc::Status VectorDBService::Upsert(
 
   auto upsert_result = growing_segment->UpsertVectors(vectors, ids, metadata, expiry_entries);
   if (!upsert_result.ok()) {
-    return toGrpcStatus(upsert_result.status());
+    return rpc::toGrpcStatus(upsert_result.status());
   }
 
   response->set_upserted_count(upsert_result->inserted_count + upsert_result->updated_count);
@@ -1140,15 +1141,15 @@ grpc::Status VectorDBService::RangeSearch(
       return RangeSearchDistributed(request, response);
     }
     if (!segment_ids_result.ok()) {
-      return toGrpcStatus(segment_ids_result.status());
+      return rpc::toGrpcStatus(segment_ids_result.status());
     }
   }
 
   const auto& segment_ids = *segment_ids_result;
 
-  auto query_result = fromProto(request->query_vector());
+  auto query_result = rpc::fromProto(request->query_vector());
   if (!query_result.ok()) {
-    return toGrpcStatus(query_result.status());
+    return rpc::toGrpcStatus(query_result.status());
   }
 
   int max_results = request->max_results() > 0 ? request->max_results() : 1000;
@@ -1183,7 +1184,7 @@ grpc::Status VectorDBService::RangeSearch(
   // Build response
   for (const auto& entry : all_results) {
     auto* proto_entry = response->add_results();
-    toProto(entry, proto_entry);
+    rpc::toProto(entry, proto_entry);
 
     if (request->return_metadata()) {
       for (auto seg_id : segment_ids) {
@@ -1191,7 +1192,7 @@ grpc::Status VectorDBService::RangeSearch(
         if (segment) {
           auto meta = segment->GetMetadata(entry.id);
           if (meta.ok()) {
-            toProto(*meta, proto_entry->mutable_metadata());
+            rpc::toProto(*meta, proto_entry->mutable_metadata());
             break;
           }
         }
@@ -1213,7 +1214,7 @@ grpc::Status VectorDBService::RangeSearchDistributed(
 
   auto targets_result = resolver_->GetShardTargets(request->collection_name());
   if (!targets_result.ok()) {
-    return toGrpcStatus(targets_result.status());
+    return rpc::toGrpcStatus(targets_result.status());
   }
 
   const auto& targets = *targets_result;
@@ -1349,15 +1350,15 @@ grpc::Status VectorDBService::Search(
   if (!collection_id_result.ok()) {
     utils::MetricsRegistry::Instance().RecordSearch(
         request->collection_name(), false);
-    return toGrpcStatus(collection_id_result.status());
+    return rpc::toGrpcStatus(collection_id_result.status());
   }
 
   // Convert query vector
-  auto query_result = fromProto(request->query_vector());
+  auto query_result = rpc::fromProto(request->query_vector());
   if (!query_result.ok()) {
     utils::MetricsRegistry::Instance().RecordSearch(
         request->collection_name(), false);
-    return toGrpcStatus(query_result.status());
+    return rpc::toGrpcStatus(query_result.status());
   }
 
   // Get all segments for this collection
@@ -1372,7 +1373,7 @@ grpc::Status VectorDBService::Search(
     }
     utils::MetricsRegistry::Instance().RecordSearch(
         request->collection_name(), false);
-    return toGrpcStatus(segment_ids_result.status());
+    return rpc::toGrpcStatus(segment_ids_result.status());
   }
 
   const auto& segment_ids = *segment_ids_result;
@@ -1393,7 +1394,7 @@ grpc::Status VectorDBService::Search(
     }
     utils::MetricsRegistry::Instance().RecordSearch(
         request->collection_name(), false);
-    return toGrpcStatus(absl::NotFoundError("No segments found"));
+    return rpc::toGrpcStatus(absl::NotFoundError("No segments found"));
   }
 
   // Delegate search to QueryExecutor (handles caching, filtering, multi-segment merge)
@@ -1404,7 +1405,7 @@ grpc::Status VectorDBService::Search(
   if (!search_result.ok()) {
     utils::MetricsRegistry::Instance().RecordSearch(
         request->collection_name(), false);
-    return toGrpcStatus(search_result.status());
+    return rpc::toGrpcStatus(search_result.status());
   }
 
   utils::MetricsRegistry::Instance().RecordSearch(
@@ -1413,7 +1414,7 @@ grpc::Status VectorDBService::Search(
   // Build response with optional metadata enrichment
   for (const auto& entry : search_result->entries) {
     auto* proto_entry = response->add_results();
-    toProto(entry, proto_entry);
+    rpc::toProto(entry, proto_entry);
 
     if (request->return_metadata()) {
       for (const auto& seg_id : segment_ids) {
@@ -1421,7 +1422,7 @@ grpc::Status VectorDBService::Search(
         if (segment) {
           auto meta_result = segment->GetMetadata(entry.id);
           if (meta_result.ok()) {
-            toProto(*meta_result, proto_entry->mutable_metadata());
+            rpc::toProto(*meta_result, proto_entry->mutable_metadata());
             break;
           }
         }
@@ -1468,22 +1469,22 @@ grpc::Status VectorDBService::HybridSearch(
   // Resolve collection
   auto collection_id_result = resolver_->GetCollectionId(request->collection_name());
   if (!collection_id_result.ok()) {
-    return toGrpcStatus(collection_id_result.status());
+    return rpc::toGrpcStatus(collection_id_result.status());
   }
 
   // Convert query vector (optional — may be text-only)
   std::optional<core::Vector> query_vector;
   if (has_vector) {
-    auto qr = fromProto(request->query_vector());
-    if (!qr.ok()) return toGrpcStatus(qr.status());
+    auto qr = rpc::fromProto(request->query_vector());
+    if (!qr.ok()) return rpc::toGrpcStatus(qr.status());
     query_vector = std::move(*qr);
   }
 
   // Convert sparse query (optional)
   std::optional<core::SparseVector> sparse_query;
   if (has_sparse) {
-    auto sq = fromProto(request->sparse_query());
-    if (!sq.ok()) return toGrpcStatus(sq.status());
+    auto sq = rpc::fromProto(request->sparse_query());
+    if (!sq.ok()) return rpc::toGrpcStatus(sq.status());
     sparse_query = std::move(*sq);
   }
   float sparse_weight = request->sparse_weight() > 0 ? request->sparse_weight() : 0.0f;
@@ -1491,7 +1492,7 @@ grpc::Status VectorDBService::HybridSearch(
   // Get segments
   auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
   if (!segment_ids_result.ok()) {
-    return toGrpcStatus(segment_ids_result.status());
+    return rpc::toGrpcStatus(segment_ids_result.status());
   }
 
   // Determine weights
@@ -1555,7 +1556,7 @@ grpc::Status VectorDBService::HybridSearch(
 
   for (int i = 0; i < top_k; ++i) {
     auto* proto_entry = response->add_results();
-    toProto(all_entries[i], proto_entry);
+    rpc::toProto(all_entries[i], proto_entry);
 
     if (request->return_metadata()) {
       for (const auto& seg_id : *segment_ids_result) {
@@ -1563,7 +1564,7 @@ grpc::Status VectorDBService::HybridSearch(
         if (segment) {
           auto meta_result = segment->GetMetadata(all_entries[i].id);
           if (meta_result.ok()) {
-            toProto(*meta_result, proto_entry->mutable_metadata());
+            rpc::toProto(*meta_result, proto_entry->mutable_metadata());
             break;
           }
         }
@@ -1624,7 +1625,7 @@ grpc::Status VectorDBService::Get(
   if (!segments_result.ok()) {
     utils::MetricsRegistry::Instance().RecordGet(
         request->collection_name(), false);
-    return toGrpcStatus(segments_result.status());
+    return rpc::toGrpcStatus(segments_result.status());
   }
 
   std::vector<core::VectorId> ids;
@@ -1646,9 +1647,9 @@ grpc::Status VectorDBService::Get(
     }
     auto* proto_vec = response->add_vectors();
     proto_vec->set_id(core::ToUInt64(id));
-    toProto(it->second.vector, proto_vec->mutable_vector());
+    rpc::toProto(it->second.vector, proto_vec->mutable_vector());
     if (request->return_metadata() && it->second.has_metadata) {
-      toProto(it->second.metadata, proto_vec->mutable_metadata());
+      rpc::toProto(it->second.metadata, proto_vec->mutable_metadata());
     }
   }
 
@@ -1674,7 +1675,7 @@ grpc::Status VectorDBService::ListVectors(
   // included; a single-segment listing would miss everything past the first.
   auto segments_result = CollectCollectionSegments(request->collection_name());
   if (!segments_result.ok()) {
-    return toGrpcStatus(segments_result.status());
+    return rpc::toGrpcStatus(segments_result.status());
   }
   const auto& segments = *segments_result;
 
@@ -1705,9 +1706,9 @@ grpc::Status VectorDBService::ListVectors(
     if (it == found.end()) continue;
     auto* proto_vec = response->add_vectors();
     proto_vec->set_id(core::ToUInt64(id));
-    toProto(it->second.vector, proto_vec->mutable_vector());
+    rpc::toProto(it->second.vector, proto_vec->mutable_vector());
     if (request->include_metadata() && it->second.has_metadata) {
-      toProto(it->second.metadata, proto_vec->mutable_metadata());
+      rpc::toProto(it->second.metadata, proto_vec->mutable_metadata());
     }
   }
 
@@ -1772,7 +1773,7 @@ grpc::Status VectorDBService::Delete(
   if (!segments_result.ok()) {
     utils::MetricsRegistry::Instance().RecordDelete(
         request->collection_name(), false);
-    return toGrpcStatus(segments_result.status());
+    return rpc::toGrpcStatus(segments_result.status());
   }
   const auto& segments = *segments_result;
 
@@ -1797,7 +1798,7 @@ grpc::Status VectorDBService::Delete(
     if (!result.ok()) {
       utils::MetricsRegistry::Instance().RecordDelete(
           request->collection_name(), false);
-      return toGrpcStatus(result.status());
+      return rpc::toGrpcStatus(result.status());
     }
     deleted_count += result->deleted_count;
 
@@ -1888,15 +1889,15 @@ grpc::Status VectorDBService::UpdateMetadata(
   if (!segments_result.ok()) {
     utils::MetricsRegistry::Instance().RecordUpdateMetadata(
         request->collection_name(), false);
-    return toGrpcStatus(segments_result.status());
+    return rpc::toGrpcStatus(segments_result.status());
   }
   const auto& segments = *segments_result;
 
-  auto metadata_result = fromProto(request->metadata());
+  auto metadata_result = rpc::fromProto(request->metadata());
   if (!metadata_result.ok()) {
     utils::MetricsRegistry::Instance().RecordUpdateMetadata(
         request->collection_name(), false);
-    return toGrpcStatus(metadata_result.status());
+    return rpc::toGrpcStatus(metadata_result.status());
   }
 
   auto vector_id = core::MakeVectorId(request->id());
@@ -1923,7 +1924,7 @@ grpc::Status VectorDBService::UpdateMetadata(
         request->collection_name(), "'"));
     response->set_updated(false);
     response->set_message(std::string(not_found.message()));
-    return toGrpcStatus(not_found);
+    return rpc::toGrpcStatus(not_found);
   }
 
   auto status = owner->UpdateMetadata(vector_id, *metadata_result, request->merge());
@@ -1933,7 +1934,7 @@ grpc::Status VectorDBService::UpdateMetadata(
         request->collection_name(), false);
     response->set_updated(false);
     response->set_message(std::string(status.message()));
-    return toGrpcStatus(status);
+    return rpc::toGrpcStatus(status);
   }
 
   utils::MetricsRegistry::Instance().RecordUpdateMetadata(
@@ -2054,7 +2055,7 @@ grpc::Status VectorDBService::BulkImport(
       request->id_column().empty() ? "id" : request->id_column());
 
   if (!result.ok()) {
-    return toGrpcStatus(result.status());
+    return rpc::toGrpcStatus(result.status());
   }
 
   response->set_import_id(*result);
@@ -2078,7 +2079,7 @@ grpc::Status VectorDBService::GetImportStatus(
 
   auto result = bulk_importer_->GetStatus(request->import_id());
   if (!result.ok()) {
-    return toGrpcStatus(result.status());
+    return rpc::toGrpcStatus(result.status());
   }
 
   // RBAC: check read access on the import's collection
@@ -2115,7 +2116,7 @@ grpc::Status VectorDBService::CancelImport(
   // RBAC: look up import's collection, require INSERT (write) permission
   auto job_status = bulk_importer_->GetStatus(request->import_id());
   if (!job_status.ok()) {
-    return toGrpcStatus(job_status.status());
+    return rpc::toGrpcStatus(job_status.status());
   }
   auto perm = CheckPermission(auth::Permission::INSERT,
                                job_status->collection_name);
@@ -2123,7 +2124,7 @@ grpc::Status VectorDBService::CancelImport(
 
   auto status = bulk_importer_->CancelImport(request->import_id());
   if (!status.ok()) {
-    return toGrpcStatus(status);
+    return rpc::toGrpcStatus(status);
   }
 
   response->set_success(true);
@@ -2154,9 +2155,9 @@ grpc::Status VectorDBService::BackupCollection(
                         "collection_name is required");
   }
 
-  auto target = fromProto(request->target());
+  auto target = rpc::fromProto(request->target());
   if (!target.ok()) {
-    return toGrpcStatus(target.status());
+    return rpc::toGrpcStatus(target.status());
   }
 
   // Dispatch to coordinator-side multi-shard orchestration when wired
@@ -2165,7 +2166,7 @@ grpc::Status VectorDBService::BackupCollection(
   if (coordinator_) {
     auto result = coordinator_->StartBackupDistributed(
         request->collection_name(), *target, request->backup_id());
-    if (!result.ok()) return toGrpcStatus(result.status());
+    if (!result.ok()) return rpc::toGrpcStatus(result.status());
     response->set_backup_id(*result);
     response->set_message("Backup job started (distributed)");
     return grpc::Status::OK;
@@ -2206,7 +2207,7 @@ grpc::Status VectorDBService::BackupCollection(
       segment_store_,
       request->backup_id());
   if (!result.ok()) {
-    return toGrpcStatus(result.status());
+    return rpc::toGrpcStatus(result.status());
   }
   response->set_backup_id(*result);
   response->set_message("Backup job started");
@@ -2227,9 +2228,9 @@ grpc::Status VectorDBService::RestoreCollection(
                         "backup_id is required");
   }
 
-  auto source = fromProto(request->source());
+  auto source = rpc::fromProto(request->source());
   if (!source.ok()) {
-    return toGrpcStatus(source.status());
+    return rpc::toGrpcStatus(source.status());
   }
 
   // Coordinator path: it reads the manifest, creates/overwrites the
@@ -2241,7 +2242,7 @@ grpc::Status VectorDBService::RestoreCollection(
         *source, request->backup_id(),
         request->target_collection_name(),
         request->overwrite());
-    if (!result.ok()) return toGrpcStatus(result.status());
+    if (!result.ok()) return rpc::toGrpcStatus(result.status());
     response->set_restore_id(*result);
     response->set_message("Restore job started (distributed)");
     return grpc::Status::OK;
@@ -2254,7 +2255,7 @@ grpc::Status VectorDBService::RestoreCollection(
 
   auto manifest = restore_manager_->ReadManifest(*source, request->backup_id());
   if (!manifest.ok()) {
-    return toGrpcStatus(manifest.status());
+    return rpc::toGrpcStatus(manifest.status());
   }
 
   // Mirror the coordinator-orchestrated path: drop the target if
@@ -2278,7 +2279,7 @@ grpc::Status VectorDBService::RestoreCollection(
           "' already exists; set overwrite=true to drop and recreate");
     }
     auto drop_status = resolver_->DropCollection(target_name);
-    if (!drop_status.ok()) return toGrpcStatus(drop_status);
+    if (!drop_status.ok()) return rpc::toGrpcStatus(drop_status);
   }
   auto create_or = resolver_->CreateCollection(
       target_name,
@@ -2286,7 +2287,7 @@ grpc::Status VectorDBService::RestoreCollection(
       static_cast<core::MetricType>(manifest->collection.metric),
       static_cast<core::IndexType>(manifest->collection.index_type),
       manifest->collection.num_shards);
-  if (!create_or.ok()) return toGrpcStatus(create_or.status());
+  if (!create_or.ok()) return rpc::toGrpcStatus(create_or.status());
 
   auto result = restore_manager_->StartRestoreSingleShard(
       *source,
@@ -2295,7 +2296,7 @@ grpc::Status VectorDBService::RestoreCollection(
       core::MakeShardId(0),
       segment_store_);
   if (!result.ok()) {
-    return toGrpcStatus(result.status());
+    return rpc::toGrpcStatus(result.status());
   }
   response->set_restore_id(*result);
   response->set_message("Restore job started");
@@ -2320,10 +2321,10 @@ grpc::Status VectorDBService::GetBackupStatus(
                  : absl::UnimplementedError(
                        "Backup is not configured on this server"));
   if (!status.ok()) {
-    return toGrpcStatus(status.status());
+    return rpc::toGrpcStatus(status.status());
   }
   response->set_backup_id(status->backup_id);
-  response->set_state(toProto(status->state));
+  response->set_state(rpc::toProto(status->state));
   response->set_shards_total(status->shards_total);
   response->set_shards_completed(status->shards_completed);
   response->set_bytes_uploaded(status->bytes_uploaded);
@@ -2349,10 +2350,10 @@ grpc::Status VectorDBService::GetRestoreStatus(
                  : absl::UnimplementedError(
                        "Restore is not configured on this server"));
   if (!status.ok()) {
-    return toGrpcStatus(status.status());
+    return rpc::toGrpcStatus(status.status());
   }
   response->set_restore_id(status->restore_id);
-  response->set_state(toProto(status->state));
+  response->set_state(rpc::toProto(status->state));
   response->set_shards_total(status->shards_total);
   response->set_shards_completed(status->shards_completed);
   response->set_error_message(status->error_message);
@@ -2390,7 +2391,7 @@ grpc::Status VectorDBService::CancelBackup(
   // need to look up which collection by id before we can authorize.
   auto status_or = backup_manager_->GetStatus(request->backup_id());
   if (!status_or.ok()) {
-    return toGrpcStatus(status_or.status());
+    return rpc::toGrpcStatus(status_or.status());
   }
   // We don't store collection_name on BackupJobStatus directly; do the
   // permission check at the collection-wildcard level by passing the
@@ -2402,7 +2403,7 @@ grpc::Status VectorDBService::CancelBackup(
 
   auto status = backup_manager_->Cancel(request->backup_id());
   if (!status.ok()) {
-    return toGrpcStatus(status);
+    return rpc::toGrpcStatus(status);
   }
   response->set_success(true);
   response->set_message("Cancellation requested");

@@ -3,9 +3,10 @@
 
 #include "cluster/coordinator.h"
 #include "cluster/internal_client.h"
+#include "core/type_names.h"
+#include "rpc/proto_conversions.h"
 #include "utils/logger.h"
 #include "utils/metrics.h"
-#include "network/proto_conversions.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
@@ -25,113 +26,9 @@ namespace cluster {
 namespace {
 constexpr uint64_t kHealthCheckIntervalMs = 5000;  // 5 seconds
 
-// Convert proto::internal::NodeInfo to Coordinator::NodeInfo
-NodeInfo ConvertProtoNodeInfo(const proto::internal::NodeInfo& proto_info) {
-  NodeInfo info;
-  info.node_id = core::MakeNodeId(proto_info.node_id());
-
-  // Convert node type
-  switch (proto_info.node_type()) {
-    case proto::internal::NodeType::NODE_TYPE_COORDINATOR:
-      info.type = NodeType::COORDINATOR;
-      break;
-    case proto::internal::NodeType::NODE_TYPE_DATA_NODE:
-      info.type = NodeType::DATA_NODE;
-      break;
-    case proto::internal::NodeType::NODE_TYPE_QUERY_NODE:
-      info.type = NodeType::QUERY_NODE;
-      break;
-    case proto::internal::NodeType::NODE_TYPE_PROXY:
-      info.type = NodeType::PROXY;
-      break;
-    default:
-      info.type = NodeType::QUERY_NODE;  // Default
-      break;
-  }
-
-  // Convert status - map proto READY to HEALTHY
-  switch (proto_info.status()) {
-    case proto::internal::NodeStatus::NODE_STATUS_STARTING:
-      info.status = NodeStatus::STARTING;
-      break;
-    case proto::internal::NodeStatus::NODE_STATUS_READY:
-      info.status = NodeStatus::HEALTHY;  // Map READY to HEALTHY
-      break;
-    case proto::internal::NodeStatus::NODE_STATUS_DEGRADED:
-      info.status = NodeStatus::DEGRADED;
-      break;
-    case proto::internal::NodeStatus::NODE_STATUS_DOWN:
-      info.status = NodeStatus::FAILED;  // Map DOWN to FAILED
-      break;
-    case proto::internal::NodeStatus::NODE_STATUS_DRAINING:
-      info.status = NodeStatus::LEAVING;  // Graceful shutdown in progress
-      break;
-    default:
-      info.status = NodeStatus::HEALTHY;  // Default
-      break;
-  }
-
-  info.address = proto_info.grpc_address();
-  info.memory_capacity_bytes = proto_info.memory_total_bytes();
-  info.memory_used_bytes = proto_info.memory_used_bytes();
-  info.disk_capacity_bytes = proto_info.disk_total_bytes();
-  info.disk_used_bytes = proto_info.disk_used_bytes();
-  info.cpu_usage_percent = 0.0f;  // Not in proto, leave at 0
-  info.last_heartbeat_ts = 0;  // Not available from proto, handled by NodeRegistry
-
-  return info;
-}
-
-// Convert RegisteredNode to Coordinator::NodeInfo
-NodeInfo ConvertRegisteredNode(const RegisteredNode& reg_node) {
-  return ConvertProtoNodeInfo(reg_node.info);
-}
-
-// Convert Coordinator::NodeInfo to proto::internal::NodeInfo
-proto::internal::NodeInfo ToProtoNodeInfo(const NodeInfo& info) {
-  proto::internal::NodeInfo proto_info;
-  proto_info.set_node_id(core::ToUInt32(info.node_id));
-
-  switch (info.type) {
-    case NodeType::COORDINATOR:
-      proto_info.set_node_type(proto::internal::NodeType::NODE_TYPE_COORDINATOR);
-      break;
-    case NodeType::DATA_NODE:
-      proto_info.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
-      break;
-    case NodeType::QUERY_NODE:
-      proto_info.set_node_type(proto::internal::NodeType::NODE_TYPE_QUERY_NODE);
-      break;
-    case NodeType::PROXY:
-      proto_info.set_node_type(proto::internal::NodeType::NODE_TYPE_PROXY);
-      break;
-  }
-
-  switch (info.status) {
-    case NodeStatus::STARTING:
-      proto_info.set_status(proto::internal::NodeStatus::NODE_STATUS_STARTING);
-      break;
-    case NodeStatus::HEALTHY:
-      proto_info.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
-      break;
-    case NodeStatus::DEGRADED:
-      proto_info.set_status(proto::internal::NodeStatus::NODE_STATUS_DEGRADED);
-      break;
-    case NodeStatus::FAILED:
-      proto_info.set_status(proto::internal::NodeStatus::NODE_STATUS_DOWN);
-      break;
-    case NodeStatus::LEAVING:
-      proto_info.set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
-      break;
-  }
-
-  proto_info.set_grpc_address(info.address);
-  proto_info.set_memory_total_bytes(info.memory_capacity_bytes);
-  proto_info.set_memory_used_bytes(info.memory_used_bytes);
-  proto_info.set_disk_total_bytes(info.disk_capacity_bytes);
-  proto_info.set_disk_used_bytes(info.disk_used_bytes);
-
-  return proto_info;
+// Convert RegisteredNode to meta::NodeInfo
+meta::NodeInfo ConvertRegisteredNode(const RegisteredNode& reg_node) {
+  return rpc::fromProto(reg_node.info);
 }
 
 // RAII scope guard: invokes the stored callable on destruction.
@@ -236,7 +133,7 @@ core::Timestamp Coordinator::GetCurrentTimestamp() const {
       .count();
 }
 
-absl::Status Coordinator::RegisterNode(const NodeInfo& node_info) {
+absl::Status Coordinator::RegisterNode(const meta::NodeInfo& node_info) {
   // Check if node already exists in NodeRegistry
   RegisteredNode existing;
   if (node_registry_->GetNode(core::ToUInt32(node_info.node_id), &existing)) {
@@ -251,7 +148,9 @@ absl::Status Coordinator::RegisterNode(const NodeInfo& node_info) {
   }
 
   // Register with NodeRegistry (updates heartbeat timestamp automatically)
-  node_registry_->UpdateNode(ToProtoNodeInfo(node_info));
+  proto::internal::NodeInfo proto_info;
+  rpc::toProto(node_info, &proto_info);
+  node_registry_->UpdateNode(proto_info);
 
   utils::Logger::Instance().Info("Registered node {} (type: {}, address: {})",
                                  core::ToUInt32(node_info.node_id),
@@ -261,20 +160,20 @@ absl::Status Coordinator::RegisterNode(const NodeInfo& node_info) {
   return absl::OkStatus();
 }
 
-std::vector<NodeInfo> Coordinator::GetHealthyNodes(NodeType type) const {
+std::vector<meta::NodeInfo> Coordinator::GetHealthyNodes(meta::NodeType type) const {
   // Convert Coordinator::NodeType to proto::internal::NodeType
   proto::internal::NodeType proto_type;
   switch (type) {
-    case NodeType::COORDINATOR:
+    case meta::NodeType::COORDINATOR:
       proto_type = proto::internal::NodeType::NODE_TYPE_COORDINATOR;
       break;
-    case NodeType::DATA_NODE:
+    case meta::NodeType::DATA_NODE:
       proto_type = proto::internal::NodeType::NODE_TYPE_DATA_NODE;
       break;
-    case NodeType::QUERY_NODE:
+    case meta::NodeType::QUERY_NODE:
       proto_type = proto::internal::NodeType::NODE_TYPE_QUERY_NODE;
       break;
-    case NodeType::PROXY:
+    case meta::NodeType::PROXY:
       proto_type = proto::internal::NodeType::NODE_TYPE_PROXY;
       break;
     default:
@@ -288,7 +187,7 @@ std::vector<NodeInfo> Coordinator::GetHealthyNodes(NodeType type) const {
   auto registered_nodes = node_registry_->GetRoutableNodesByType(proto_type);
 
   // Convert to Coordinator::NodeInfo
-  std::vector<NodeInfo> result;
+  std::vector<meta::NodeInfo> result;
   result.reserve(registered_nodes.size());
 
   for (const auto& reg_node : registered_nodes) {
@@ -319,7 +218,7 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
 
   core::CollectionId collection_id = AllocateCollectionId();
 
-  CollectionMetadata metadata;
+  meta::CollectionMetadata metadata;
   metadata.collection_id = collection_id;
   metadata.collection_name = name;
   metadata.dimension = dimension;
@@ -347,8 +246,8 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
 
   PersistRegistryLocked();
 
-  std::string metric_str = network::toString(metric_type);
-  std::string index_str = network::toString(index_type);
+  std::string metric_str = core::toString(metric_type);
+  std::string index_str = core::toString(index_type);
 
   if (!client_factory_) {
     utils::Logger::Instance().Info(
@@ -361,7 +260,7 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
 
   for (uint32_t i = 0; i < shard_ids.size(); ++i) {
     core::ShardId shard_id = shard_ids[i];
-    core::SegmentId seg_id = ShardSegmentId(collection_id, i);
+    core::SegmentId seg_id = core::ShardSegmentId(collection_id, i);
 
     auto primary_result = shard_manager_->GetPrimaryNode(shard_id);
     if (!primary_result.ok() || *primary_result == core::kInvalidNodeId) {
@@ -448,7 +347,7 @@ absl::Status Coordinator::DropCollection(const std::string& name) {
     return absl::InternalError("Collection metadata inconsistency");
   }
 
-  CollectionMetadata metadata = coll_it->second;  // Copy metadata
+  meta::CollectionMetadata metadata = coll_it->second;  // Copy metadata
 
   // Distributed cleanup (only if factory is provided)
   if (client_factory_) {
@@ -458,7 +357,7 @@ absl::Status Coordinator::DropCollection(const std::string& name) {
     // Delete all shard segments from their respective nodes
     for (uint32_t i = 0; i < metadata.shard_ids.size(); ++i) {
       core::ShardId shard_id = metadata.shard_ids[i];
-      core::SegmentId seg_id = ShardSegmentId(collection_id, i);
+      core::SegmentId seg_id = core::ShardSegmentId(collection_id, i);
 
       auto primary_result = shard_manager_->GetPrimaryNode(shard_id);
       if (primary_result.ok() && *primary_result != core::kInvalidNodeId) {
@@ -512,7 +411,7 @@ absl::Status Coordinator::DropCollection(const std::string& name) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<CollectionMetadata> Coordinator::GetCollectionMetadata(
+absl::StatusOr<meta::CollectionMetadata> Coordinator::GetCollectionMetadata(
     const std::string& name) const {
   std::shared_lock lock(collection_mutex_);
 
@@ -529,7 +428,7 @@ absl::StatusOr<CollectionMetadata> Coordinator::GetCollectionMetadata(
   return it->second;
 }
 
-absl::StatusOr<CollectionMetadata> Coordinator::GetCollectionMetadata(
+absl::StatusOr<meta::CollectionMetadata> Coordinator::GetCollectionMetadata(
     core::CollectionId id) const {
   std::shared_lock lock(collection_mutex_);
 
@@ -542,9 +441,9 @@ absl::StatusOr<CollectionMetadata> Coordinator::GetCollectionMetadata(
   return it->second;
 }
 
-std::vector<CollectionMetadata> Coordinator::ListCollections() const {
+std::vector<meta::CollectionMetadata> Coordinator::ListCollections() const {
   std::shared_lock lock(collection_mutex_);
-  std::vector<CollectionMetadata> result;
+  std::vector<meta::CollectionMetadata> result;
   result.reserve(collections_.size());
 
   for (const auto& [collection_id, metadata] : collections_) {
@@ -558,7 +457,7 @@ absl::Status Coordinator::AssignShardsToCollection(core::CollectionId collection
                                                     size_t num_shards,
                                                     size_t replication_factor) {
   // Get healthy data nodes
-  auto data_nodes = GetHealthyNodes(NodeType::DATA_NODE);
+  auto data_nodes = GetHealthyNodes(meta::NodeType::DATA_NODE);
   if (data_nodes.empty()) {
     return absl::FailedPreconditionError("No healthy data nodes available");
   }
@@ -931,7 +830,7 @@ void Coordinator::CheckReplication() {
 
       if (actual_replicas < metadata.replication_factor) {
         // Under-replicated — find a healthy node to replicate to
-        auto healthy_nodes = GetHealthyNodes(NodeType::DATA_NODE);
+        auto healthy_nodes = GetHealthyNodes(meta::NodeType::DATA_NODE);
         for (const auto& node : healthy_nodes) {
           if (node.node_id == *primary_result) continue;
           bool already_replica = false;
@@ -943,7 +842,7 @@ void Coordinator::CheckReplication() {
           if (already_replica) continue;
 
           // Found a node that doesn't have this shard — replicate
-          core::SegmentId seg_id = ShardSegmentId(coll_id, i);
+          core::SegmentId seg_id = core::ShardSegmentId(coll_id, i);
           lock.unlock();  // Release lock during RPC
           auto status = ReplicateSegmentData(seg_id, *primary_result, node.node_id);
           lock.lock();    // Re-acquire (collections_ may have changed, but that's OK for a best-effort check)
@@ -1059,7 +958,7 @@ void Coordinator::CheckConsistency() {
           shards_being_repaired_.insert(shard_id);
         }
 
-        core::SegmentId seg_id = ShardSegmentId(coll_id, i);
+        core::SegmentId seg_id = core::ShardSegmentId(coll_id, i);
         lock.unlock();
         auto repair_status = RepairSegment(seg_id, *primary_result, replica_node);
         lock.lock();
@@ -1517,7 +1416,7 @@ absl::Status Coordinator::ExecuteSingleMove(
   if (!state_status.ok()) return state_status;
 
   // 3. Compute segment ID
-  core::SegmentId seg_id = ShardSegmentId(collection_id, shard_index);
+  core::SegmentId seg_id = core::ShardSegmentId(collection_id, shard_index);
 
   utils::Logger::Instance().Info(
       "Rebalance: migrating shard {} (segment {}) from node {} to node {}",
@@ -1727,7 +1626,7 @@ absl::StatusOr<std::string> Coordinator::StartBackupDistributed(
       req.set_backup_id(backup_id);
       req.set_collection_id(core::ToUInt32(collection_id));
       req.set_shard_id(core::ToUInt16(shard_id));
-      auto pt = network::toProto(target_inner, req.mutable_target());
+      auto pt = rpc::toProto(target_inner, req.mutable_target());
       if (!pt.ok()) return pt;
       grpc::ClientContext ctx;
       backup_status = client->BackupShard(&ctx, req, &backup_resp);
@@ -1840,7 +1739,7 @@ absl::StatusOr<std::string> Coordinator::StartRestoreDistributed(
     req.set_backup_id(bkp_id);
     req.set_target_collection_id(core::ToUInt32(target_id));
     req.set_shard_id(core::ToUInt16(shard_id));
-    auto pt = network::toProto(source_inner, req.mutable_source());
+    auto pt = rpc::toProto(source_inner, req.mutable_source());
     if (!pt.ok()) return pt;
     proto::internal::RestoreShardResponse resp;
     grpc::ClientContext ctx;
@@ -2009,7 +1908,7 @@ absl::Status Coordinator::LoadRegistry() {
           "Malformed collection entry in ", registry_path_, ": ", obj));
     }
 
-    CollectionMetadata meta;
+    meta::CollectionMetadata meta;
     meta.collection_id = core::MakeCollectionId(cid);
     meta.collection_name = name;
     uint32_t dim = 0;

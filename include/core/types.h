@@ -30,6 +30,13 @@ inline uint32_t ToUInt32(NodeId id) { return static_cast<uint32_t>(id); }
 inline VectorId MakeVectorId(uint64_t value) { return VectorId{value}; }
 inline CollectionId MakeCollectionId(uint32_t value) { return CollectionId{value}; }
 inline SegmentId MakeSegmentId(uint32_t value) { return SegmentId{value}; }
+
+// The segment that holds one shard of a collection. The coordinator, the
+// resolvers and the restore path all derive segment ids this way, so a
+// collection has at most 1000 shards.
+inline SegmentId ShardSegmentId(CollectionId cid, uint32_t shard_index) {
+  return static_cast<SegmentId>(ToUInt32(cid) * 1000 + shard_index);
+}
 inline ShardId MakeShardId(uint16_t value) { return ShardId{value}; }
 inline NodeId MakeNodeId(uint32_t value) { return NodeId{value}; }
 

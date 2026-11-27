@@ -7,15 +7,17 @@
 #include "core/sparse_vector.h"
 #include "core/types.h"
 #include "core/vector.h"
+#include "meta/node_info.h"
 #include "storage/backup_manager.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "internal.pb.h"
 #include "vectordb.pb.h"
 #include "vectordb.grpc.pb.h"
 #include <grpcpp/grpcpp.h>
 
 namespace gvdb {
-namespace network {
+namespace rpc {
 
 // ============================================================================
 // Proto to Core Conversions
@@ -39,12 +41,6 @@ fromProto(proto::CreateCollectionRequest::IndexType index_type);
 // Convert proto Metadata to core Metadata
 absl::StatusOr<core::Metadata> fromProto(const proto::Metadata& proto_metadata);
 
-// Convert string to core MetricType (for internal.proto string fields)
-absl::StatusOr<core::MetricType> metricTypeFromString(const std::string& metric_str);
-
-// Convert string to core IndexType (for internal.proto string fields)
-absl::StatusOr<core::IndexType> indexTypeFromString(const std::string& index_str);
-
 // ============================================================================
 // Core to Proto Conversions
 // ============================================================================
@@ -54,12 +50,6 @@ void toProto(const core::Vector& vector, proto::Vector* proto_vector);
 
 // Convert core SearchResultEntry to proto SearchResultEntry
 void toProto(const core::SearchResultEntry& entry, proto::SearchResultEntry* proto_entry);
-
-// Convert core MetricType to string representation
-std::string toString(core::MetricType metric);
-
-// Convert core IndexType to string representation
-std::string toString(core::IndexType index);
 
 // Convert core Metadata to proto Metadata
 void toProto(const core::Metadata& metadata, proto::Metadata* proto_metadata);
@@ -87,6 +77,19 @@ absl::Status toProto(const storage::BackupTarget& target,
 proto::BackupState toProto(storage::BackupState state);
 
 // ============================================================================
+// Node Conversions
+// ============================================================================
+
+// Convert the node info that a node sends with its heartbeat to the
+// coordinator's view of the node. READY maps to HEALTHY, DOWN to FAILED and
+// DRAINING to LEAVING. An unknown type becomes QUERY_NODE and an unknown
+// status HEALTHY. The proto has no heartbeat time or CPU usage, so both are 0.
+meta::NodeInfo fromProto(const proto::internal::NodeInfo& proto_info);
+
+// Convert the coordinator's view of a node back to the proto node info.
+void toProto(const meta::NodeInfo& info, proto::internal::NodeInfo* proto_info);
+
+// ============================================================================
 // Status Conversions
 // ============================================================================
 
@@ -96,5 +99,5 @@ grpc::Status toGrpcStatus(const absl::Status& status);
 // Convert grpc::Status to absl::Status
 absl::Status fromGrpcStatus(const grpc::Status& grpc_status);
 
-} // namespace network
+}  // namespace rpc
 } // namespace gvdb

@@ -3,7 +3,8 @@
 
 #include "network/collection_resolver.h"
 #include "network/collection_metadata_cache.h"
-#include "network/proto_conversions.h"
+#include "core/type_names.h"
+#include "rpc/proto_conversions.h"
 #include "storage/segment_store.h"
 #include "cluster/coordinator.h"
 #include "absl/strings/numbers.h"
@@ -85,7 +86,7 @@ class LocalCollectionResolver : public ICollectionResolver {
 
     // Create one segment per shard
     for (uint32_t i = 0; i < num_shards; ++i) {
-      core::SegmentId seg_id = cluster::ShardSegmentId(id, i);
+      core::SegmentId seg_id = core::ShardSegmentId(id, i);
       auto status = segment_store_->CreateSegmentWithId(
           seg_id, id, dimension, metric_type, index_type);
       if (!status.ok()) {
@@ -399,7 +400,7 @@ class CachedCoordinatorResolver : public ICollectionResolver {
     std::vector<core::SegmentId> ids;
     ids.reserve(shards);
     for (size_t i = 0; i < shards; ++i) {
-      ids.push_back(cluster::ShardSegmentId(*id_result, i));
+      ids.push_back(core::ShardSegmentId(*id_result, i));
     }
     return ids;
   }
@@ -424,7 +425,7 @@ class CachedCoordinatorResolver : public ICollectionResolver {
 
     auto status = stub_->RouteQuery(&context, request, &response);
     if (!status.ok()) {
-      return fromGrpcStatus(status);
+      return rpc::fromGrpcStatus(status);
     }
 
     // Index per_shard_options by shard_id so we can pair with the legacy
@@ -478,7 +479,7 @@ class CachedCoordinatorResolver : public ICollectionResolver {
 
     auto status = stub_->GetCollectionMetadata(&context, request, &response);
     if (!status.ok()) {
-      return fromGrpcStatus(status);
+      return rpc::fromGrpcStatus(status);
     }
 
     if (!response.found()) {
@@ -486,16 +487,16 @@ class CachedCoordinatorResolver : public ICollectionResolver {
     }
 
     const auto& pm = response.metadata();
-    CollectionMetadata metadata;
+    meta::CollectionMetadata metadata;
     metadata.collection_id = core::MakeCollectionId(pm.collection_id());
     metadata.collection_name = pm.collection_name();
     metadata.dimension = pm.dimension();
 
-    auto metric = metricTypeFromString(pm.metric_type());
+    auto metric = core::metricTypeFromString(pm.metric_type());
     if (!metric.ok()) return metric.status();
     metadata.metric_type = *metric;
 
-    auto index = indexTypeFromString(pm.index_type());
+    auto index = core::indexTypeFromString(pm.index_type());
     if (!index.ok()) return index.status();
     metadata.index_type = *index;
 

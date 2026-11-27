@@ -14,13 +14,14 @@ gvdb_add_library(cluster
   PUBLIC_DEPS
     gvdb::core
     gvdb::index
+    gvdb::storage
+    gvdb::compute
+    gvdb::meta
     gvdb::proto
     absl::status
     absl::statusor
     absl::strings
   PRIVATE_DEPS
-    gvdb::storage
-    gvdb::compute
-    gvdb::network
+    gvdb::rpc
     gvdb::utils
 )

@@ -4,7 +4,6 @@
 #pragma once
 
 #include "core/status.h"
-#include "utils/logger.h"
 
 #include <libnuraft/nuraft.hxx>
 #include <memory>

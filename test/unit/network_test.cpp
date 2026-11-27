@@ -6,7 +6,8 @@
 #include <string>
 #include <vector>
 
-#include "network/proto_conversions.h"
+#include "core/type_names.h"
+#include "rpc/proto_conversions.h"
 #include "network/vectordb_service.h"
 #include "network/collection_resolver.h"
 #include "storage/segment_manager.h"
@@ -62,7 +63,7 @@ TEST_CASE_FIXTURE(ProtoConversionTest, "VectorConversion") {
   proto_vec.add_values(3.0f);
 
   // Convert to core Vector
-  auto result = network::fromProto(proto_vec);
+  auto result = rpc::fromProto(proto_vec);
   INFO(result.status().ToString());
   REQUIRE(result.ok());
 
@@ -80,7 +81,7 @@ TEST_CASE_FIXTURE(ProtoConversionTest, "VectorDimensionMismatch") {
   proto_vec.add_values(2.0f);
   proto_vec.add_values(3.0f);  // Only 3 values
 
-  auto result = network::fromProto(proto_vec);
+  auto result = rpc::fromProto(proto_vec);
   CHECK_FALSE(result.ok());
   CHECK_EQ(result.status().code(), absl::StatusCode::kInvalidArgument);
 }
@@ -92,7 +93,7 @@ TEST_CASE_FIXTURE(ProtoConversionTest, "VectorWithIdConversion") {
   proto_vec.mutable_vector()->add_values(1.5f);
   proto_vec.mutable_vector()->add_values(2.5f);
 
-  auto result = network::fromProto(proto_vec);
+  auto result = rpc::fromProto(proto_vec);
   REQUIRE(result.ok());
 
   CHECK_EQ(result->first, core::MakeVectorId(42));
@@ -102,15 +103,15 @@ TEST_CASE_FIXTURE(ProtoConversionTest, "VectorWithIdConversion") {
 }
 
 TEST_CASE_FIXTURE(ProtoConversionTest, "MetricTypeConversion") {
-  auto l2 = network::fromProto(proto::CreateCollectionRequest::L2);
+  auto l2 = rpc::fromProto(proto::CreateCollectionRequest::L2);
   REQUIRE(l2.ok());
   CHECK_EQ(*l2, core::MetricType::L2);
 
-  auto ip = network::fromProto(proto::CreateCollectionRequest::INNER_PRODUCT);
+  auto ip = rpc::fromProto(proto::CreateCollectionRequest::INNER_PRODUCT);
   REQUIRE(ip.ok());
   CHECK_EQ(*ip, core::MetricType::INNER_PRODUCT);
 
-  auto cosine = network::fromProto(proto::CreateCollectionRequest::COSINE);
+  auto cosine = rpc::fromProto(proto::CreateCollectionRequest::COSINE);
   REQUIRE(cosine.ok());
   CHECK_EQ(*cosine, core::MetricType::COSINE);
 }
@@ -139,7 +140,7 @@ TEST_CASE_FIXTURE(ProtoConversionTest, "IndexTypeConversion") {
     const std::string name =
         proto::CreateCollectionRequest::IndexType_Name(c.proto_type);
     CAPTURE(name);
-    auto result = network::fromProto(c.proto_type);
+    auto result = rpc::fromProto(c.proto_type);
     REQUIRE(result.ok());
     CHECK_EQ(*result, c.core_type);
   }
@@ -165,8 +166,8 @@ TEST_CASE_FIXTURE(ProtoConversionTest, "IndexTypeStringRoundTrip") {
 
   for (const auto& c : cases) {
     CAPTURE(c.name);
-    CHECK_EQ(network::toString(c.type), c.name);
-    auto parsed = network::indexTypeFromString(network::toString(c.type));
+    CHECK_EQ(core::toString(c.type), c.name);
+    auto parsed = core::indexTypeFromString(core::toString(c.type));
     REQUIRE(parsed.ok());
     CHECK_EQ(*parsed, c.type);
   }
@@ -177,7 +178,7 @@ TEST_CASE_FIXTURE(ProtoConversionTest, "CoreToProtoVector") {
   core::Vector vec(data);
 
   proto::Vector proto_vec;
-  network::toProto(vec, &proto_vec);
+  rpc::toProto(vec, &proto_vec);
 
   CHECK_EQ(proto_vec.dimension(), 4);
   REQUIRE_EQ(proto_vec.values().size(), 4);
@@ -191,7 +192,7 @@ TEST_CASE_FIXTURE(ProtoConversionTest, "SearchResultConversion") {
   core::SearchResultEntry entry{core::MakeVectorId(123), 0.5f};
 
   proto::SearchResultEntry proto_entry;
-  network::toProto(entry, &proto_entry);
+  rpc::toProto(entry, &proto_entry);
 
   CHECK_EQ(proto_entry.id(), 123);
   CHECK(proto_entry.distance() == doctest::Approx(0.5f));
@@ -199,20 +200,20 @@ TEST_CASE_FIXTURE(ProtoConversionTest, "SearchResultConversion") {
 
 TEST_CASE_FIXTURE(ProtoConversionTest, "StatusConversion") {
   // OK status
-  auto ok_status = network::toGrpcStatus(absl::OkStatus());
+  auto ok_status = rpc::toGrpcStatus(absl::OkStatus());
   CHECK(ok_status.ok());
 
   // Error statuses
-  auto invalid = network::toGrpcStatus(
+  auto invalid = rpc::toGrpcStatus(
       absl::InvalidArgumentError("bad input"));
   CHECK_EQ(invalid.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   CHECK_EQ(invalid.error_message(), "bad input");
 
-  auto not_found = network::toGrpcStatus(
+  auto not_found = rpc::toGrpcStatus(
       absl::NotFoundError("not found"));
   CHECK_EQ(not_found.error_code(), grpc::StatusCode::NOT_FOUND);
 
-  auto already_exists = network::toGrpcStatus(
+  auto already_exists = rpc::toGrpcStatus(
       absl::AlreadyExistsError("exists"));
   CHECK_EQ(already_exists.error_code(), grpc::StatusCode::ALREADY_EXISTS);
 }

@@ -6,8 +6,11 @@ gvdb_add_library(core
     metadata.cpp
     filter.cpp
     sparse_vector.cpp
+    type_names.cpp
   PUBLIC_DEPS
     absl::status
     absl::statusor
     absl::strings
+  PRIVATE_DEPS
+    absl::str_format
 )
