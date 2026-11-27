@@ -32,7 +32,7 @@
 
 #include "internal.grpc.pb.h"
 #include "rpc/primary_term_header.h"
-#include "service/proxy_service.h"
+#include "service/proxy/proxy_service.h"
 #include "support/grpc_server.h"
 #include "vectordb.grpc.pb.h"
 

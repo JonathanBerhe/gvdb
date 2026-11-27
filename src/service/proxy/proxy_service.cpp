@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "service/proxy_service.h"
+#include "service/proxy/proxy_service.h"
 
 #include <thread>
 
@@ -13,6 +13,31 @@
 
 namespace gvdb {
 namespace service {
+
+namespace {
+
+constexpr char kNoCoordinator[] = "No coordinator available";
+constexpr char kNoQueryNode[] = "No query node or data node available";
+
+template <typename Request, typename Response>
+using StubMethod = grpc::Status (proto::VectorDBService::Stub::*)(grpc::ClientContext*,
+                                                                   const Request&, Response*);
+
+// Sends the request unchanged through `client` with a new client context.
+// Returns UNAVAILABLE with `unavailable` as the message when `client` is
+// null.
+template <typename Request, typename Response>
+grpc::Status Forward(proto::VectorDBService::Stub* client, const char* unavailable,
+                     StubMethod<Request, Response> method, const Request& request,
+                     Response* response) {
+  if (!client) {
+    return grpc::Status(grpc::StatusCode::UNAVAILABLE, unavailable);
+  }
+  grpc::ClientContext client_ctx;
+  return (client->*method)(&client_ctx, request, response);
+}
+
+}  // namespace
 
 ProxyService::ProxyService(
     const std::vector<std::string>& coordinator_addrs,
@@ -158,17 +183,8 @@ grpc::Status ProxyService::CreateCollection(
     const proto::CreateCollectionRequest* request,
     proto::CreateCollectionResponse* response) {
   auth::AuditContext::SetCollection(request->collection_name());
-
-  auto* client = GetCoordinatorClient();
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No coordinator available");
-  }
-
-  // Forward to coordinator's InternalService
-  proto::CreateCollectionRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  auto status = client->CreateCollection(&client_ctx, internal_req, response);
-
+  auto status = Forward(GetCoordinatorClient(), kNoCoordinator,
+                        &proto::VectorDBService::Stub::CreateCollection, *request, response);
   if (!status.ok()) {
     common::Logger::Instance().Error("CreateCollection failed: {}", status.error_message());
   }
@@ -180,30 +196,16 @@ grpc::Status ProxyService::DropCollection(
     const proto::DropCollectionRequest* request,
     proto::DropCollectionResponse* response) {
   auth::AuditContext::SetCollection(request->collection_name());
-
-  auto* client = GetCoordinatorClient();
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No coordinator available");
-  }
-
-  proto::DropCollectionRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  return client->DropCollection(&client_ctx, internal_req, response);
+  return Forward(GetCoordinatorClient(), kNoCoordinator,
+                 &proto::VectorDBService::Stub::DropCollection, *request, response);
 }
 
 grpc::Status ProxyService::ListCollections(
     grpc::ServerContext* /*context*/,
     const proto::ListCollectionsRequest* request,
     proto::ListCollectionsResponse* response) {
-
-  auto* client = GetCoordinatorClient();
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No coordinator available");
-  }
-
-  proto::ListCollectionsRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  return client->ListCollections(&client_ctx, internal_req, response);
+  return Forward(GetCoordinatorClient(), kNoCoordinator,
+                 &proto::VectorDBService::Stub::ListCollections, *request, response);
 }
 
 grpc::Status ProxyService::Insert(
@@ -226,7 +228,7 @@ grpc::Status ProxyService::Insert(
   auto route_status = internal_client->RouteQuery(&route_ctx, route_req, &route_resp);
 
   if (!route_status.ok() || route_resp.target_node_addresses_size() == 0) {
-    // Fallback: ask RouteQuery per-collection (different code path — the
+    // Fallback: ask RouteQuery per-collection (different code path, the
     // coordinator may answer for single-shard collections even when the
     // general RouteQuery call above failed). If still no route, the proxy
     // returns UNAVAILABLE; there is no "random data-node" fan-out because
@@ -260,7 +262,7 @@ grpc::Status ProxyService::Insert(
   int num_shards = route_resp.target_node_addresses_size();
 
   if (num_shards == 1) {
-    // Single shard — use the write-side fallback helper which handles
+    // Single shard: use the write-side fallback helper which handles
     // re-routing on ABORTED (term-mismatch during a primary swap).
     proto::InsertRequest internal_req = *request;
     return rpc::RouteWriteAndCallWithFallback(
@@ -528,52 +530,28 @@ grpc::Status ProxyService::Search(
     grpc::ServerContext* /*context*/,
     const proto::SearchRequest* request,
     proto::SearchResponse* response) {
-
-  // Prefer query nodes; fall back to data nodes if none configured
-  proto::VectorDBService::Stub* client = GetQueryNodeClient();
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-        "No query node or data node available");
-  }
-
-  proto::SearchRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  return client->Search(&client_ctx, internal_req, response);
+  return Forward(GetQueryNodeClient(), kNoQueryNode, &proto::VectorDBService::Stub::Search,
+                 *request, response);
 }
 
 grpc::Status ProxyService::RangeSearch(
     grpc::ServerContext* /*context*/,
     const proto::RangeSearchRequest* request,
     proto::RangeSearchResponse* response) {
-
-  proto::VectorDBService::Stub* client = GetQueryNodeClient();
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-        "No query node or data node available");
-  }
-
-  proto::RangeSearchRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  return client->RangeSearch(&client_ctx, internal_req, response);
+  return Forward(GetQueryNodeClient(), kNoQueryNode, &proto::VectorDBService::Stub::RangeSearch,
+                 *request, response);
 }
 
 grpc::Status ProxyService::GetStats(
     grpc::ServerContext* /*context*/,
     const proto::GetStatsRequest* request,
     proto::GetStatsResponse* response) {
-
-  auto* client = GetCoordinatorClient();
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE, "No coordinator available");
-  }
-
-  proto::GetStatsRequest internal_req = *request;
-  grpc::ClientContext client_ctx;
-  return client->GetStats(&client_ctx, internal_req, response);
+  return Forward(GetCoordinatorClient(), kNoCoordinator,
+                 &proto::VectorDBService::Stub::GetStats, *request, response);
 }
 
 // =============================================================================
-// Backup / Restore — forward to coordinator (admin-level, multi-shard)
+// Backup / Restore: forward to coordinator (admin-level, multi-shard)
 // =============================================================================
 
 grpc::Status ProxyService::BackupCollection(
@@ -581,14 +559,8 @@ grpc::Status ProxyService::BackupCollection(
     const proto::BackupCollectionRequest* request,
     proto::BackupCollectionResponse* response) {
   auth::AuditContext::SetCollection(request->collection_name());
-  auto* client = GetCoordinatorClient();
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                        "No coordinator available");
-  }
-  proto::BackupCollectionRequest req = *request;
-  grpc::ClientContext ctx;
-  return client->BackupCollection(&ctx, req, response);
+  return Forward(GetCoordinatorClient(), kNoCoordinator,
+                 &proto::VectorDBService::Stub::BackupCollection, *request, response);
 }
 
 grpc::Status ProxyService::RestoreCollection(
@@ -596,70 +568,40 @@ grpc::Status ProxyService::RestoreCollection(
     const proto::RestoreCollectionRequest* request,
     proto::RestoreCollectionResponse* response) {
   auth::AuditContext::SetCollection(request->target_collection_name());
-  auto* client = GetCoordinatorClient();
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                        "No coordinator available");
-  }
-  proto::RestoreCollectionRequest req = *request;
-  grpc::ClientContext ctx;
-  return client->RestoreCollection(&ctx, req, response);
+  return Forward(GetCoordinatorClient(), kNoCoordinator,
+                 &proto::VectorDBService::Stub::RestoreCollection, *request, response);
 }
 
 grpc::Status ProxyService::GetBackupStatus(
     grpc::ServerContext* /*context*/,
     const proto::GetBackupStatusRequest* request,
     proto::GetBackupStatusResponse* response) {
-  auto* client = GetCoordinatorClient();
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                        "No coordinator available");
-  }
-  proto::GetBackupStatusRequest req = *request;
-  grpc::ClientContext ctx;
-  return client->GetBackupStatus(&ctx, req, response);
+  return Forward(GetCoordinatorClient(), kNoCoordinator,
+                 &proto::VectorDBService::Stub::GetBackupStatus, *request, response);
 }
 
 grpc::Status ProxyService::GetRestoreStatus(
     grpc::ServerContext* /*context*/,
     const proto::GetRestoreStatusRequest* request,
     proto::GetRestoreStatusResponse* response) {
-  auto* client = GetCoordinatorClient();
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                        "No coordinator available");
-  }
-  proto::GetRestoreStatusRequest req = *request;
-  grpc::ClientContext ctx;
-  return client->GetRestoreStatus(&ctx, req, response);
+  return Forward(GetCoordinatorClient(), kNoCoordinator,
+                 &proto::VectorDBService::Stub::GetRestoreStatus, *request, response);
 }
 
 grpc::Status ProxyService::ListBackups(
     grpc::ServerContext* /*context*/,
     const proto::ListBackupsRequest* request,
     proto::ListBackupsResponse* response) {
-  auto* client = GetCoordinatorClient();
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                        "No coordinator available");
-  }
-  proto::ListBackupsRequest req = *request;
-  grpc::ClientContext ctx;
-  return client->ListBackups(&ctx, req, response);
+  return Forward(GetCoordinatorClient(), kNoCoordinator,
+                 &proto::VectorDBService::Stub::ListBackups, *request, response);
 }
 
 grpc::Status ProxyService::CancelBackup(
     grpc::ServerContext* /*context*/,
     const proto::CancelBackupRequest* request,
     proto::CancelBackupResponse* response) {
-  auto* client = GetCoordinatorClient();
-  if (!client) {
-    return grpc::Status(grpc::StatusCode::UNAVAILABLE,
-                        "No coordinator available");
-  }
-  proto::CancelBackupRequest req = *request;
-  grpc::ClientContext ctx;
-  return client->CancelBackup(&ctx, req, response);
+  return Forward(GetCoordinatorClient(), kNoCoordinator,
+                 &proto::VectorDBService::Stub::CancelBackup, *request, response);
 }
 
 }  // namespace service

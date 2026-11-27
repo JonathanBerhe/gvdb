@@ -28,7 +28,7 @@
 #include <string>
 
 #include "internal.grpc.pb.h"
-#include "service/proxy_service.h"
+#include "service/proxy/proxy_service.h"
 #include "support/grpc_server.h"
 #include "vectordb.grpc.pb.h"
 

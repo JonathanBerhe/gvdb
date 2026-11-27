@@ -27,7 +27,7 @@ namespace service {
 //
 // Data-node discovery is dynamic per-request via the coordinator's
 // RouteQuery RPC; the proxy dials specific pod FQDNs on demand. No
-// --data-nodes flag is needed today (there is no read-only fallback — if
+// --data-nodes flag is needed today (there is no read-only fallback, if
 // the coordinator is unreachable, the proxy returns UNAVAILABLE rather
 // than fanning out to a random data node).
 class ProxyService final : public proto::VectorDBService::Service {
@@ -144,7 +144,7 @@ class ProxyService final : public proto::VectorDBService::Service {
 
   // gRPC clients (lazy initialized). The three stubs below are written
   // exactly once under clients_mutex_, then hot-path reads are lock-free via
-  // acquire loads on the atomic "ready" flags — stubs are thread-safe for
+  // acquire loads on the atomic "ready" flags: stubs are thread-safe for
   // concurrent invocations once constructed (gRPC guarantee).
   std::mutex clients_mutex_;
   std::atomic<bool> coordinator_client_ready_{false};
@@ -152,7 +152,7 @@ class ProxyService final : public proto::VectorDBService::Service {
   std::atomic<bool> query_node_client_ready_{false};
   std::unique_ptr<proto::VectorDBService::Stub> coordinator_client_;
   std::unique_ptr<proto::internal::InternalService::Stub> coordinator_internal_client_;
-  // Single round_robin channel for the query-node headless service — gRPC
+  // Single round_robin channel for the query-node headless service: gRPC
   // handles fan-out across all resolved A records.
   std::unique_ptr<proto::VectorDBService::Stub> query_node_client_;
 
@@ -167,11 +167,11 @@ class ProxyService final : public proto::VectorDBService::Service {
   // Resolve a collection to one of its data nodes via the coordinator's
   // RouteQuery RPC. Set `read_only=true` for read operations so the
   // coordinator may return a routable replica when the primary is draining.
-  // Writes must leave read_only=false — they go to the primary (possibly
+  // Writes must leave read_only=false: they go to the primary (possibly
   // draining) for correct ordering.
   //
   // out_primary_term, if non-null, receives the routed shard's
-  // primary_term — write callers stamp it onto the gRPC client context
+  // primary_term: write callers stamp it onto the gRPC client context
   // as the gvdb-shard-term header so the data-node can reject writes
   // that race a primary swap. Reads pass nullptr (they don't enforce
   // term equality).

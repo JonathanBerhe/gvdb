@@ -233,7 +233,7 @@ class InternalService final : public proto::internal::InternalService::Service {
 
   // Per-shard primary-term view this data-node is allowed to mutate from
   // PausePrimary / PreparePromote handlers. Null when the service is
-  // hosted by a non-data-node binary (coordinator, query-node) — those
+  // hosted by a non-data-node binary (coordinator, query-node): those
   // instances should never see these RPCs in production but we tolerate
   // the call by returning FAILED_PRECONDITION rather than crashing.
   cluster::PrimaryTermTracker* primary_term_tracker_ = nullptr;
