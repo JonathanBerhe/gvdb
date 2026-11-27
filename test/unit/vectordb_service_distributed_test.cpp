@@ -5,7 +5,7 @@
 
 #include "service/vectordb/vectordb_service.h"
 #include "service/vectordb/collection_resolver.h"
-#include "cluster/coordinator.h"
+#include "cluster/coordinator/coordinator.h"
 #include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"

@@ -6,7 +6,7 @@
 #include "core/type_names.h"
 #include "rpc/proto_conversions.h"
 #include "storage/segment/segment_store.h"
-#include "cluster/coordinator.h"
+#include "cluster/coordinator/coordinator.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_split.h"
 #include "common/json_util.h"

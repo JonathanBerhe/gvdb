@@ -64,8 +64,8 @@ func (r ShardOrphanResult) RF1Blocked() bool {
 //     be zero-valued when absent.
 //
 //  2. A member is a "healthy failover" iff it is present in clusterHealth
-//     with Ready=true AND IsDataNode=true — HandleDrainingNode in
-//     src/cluster/coordinator.cpp:903 will only promote routable+ready
+//     with Ready=true AND IsDataNode=true: HandleDrainingNode in
+//     src/cluster/coordinator/health_checks.cpp will only promote routable+ready
 //     replicas, so set-membership alone is insufficient.
 //
 //  3. If the victim is not in the effective set, the shard is unaffected

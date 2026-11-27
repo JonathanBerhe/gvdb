@@ -9,11 +9,11 @@
 #include <memory>
 #include <string>
 
-#include "cluster/coordinator.h"
+#include "cluster/coordinator/coordinator.h"
 #include "cluster/shard_manager.h"
-#include "cluster/node_registry.h"
-#include "cluster/internal_client.h"
-#include "cluster/primary_term_tracker.h"
+#include "cluster/coordinator/node_registry.h"
+#include "cluster/coordinator/internal_client.h"
+#include "cluster/datanode/primary_term_tracker.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "service/internal/internal_service.h"

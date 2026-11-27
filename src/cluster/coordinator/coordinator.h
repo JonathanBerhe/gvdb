@@ -7,8 +7,8 @@
 #include "meta/collection_metadata.h"
 #include "meta/node_info.h"
 #include "cluster/shard_manager.h"
-#include "cluster/node_registry.h"
-#include "cluster/internal_client.h"
+#include "cluster/coordinator/node_registry.h"
+#include "cluster/coordinator/internal_client.h"
 #include "storage/backup/backup_manager.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -26,7 +26,7 @@ namespace gvdb {
 namespace cluster {
 
 // Auto-rebalance configuration. `debounce` caps how often a
-// new-node event can trigger ExecuteRebalancePlan — a rolling restart of N
+// new-node event can trigger ExecuteRebalancePlan: a rolling restart of N
 // pods within the window only fires one rebalance. Tests pass a very small
 // value to drive the debounce path deterministically. Defined outside the
 // Coordinator class so the default-initialized default argument in the
@@ -109,7 +109,7 @@ class Coordinator {
   // a rebalance actually fired without racing on the detached worker.
   struct LastAutoRebalance {
     absl::Status status;
-    // Monotonic timestamp — stable across small wall-clock jumps but reset
+    // Monotonic timestamp: stable across small wall-clock jumps but reset
     // per-process. Use `completed_unix_ms` for anything that needs a wall
     // time or needs to survive (not really; still process-local) an
     // exporter restart.
@@ -132,7 +132,7 @@ class Coordinator {
 
   // Migrate shards off a node that has signalled NODE_STATUS_DRAINING.
   // Unlike HandleFailedNode, the draining node is still
-  // alive and serving reads — we can safely promote replicas and remove
+  // alive and serving reads: we can safely promote replicas and remove
   // the draining node from the shard assignment map before its gRPC server
   // is shut down. Called from the health-check loop; safe to invoke
   // repeatedly (self-limiting: once shards are migrated, GetShardsForNode
@@ -153,7 +153,7 @@ class Coordinator {
   //
   // Wire the storage-layer engines used to drive the multi-shard fan-out.
   // Setters (rather than constructor params) keep the existing Coordinator
-  // constructor signature stable — main_*.cpp calls these after both
+  // constructor signature stable: main_*.cpp calls these after both
   // objects are built. Either or both may stay unset on a coordinator
   // binary not configured for backups; the public Start* methods then
   // return UNIMPLEMENTED.
@@ -197,7 +197,7 @@ class Coordinator {
       const std::string& target_collection_name,
       bool overwrite);
 
-  // Status queries — pass through to the underlying BackupManager /
+  // Status queries: pass through to the underlying BackupManager /
   // RestoreManager. Returns NotFound when the id is unknown.
   absl::StatusOr<storage::BackupJobStatus>
       GetDistributedBackupStatus(const std::string& backup_id) const;
@@ -255,18 +255,18 @@ class Coordinator {
   // a write-in-flight survive a primary change without losing
   // linearizability:
   //   1. Read current term from ShardManager; new_term = current + 1.
-  //   2. PausePrimary(old_node, shard, new_term, new_node) — old node
+  //   2. PausePrimary(old_node, shard, new_term, new_node): old node
   //      stops accepting writes for this shard.
-  //   3. PreparePromote(new_node, shard, new_term) — new node starts
+  //   3. PreparePromote(new_node, shard, new_term): new node starts
   //      accepting writes at the bumped term.
-  //   4. ShardManager::SetPrimaryNode(shard, new_node, new_term) —
+  //   4. ShardManager::SetPrimaryNode(shard, new_node, new_term):
   //      RouteQuery now points the proxy at new_node@new_term.
   //
   // On any RPC failure the state is recoverable: each step is
   // idempotent and the ShardManager commit hasn't happened yet, so the
   // next reconcile pass repeats the orchestration. Callers should
   // surface the returned status to their reconcile loop and not retry
-  // synchronously — a stuck swap blocks all writes for the shard.
+  // synchronously: a stuck swap blocks all writes for the shard.
   //
   // `old_node` may equal `kInvalidNodeId` when no current primary
   // exists (shard previously unowned, e.g. a cold-promote during
@@ -287,7 +287,7 @@ class Coordinator {
   //
   // `known_data_nodes_` tracks IDs we've already noticed so DetectNewDataNodes
   // only fires on genuine scale-up events. `last_auto_rebalance_at_` is the
-  // debounce timestamp — guarded by `known_nodes_mutex_` so external callers
+  // debounce timestamp: guarded by `known_nodes_mutex_` so external callers
   // (tests) don't race with the health-check thread. `auto_rebalance_config_`
   // is immutable after construction.
   AutoRebalanceConfig auto_rebalance_config_;

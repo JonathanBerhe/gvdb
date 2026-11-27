@@ -35,10 +35,10 @@ type QueryNodeRolloutStep struct {
 const ReasonWaitingForPriorRollouts = "WaitingForPriorRollouts"
 
 // desiredQueryNodePartition is a pure function computing the next rollout
-// step for a query-node StatefulSet. Query-nodes are stateless — they hold
+// step for a query-node StatefulSet. Query-nodes are stateless: they hold
 // only an in-memory segment cache loaded on demand (src/cluster/query_node.cpp)
-// and the coordinator never assigns them shards (src/cluster/coordinator.cpp)
-// — so the state machine has zero safety gates beyond "don't roll all pods
+// and the coordinator never assigns them shards (src/cluster/coordinator/collections.cpp),
+// so the state machine has zero safety gates beyond "don't roll all pods
 // simultaneously". Partition=replicas-1 already guarantees that.
 //
 // Structurally identical to the coordinator's desiredPartition() mechanical

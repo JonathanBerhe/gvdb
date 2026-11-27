@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "cluster/internal_client.h"
+#include "cluster/coordinator/internal_client.h"
 #include "common/logger.h"
 
 namespace gvdb {

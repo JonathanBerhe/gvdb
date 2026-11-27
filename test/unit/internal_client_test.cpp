@@ -7,7 +7,7 @@
 #include <thread>
 #include <vector>
 
-#include "cluster/internal_client.h"
+#include "cluster/coordinator/internal_client.h"
 #include "internal.grpc.pb.h"
 
 using namespace gvdb;

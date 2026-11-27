@@ -5,7 +5,7 @@
 
 // Include-what-you-use note: this header uses std::shared_mutex (member
 // field) and std::unordered_map. The implementation file additionally
-// uses std::unique_lock (from <mutex>) and must include it explicitly —
+// uses std::unique_lock (from <mutex>) and must include it explicitly:
 // libstdc++ does not transitively expose unique_lock through
 // <shared_mutex>, even though libc++ happens to.
 #include <cstdint>
@@ -17,7 +17,7 @@ namespace cluster {
 
 // PrimaryTermTracker is the per-data-node state that lets writes be
 // gated against "am I currently the primary for this shard, at this
-// term?" — anchoring write linearizability across primary swaps.
+// term?": anchoring write linearizability across primary swaps.
 //
 // State updates arrive from two channels:
 //   1. Heartbeat response: the coordinator pushes the authoritative

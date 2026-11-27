@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "absl/status/statusor.h"
-#include "cluster/heartbeat_sender.h"
-#include "cluster/primary_term_tracker.h"
+#include "cluster/datanode/heartbeat_sender.h"
+#include "cluster/datanode/primary_term_tracker.h"
 #include "consensus/raft_config.h"
 #include "consensus/raft_node.h"
 #include "internal.pb.h"
