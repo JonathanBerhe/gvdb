@@ -11,10 +11,10 @@
 #include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "network/vectordb_service.h"
-#include "network/collection_resolver.h"
-#include "utils/server_bootstrap.h"
-#include "utils/env_flags.h"
+#include "service/vectordb_service.h"
+#include "service/collection_resolver.h"
+#include "server/bootstrap.h"
+#include "common/env_flags.h"
 
 struct QueryNodeArgs {
   int node_id = 201;
@@ -79,21 +79,21 @@ int main(int argc, char** argv) {
   using namespace gvdb;
 
   // Env vars override CLI flags
-  args.bind_address = utils::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
-  args.advertise_address = utils::ResolveFlag("GVDB_ADVERTISE_ADDRESS", args.advertise_address);
-  args.data_dir = utils::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
-  utils::ServerBootstrap::InstallSignalHandlers();
+  args.bind_address = common::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
+  args.advertise_address = common::ResolveFlag("GVDB_ADVERTISE_ADDRESS", args.advertise_address);
+  args.data_dir = common::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
+  server::ServerBootstrap::InstallSignalHandlers();
 
-  auto log_status = utils::ServerBootstrap::InitializeLogger(
+  auto log_status = server::ServerBootstrap::InitializeLogger(
       args.data_dir, "query_node.log");
   if (!log_status.ok()) {
     std::cerr << "Warning: Failed to initialize logger: " << log_status.message() << std::endl;
   }
 
-  utils::Logger::Instance().Info("Starting GVDB Query Node (ID: {})", args.node_id);
+  common::Logger::Instance().Info("Starting GVDB Query Node (ID: {})", args.node_id);
 
   int metrics_port = 9200 + (args.node_id - 200);
-  utils::ServerBootstrap::StartMetricsServer(metrics_port);
+  server::ServerBootstrap::StartMetricsServer(metrics_port);
 
   try {
     // 1. Storage (for caching) + compute
@@ -109,24 +109,24 @@ int main(int argc, char** argv) {
         segment_manager, query_executor, memory_limit_bytes);
 
     // 3. VectorDBService
-    std::unique_ptr<network::ICollectionResolver> resolver;
+    std::unique_ptr<service::ICollectionResolver> resolver;
     if (!args.coordinator_addresses.empty()) {
-      resolver = network::MakeCachedCoordinatorResolver(args.coordinator_addresses[0]);
+      resolver = service::MakeCachedCoordinatorResolver(args.coordinator_addresses[0]);
     } else {
-      resolver = network::MakeLocalResolver(segment_manager);
+      resolver = service::MakeLocalResolver(segment_manager);
     }
-    auto service = std::make_unique<network::VectorDBService>(
+    auto service = std::make_unique<service::VectorDBService>(
         segment_manager, query_executor, std::move(resolver));
 
     // 4. Start server
-    auto server = utils::ServerBootstrap::StartGrpcServer(
+    auto server = server::ServerBootstrap::StartGrpcServer(
         args.bind_address, {service.get()});
     if (!server) {
       std::cerr << "Failed to start gRPC server on " << args.bind_address << std::endl;
       return 1;
     }
 
-    utils::ServerBootstrap::PrintBanner("GVDB Query Node", {
+    server::ServerBootstrap::PrintBanner("GVDB Query Node", {
         "Node ID: " + std::to_string(args.node_id),
         "gRPC Service: " + args.bind_address,
         "Metrics: http://0.0.0.0:" + std::to_string(metrics_port) + "/metrics",
@@ -142,11 +142,11 @@ int main(int argc, char** argv) {
       heartbeat = std::make_unique<cluster::HeartbeatSender>(
           args.coordinator_addresses[0], args.node_id, heartbeat_addr,
           proto::internal::NodeType::NODE_TYPE_QUERY_NODE,
-          utils::ServerBootstrap::ShutdownFlag());
+          server::ServerBootstrap::ShutdownFlag());
       heartbeat->Start();
     }
 
-    utils::ServerBootstrap::WaitForShutdown();
+    server::ServerBootstrap::WaitForShutdown();
 
     // Graceful shutdown
     std::cout << "\nShutting down gracefully..." << std::endl;
@@ -159,7 +159,7 @@ int main(int argc, char** argv) {
 
     heartbeat.reset();  // no-op join (already stopped above)
     server->Shutdown();
-    utils::ServerBootstrap::StopMetricsServer();
+    server::ServerBootstrap::StopMetricsServer();
     std::cout << "Shutdown complete. Goodbye!" << std::endl;
     return 0;
 

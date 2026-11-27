@@ -2,8 +2,8 @@
 #include <filesystem>
 #include <string>
 
-#include "network/vectordb_service.h"
-#include "network/collection_resolver.h"
+#include "service/vectordb_service.h"
+#include "service/collection_resolver.h"
 #include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "cluster/coordinator.h"
@@ -58,8 +58,8 @@ struct VectorDBServiceCoordinatorTest {
     node_registry_->UpdateNode(proto_node_info);
 
     // Create VectorDBService in COORDINATOR mode
-    auto resolver = network::MakeCoordinatorResolver(coordinator_);
-    service_ = std::make_unique<network::VectorDBService>(
+    auto resolver = service::MakeCoordinatorResolver(coordinator_);
+    service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_, std::move(resolver));
   }
 
@@ -82,7 +82,7 @@ struct VectorDBServiceCoordinatorTest {
   std::shared_ptr<cluster::ShardManager> shard_manager_;
   std::shared_ptr<cluster::NodeRegistry> node_registry_;
   std::shared_ptr<cluster::Coordinator> coordinator_;
-  std::unique_ptr<network::VectorDBService> service_;
+  std::unique_ptr<service::VectorDBService> service_;
 };
 
 // ============================================================================

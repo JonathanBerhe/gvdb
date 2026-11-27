@@ -15,8 +15,8 @@
 
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "network/collection_resolver.h"
-#include "network/vectordb_service.h"
+#include "service/collection_resolver.h"
+#include "service/vectordb_service.h"
 #include "storage/import/bulk_importer.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_manager.h"
@@ -157,8 +157,8 @@ class ImportServiceFixtureBase {
           2);
     }
 
-    auto resolver = network::MakeLocalResolver(segment_store_);
-    service_ = std::make_unique<network::VectorDBService>(
+    auto resolver = service::MakeLocalResolver(segment_store_);
+    service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_, std::move(resolver),
         /*rbac_store=*/nullptr, importer_);
   }
@@ -296,7 +296,7 @@ class ImportServiceFixtureBase {
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::unique_ptr<GatedObjectStore> object_store_;
   std::shared_ptr<storage::BulkImporter> importer_;
-  std::unique_ptr<network::VectorDBService> service_;
+  std::unique_ptr<service::VectorDBService> service_;
 };
 
 class ImportServiceTest : public ImportServiceFixtureBase {

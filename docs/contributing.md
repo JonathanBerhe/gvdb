@@ -57,7 +57,7 @@ Examples:
 ```
 feat(cluster): add NodeRegistry with heartbeat protocol
 fix(storage): correct segment state transitions
-refactor(network): simplify gRPC service initialization
+refactor(service): simplify gRPC service initialization
 ```
 
 Subject-only commits: no body, no `Co-Authored-By` footer.
@@ -82,7 +82,8 @@ The C++ code follows these conventions:
 - `absl::Status` / `absl::StatusOr<T>` for fallible operations
 - `-Wall -Wextra -Wpedantic` on every GVDB target, and warnings are errors in every preset
 - Each module is a folder in `src/`. Its headers sit next to its sources, and code includes a header by its path below `src/`, for example `#include "storage/segment/segment.h"`. Headers use `#pragma once`.
-- A module includes and links only the modules before it in this order: `core`, `utils`, `auth`, `index`, `storage`, `compute`, `meta`, `rpc`, `consensus`, `cluster`, `network`. The programs in `src/main` can use all of them.
+- A module includes and links only the modules before it in this order: `core`, `common`, `auth`, `index`, `storage`, `compute`, `meta`, `rpc`, `consensus`, `cluster`, `service`, `config`, `server`. The programs in `src/main` can use all of them. `make check-layers` (`tools/check_layers.py`) finds a forbidden include, and CI runs it.
+- A lower module does not read the YAML configuration. It defines its own configuration struct (for example `storage::ObjectStoreConfig`), and `config` fills it from the YAML file.
 - When a header of a module includes a header of another module, the `CMakeLists.txt` of the module lists that module in `PUBLIC_DEPS`. A module that only its sources include goes in `PRIVATE_DEPS`.
 
 Python SDK follows `ruff` defaults. Run `make lint-sdk`.

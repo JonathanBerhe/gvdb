@@ -25,14 +25,14 @@
 #include "storage/objstore/object_store_factory.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "network/vectordb_service.h"
-#include "network/internal_service.h"
-#include "network/collection_resolver.h"
-#include "utils/server_bootstrap.h"
-#include "utils/env_flags.h"
-#include "utils/config.h"
-#include "utils/audit_logger.h"
-#include "network/audit_interceptor.h"
+#include "service/vectordb_service.h"
+#include "service/internal_service.h"
+#include "service/collection_resolver.h"
+#include "server/bootstrap.h"
+#include "common/env_flags.h"
+#include "config/config.h"
+#include "auth/audit_logger.h"
+#include "rpc/interceptors/audit_interceptor.h"
 
 struct DataNodeArgs {
   int node_id = 101;
@@ -88,7 +88,7 @@ void WaitForDrainCompletion(const std::string& coordinator_address,
       // let the data-node shut down its gRPC server before migration
       // completes, defeating the drain-wait budget and risking data loss.
       ++consecutive_rpc_failures;
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Drain wait: GetShardAssignments failed (attempt {}): {}",
           consecutive_rpc_failures, status.error_message());
       // Short exponential backoff, capped so we still poll within budget.
@@ -116,7 +116,7 @@ void WaitForDrainCompletion(const std::string& coordinator_address,
     }
 
     if (!still_assigned) {
-      utils::Logger::Instance().Info(
+      common::Logger::Instance().Info(
           "Drain wait: node {} has no remaining shard assignments", node_id);
       return;
     }
@@ -125,7 +125,7 @@ void WaitForDrainCompletion(const std::string& coordinator_address,
     if (std::chrono::steady_clock::now() + poll_interval >= deadline) break;
     std::this_thread::sleep_for(poll_interval);
   }
-  utils::Logger::Instance().Warn(
+  common::Logger::Instance().Warn(
       "Drain wait: timeout reached with shards still assigned to node {} "
       "(coordinator will fall back to heartbeat-timeout eviction)",
       node_id);
@@ -193,28 +193,28 @@ int main(int argc, char** argv) {
   using namespace gvdb;
 
   // Env vars override CLI flags
-  args.bind_address = utils::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
-  args.advertise_address = utils::ResolveFlag("GVDB_ADVERTISE_ADDRESS", args.advertise_address);
-  args.data_dir = utils::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
-  utils::ServerBootstrap::InstallSignalHandlers();
+  args.bind_address = common::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
+  args.advertise_address = common::ResolveFlag("GVDB_ADVERTISE_ADDRESS", args.advertise_address);
+  args.data_dir = common::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
+  server::ServerBootstrap::InstallSignalHandlers();
 
-  auto log_status = utils::ServerBootstrap::InitializeLogger(
+  auto log_status = server::ServerBootstrap::InitializeLogger(
       args.data_dir, "data_node.log");
   if (!log_status.ok()) {
     std::cerr << "Warning: Failed to initialize logger: " << log_status.message() << std::endl;
   }
 
-  utils::Logger::Instance().Info("Starting GVDB Data Node (ID: {})", args.node_id);
+  common::Logger::Instance().Info("Starting GVDB Data Node (ID: {})", args.node_id);
 
   int metrics_port = 9100 + (args.node_id - 100);
-  utils::ServerBootstrap::StartMetricsServer(metrics_port);
+  server::ServerBootstrap::StartMetricsServer(metrics_port);
 
   try {
     // 1. Storage + compute
     // Load YAML config for S3 settings if provided
-    utils::GVDBConfig config = utils::Config::get_default();
+    config::GVDBConfig config = config::Config::get_default();
     if (!args.config_file.empty()) {
-      auto yaml_result = utils::Config::load_from_file(args.config_file);
+      auto yaml_result = config::Config::load_from_file(args.config_file);
       if (yaml_result.ok()) {
         config = std::move(*yaml_result);
       }
@@ -236,9 +236,9 @@ int main(int argc, char** argv) {
     // refusing to start.
     std::shared_ptr<storage::ISegmentStore> segment_store;
     storage::IObjectStore* object_store_ptr = nullptr;  // for BulkImporter
-    auto object_store_or = storage::CreateObjectStore(config.storage);
+    auto object_store_or = storage::CreateObjectStore(config.storage.object_store);
     if (!object_store_or.ok()) {
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Object store creation failed ({}); falling back to local-only "
           "storage", object_store_or.status().message());
     }
@@ -248,8 +248,8 @@ int main(int argc, char** argv) {
           config.storage.object_store_cache_size_mb) * 1024 * 1024;
       auto cache = std::make_unique<storage::SegmentCache>(
           cache_dir, cache_size);
-      auto prefix = config.storage.object_store_prefix.empty()
-          ? "gvdb" : config.storage.object_store_prefix;
+      auto prefix = config.storage.object_store.prefix.empty()
+          ? "gvdb" : config.storage.object_store.prefix;
       object_store_ptr = object_store_or->get();
       segment_store = std::make_shared<storage::TieredSegmentManager>(
           std::move(local_manager), std::move(*object_store_or),
@@ -261,7 +261,7 @@ int main(int argc, char** argv) {
     }
 
     if (auto load_status = segment_store->LoadAllSegments(); !load_status.ok()) {
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Failed to load existing segments on startup: {}",
           load_status.message());
     }
@@ -275,22 +275,22 @@ int main(int argc, char** argv) {
 
     // Background thread to process build queue (seals segments + builds indexes)
     std::thread build_thread([data_node]() {
-      data_node->RunBuildLoop(utils::ServerBootstrap::ShutdownFlag());
+      data_node->RunBuildLoop(server::ServerBootstrap::ShutdownFlag());
     });
 
     // Background thread to sweep expired TTL vectors
     std::thread ttl_sweep_thread([data_node]() {
-      data_node->RunTTLSweepLoop(utils::ServerBootstrap::ShutdownFlag());
+      data_node->RunTTLSweepLoop(server::ServerBootstrap::ShutdownFlag());
     });
 
     auto query_executor = std::make_shared<compute::QueryExecutor>(
         segment_store.get());
-    query_executor->SetCache(std::make_shared<utils::QueryCache>(10000));
+    query_executor->SetCache(std::make_shared<compute::QueryCache>(10000));
 
     // 2. ShardManager + InternalService
     auto shard_manager = std::make_shared<cluster::ShardManager>(
         16, cluster::ShardingStrategy::HASH);
-    auto internal_service = std::make_unique<network::InternalService>(
+    auto internal_service = std::make_unique<service::InternalService>(
         shard_manager, segment_store, query_executor);
 
     // 3. Bulk importer (optional — requires object store)
@@ -313,7 +313,7 @@ int main(int argc, char** argv) {
     {
       storage::BackupManagerOptions bopts;
       bopts.default_object_store = object_store_ptr;
-      bopts.s3_bucket = config.storage.object_store_bucket;
+      bopts.s3_bucket = config.storage.object_store.bucket;
       bopts.local_root_allowlist = config.storage.local_backup_dir;
       bopts.flushed_segments_root = args.data_dir + "/segments";
       bopts.tmp_dir = args.data_dir + "/tmp/backup";
@@ -323,7 +323,7 @@ int main(int argc, char** argv) {
 
       storage::RestoreManagerOptions ropts;
       ropts.default_object_store = object_store_ptr;
-      ropts.s3_bucket = config.storage.object_store_bucket;
+      ropts.s3_bucket = config.storage.object_store.bucket;
       ropts.local_root_allowlist = config.storage.local_backup_dir;
       ropts.staging_dir = args.data_dir + "/tmp/restore";
       restore_manager = std::make_shared<storage::RestoreManager>(
@@ -349,13 +349,13 @@ int main(int argc, char** argv) {
     auto primary_term_tracker = std::make_unique<cluster::PrimaryTermTracker>();
 
     // 4. VectorDBService
-    std::unique_ptr<network::ICollectionResolver> resolver;
+    std::unique_ptr<service::ICollectionResolver> resolver;
     if (!args.coordinator_addresses.empty()) {
-      resolver = network::MakeCachedCoordinatorResolver(args.coordinator_addresses[0]);
+      resolver = service::MakeCachedCoordinatorResolver(args.coordinator_addresses[0]);
     } else {
-      resolver = network::MakeLocalResolver(segment_store, args.data_dir);
+      resolver = service::MakeLocalResolver(segment_store, args.data_dir);
     }
-    auto service = std::make_unique<network::VectorDBService>(
+    auto service = std::make_unique<service::VectorDBService>(
         segment_store, query_executor, std::move(resolver), nullptr,
         bulk_importer, backup_manager, restore_manager);
     service->SetShardWriteGate(shard_write_gate.get());
@@ -372,12 +372,12 @@ int main(int argc, char** argv) {
     // 4. Audit logging + Start server
     std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors;
     if (config.logging.audit.enabled) {
-      utils::AuditLogger::Initialize(config.logging.audit);
+      auth::AuditLogger::Initialize(config.logging.audit);
       interceptors.push_back(
-          std::make_unique<network::AuditInterceptorFactory>());
+          std::make_unique<rpc::AuditInterceptorFactory>());
     }
 
-    auto server = utils::ServerBootstrap::StartGrpcServer(
+    auto server = server::ServerBootstrap::StartGrpcServer(
         args.bind_address,
         {internal_service.get(), service.get()},
         grpc::InsecureServerCredentials(),
@@ -387,7 +387,7 @@ int main(int argc, char** argv) {
       return 1;
     }
 
-    utils::ServerBootstrap::PrintBanner("GVDB Data Node", {
+    server::ServerBootstrap::PrintBanner("GVDB Data Node", {
         "Node ID: " + std::to_string(args.node_id),
         "gRPC Service: " + args.bind_address,
         "Metrics: http://0.0.0.0:" + std::to_string(metrics_port) + "/metrics",
@@ -404,12 +404,12 @@ int main(int argc, char** argv) {
       heartbeat = std::make_unique<cluster::HeartbeatSender>(
           args.coordinator_addresses[0], args.node_id, heartbeat_addr,
           proto::internal::NodeType::NODE_TYPE_DATA_NODE,
-          utils::ServerBootstrap::ShutdownFlag());
+          server::ServerBootstrap::ShutdownFlag());
       heartbeat->SetPrimaryTermTracker(primary_term_tracker.get());
       heartbeat->Start();
     }
 
-    utils::ServerBootstrap::WaitForShutdown();
+    server::ServerBootstrap::WaitForShutdown();
 
     // Graceful shutdown
     std::cout << "\nShutting down gracefully..." << std::endl;
@@ -436,7 +436,7 @@ int main(int argc, char** argv) {
     }
 
     server->Shutdown();
-    utils::ServerBootstrap::StopMetricsServer();
+    server::ServerBootstrap::StopMetricsServer();
     std::cout << "Shutdown complete. Goodbye!" << std::endl;
     return 0;
 

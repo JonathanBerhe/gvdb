@@ -23,5 +23,5 @@ gvdb_add_library(cluster
     absl::strings
   PRIVATE_DEPS
     gvdb::rpc
-    gvdb::utils
+    gvdb::common
 )

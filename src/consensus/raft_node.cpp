@@ -4,7 +4,7 @@
 #include "consensus/raft_node.h"
 #include "consensus/metadata_state_machine.h"
 #include "consensus/gvdb_state_manager.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 #include "absl/strings/str_cat.h"
 
 #include <grpcpp/grpcpp.h>
@@ -32,13 +32,13 @@ class NuRaftLoggerAdapter : public nuraft::logger {
                    const std::string& msg) override {
     // Map NuRaft log levels to our logger
     if (level <= 2) {  // ERROR, FATAL
-      utils::Logger::Instance().Error("[NuRaft] {}", msg);
+      common::Logger::Instance().Error("[NuRaft] {}", msg);
     } else if (level == 3) {  // WARN
-      utils::Logger::Instance().Warn("[NuRaft] {}", msg);
+      common::Logger::Instance().Warn("[NuRaft] {}", msg);
     } else if (level == 4) {  // INFO
-      utils::Logger::Instance().Info("[NuRaft] {}", msg);
+      common::Logger::Instance().Info("[NuRaft] {}", msg);
     } else {  // DEBUG, TRACE
-      utils::Logger::Instance().Debug("[NuRaft] {}", msg);
+      common::Logger::Instance().Debug("[NuRaft] {}", msg);
     }
   }
 
@@ -142,7 +142,7 @@ RaftNode::RaftNode(const RaftConfig& config)
     throw std::invalid_argument("Invalid Raft configuration");
   }
 
-  utils::Logger::Instance().Info("RaftNode created (node_id={}, single_node_mode={})",
+  common::Logger::Instance().Info("RaftNode created (node_id={}, single_node_mode={})",
                                  config_.node_id,
                                  config_.single_node_mode);
 }
@@ -160,12 +160,12 @@ core::Status RaftNode::Start() {
     return core::FailedPreconditionError("RaftNode already running");
   }
 
-  utils::Logger::Instance().Info("Starting RaftNode (node_id={})", config_.node_id);
+  common::Logger::Instance().Info("Starting RaftNode (node_id={})", config_.node_id);
 
   // In single-node mode, immediately become leader
   if (config_.single_node_mode) {
     is_leader_.store(true, std::memory_order_release);
-    utils::Logger::Instance().Info("RaftNode is leader (single-node mode)");
+    common::Logger::Instance().Info("RaftNode is leader (single-node mode)");
   } else {
     // Multi-node mode: Initialize NuRaft.
     //
@@ -194,7 +194,7 @@ core::Status RaftNode::Start() {
     if (!joining_peer_.empty()) {
       auto join_status = AnnounceJoinToCluster();
       if (!join_status.ok()) {
-        utils::Logger::Instance().Error(
+        common::Logger::Instance().Error(
             "AnnounceJoinToCluster failed: {}", join_status.message());
         return join_status;
       }
@@ -203,13 +203,13 @@ core::Status RaftNode::Start() {
     // Leader election happens asynchronously in NuRaft
     // The raft_server will trigger callbacks when leadership changes
     // For now, we don't set is_leader_ - it will be determined by querying raft_server
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "RaftNode started in multi-node mode (leader election in progress)");
   }
 
   running_.store(true, std::memory_order_release);
 
-  utils::Logger::Instance().Info("RaftNode started successfully");
+  common::Logger::Instance().Info("RaftNode started successfully");
   return core::OkStatus();
 }
 
@@ -220,7 +220,7 @@ core::Status RaftNode::Shutdown() {
     return core::OkStatus();  // Already stopped
   }
 
-  utils::Logger::Instance().Info("Shutting down RaftNode");
+  common::Logger::Instance().Info("Shutting down RaftNode");
 
   // Shutdown NuRaft if running in multi-node mode
   if (launcher_) {
@@ -235,7 +235,7 @@ core::Status RaftNode::Shutdown() {
   is_leader_.store(false, std::memory_order_release);
   running_.store(false, std::memory_order_release);
 
-  utils::Logger::Instance().Info("RaftNode shut down successfully");
+  common::Logger::Instance().Info("RaftNode shut down successfully");
   return core::OkStatus();
 }
 
@@ -327,17 +327,17 @@ std::optional<LeaderProbeResult> ProbePeersForLeader(
 
     auto status = stub->GetLeaderInfo(&ctx, req, &resp);
     if (!status.ok()) {
-      utils::Logger::Instance().Debug(
+      common::Logger::Instance().Debug(
           "Peer probe: {} unreachable ({})", target, status.error_message());
       continue;
     }
     if (resp.leader_id() > 0) {
-      utils::Logger::Instance().Info(
+      common::Logger::Instance().Info(
           "Peer probe: {} reports leader_id={} (term={})",
           target, resp.leader_id(), resp.current_term());
       return LeaderProbeResult{resp.leader_id(), target};
     }
-    utils::Logger::Instance().Debug(
+    common::Logger::Instance().Debug(
         "Peer probe: {} has no leader yet (term={})",
         target, resp.current_term());
   }
@@ -361,12 +361,12 @@ core::Status MapNuRaftCode(nuraft::cmd_result_code code, const char* op) {
       // so re-entrancy on a retry doesn't break the caller, but log so
       // the swallow is observable (useful diagnostic when operators chase
       // "why did JoinCluster return success but the peer never joined?").
-      utils::Logger::Instance().Info(
+      common::Logger::Instance().Info(
           "{} idempotent: peer already present in cluster_config", op);
       return core::OkStatus();
     case cmd_result_code::SERVER_NOT_FOUND:
       // Same logic: removing a peer that's not there is a no-op, treat OK.
-      utils::Logger::Instance().Info(
+      common::Logger::Instance().Info(
           "{} idempotent: peer not present in cluster_config", op);
       return core::OkStatus();
     case cmd_result_code::CONFIG_CHANGING:
@@ -417,7 +417,7 @@ core::Status RaftNode::AddPeer(int32_t node_id, const std::string& raft_endpoint
                      raft_server_->get_leader(), ")"));
   }
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "RaftNode::AddPeer node_id={} endpoint={}", node_id, raft_endpoint);
 
   nuraft::srv_config new_srv(node_id, raft_endpoint);
@@ -447,7 +447,7 @@ core::Status RaftNode::RemovePeer(int32_t node_id) {
                      raft_server_->get_leader(), ")"));
   }
 
-  utils::Logger::Instance().Info("RaftNode::RemovePeer node_id={}", node_id);
+  common::Logger::Instance().Info("RaftNode::RemovePeer node_id={}", node_id);
 
   auto result = raft_server_->remove_srv(node_id);
   if (!result) {
@@ -501,7 +501,7 @@ core::Status RaftNode::YieldLeadership(int32_t target_node_id) {
     return core::OkStatus();
   }
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "RaftNode::YieldLeadership target_node_id={} (current leader={})",
       target_node_id, raft_server_->get_leader());
 
@@ -517,7 +517,7 @@ core::Status RaftNode::YieldLeadership(int32_t target_node_id) {
   const auto deadline = std::chrono::steady_clock::now() + kTransferTimeout;
   while (std::chrono::steady_clock::now() < deadline) {
     if (raft_server_->get_leader() == target_node_id) {
-      utils::Logger::Instance().Info(
+      common::Logger::Instance().Info(
           "YieldLeadership: target {} is now leader", target_node_id);
       return core::OkStatus();
     }
@@ -588,11 +588,11 @@ core::Status RaftNode::AnnounceJoinToCluster() {
 
     auto status = stub->JoinCluster(&ctx, req, &resp);
     if (!status.ok()) {
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "JoinCluster attempt {} to {} transport failure: {}",
           attempt, target, status.error_message());
     } else if (resp.success()) {
-      utils::Logger::Instance().Info(
+      common::Logger::Instance().Info(
           "JoinCluster succeeded on attempt {} via {}: {}",
           attempt, target, resp.message());
       joining_peer_.clear();
@@ -602,13 +602,13 @@ core::Status RaftNode::AnnounceJoinToCluster() {
       // consuming extra backoff (the target was simply wrong).
       std::string new_target = resolve_leader_target(resp.current_leader_id());
       if (!new_target.empty() && new_target != target) {
-        utils::Logger::Instance().Info(
+        common::Logger::Instance().Info(
             "JoinCluster redirected to leader_id={} ({})",
             resp.current_leader_id(), new_target);
         target = new_target;
         continue;
       }
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "JoinCluster redirect to leader_id={} unresolvable (grpc_peers has {} entries); "
           "will retry on same target",
           resp.current_leader_id(), config_.coordinator_grpc_peers.size());
@@ -617,7 +617,7 @@ core::Status RaftNode::AnnounceJoinToCluster() {
       // a concurrent add_srv. The message surfaces the NuRaft code for
       // diagnosability. Back off and retry the same target (it may still
       // be leader, just busy).
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "JoinCluster attempt {} denied: {} (leader_id=0; likely concurrent config change)",
           attempt, resp.message());
     }
@@ -641,7 +641,7 @@ core::Status RaftNode::AnnounceJoinToCluster() {
 }
 
 core::Status RaftNode::InitializeNuRaft() {
-  utils::Logger::Instance().Info("Initializing NuRaft for multi-node mode");
+  common::Logger::Instance().Info("Initializing NuRaft for multi-node mode");
 
   // Create NuRaft logger adapter
   nuraft_logger_ = nuraft::cs_new<NuRaftLoggerAdapter>();
@@ -697,7 +697,7 @@ core::Status RaftNode::InitializeNuRaft() {
         // unmodified so there is nothing new to persist. The leader's
         // add_srv will replicate the real cluster_config to us via Raft
         // log once AnnounceJoinToCluster succeeds.
-        utils::Logger::Instance().Info(
+        common::Logger::Instance().Info(
             "Peer probe found leader_id={} on {}; will AnnounceJoin after "
             "NuRaft init (cluster_config stays self-only pre-join)",
             probe->leader_id, probe->responding_peer);
@@ -708,13 +708,13 @@ core::Status RaftNode::InitializeNuRaft() {
               nuraft::cs_new<nuraft::srv_config>(peer.id, peer.endpoint));
         }
         state_mgr_->save_config(*existing);
-        utils::Logger::Instance().Info(
+        common::Logger::Instance().Info(
             "Seeded cluster_config with {} server(s) including self "
             "(no existing leader found via peer probe — initial bootstrap)",
             existing->get_servers().size());
       }
     } else {
-      utils::Logger::Instance().Info(
+      common::Logger::Instance().Info(
           "Using persisted cluster_config with {} server(s)",
           existing->get_servers().size());
     }
@@ -771,7 +771,7 @@ core::Status RaftNode::InitializeNuRaft() {
     return core::InternalError("Failed to initialize NuRaft launcher (returned null server)");
   }
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "NuRaft initialized successfully (node_id={}, endpoint={})",
       config_.node_id,
       config_.listen_address);

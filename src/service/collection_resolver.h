@@ -1,0 +1,121 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
+#pragma once
+
+#include "core/types.h"
+#include "core/status.h"
+#include "internal.grpc.pb.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace gvdb {
+namespace storage { class ISegmentStore; }
+namespace cluster { class Coordinator; }
+namespace service {
+
+// One candidate node for a shard query. Intentionally mirrors the proto
+// RouteQueryNodeOption shape: the resolver projects the proto layer up
+// so consumers (proxy, query-node SearchDistributed) can iterate
+// fallbacks without taking a transitive dependency on internal.pb.h.
+// Keep the fields in lockstep with proto::internal::RouteQueryNodeOption;
+// any new field added there should be added here as well, and
+// CachedCoordinatorResolver::GetShardTargets updated to populate it.
+struct ShardNodeOption {
+  uint32_t node_id;
+  std::string node_address;
+  bool is_primary;
+};
+
+// Target for a distributed shard query. The legacy single-target view
+// (node_address) is preserved for callers that don't need fallback;
+// new callers iterate `options` to walk routable replicas when the
+// first attempt fails with a transient error. options[0].node_address
+// always equals node_address.
+struct ShardTarget {
+  uint32_t shard_id;
+  uint32_t collection_id;
+  std::string node_address;
+  std::vector<ShardNodeOption> options;
+};
+
+// Information about a collection (used in ListCollections responses)
+struct CollectionInfo {
+  core::CollectionId collection_id;
+  std::string collection_name;
+  core::Dimension dimension;
+  core::MetricType metric_type;
+  core::IndexType index_type;
+  uint64_t vector_count = 0;
+};
+
+// Interface for resolving collection metadata.
+// Three implementations support the three VectorDBService operating modes:
+//   - LocalCollectionResolver (single-node)
+//   - CachedCoordinatorResolver (distributed data/query nodes)
+//   - CoordinatorCollectionResolver (coordinator node)
+class ICollectionResolver {
+ public:
+  virtual ~ICollectionResolver() = default;
+
+  // Resolve a collection name to its ID
+  virtual absl::StatusOr<core::CollectionId> GetCollectionId(
+      const std::string& name) = 0;
+
+  // Create a new collection, returning its ID
+  virtual absl::StatusOr<core::CollectionId> CreateCollection(
+      const std::string& name,
+      core::Dimension dimension,
+      core::MetricType metric_type,
+      core::IndexType index_type,
+      size_t num_shards = 1) = 0;
+
+  // Drop a collection by name
+  virtual absl::Status DropCollection(const std::string& name) = 0;
+
+  // List all collections
+  virtual std::vector<CollectionInfo> ListCollections() = 0;
+
+  // Get the total number of collections (for metrics)
+  virtual size_t CollectionCount() = 0;
+
+  // Whether this resolver supports data operations (Insert/Search/Get/Delete)
+  virtual bool SupportsDataOps() const = 0;
+
+  // Get all segment IDs for a collection (for multi-shard search)
+  // Coordinator: returns error (data ops not supported)
+  virtual absl::StatusOr<std::vector<core::SegmentId>> GetSegmentIds(
+      const std::string& name) = 0;
+
+  // Get gRPC stub for segment replication (only CachedCoordinatorResolver has one)
+  virtual proto::internal::InternalService::Stub* GetCoordinatorStub() { return nullptr; }
+
+  // Get shard targets for distributed search (calls RouteQuery on coordinator)
+  // Returns empty if not a distributed resolver
+  virtual absl::StatusOr<std::vector<ShardTarget>> GetShardTargets(
+      const std::string& /*collection_name*/) {
+    return absl::UnimplementedError("Not a distributed resolver");
+  }
+};
+
+// Factory functions for creating resolvers.
+// registry_dir, when non-empty, enables collection-registry persistence:
+// the local resolver writes <registry_dir>/collections.json after every
+// create/drop and reloads it on construction, so collections survive
+// process restarts. Empty (the default) keeps the registry in memory only,
+// which is what tests use.
+std::unique_ptr<ICollectionResolver> MakeLocalResolver(
+    std::shared_ptr<storage::ISegmentStore> segment_store,
+    const std::string& registry_dir = "");
+
+std::unique_ptr<ICollectionResolver> MakeCoordinatorResolver(
+    std::shared_ptr<cluster::Coordinator> coordinator);
+
+std::unique_ptr<ICollectionResolver> MakeCachedCoordinatorResolver(
+    const std::string& coordinator_address);
+
+}  // namespace service
+}  // namespace gvdb

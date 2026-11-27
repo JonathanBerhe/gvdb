@@ -11,11 +11,11 @@
 #include "cluster/node_registry.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "network/internal_service.h"
-#include "network/vectordb_service.h"
-#include "network/collection_resolver.h"
+#include "service/internal_service.h"
+#include "service/vectordb_service.h"
+#include "service/collection_resolver.h"
 #include "storage/segment/segment_manager.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 #include "internal.grpc.pb.h"
 #include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
@@ -54,7 +54,7 @@ class SegmentReplicationIntegrationTest {
         coord_segment_store_.get());
 
     // Create InternalService (serves GetSegment RPC)
-    internal_service_ = std::make_unique<network::InternalService>(
+    internal_service_ = std::make_unique<service::InternalService>(
         shard_manager_,
         coord_segment_store_,
         coord_query_executor_,
@@ -81,8 +81,8 @@ class SegmentReplicationIntegrationTest {
         data_segment_store_.get());
 
     // Create data node's VectorDBService in distributed mode
-    auto resolver = network::MakeCachedCoordinatorResolver(server_address_);
-    data_vectordb_service_ = std::make_unique<network::VectorDBService>(
+    auto resolver = service::MakeCachedCoordinatorResolver(server_address_);
+    data_vectordb_service_ = std::make_unique<service::VectorDBService>(
         data_segment_store_,
         data_query_executor_,
         std::move(resolver));
@@ -109,12 +109,12 @@ class SegmentReplicationIntegrationTest {
   // Coordinator components
   std::shared_ptr<storage::ISegmentStore> coord_segment_store_;
   std::shared_ptr<compute::QueryExecutor> coord_query_executor_;
-  std::unique_ptr<network::InternalService> internal_service_;
+  std::unique_ptr<service::InternalService> internal_service_;
 
   // Data node components
   std::shared_ptr<storage::ISegmentStore> data_segment_store_;
   std::shared_ptr<compute::QueryExecutor> data_query_executor_;
-  std::unique_ptr<network::VectorDBService> data_vectordb_service_;
+  std::unique_ptr<service::VectorDBService> data_vectordb_service_;
 
   std::unique_ptr<grpc::Server> server_;
   int server_port_ = 0;
@@ -366,10 +366,10 @@ class ReadRepairIntegrationTest {
 
     // Start gRPC servers for each "data node" — each runs InternalService
     // with its own segment manager
-    primary_internal_ = std::make_unique<network::InternalService>(
+    primary_internal_ = std::make_unique<service::InternalService>(
         shard_manager_, primary_segment_store_, primary_qe,
         nullptr, coordinator_);
-    replica_internal_ = std::make_unique<network::InternalService>(
+    replica_internal_ = std::make_unique<service::InternalService>(
         shard_manager_, replica_segment_store_, replica_qe,
         nullptr, coordinator_);
 
@@ -436,8 +436,8 @@ class ReadRepairIntegrationTest {
   std::shared_ptr<storage::ISegmentStore> primary_segment_store_;
   std::shared_ptr<storage::ISegmentStore> replica_segment_store_;
 
-  std::unique_ptr<network::InternalService> primary_internal_;
-  std::unique_ptr<network::InternalService> replica_internal_;
+  std::unique_ptr<service::InternalService> primary_internal_;
+  std::unique_ptr<service::InternalService> replica_internal_;
 
   std::unique_ptr<grpc::Server> primary_server_;
   std::unique_ptr<grpc::Server> replica_server_;

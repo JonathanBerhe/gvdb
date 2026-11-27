@@ -24,7 +24,7 @@
 #include "core/vector.h"
 #include "index/index_factory.h"
 #include "storage/segment/segment_manager.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 
 using namespace gvdb;
 
@@ -41,7 +41,7 @@ std::filesystem::path g_scratch_dir;
 // Removes the scratch folder and stops the async logger while its thread pool
 // still exists, so static destruction does not report a failed flush.
 void Cleanup() {
-  utils::Logger::Shutdown();
+  common::Logger::Shutdown();
   if (g_scratch_dir.empty()) return;
   std::error_code ec;
   std::filesystem::remove_all(g_scratch_dir, ec);

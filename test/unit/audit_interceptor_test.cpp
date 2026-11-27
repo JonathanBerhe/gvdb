@@ -10,13 +10,13 @@
 #include <string>
 #include <vector>
 
-#include "network/audit_interceptor.h"
-#include "network/auth_processor.h"
-#include "network/vectordb_service.h"
-#include "network/collection_resolver.h"
+#include "rpc/interceptors/audit_interceptor.h"
+#include "rpc/interceptors/auth_processor.h"
+#include "service/vectordb_service.h"
+#include "service/collection_resolver.h"
 #include "auth/rbac.h"
-#include "utils/audit_logger.h"
-#include "utils/config.h"
+#include "auth/audit_logger.h"
+#include "config/config.h"
 #include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
@@ -70,7 +70,7 @@ class AuditIntegrationTest {
         segment_store_.get());
 
     // Auth config
-    utils::AuthConfig auth_config;
+    auth::AuthConfig auth_config;
     auth_config.enabled = true;
     auth_config.roles = {
         {"admin-key", "admin", {}},
@@ -81,24 +81,24 @@ class AuditIntegrationTest {
     rbac_store_ = std::move(*rbac_result);
 
     // Audit logger
-    utils::AuditLogConfig audit_config;
+    auth::AuditLogConfig audit_config;
     audit_config.enabled = true;
     audit_config.file_path = audit_log_path_;
     audit_config.max_file_size_mb = 10;
     audit_config.max_files = 2;
-    utils::AuditLogger::Initialize(audit_config);
+    auth::AuditLogger::Initialize(audit_config);
 
-    auto resolver = network::MakeLocalResolver(segment_store_);
-    service_ = std::make_unique<network::VectorDBService>(
+    auto resolver = service::MakeLocalResolver(segment_store_);
+    service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_, std::move(resolver), rbac_store_);
 
     // Auth interceptor first, audit second
     std::vector<std::unique_ptr<
         grpc::experimental::ServerInterceptorFactoryInterface>> creators;
     creators.push_back(
-        std::make_unique<network::ApiKeyAuthInterceptorFactory>(rbac_store_));
+        std::make_unique<rpc::ApiKeyAuthInterceptorFactory>(rbac_store_));
     creators.push_back(
-        std::make_unique<network::AuditInterceptorFactory>());
+        std::make_unique<rpc::AuditInterceptorFactory>());
 
     grpc::ServerBuilder builder;
     int port = 0;
@@ -116,7 +116,7 @@ class AuditIntegrationTest {
       server_->Shutdown();
       server_->Wait();
     }
-    utils::AuditLogger::Shutdown();
+    auth::AuditLogger::Shutdown();
   }
 
   std::unique_ptr<proto::VectorDBService::Stub> MakeStub() {
@@ -140,7 +140,7 @@ class AuditIntegrationTest {
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::shared_ptr<auth::RbacStore> rbac_store_;
-  std::unique_ptr<network::VectorDBService> service_;
+  std::unique_ptr<service::VectorDBService> service_;
   std::unique_ptr<grpc::Server> server_;
   std::string address_;
 };

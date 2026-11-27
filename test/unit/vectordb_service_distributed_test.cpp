@@ -3,8 +3,8 @@
 #include <atomic>
 #include <string>
 
-#include "network/vectordb_service.h"
-#include "network/collection_resolver.h"
+#include "service/vectordb_service.h"
+#include "service/collection_resolver.h"
 #include "cluster/coordinator.h"
 #include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
@@ -89,8 +89,8 @@ struct VectorDBServiceDistributedTest {
 
     // Create VectorDBService in DISTRIBUTED mode
     auto resolver =
-        network::MakeCachedCoordinatorResolver(coordinator_server_.address());
-    service_ = std::make_unique<network::VectorDBService>(
+        service::MakeCachedCoordinatorResolver(coordinator_server_.address());
+    service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_, std::move(resolver));
   }
 
@@ -118,7 +118,7 @@ struct VectorDBServiceDistributedTest {
   std::unique_ptr<MockCoordinatorInternalService> mock_coordinator_ =
       std::make_unique<MockCoordinatorInternalService>();
   test::TestGrpcServer coordinator_server_{mock_coordinator_.get()};
-  std::unique_ptr<network::VectorDBService> service_;
+  std::unique_ptr<service::VectorDBService> service_;
 };
 
 // ============================================================================

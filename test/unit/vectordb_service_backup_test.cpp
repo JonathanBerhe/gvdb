@@ -20,8 +20,8 @@
 
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "network/collection_resolver.h"
-#include "network/vectordb_service.h"
+#include "service/collection_resolver.h"
+#include "service/vectordb_service.h"
 #include "storage/backup/backup_manager.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_cache.h"
@@ -122,9 +122,9 @@ class BackupServiceFixtureBase {
     restore_manager_ =
         std::make_shared<storage::RestoreManager>(std::move(restore_options));
 
-    service_ = std::make_unique<network::VectorDBService>(
+    service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_,
-        network::MakeLocalResolver(segment_store_, data_dir_),
+        service::MakeLocalResolver(segment_store_, data_dir_),
         /*rbac_store=*/nullptr, /*bulk_importer=*/nullptr, backup_manager_,
         restore_manager_);
   }
@@ -376,7 +376,7 @@ class BackupServiceFixtureBase {
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::shared_ptr<storage::BackupManager> backup_manager_;
   std::shared_ptr<storage::RestoreManager> restore_manager_;
-  std::unique_ptr<network::VectorDBService> service_;
+  std::unique_ptr<service::VectorDBService> service_;
 };
 
 class BackupServiceTest : public BackupServiceFixtureBase {

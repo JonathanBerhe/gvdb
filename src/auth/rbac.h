@@ -14,9 +14,22 @@
 
 namespace gvdb {
 
-namespace utils { struct AuthConfig; }
-
 namespace auth {
+
+// One API key and the role it grants (the auth.roles entries of the YAML
+// configuration).
+struct ApiKeyConfig {
+  std::string key;
+  std::string role;                        // "admin", "readwrite", "readonly", "collection_admin"
+  std::vector<std::string> collections;    // empty or ["*"] = all collections
+};
+
+// Authentication settings of a server.
+struct AuthConfig {
+  bool enabled = false;
+  std::vector<std::string> api_keys;       // Legacy: flat keys treated as admin
+  std::vector<ApiKeyConfig> roles;         // Role-based keys
+};
 
 enum class Role {
   ADMIN,
@@ -75,7 +88,7 @@ class RbacStore {
   //   - unrecognized role string
   //   - non-admin role with empty collections (must specify ["*"] or explicit list)
   static absl::StatusOr<std::shared_ptr<RbacStore>> Create(
-      const utils::AuthConfig& config);
+      const auth::AuthConfig& config);
 
   // Look up role info for an API key. Returns nullptr if not found.
   const ApiKeyRole* Lookup(const std::string& key) const;

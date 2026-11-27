@@ -4,7 +4,7 @@
 # CPU search latency of the query executor over FAISS segments.
 gvdb_add_executable(gvdb-search-bench
   SOURCES search_bench.cpp
-  DEPS gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core
+  DEPS gvdb::compute gvdb::storage gvdb::index gvdb::common gvdb::core
 )
 
 if(GVDB_WITH_METAL)

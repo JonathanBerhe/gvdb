@@ -11,7 +11,7 @@
 #include "absl/strings/str_cat.h"
 #include "storage/segment/batch_splitter.h"
 #include "storage/import/npy_reader.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 
 namespace gvdb {
 namespace storage {
@@ -25,7 +25,7 @@ BulkImporter::BulkImporter(std::shared_ptr<ISegmentStore> segment_store,
       temp_dir_(temp_dir),
       max_concurrent_(max_concurrent),
       active_imports_(0) {
-  import_pool_ = std::make_unique<utils::ThreadPool>(
+  import_pool_ = std::make_unique<common::ThreadPool>(
       static_cast<size_t>(max_concurrent));
   std::filesystem::create_directories(temp_dir_);
 }
@@ -105,7 +105,7 @@ core::StatusOr<std::string> BulkImporter::StartImport(
     fingerprint_to_job_[fingerprint] = job->id;
   }
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Bulk import job {} created: collection='{}', uri='{}', format={}",
       job->id, collection_name, source_uri, static_cast<int>(format));
 
@@ -165,7 +165,7 @@ core::Status BulkImporter::CancelImport(const std::string& import_id) {
   }
 
   job->cancelled.store(true);
-  utils::Logger::Instance().Info("Bulk import job {} cancellation requested",
+  common::Logger::Instance().Info("Bulk import job {} cancellation requested",
                                   import_id);
   return core::OkStatus();
 }
@@ -240,7 +240,7 @@ void BulkImporter::ExecuteImport(
     job->state.store(ImportState::FAILED);
   } else {
     job->state.store(ImportState::COMPLETED);
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "Bulk import job {} completed: {} vectors in {} segments",
         job->id, job->imported_vectors.load(), job->segments_created.load());
   }
@@ -456,14 +456,14 @@ void BulkImporter::CleanupOnFailure(std::shared_ptr<ImportJob> job,
   for (auto seg_id : segments) {
     auto status = segment_store_->DropSegment(seg_id, true);
     if (!status.ok()) {
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Failed to cleanup segment {} during import failure: {}",
           core::ToUInt32(seg_id), status.message());
     }
   }
 
   if (!segments.empty()) {
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "Cleaned up {} segments for failed import job {}",
         segments.size(), job->id);
   }

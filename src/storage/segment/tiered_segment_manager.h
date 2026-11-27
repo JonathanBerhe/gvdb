@@ -17,7 +17,7 @@
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_cache.h"
 #include "storage/segment/segment_manifest.h"
-#include "utils/thread_pool.h"
+#include "common/thread_pool.h"
 
 namespace gvdb {
 namespace storage {
@@ -119,7 +119,7 @@ class TieredSegmentManager : public ISegmentStore {
   std::string prefix_;
 
   // Async upload pool
-  std::unique_ptr<utils::ThreadPool> upload_pool_;
+  std::unique_ptr<common::ThreadPool> upload_pool_;
 
   // Per-segment retry bookkeeping for uploads that have failed and are waiting
   // to be re-driven by the retry thread.

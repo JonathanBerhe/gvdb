@@ -18,18 +18,18 @@
 #include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "network/internal_service.h"
-#include "network/vectordb_service.h"
+#include "service/internal_service.h"
+#include "service/vectordb_service.h"
 #include "internal.grpc.pb.h"
 #include <grpcpp/grpcpp.h>
-#include "network/collection_resolver.h"
-#include "network/auth_processor.h"
-#include "network/audit_interceptor.h"
-#include "utils/audit_logger.h"
+#include "service/collection_resolver.h"
+#include "rpc/interceptors/auth_processor.h"
+#include "rpc/interceptors/audit_interceptor.h"
+#include "auth/audit_logger.h"
 #include "auth/rbac.h"
-#include "utils/server_bootstrap.h"
-#include "utils/config.h"
-#include "utils/env_flags.h"
+#include "server/bootstrap.h"
+#include "config/config.h"
+#include "common/env_flags.h"
 
 struct CoordinatorArgs {
   int node_id = 1;
@@ -135,16 +135,16 @@ int main(int argc, char** argv) {
   using namespace gvdb;
 
   // Env vars override CLI flags
-  args.bind_address = utils::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
-  args.advertise_address = utils::ResolveFlag("GVDB_ADVERTISE_ADDRESS", args.advertise_address);
-  args.data_dir = utils::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
-  args.raft_address = utils::ResolveFlag("GVDB_RAFT_ADDRESS", args.raft_address);
-  args.raft_advertise_address = utils::ResolveFlag(
+  args.bind_address = common::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
+  args.advertise_address = common::ResolveFlag("GVDB_ADVERTISE_ADDRESS", args.advertise_address);
+  args.data_dir = common::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
+  args.raft_address = common::ResolveFlag("GVDB_RAFT_ADDRESS", args.raft_address);
+  args.raft_advertise_address = common::ResolveFlag(
       "GVDB_RAFT_ADVERTISE_ADDRESS", args.raft_advertise_address);
   // GVDB_COORDINATOR_GRPC_PEERS overrides --coordinator-grpc-peers (parity
   // with the other peer-list flags). Comma-separated host:port list.
   {
-    std::string override_peers = utils::ResolveFlag(
+    std::string override_peers = common::ResolveFlag(
         "GVDB_COORDINATOR_GRPC_PEERS", std::string{});
     if (!override_peers.empty()) {
       args.coordinator_grpc_peers.clear();
@@ -158,20 +158,20 @@ int main(int argc, char** argv) {
       args.coordinator_grpc_peers.push_back(override_peers.substr(start));
     }
   }
-  utils::ServerBootstrap::InstallSignalHandlers();
+  server::ServerBootstrap::InstallSignalHandlers();
 
-  auto log_status = utils::ServerBootstrap::InitializeLogger(
+  auto log_status = server::ServerBootstrap::InitializeLogger(
       args.data_dir, "coordinator.log");
   if (!log_status.ok()) {
     std::cerr << "Warning: Failed to initialize logger: " << log_status.message() << std::endl;
   }
 
-  utils::Logger::Instance().Info("Starting GVDB Coordinator Node");
-  utils::Logger::Instance().Info("  Node ID: {}, Mode: {}",
+  common::Logger::Instance().Info("Starting GVDB Coordinator Node");
+  common::Logger::Instance().Info("  Node ID: {}, Mode: {}",
       args.node_id, args.single_node_mode ? "Single-Node" : "Multi-Node");
 
   int metrics_port = 9090 + args.node_id;
-  utils::ServerBootstrap::StartMetricsServer(metrics_port);
+  server::ServerBootstrap::StartMetricsServer(metrics_port);
 
   try {
     // 1. Raft consensus
@@ -201,15 +201,15 @@ int main(int argc, char** argv) {
       // Readiness/health reporting reflects the not-leader state, and
       // Raft can still converge after the election wait elapses.
       constexpr int kElectionWaitSeconds = 60;
-      utils::Logger::Instance().Info(
+      common::Logger::Instance().Info(
           "Waiting up to {}s for leader election...", kElectionWaitSeconds);
       auto start_time = std::chrono::steady_clock::now();
       while (!raft_node->IsLeader() && raft_node->GetLeaderId() < 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        if (utils::ServerBootstrap::ShutdownFlag().load()) break;
+        if (server::ServerBootstrap::ShutdownFlag().load()) break;
         if (std::chrono::steady_clock::now() - start_time >
             std::chrono::seconds(kElectionWaitSeconds)) {
-          utils::Logger::Instance().Warn(
+          common::Logger::Instance().Warn(
               "No Raft leader elected after {}s — continuing startup; "
               "election will complete when enough peers are reachable",
               kElectionWaitSeconds);
@@ -249,13 +249,13 @@ int main(int argc, char** argv) {
     // local variable outlives internal_service so this is safe.
     std::shared_ptr<consensus::RaftNode> raft_node_ptr(
         raft_node.get(), [](consensus::RaftNode*){});
-    auto internal_service = std::make_unique<network::InternalService>(
+    auto internal_service = std::make_unique<service::InternalService>(
         shard_manager, segment_manager, query_executor,
         node_registry, coordinator, raft_node_ptr);
     // Load config for auth (optional)
-    utils::GVDBConfig config = utils::Config::get_default();
+    config::GVDBConfig config = config::Config::get_default();
     if (!args.config_file.empty()) {
-      auto cfg_result = utils::Config::load_from_file(args.config_file);
+      auto cfg_result = config::Config::load_from_file(args.config_file);
       if (cfg_result.ok()) config = std::move(*cfg_result);
     }
 
@@ -268,9 +268,9 @@ int main(int argc, char** argv) {
     // factory. Non-fatal on failure: the coordinator can still run backups to
     // a LocalBackupTarget when no object store is available.
     std::unique_ptr<storage::IObjectStore> coord_object_store;
-    auto coord_os_or = storage::CreateObjectStore(config.storage);
+    auto coord_os_or = storage::CreateObjectStore(config.storage.object_store);
     if (!coord_os_or.ok()) {
-      utils::Logger::Instance().Warn(
+      common::Logger::Instance().Warn(
           "Coordinator object store creation failed ({}); backups limited to "
           "local targets", coord_os_or.status().message());
     } else if (*coord_os_or) {
@@ -281,7 +281,7 @@ int main(int argc, char** argv) {
     {
       storage::BackupManagerOptions bopts;
       bopts.default_object_store = coord_object_store.get();
-      bopts.s3_bucket = config.storage.object_store_bucket;
+      bopts.s3_bucket = config.storage.object_store.bucket;
       bopts.local_root_allowlist = config.storage.local_backup_dir;
       // flushed_segments_root is unused on the coordinator (the
       // coordinator never runs RunShardBackup against a local store —
@@ -293,7 +293,7 @@ int main(int argc, char** argv) {
 
       storage::RestoreManagerOptions ropts;
       ropts.default_object_store = coord_object_store.get();
-      ropts.s3_bucket = config.storage.object_store_bucket;
+      ropts.s3_bucket = config.storage.object_store.bucket;
       ropts.local_root_allowlist = config.storage.local_backup_dir;
       ropts.staging_dir = args.data_dir + "/tmp/restore";
       restore_manager = std::make_shared<storage::RestoreManager>(
@@ -313,18 +313,18 @@ int main(int argc, char** argv) {
       }
       rbac_store = std::move(*rbac_result);
       interceptors.push_back(
-          std::make_unique<network::ApiKeyAuthInterceptorFactory>(rbac_store));
+          std::make_unique<rpc::ApiKeyAuthInterceptorFactory>(rbac_store));
     }
 
     // Audit logging
     if (config.logging.audit.enabled) {
-      utils::AuditLogger::Initialize(config.logging.audit);
+      auth::AuditLogger::Initialize(config.logging.audit);
       interceptors.push_back(
-          std::make_unique<network::AuditInterceptorFactory>());
+          std::make_unique<rpc::AuditInterceptorFactory>());
     }
 
-    auto coord_resolver = network::MakeCoordinatorResolver(coordinator);
-    auto vectordb_service = std::make_unique<network::VectorDBService>(
+    auto coord_resolver = service::MakeCoordinatorResolver(coordinator);
+    auto vectordb_service = std::make_unique<service::VectorDBService>(
         segment_manager, query_executor, std::move(coord_resolver), rbac_store);
     // Route the client-facing backup/restore RPCs through the
     // coordinator's per-shard fan-out instead of the local single-shard
@@ -335,12 +335,12 @@ int main(int argc, char** argv) {
     // holds no *local* backup manager; on the coordinator, BackupCollection is
     // instead served by the distributed per-shard path via the coordinator set
     // above. Clarify so the earlier line isn't read as "backup unavailable".
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "Coordinator backup/restore served via distributed shard orchestration");
 
     // 5. Start gRPC server
-    auto credentials = utils::ServerBootstrap::MakeServerCredentials(config.server.tls);
-    auto grpc_server = utils::ServerBootstrap::StartGrpcServer(
+    auto credentials = server::ServerBootstrap::MakeServerCredentials(config.server.tls);
+    auto grpc_server = server::ServerBootstrap::StartGrpcServer(
         args.bind_address,
         {internal_service.get(), vectordb_service.get()},
         credentials, std::move(interceptors));
@@ -350,7 +350,7 @@ int main(int argc, char** argv) {
     }
 
     std::string role = raft_node->IsLeader() ? "LEADER" : "FOLLOWER";
-    utils::ServerBootstrap::PrintBanner("GVDB Coordinator Node", {
+    server::ServerBootstrap::PrintBanner("GVDB Coordinator Node", {
         "Node ID: " + std::to_string(args.node_id),
         "Mode: " + std::string(args.single_node_mode ? "Single-Node" : "Multi-Node"),
         "gRPC Services: " + args.bind_address,
@@ -360,7 +360,7 @@ int main(int argc, char** argv) {
     });
 
     // Wait loop with leader status monitoring
-    while (!utils::ServerBootstrap::ShutdownFlag().load()) {
+    while (!server::ServerBootstrap::ShutdownFlag().load()) {
       std::this_thread::sleep_for(std::chrono::seconds(1));
       if (!args.single_node_mode) {
         static bool was_leader = raft_node->IsLeader();
@@ -399,7 +399,7 @@ int main(int argc, char** argv) {
       int leader_id = raft_node->GetLeaderId();
       std::string leader_target = resolve_target(leader_id);
       for (int attempt = 0; attempt < 2 && !leader_target.empty(); ++attempt) {
-        utils::Logger::Instance().Info(
+        common::Logger::Instance().Info(
             "Self-removing node_id={} via leader {} (attempt {})",
             args.node_id, leader_target, attempt);
         auto channel = grpc::CreateChannel(
@@ -413,15 +413,15 @@ int main(int argc, char** argv) {
                          std::chrono::seconds(3));
         auto st = stub->RemovePeer(&ctx, req, &resp);
         if (!st.ok()) {
-          utils::Logger::Instance().Warn(
+          common::Logger::Instance().Warn(
               "Self-remove RPC failed: {}", st.error_message());
           break;  // transport failure; no point retrying same target
         }
         if (resp.success()) {
-          utils::Logger::Instance().Info("Self-remove succeeded");
+          common::Logger::Instance().Info("Self-remove succeeded");
           break;
         }
-        utils::Logger::Instance().Warn(
+        common::Logger::Instance().Warn(
             "Self-remove denied: {} (leader_id={})",
             resp.message(), resp.current_leader_id());
         // Leadership flipped between snapshot and RPC — follow the redirect
@@ -433,7 +433,7 @@ int main(int argc, char** argv) {
     }
 
     grpc_server->Shutdown();
-    utils::ServerBootstrap::StopMetricsServer();
+    server::ServerBootstrap::StopMetricsServer();
     (void)raft_node->Shutdown();
     std::cout << "Shutdown complete. Goodbye!" << std::endl;
     return 0;

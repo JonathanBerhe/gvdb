@@ -3,7 +3,7 @@
 
 #include "consensus/gvdb_state_manager.h"
 
-#include "utils/logger.h"
+#include "common/logger.h"
 
 #include <cstring>
 #include <filesystem>
@@ -35,13 +35,13 @@ GvdbStateManager::GvdbStateManager(int32_t server_id, const std::string& endpoin
     cluster_config_ = nuraft::cs_new<cluster_config>();
     cluster_config_->get_servers().push_back(my_srv_config_);
     save_config_to_db();  // Persist initial config
-    utils::Logger::Instance().Info("Created initial cluster configuration");
+    common::Logger::Instance().Info("Created initial cluster configuration");
   }
 
   // Create persistent log store
   log_store_ = nuraft::cs_new<GvdbLogStore>(log_store_path);
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "GvdbStateManager initialized (persistent, server_id={}, endpoint={}, state_path={})",
       server_id, endpoint, state_path);
 }
@@ -65,10 +65,10 @@ void GvdbStateManager::save_config(const cluster_config& config) {
 
   // Persist to disk
   if (!save_config_to_db()) {
-    utils::Logger::Instance().Error("Failed to persist cluster config to disk");
+    common::Logger::Instance().Error("Failed to persist cluster config to disk");
   }
 
-  utils::Logger::Instance().Debug(
+  common::Logger::Instance().Debug(
       "Saved cluster config ({} servers)", cluster_config_->get_servers().size());
 }
 
@@ -83,10 +83,10 @@ void GvdbStateManager::save_state(const srv_state& state) {
 
   // Persist to disk
   if (!save_state_to_db()) {
-    utils::Logger::Instance().Error("Failed to persist server state to disk");
+    common::Logger::Instance().Error("Failed to persist server state to disk");
   }
 
-  utils::Logger::Instance().Debug(
+  common::Logger::Instance().Debug(
       "Saved server state (term={})", server_state_->get_term());
 }
 
@@ -110,7 +110,7 @@ int32_t GvdbStateManager::server_id() {
 }
 
 void GvdbStateManager::system_exit(const int exit_code) {
-  utils::Logger::Instance().Error(
+  common::Logger::Instance().Error(
       "Raft system exit called with code {}", exit_code);
 
   // In production, might want to:
@@ -143,7 +143,7 @@ bool GvdbStateManager::load_config_from_db() {
     // Read file
     std::ifstream ifs(config_file, std::ios::binary);
     if (!ifs) {
-      utils::Logger::Instance().Error("Failed to open cluster config file: {}", config_file.string());
+      common::Logger::Instance().Error("Failed to open cluster config file: {}", config_file.string());
       return false;
     }
 
@@ -156,7 +156,7 @@ bool GvdbStateManager::load_config_from_db() {
     ifs.read(data.data(), size);
 
     if (!ifs) {
-      utils::Logger::Instance().Error("Failed to read cluster config file");
+      common::Logger::Instance().Error("Failed to read cluster config file");
       return false;
     }
 
@@ -167,12 +167,12 @@ bool GvdbStateManager::load_config_from_db() {
 
     cluster_config_ = cluster_config::deserialize(*buf);
 
-    utils::Logger::Instance().Info("Loaded cluster config from disk ({} servers)",
+    common::Logger::Instance().Info("Loaded cluster config from disk ({} servers)",
                                     cluster_config_->get_servers().size());
     return true;
 
   } catch (const std::exception& e) {
-    utils::Logger::Instance().Error("Exception loading cluster config: {}", e.what());
+    common::Logger::Instance().Error("Exception loading cluster config: {}", e.what());
     return false;
   }
 }
@@ -185,7 +185,7 @@ bool GvdbStateManager::save_config_to_db() {
   if (!fs::exists(state_dir)) {
     std::error_code ec;
     if (!fs::create_directories(state_dir, ec)) {
-      utils::Logger::Instance().Error("Failed to create state directory: {}", ec.message());
+      common::Logger::Instance().Error("Failed to create state directory: {}", ec.message());
       return false;
     }
   }
@@ -201,7 +201,7 @@ bool GvdbStateManager::save_config_to_db() {
     {
       std::ofstream ofs(temp_file, std::ios::binary | std::ios::trunc);
       if (!ofs) {
-        utils::Logger::Instance().Error("Failed to open temp config file");
+        common::Logger::Instance().Error("Failed to open temp config file");
         return false;
       }
 
@@ -214,7 +214,7 @@ bool GvdbStateManager::save_config_to_db() {
 
       ofs.flush();
       if (!ofs) {
-        utils::Logger::Instance().Error("Failed to write cluster config");
+        common::Logger::Instance().Error("Failed to write cluster config");
         return false;
       }
     }
@@ -222,11 +222,11 @@ bool GvdbStateManager::save_config_to_db() {
     // Atomic rename
     fs::rename(temp_file, config_file);
 
-    utils::Logger::Instance().Debug("Persisted cluster config to {}", config_file.string());
+    common::Logger::Instance().Debug("Persisted cluster config to {}", config_file.string());
     return true;
 
   } catch (const std::exception& e) {
-    utils::Logger::Instance().Error("Exception saving cluster config: {}", e.what());
+    common::Logger::Instance().Error("Exception saving cluster config: {}", e.what());
     return false;
   }
 }
@@ -269,12 +269,12 @@ bool GvdbStateManager::load_state_from_db() {
 
     server_state_ = srv_state::deserialize(*buf);
 
-    utils::Logger::Instance().Info("Loaded server state from disk (term={})",
+    common::Logger::Instance().Info("Loaded server state from disk (term={})",
                                     server_state_->get_term());
     return true;
 
   } catch (const std::exception& e) {
-    utils::Logger::Instance().Error("Exception loading server state: {}", e.what());
+    common::Logger::Instance().Error("Exception loading server state: {}", e.what());
     return false;
   }
 }
@@ -290,7 +290,7 @@ bool GvdbStateManager::save_state_to_db() {
   if (!fs::exists(state_dir)) {
     std::error_code ec;
     if (!fs::create_directories(state_dir, ec)) {
-      utils::Logger::Instance().Error("Failed to create state directory: {}", ec.message());
+      common::Logger::Instance().Error("Failed to create state directory: {}", ec.message());
       return false;
     }
   }
@@ -321,11 +321,11 @@ bool GvdbStateManager::save_state_to_db() {
 
     fs::rename(temp_file, state_file);
 
-    utils::Logger::Instance().Debug("Persisted server state to {}", state_file.string());
+    common::Logger::Instance().Debug("Persisted server state to {}", state_file.string());
     return true;
 
   } catch (const std::exception& e) {
-    utils::Logger::Instance().Error("Exception saving server state: {}", e.what());
+    common::Logger::Instance().Error("Exception saving server state: {}", e.what());
     return false;
   }
 }

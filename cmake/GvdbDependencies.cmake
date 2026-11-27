@@ -128,7 +128,7 @@ gvdb_fetch(faiss
 
 # ----------------------------------------------------------------------------
 # spdlog with its bundled fmt 12. The bundled fmt stays (not
-# SPDLOG_USE_STD_FORMAT) because utils/logger.h needs fmt::runtime, which has
+# SPDLOG_USE_STD_FORMAT) because common/logger.h needs fmt::runtime, which has
 # no std::format equivalent before C++26.
 # ----------------------------------------------------------------------------
 gvdb_fetch(spdlog

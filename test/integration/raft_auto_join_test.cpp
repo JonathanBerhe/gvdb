@@ -17,7 +17,7 @@
 
 #include "consensus/raft_node.h"
 #include "consensus/raft_config.h"
-#include "network/internal_service.h"
+#include "service/internal_service.h"
 #include "internal.grpc.pb.h"
 #include "support/temp_dir.h"
 #include "support/wait.h"
@@ -88,7 +88,7 @@ struct TestCoordinator {
   int grpc_port;
   std::filesystem::path data_dir;
   std::shared_ptr<RaftNode> raft;
-  std::unique_ptr<network::InternalService> service;
+  std::unique_ptr<service::InternalService> service;
   std::unique_ptr<grpc::Server> grpc_server;
 
   std::string raft_endpoint() const {
@@ -151,8 +151,9 @@ std::unique_ptr<TestCoordinator> StartCoordinator(
 
   // Stand up a minimal InternalService — only raft_node_ needs to be real
   // for the JoinCluster / RemovePeer / GetLeaderInfo paths. Everything
-  // else is nullptr-safe (see src/network/internal_service.cpp:33).
-  c->service = std::make_unique<network::InternalService>(
+  // else is nullptr-safe (see the InternalService constructor in
+  // src/service/internal_service.cpp).
+  c->service = std::make_unique<service::InternalService>(
       /*shard_manager=*/nullptr,
       /*segment_store=*/nullptr,
       /*query_executor=*/nullptr,
