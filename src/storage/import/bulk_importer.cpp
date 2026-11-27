@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <functional>
 #include <random>
+#include <ranges>
 #include <utility>
 
 #include "absl/strings/str_cat.h"
@@ -96,7 +97,7 @@ absl::StatusOr<std::string> BulkImporter::StartImport(
 
   common::Logger::Instance().Info(
       "Bulk import job {} created: collection='{}', uri='{}', format={}", job->id, collection_name,
-      source_uri, static_cast<int>(format));
+      source_uri, std::to_underlying(format));
 
   // Submit to thread pool
   import_pool_->Enqueue([this, job, collection_id, dimension, metric, index_type, format,
@@ -282,11 +283,8 @@ absl::Status BulkImporter::ImportNpy(const std::shared_ptr<ImportJob>& job,
     // Split the chunk so every range fits an empty segment; a chunk larger
     // than the segment size cap can never fit no matter how often the store
     // rotates.
-    std::vector<size_t> item_costs;
-    item_costs.reserve(vectors.size());
-    for (const auto& v : vectors) {
-      item_costs.push_back(v.byte_size());
-    }
+    const auto item_costs =
+        vectors | std::views::transform(&core::Vector::byte_size) | std::ranges::to<std::vector>();
     auto ranges_or = SplitBatchBySize(item_costs, segment_store_->GetMaxSegmentSize());
     if (!ranges_or.ok()) {
       return ranges_or.status();

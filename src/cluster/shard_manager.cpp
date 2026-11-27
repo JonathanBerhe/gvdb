@@ -4,6 +4,8 @@
 #include "cluster/shard_manager.h"
 #include <algorithm>
 #include <mutex>
+#include <ranges>
+#include <utility>
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 
@@ -30,7 +32,7 @@ ShardManager::ShardManager(size_t num_shards, ShardingStrategy strategy)
     : num_shards_(num_shards), strategy_(strategy) {
   InitializeShards();
   common::Logger::Instance().Info("ShardManager initialized with {} shards, strategy: {}",
-                                  num_shards, static_cast<int>(strategy));
+                                  num_shards, std::to_underlying(strategy));
 }
 
 void ShardManager::InitializeShards() {
@@ -106,12 +108,7 @@ core::ShardId ShardManager::AssignShard(const std::string& key) const {
 
 std::vector<ShardInfo> ShardManager::GetAllShards() const {
   std::shared_lock lock(shard_mutex_);
-  std::vector<ShardInfo> result;
-  result.reserve(shards_.size());
-  for (const auto& [shard_id, info] : shards_) {
-    result.push_back(info);
-  }
-  return result;
+  return shards_ | std::views::values | std::ranges::to<std::vector>();
 }
 
 std::vector<ShardInfo> ShardManager::GetShardsForNode(core::NodeId node_id) const {
@@ -268,7 +265,7 @@ absl::Status ShardManager::RemoveReplica(core::ShardId shard_id, core::NodeId no
 
 absl::Status ShardManager::RegisterNode(core::NodeId node_id) {
   std::unique_lock lock(node_mutex_);
-  if (assigned_nodes_.count(node_id) > 0) {
+  if (assigned_nodes_.contains(node_id)) {
     return absl::AlreadyExistsError(
         absl::StrCat("Node already registered: ", core::ToUInt32(node_id)));
   }
@@ -280,7 +277,7 @@ absl::Status ShardManager::RegisterNode(core::NodeId node_id) {
 
 absl::Status ShardManager::UnregisterNode(core::NodeId node_id, bool graceful) {
   std::unique_lock node_lock(node_mutex_);
-  if (assigned_nodes_.count(node_id) == 0) {
+  if (!assigned_nodes_.contains(node_id)) {
     return absl::NotFoundError(absl::StrCat("Node not found: ", core::ToUInt32(node_id)));
   }
 

@@ -65,7 +65,7 @@ bool ShardWriteGate::IsFrozen(core::ShardId shard_id) const {
   const auto now = std::chrono::steady_clock::now();
   std::scoped_lock lk(mu_);
   MaybeExpire(key, now);
-  return frozen_.find(key) != frozen_.end();
+  return frozen_.contains(key);
 }
 
 void ShardWriteGate::ClearForTesting() {

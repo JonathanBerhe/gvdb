@@ -37,7 +37,7 @@ void Coordinator::CheckConsistency() {
 
       {
         std::scoped_lock repair_lock(repair_mutex_);
-        if (shards_being_repaired_.count(shard_id) > 0) continue;
+        if (shards_being_repaired_.contains(shard_id)) continue;
       }
 
       auto primary_result = shard_manager_->GetPrimaryNode(shard_id);

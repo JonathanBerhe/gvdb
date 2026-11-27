@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <mutex>
+#include <ranges>
 #include "absl/strings/str_cat.h"
 #include "cluster/coordinator/coordinator.h"
 #include "cluster/coordinator/internal_client.h"
@@ -22,7 +23,7 @@ absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
 
   if (num_shards == 0) num_shards = 1;
 
-  if (collection_name_to_id_.count(name) > 0) {
+  if (collection_name_to_id_.contains(name)) {
     return absl::AlreadyExistsError(absl::StrCat("Collection already exists: ", name));
   }
 
@@ -246,14 +247,7 @@ absl::StatusOr<meta::CollectionMetadata> Coordinator::GetCollectionMetadata(
 
 std::vector<meta::CollectionMetadata> Coordinator::ListCollections() const {
   std::shared_lock lock(collection_mutex_);
-  std::vector<meta::CollectionMetadata> result;
-  result.reserve(collections_.size());
-
-  for (const auto& [collection_id, metadata] : collections_) {
-    result.push_back(metadata);
-  }
-
-  return result;
+  return collections_ | std::views::values | std::ranges::to<std::vector>();
 }
 
 absl::Status Coordinator::AssignShardsToCollection(core::CollectionId collection_id,

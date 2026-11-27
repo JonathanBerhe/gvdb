@@ -4,6 +4,7 @@
 // Insert, stream insert, upsert, delete and metadata update.
 
 #include <grpcpp/grpcpp.h>
+#include <ranges>
 #include <unordered_map>
 #include <unordered_set>
 #include "absl/strings/str_cat.h"
@@ -517,11 +518,8 @@ grpc::Status VectorDBService::Delete(grpc::ServerContext* context,
   }
   const auto& segments = *segments_result;
 
-  std::vector<core::VectorId> remaining;
-  remaining.reserve(request->ids().size());
-  for (uint64_t id : request->ids()) {
-    remaining.push_back(core::MakeVectorId(id));
-  }
+  auto remaining =
+      request->ids() | std::views::transform(core::MakeVectorId) | std::ranges::to<std::vector>();
 
   uint64_t deleted_count = 0;
   for (auto* segment : segments) {
@@ -549,7 +547,7 @@ grpc::Status VectorDBService::Delete(grpc::ServerContext* context,
     std::vector<core::VectorId> next;
     next.reserve(remaining.size());
     for (const auto& id : remaining) {
-      if (just_deleted.find(core::ToUInt64(id)) == just_deleted.end()) {
+      if (!just_deleted.contains(core::ToUInt64(id))) {
         next.push_back(id);
       }
     }

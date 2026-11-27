@@ -6,6 +6,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <utility>
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 #include "core/status.h"
@@ -19,7 +20,7 @@ absl::Status Segment::Flush(const std::string& base_path) {
   // Validate state
   if (state_ != core::SegmentState::SEALED) {
     return absl::FailedPreconditionError(
-        absl::StrCat("Cannot flush segment in state: ", static_cast<int>(state_)));
+        absl::StrCat("Cannot flush segment in state: ", std::to_underlying(state_)));
   }
 
   if (!index_) {
@@ -44,9 +45,9 @@ absl::Status Segment::Flush(const std::string& base_path) {
   metadata_file << "segment_id=" << core::ToUInt32(id_) << "\n";
   metadata_file << "collection_id=" << core::ToUInt32(collection_id_) << "\n";
   metadata_file << "dimension=" << dimension_ << "\n";
-  metadata_file << "metric=" << static_cast<int>(metric_) << "\n";
+  metadata_file << "metric=" << std::to_underlying(metric_) << "\n";
   metadata_file << "vector_count=" << index_->GetVectorCount() << "\n";
-  metadata_file << "index_type=" << static_cast<int>(index_->GetIndexType()) << "\n";
+  metadata_file << "index_type=" << std::to_underlying(index_->GetIndexType()) << "\n";
 
   metadata_file.close();
 

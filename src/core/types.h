@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace gvdb::core {
@@ -19,11 +20,11 @@ enum class ShardId : uint16_t {};
 enum class NodeId : uint32_t {};
 
 // Helper functions for ID conversions and string representation
-inline uint64_t ToUInt64(VectorId id) { return static_cast<uint64_t>(id); }
-inline uint32_t ToUInt32(CollectionId id) { return static_cast<uint32_t>(id); }
-inline uint32_t ToUInt32(SegmentId id) { return static_cast<uint32_t>(id); }
-inline uint16_t ToUInt16(ShardId id) { return static_cast<uint16_t>(id); }
-inline uint32_t ToUInt32(NodeId id) { return static_cast<uint32_t>(id); }
+inline uint64_t ToUInt64(VectorId id) { return std::to_underlying(id); }
+inline uint32_t ToUInt32(CollectionId id) { return std::to_underlying(id); }
+inline uint32_t ToUInt32(SegmentId id) { return std::to_underlying(id); }
+inline uint16_t ToUInt16(ShardId id) { return std::to_underlying(id); }
+inline uint32_t ToUInt32(NodeId id) { return std::to_underlying(id); }
 
 inline VectorId MakeVectorId(uint64_t value) { return VectorId{value}; }
 inline CollectionId MakeCollectionId(uint32_t value) { return CollectionId{value}; }

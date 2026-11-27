@@ -239,7 +239,7 @@ std::optional<VectorIdSet> ScalarIndexSet::Evaluate(const core::FilterNode& filt
         const auto& larger =
             left_result->size() < right_result->size() ? *right_result : *left_result;
         for (uint64_t id : smaller) {
-          if (larger.count(id)) {
+          if (larger.contains(id)) {
             result.insert(id);
           }
         }

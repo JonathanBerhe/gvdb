@@ -5,6 +5,7 @@
 
 #include <grpcpp/grpcpp.h>
 #include <algorithm>
+#include <ranges>
 #include <unordered_map>
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
@@ -56,7 +57,7 @@ std::unordered_map<uint64_t, FoundVector> FetchAcrossSegments(
     std::vector<core::VectorId> next;
     next.reserve(remaining.size());
     for (const auto& id : remaining) {
-      if (found.find(core::ToUInt64(id)) == found.end()) {
+      if (!found.contains(core::ToUInt64(id))) {
         next.push_back(id);
       }
     }
@@ -421,11 +422,8 @@ grpc::Status VectorDBService::Get(grpc::ServerContext* /*context*/,
     return rpc::ToGrpcStatus(segments_result.status());
   }
 
-  std::vector<core::VectorId> ids;
-  ids.reserve(request->ids().size());
-  for (uint64_t id : request->ids()) {
-    ids.push_back(core::MakeVectorId(id));
-  }
+  const auto ids =
+      request->ids() | std::views::transform(core::MakeVectorId) | std::ranges::to<std::vector>();
 
   auto found = FetchAcrossSegments(*segments_result, ids, request->return_metadata());
 

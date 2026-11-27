@@ -4,6 +4,7 @@
 #include "rpc/replica_fallback.h"
 
 #include <thread>
+#include <utility>
 
 #include "common/logger.h"
 #include "common/metrics.h"
@@ -112,7 +113,7 @@ ReplicaFallbackResult CallWithReplicaFallback(
       common::Logger::Instance().Debug(
           "replica_fallback[{}]: non-transient status {} on node_{}; "
           "short-circuiting (every replica would return the same error)",
-          operation_label, static_cast<int>(status.error_code()), opt.node_id());
+          operation_label, std::to_underlying(status.error_code()), opt.node_id());
       result.final_status = status;
       metrics.RecordReadAttempts(operation_label, result.attempts);
       return result;
@@ -120,14 +121,14 @@ ReplicaFallbackResult CallWithReplicaFallback(
 
     common::Logger::Instance().Debug(
         "replica_fallback[{}]: transient status {} on node_{}; trying next candidate",
-        operation_label, static_cast<int>(status.error_code()), opt.node_id());
+        operation_label, std::to_underlying(status.error_code()), opt.node_id());
   }
 
   // Every candidate was tried and every attempt was a transient failure.
   common::Logger::Instance().Warn(
       "replica_fallback[{}]: exhausted all {} candidate(s); "
       "last status code={} message=\"{}\"",
-      operation_label, options.size(), static_cast<int>(last_status.error_code()),
+      operation_label, options.size(), std::to_underlying(last_status.error_code()),
       last_status.error_message());
   result.final_status = last_status;
   metrics.RecordReadAttempts(operation_label, result.attempts);
@@ -275,7 +276,7 @@ grpc::Status RouteWriteAndCallWithFallback(proto::internal::InternalService::Stu
       common::Logger::Instance().Debug(
           "write_fallback[{}]: non-retryable status code={} on attempt {}; "
           "short-circuiting",
-          operation_label, static_cast<int>(code), attempt + 1);
+          operation_label, std::to_underlying(code), attempt + 1);
       return status;
     }
 
@@ -299,7 +300,7 @@ grpc::Status RouteWriteAndCallWithFallback(proto::internal::InternalService::Stu
   common::Logger::Instance().Warn(
       "write_fallback[{}]: exhausted {} re-route(s); last status code={} "
       "message=\"{}\"",
-      operation_label, kRouteWriteMaxReroutes, static_cast<int>(last_status.error_code()),
+      operation_label, kRouteWriteMaxReroutes, std::to_underlying(last_status.error_code()),
       last_status.error_message());
   return last_status;
 }

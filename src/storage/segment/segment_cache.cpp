@@ -18,12 +18,12 @@ SegmentCache::SegmentCache(std::string cache_dir, size_t max_cache_bytes)
 
 bool SegmentCache::HasSegment(core::SegmentId id) const {
   std::shared_lock lock(mutex_);
-  return entries_.count(core::ToUInt32(id)) > 0;
+  return entries_.contains(core::ToUInt32(id));
 }
 
 std::string SegmentCache::GetSegmentPath(core::SegmentId id) const {
   std::shared_lock lock(mutex_);
-  if (entries_.count(core::ToUInt32(id)) == 0) {
+  if (!entries_.contains(core::ToUInt32(id))) {
     return "";
   }
   return absl::StrCat(cache_dir_, "/segment_", core::ToUInt32(id));

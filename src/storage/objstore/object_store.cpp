@@ -53,7 +53,7 @@ absl::StatusOr<std::vector<std::string>> InMemoryObjectStore::ListObjects(
 
 absl::StatusOr<bool> InMemoryObjectStore::ObjectExists(const std::string& key) {
   std::shared_lock lock(mutex_);
-  return objects_.count(key) > 0;
+  return objects_.contains(key);
 }
 
 absl::Status InMemoryObjectStore::PutObjectFromFile(const std::string& key,

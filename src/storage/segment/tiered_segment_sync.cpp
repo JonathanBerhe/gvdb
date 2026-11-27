@@ -8,6 +8,7 @@
 #include <array>
 #include <filesystem>
 #include <mutex>
+#include <ranges>
 #include <vector>
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
@@ -35,12 +36,9 @@ constexpr uint32_t kUploadErrorThreshold = 5;
 
 std::vector<core::SegmentId> TieredSegmentManager::GetFailedUploads() const {
   std::scoped_lock lock(upload_mutex_);
-  std::vector<core::SegmentId> result;
-  result.reserve(failed_uploads_.size());
-  for (const auto& [key, _] : failed_uploads_) {
-    result.push_back(static_cast<core::SegmentId>(key));
-  }
-  return result;
+  return failed_uploads_ | std::views::keys |
+         std::views::transform([](auto key) { return static_cast<core::SegmentId>(key); }) |
+         std::ranges::to<std::vector>();
 }
 
 // ============================================================================
@@ -203,7 +201,7 @@ void TieredSegmentManager::RedriveUnuploadedSegments() {
   {
     std::shared_lock rlock(remote_mutex_);
     for (auto id : local_ids) {
-      if (remote_segments_.count(core::ToUInt32(id)) > 0) continue;
+      if (remote_segments_.contains(core::ToUInt32(id))) continue;
       auto* seg = local_->GetSegment(id);
       if (seg == nullptr) continue;
       auto state = seg->GetState();
@@ -219,7 +217,7 @@ void TieredSegmentManager::RedriveUnuploadedSegments() {
     {
       std::scoped_lock lock(upload_mutex_);
       // Skip if already tracked to avoid enqueuing a segment twice.
-      if (uploading_.count(seg_key) > 0 || failed_uploads_.count(seg_key) > 0) {
+      if (uploading_.contains(seg_key) || failed_uploads_.contains(seg_key)) {
         continue;
       }
       uploading_.insert(seg_key);
@@ -345,7 +343,7 @@ absl::Status TieredSegmentManager::EnsureSegmentLoaded(core::SegmentId id) const
   auto seg_key = core::ToUInt32(id);
   {
     std::shared_lock lock(remote_mutex_);
-    if (remote_segments_.count(seg_key) == 0) {
+    if (!remote_segments_.contains(seg_key)) {
       return absl::NotFoundError(absl::StrCat("Segment not found locally or remotely: ", seg_key));
     }
   }

@@ -3,6 +3,7 @@
 
 #include "cluster/query_node.h"
 #include <mutex>
+#include <ranges>
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 #include "core/status.h"
@@ -40,7 +41,7 @@ absl::Status QueryNode::LoadSegment(core::SegmentId segment_id) {
   std::unique_lock lock(segment_mutex_);
 
   // Check if already loaded
-  if (loaded_segments_.count(segment_id) > 0) {
+  if (loaded_segments_.contains(segment_id)) {
     return absl::AlreadyExistsError(
         absl::StrCat("Segment already loaded: ", core::ToUInt32(segment_id)));
   }
@@ -78,19 +79,12 @@ absl::Status QueryNode::UnloadSegment(core::SegmentId segment_id) {
 
 bool QueryNode::IsSegmentLoaded(core::SegmentId segment_id) const {
   std::shared_lock lock(segment_mutex_);
-  return loaded_segments_.count(segment_id) > 0;
+  return loaded_segments_.contains(segment_id);
 }
 
 std::vector<core::SegmentId> QueryNode::GetLoadedSegments() const {
   std::shared_lock lock(segment_mutex_);
-  std::vector<core::SegmentId> result;
-  result.reserve(loaded_segments_.size());
-
-  for (const auto& [segment_id, segment] : loaded_segments_) {
-    result.push_back(segment_id);
-  }
-
-  return result;
+  return loaded_segments_ | std::views::keys | std::ranges::to<std::vector>();
 }
 
 absl::StatusOr<core::SearchResult> QueryNode::ExecuteSearch(core::CollectionId collection_id,

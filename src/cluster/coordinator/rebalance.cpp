@@ -104,7 +104,7 @@ absl::Status Coordinator::ExecuteSingleMove(const ShardManager::RebalanceMove& m
   // 1. Check and track migration
   {
     std::scoped_lock lock(migration_mutex_);
-    if (shards_migrating_.count(move.shard_id) > 0) {
+    if (shards_migrating_.contains(move.shard_id)) {
       return absl::AlreadyExistsError(absl::StrCat("Shard ", shard_key, " already migrating"));
     }
     shards_migrating_.insert(move.shard_id);

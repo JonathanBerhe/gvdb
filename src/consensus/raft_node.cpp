@@ -216,7 +216,7 @@ absl::Status MapNuRaftCode(nuraft::cmd_result_code code, const char* op) {
       return absl::FailedPreconditionError(absl::StrCat(op, " term mismatch; retry"));
     default:
       return absl::InternalError(
-          absl::StrCat(op, " failed with NuRaft code ", static_cast<int>(code)));
+          absl::StrCat(op, " failed with NuRaft code ", std::to_underlying(code)));
   }
 }
 
