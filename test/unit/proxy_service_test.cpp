@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "service/proxy_service.h"
+#include "service/proxy/proxy_service.h"
 #include "support/grpc_server.h"
 #include "vectordb.grpc.pb.h"
 #include "internal.grpc.pb.h"

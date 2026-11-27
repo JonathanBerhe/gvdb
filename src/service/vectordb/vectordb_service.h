@@ -8,7 +8,7 @@
 #include "storage/segment/segment_store.h"
 #include "storage/import/bulk_importer.h"
 #include "compute/query_executor.h"
-#include "service/collection_resolver.h"
+#include "service/vectordb/collection_resolver.h"
 #include "auth/rbac.h"
 #include <memory>
 #include <atomic>

@@ -16,8 +16,8 @@
 #include "server/bootstrap.h"
 #include "server/cluster_steps.h"
 #include "server/flags.h"
-#include "service/collection_resolver.h"
-#include "service/vectordb_service.h"
+#include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
 #include "storage/segment/segment_manager.h"
 
 namespace gvdb {

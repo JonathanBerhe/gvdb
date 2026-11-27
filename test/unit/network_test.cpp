@@ -8,8 +8,8 @@
 
 #include "core/type_names.h"
 #include "rpc/proto_conversions.h"
-#include "service/vectordb_service.h"
-#include "service/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
+#include "service/vectordb/collection_resolver.h"
 #include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"

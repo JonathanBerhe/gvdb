@@ -6,8 +6,8 @@
 #include <string>
 
 #include "rpc/interceptors/auth_processor.h"
-#include "service/vectordb_service.h"
-#include "service/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
+#include "service/vectordb/collection_resolver.h"
 #include "auth/rbac.h"
 #include "config/config.h"
 #include "storage/segment/segment_manager.h"

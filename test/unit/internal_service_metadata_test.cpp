@@ -1,4 +1,4 @@
-#include "service/internal_service.h"
+#include "service/internal/internal_service.h"
 #include "cluster/coordinator.h"
 #include "cluster/shard_manager.h"
 #include "cluster/node_registry.h"

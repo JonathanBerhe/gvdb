@@ -25,9 +25,9 @@
 #include "server/builders.h"
 #include "server/cluster_steps.h"
 #include "server/flags.h"
-#include "service/collection_resolver.h"
-#include "service/internal_service.h"
-#include "service/vectordb_service.h"
+#include "service/vectordb/collection_resolver.h"
+#include "service/internal/internal_service.h"
+#include "service/vectordb/vectordb_service.h"
 
 namespace gvdb {
 namespace {

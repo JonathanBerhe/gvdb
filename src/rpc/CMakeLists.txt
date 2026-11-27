@@ -11,13 +11,14 @@ gvdb_add_library(rpc
     interceptors/audit_interceptor.cpp
   PUBLIC_DEPS
     gvdb::core
-    gvdb::common
     gvdb::auth
     gvdb::meta
     gvdb::storage
     gvdb::proto
+    absl::function_ref
     absl::status
     absl::statusor
   PRIVATE_DEPS
+    gvdb::common
     absl::str_format
 )

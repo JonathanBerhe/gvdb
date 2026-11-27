@@ -17,7 +17,7 @@
 
 #include "consensus/raft_node.h"
 #include "consensus/raft_config.h"
-#include "service/internal_service.h"
+#include "service/internal/internal_service.h"
 #include "internal.grpc.pb.h"
 #include "support/temp_dir.h"
 #include "support/wait.h"
@@ -149,10 +149,10 @@ std::unique_ptr<TestCoordinator> StartCoordinator(
   auto status = c->raft->Start();
   if (!status.ok()) return nullptr;
 
-  // Stand up a minimal InternalService — only raft_node_ needs to be real
+  // Stand up a minimal InternalService: only raft_node_ needs to be real
   // for the JoinCluster / RemovePeer / GetLeaderInfo paths. Everything
   // else is nullptr-safe (see the InternalService constructor in
-  // src/service/internal_service.cpp).
+  // src/service/internal/internal_service.cpp).
   c->service = std::make_unique<service::InternalService>(
       /*shard_manager=*/nullptr,
       /*segment_store=*/nullptr,

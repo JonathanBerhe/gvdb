@@ -1,8 +1,8 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "service/collection_resolver.h"
-#include "service/collection_metadata_cache.h"
+#include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/collection_metadata_cache.h"
 #include "core/type_names.h"
 #include "rpc/proto_conversions.h"
 #include "storage/segment/segment_store.h"
@@ -25,7 +25,7 @@ namespace gvdb {
 namespace service {
 
 // ============================================================================
-// LocalCollectionResolver — single-node mode
+// LocalCollectionResolver: single-node mode
 // ============================================================================
 
 // Internal metadata for single-node mode
@@ -283,7 +283,7 @@ class LocalCollectionResolver : public ICollectionResolver {
 };
 
 // ============================================================================
-// CoordinatorCollectionResolver — coordinator mode
+// CoordinatorCollectionResolver: coordinator mode
 // ============================================================================
 
 class CoordinatorCollectionResolver : public ICollectionResolver {
@@ -346,7 +346,7 @@ class CoordinatorCollectionResolver : public ICollectionResolver {
 };
 
 // ============================================================================
-// CachedCoordinatorResolver — distributed data/query nodes
+// CachedCoordinatorResolver: distributed data/query nodes
 // ============================================================================
 
 class CachedCoordinatorResolver : public ICollectionResolver {
@@ -366,7 +366,7 @@ class CachedCoordinatorResolver : public ICollectionResolver {
     auto cached = cache_->GetByName(name);
     if (cached.ok()) return cached->collection_id;
 
-    // Cache miss — pull from coordinator
+    // Cache miss: pull from coordinator
     return FetchFromCoordinator(name);
   }
 
@@ -418,7 +418,7 @@ class CachedCoordinatorResolver : public ICollectionResolver {
     request.set_collection_name(collection_name);
     // GetShardTargets is only invoked from read-paths today
     // (SearchDistributed, RangeSearchDistributed), so it's safe to opt
-    // into routable-replica fallback unconditionally — the coordinator
+    // into routable-replica fallback unconditionally: the coordinator
     // returns a richer per_shard_options list when this is set.
     request.set_prefer_routable_replica(true);
     proto::internal::RouteQueryResponse response;
@@ -430,7 +430,7 @@ class CachedCoordinatorResolver : public ICollectionResolver {
 
     // Index per_shard_options by shard_id so we can pair with the legacy
     // parallel arrays without assuming the coordinator emits them in the
-    // same order — proto repeated semantics don't guarantee a fixed order
+    // same order: proto repeated semantics don't guarantee a fixed order
     // across coordinator releases.
     std::map<uint32_t, const proto::internal::RouteQueryShardOptions*> by_shard;
     for (const auto& shard_opts : response.per_shard_options()) {

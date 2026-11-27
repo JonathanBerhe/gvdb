@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "service/collection_metadata_cache.h"
+#include "service/vectordb/collection_metadata_cache.h"
 #include "absl/strings/str_format.h"
 
 namespace gvdb {
