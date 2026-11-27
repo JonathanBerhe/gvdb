@@ -202,12 +202,12 @@ collection.
 ## Testing
 
 ```bash
-# C++ unit + integration tests for backup/restore primitives
-make test                                              # all suites
-ctest --preset dev -R "backup|restore|shard_write_gate"
+# C++ unit and integration tests for backup and restore
+make test                                              # all tests
+ctest --preset dev -R '[Bb]ackup|[Rr]estore|[Ff]reeze|WriteGate'
 
-# Coordinator-orchestrated fan-out test
-ctest --preset dev -R coordinator_backup
+# Coordinator fan-out cases of cluster_tests
+ctest --preset dev -R '^cluster_tests:.*(Distributed|two-shard backup)'
 
 # Operator envtest controllers
 cd operator && make test
