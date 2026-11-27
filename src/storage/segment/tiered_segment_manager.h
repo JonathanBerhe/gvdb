@@ -1,0 +1,206 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
+#pragma once
+
+#include <chrono>
+#include <condition_variable>
+#include <memory>
+#include <shared_mutex>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <unordered_set>
+
+#include "storage/segment/segment_store.h"
+#include "storage/segment/segment_manager.h"
+#include "storage/objstore/object_store.h"
+#include "storage/segment/segment_cache.h"
+#include "storage/segment/segment_manifest.h"
+#include "utils/thread_pool.h"
+
+namespace gvdb {
+namespace storage {
+
+// ============================================================================
+// TieredSegmentManager - Local disk + object storage tiered backend
+// ============================================================================
+// Composes a local SegmentManager with an IObjectStore backend. GROWING
+// segments live on local disk. Sealed segments are uploaded to object storage
+// asynchronously after local flush. Remote segments are discovered via manifest
+// on startup and lazily downloaded on first access.
+//
+// All ISegmentStore methods are implemented via delegation to the local
+// SegmentManager, with S3 upload/download/discovery added on top.
+class TieredSegmentManager : public ISegmentStore {
+ public:
+  TieredSegmentManager(
+      std::unique_ptr<SegmentManager> local,
+      std::unique_ptr<IObjectStore> object_store,
+      std::unique_ptr<SegmentCache> cache,
+      const std::string& prefix,
+      int upload_threads = 2,
+      // Base delay before the first upload retry. Doubles per attempt up to a
+      // hard cap. Kept configurable so tests can drive retries in milliseconds.
+      std::chrono::milliseconds retry_base_delay = std::chrono::seconds(3));
+
+  ~TieredSegmentManager() override;
+
+  // ── ISegmentStore implementation ──
+
+  [[nodiscard]] core::StatusOr<core::SegmentId> CreateSegment(
+      core::CollectionId collection_id,
+      core::Dimension dimension,
+      core::MetricType metric) override;
+
+  [[nodiscard]] core::Status CreateSegmentWithId(
+      core::SegmentId segment_id,
+      core::CollectionId collection_id,
+      core::Dimension dimension,
+      core::MetricType metric,
+      core::IndexType index_type) override;
+
+  [[nodiscard]] Segment* GetSegment(core::SegmentId id) override;
+  [[nodiscard]] const Segment* GetSegment(core::SegmentId id) const override;
+
+  [[nodiscard]] core::Status SealSegment(
+      core::SegmentId id,
+      const core::IndexConfig& index_config) override;
+
+  [[nodiscard]] core::Status FlushSegment(core::SegmentId id) override;
+
+  [[nodiscard]] core::Status DropSegment(
+      core::SegmentId id, bool delete_files = false) override;
+
+  [[nodiscard]] core::Status AddReplicatedSegment(
+      std::unique_ptr<Segment> segment) override;
+
+  [[nodiscard]] core::Status WriteVectors(
+      core::SegmentId segment_id,
+      const std::vector<core::Vector>& vectors,
+      const std::vector<core::VectorId>& ids) override;
+
+  [[nodiscard]] core::StatusOr<core::SearchResult> SearchCollection(
+      core::CollectionId collection_id,
+      const core::Vector& query, int k) const override;
+
+  void SetSealCallback(SealCallback callback) override;
+
+  [[nodiscard]] Segment* GetWritableSegment(
+      core::CollectionId collection_id,
+      size_t required_bytes = 0) override;
+
+  void RunTTLSweepLoop(const std::atomic<bool>& shutdown) override;
+
+  [[nodiscard]] absl::Status LoadAllSegments() override;
+
+  [[nodiscard]] std::vector<core::SegmentId> GetCollectionSegments(
+      core::CollectionId collection_id) const override;
+
+  [[nodiscard]] size_t GetSegmentCount() const override;
+
+  [[nodiscard]] size_t GetMaxSegmentSize() const override {
+    return local_->GetMaxSegmentSize();
+  }
+
+  void Clear() override;
+
+  // ── S3-specific accessors (for testing / diagnostics) ──
+
+  // Segment IDs whose S3 upload failed (for monitoring / retry)
+  [[nodiscard]] std::vector<core::SegmentId> GetFailedUploads() const;
+
+ private:
+  // Mutable: const methods may trigger lazy segment loading from S3,
+  // which mutates the local SegmentManager's in-memory segment map.
+  mutable std::unique_ptr<SegmentManager> local_;
+  std::unique_ptr<IObjectStore> object_store_;
+  std::unique_ptr<SegmentCache> cache_;
+  std::string prefix_;
+
+  // Async upload pool
+  std::unique_ptr<utils::ThreadPool> upload_pool_;
+
+  // Per-segment retry bookkeeping for uploads that have failed and are waiting
+  // to be re-driven by the retry thread.
+  struct FailedUploadState {
+    uint32_t attempts = 0;  // consecutive failed attempts so far
+    std::chrono::steady_clock::time_point next_retry;
+  };
+
+  // Track in-flight and failed uploads. uploading_ and failed_uploads_ are
+  // mutually exclusive: a segment is either being uploaded or waiting to retry.
+  mutable std::mutex upload_mutex_;
+  std::unordered_set<uint32_t> uploading_;
+  std::unordered_map<uint32_t, FailedUploadState> failed_uploads_;
+
+  // Background retry of failed uploads. The thread sleeps on retry_cv_ until a
+  // failed upload becomes eligible for retry (or a new failure is recorded) and
+  // shuts down cleanly when retry_stop_ is set in the destructor.
+  std::chrono::milliseconds retry_base_delay_;
+  std::condition_variable retry_cv_;
+  bool retry_stop_ = false;  // guarded by upload_mutex_
+  std::thread retry_thread_;
+
+  // Remote segment metadata (discovered from manifest, not yet loaded)
+  struct RemoteSegmentInfo {
+    core::CollectionId collection_id;
+    core::Dimension dimension;
+    core::MetricType metric;
+    core::IndexType index_type;
+    uint64_t vector_count;
+    uint64_t size_bytes;
+  };
+  mutable std::shared_mutex remote_mutex_;
+  std::unordered_map<uint32_t, RemoteSegmentInfo> remote_segments_;
+
+  // Manifest JSON (cached in memory)
+  mutable std::mutex manifest_mutex_;
+  std::string manifest_json_;
+
+  // ── Internal methods ──
+
+  // Upload a flushed segment's files to object storage
+  core::Status UploadSegmentToS3(core::SegmentId id);
+
+  // Run one upload attempt on the pool and update in-flight/failed tracking.
+  // prior_failures is the number of times this segment's upload has already
+  // failed (0 for the first attempt from FlushSegment).
+  void RunUpload(core::SegmentId id, uint32_t prior_failures);
+
+  // Background loop that re-enqueues failed uploads once their backoff elapses.
+  void RetryLoop();
+
+  // Backoff before the next attempt given the number of failures so far.
+  [[nodiscard]] std::chrono::steady_clock::duration BackoffDelay(
+      uint32_t attempts) const;
+
+  // Re-enqueue uploads for segments that are FLUSHED locally but absent from
+  // the remote manifest (their original upload never reached the cold tier).
+  void RedriveUnuploadedSegments();
+
+  // Publish the current pending-failed-upload count to the metrics registry.
+  // Caller must hold upload_mutex_.
+  void UpdateFailedUploadsMetricLocked() const;
+
+  // Download a segment's files from object storage to local cache
+  core::Status DownloadSegmentFromS3(core::SegmentId id) const;
+
+  // Discover segments from manifest (or fallback to ListObjects)
+  core::Status DiscoverSegmentsFromS3();
+
+  // Update manifest in object storage after upload/delete
+  core::Status UpdateManifest(const ManifestEntry& entry, bool remove = false);
+
+  // Ensure a remote segment is loaded locally (lazy load)
+  core::Status EnsureSegmentLoaded(core::SegmentId id) const;
+
+  // Build S3 key for a segment file
+  [[nodiscard]] std::string MakeS3Key(
+      uint32_t collection_id, uint32_t segment_id,
+      const std::string& filename) const;
+};
+
+}  // namespace storage
+}  // namespace gvdb
+

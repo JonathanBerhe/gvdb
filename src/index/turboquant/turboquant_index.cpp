@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "turboquant_index.h"
+#include "index/turboquant/turboquant_index.h"
 
 #include <algorithm>
 #include <cstring>

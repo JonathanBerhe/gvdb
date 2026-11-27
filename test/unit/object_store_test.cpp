@@ -15,9 +15,9 @@
 #include <string>
 
 #include "object_store_contract.h"
-#include "storage/filesystem_object_store.h"
-#include "storage/object_store.h"
-#include "storage/object_store_factory.h"
+#include "storage/objstore/filesystem_object_store.h"
+#include "storage/objstore/object_store.h"
+#include "storage/objstore/object_store_factory.h"
 #include "support/temp_dir.h"
 #include "utils/config.h"
 

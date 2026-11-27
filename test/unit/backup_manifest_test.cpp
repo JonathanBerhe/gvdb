@@ -3,7 +3,7 @@
 
 #include <doctest/doctest.h>
 
-#include "storage/backup_manifest.h"
+#include "storage/backup/backup_manifest.h"
 
 using namespace gvdb;
 using namespace gvdb::storage;

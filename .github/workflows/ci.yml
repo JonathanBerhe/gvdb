@@ -36,7 +36,6 @@ jobs:
           filters: |
             cpp:
               - 'src/**'
-              - 'include/**'
               - 'proto/**'
               - 'test/**'
               - 'CMakeLists.txt'
@@ -146,7 +145,6 @@ jobs:
           filters: |
             cpp:
               - 'src/**'
-              - 'include/**'
               - 'proto/**'
               - 'test/**'
               - 'CMakeLists.txt'
@@ -274,10 +272,10 @@ jobs:
         with:
           filters: |
             gcs:
-              - 'src/storage/gcs_object_store.cpp'
-              - 'include/storage/gcs_object_store.h'
-              - 'src/storage/object_store_factory.cpp'
-              - 'include/storage/object_store_factory.h'
+              - 'src/storage/objstore/gcs_object_store.cpp'
+              - 'src/storage/objstore/gcs_object_store.h'
+              - 'src/storage/objstore/object_store_factory.cpp'
+              - 'src/storage/objstore/object_store_factory.h'
               - 'src/storage/CMakeLists.txt'
               - 'CMakeLists.txt'
               - 'CMakePresets.json'
@@ -426,7 +424,6 @@ jobs:
               - 'clients/python/**'
               - 'proto/**'
               - 'src/**'
-              - 'include/**'
               - 'CMakeLists.txt'
               - 'CMakePresets.json'
               - 'cmake/**'

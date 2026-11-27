@@ -1,8 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#ifndef GVDB_INDEX_TURBOQUANT_CODEC_H_
-#define GVDB_INDEX_TURBOQUANT_CODEC_H_
+#pragma once
 
 #include <cmath>
 #include <cstdint>
@@ -104,4 +103,3 @@ class TurboQuantCodec {
 }  // namespace index
 }  // namespace gvdb
 
-#endif  // GVDB_INDEX_TURBOQUANT_CODEC_H_

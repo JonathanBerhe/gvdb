@@ -1,6 +1,6 @@
 # Config reference
 
-Condensed YAML schema for the GVDB server. For the per-field narrative and production examples, see [Configuration](../operations/configuration.md). **Authoritative source**: [`include/utils/config.h`](https://github.com/JonathanBerhe/gvdb/blob/main/include/utils/config.h).
+Condensed YAML schema for the GVDB server. For the per-field narrative and production examples, see [Configuration](../operations/configuration.md). **Authoritative source**: [`src/utils/config.h`](https://github.com/JonathanBerhe/gvdb/blob/main/src/utils/config.h).
 
 ```yaml
 server:

@@ -10,7 +10,7 @@
 #include "network/collection_resolver.h"
 #include "auth/rbac.h"
 #include "utils/config.h"
-#include "storage/segment_manager.h"
+#include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "support/temp_dir.h"

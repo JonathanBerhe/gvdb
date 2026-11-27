@@ -12,8 +12,7 @@
 // Include this header in exactly one translation unit per test binary, and
 // use the macro inside namespace gvdb::storage::contract.
 
-#ifndef GVDB_TEST_UNIT_OBJECT_STORE_CONTRACT_H_
-#define GVDB_TEST_UNIT_OBJECT_STORE_CONTRACT_H_
+#pragma once
 
 #include <doctest/doctest.h>
 #include <unistd.h>
@@ -32,7 +31,7 @@
 #include <vector>
 
 #include "core/status.h"
-#include "storage/object_store.h"
+#include "storage/objstore/object_store.h"
 
 namespace gvdb {
 namespace storage {
@@ -399,4 +398,3 @@ TEST_CASE_TEMPLATE_DEFINE(
   GVDB_OBJECT_STORE_CONTRACT_INVOKE(concurrent_overwrites, __VA_ARGS__)     \
   static_assert(true, "object store contract")
 
-#endif  // GVDB_TEST_UNIT_OBJECT_STORE_CONTRACT_H_

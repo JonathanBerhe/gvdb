@@ -8,7 +8,7 @@
 #include <Foundation/Foundation.hpp>
 #include <Metal/Metal.hpp>
 
-#include "metal_compute.h"
+#include "index/metal/metal_compute.h"
 
 #include <fstream>
 #include <sstream>

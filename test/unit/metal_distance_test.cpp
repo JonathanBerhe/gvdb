@@ -17,11 +17,11 @@
 #include "support/vectors.h"
 
 // FaissFlatIndex is in a private header, so the CPU baseline includes it directly.
-#include "faiss_flat.h"
+#include "index/faiss/faiss_flat.h"
 
 #ifdef GVDB_HAS_METAL
-#include "metal/metal_compute.h"
-#include "metal/metal_flat_index.h"
+#include "index/metal/metal_compute.h"
+#include "index/metal/metal_flat_index.h"
 #endif
 
 using namespace gvdb;

@@ -1,8 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#ifndef GVDB_INDEX_IVF_TURBOQUANT_INDEX_H_
-#define GVDB_INDEX_IVF_TURBOQUANT_INDEX_H_
+#pragma once
 
 #include <memory>
 #include <mutex>
@@ -13,7 +12,7 @@
 #include "core/status.h"
 #include "core/types.h"
 #include "core/vector.h"
-#include "turboquant_codec.h"
+#include "index/turboquant/turboquant_codec.h"
 
 #include <faiss/Clustering.h>
 #include <faiss/IndexFlat.h>
@@ -107,4 +106,3 @@ class IVFTurboQuantIndex : public core::IVectorIndex {
 }  // namespace index
 }  // namespace gvdb
 
-#endif  // GVDB_INDEX_IVF_TURBOQUANT_INDEX_H_

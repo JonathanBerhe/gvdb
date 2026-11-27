@@ -13,8 +13,8 @@
 
 // Internal headers — test target adds src/index to its include path so we can
 // verify adaptive parameters propagate into the underlying Faiss structures.
-#include "faiss_hnsw.h"
-#include "faiss_ivf.h"
+#include "index/faiss/faiss_hnsw.h"
+#include "index/faiss/faiss_ivf.h"
 
 namespace gvdb {
 namespace index {

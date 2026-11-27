@@ -7,7 +7,7 @@
 #include "cluster/shard_manager.h"
 #include "cluster/node_registry.h"
 #include "index/index_factory.h"
-#include "storage/segment_manager.h"
+#include "storage/segment/segment_manager.h"
 #include "internal.grpc.pb.h"
 #include "support/temp_dir.h"
 #include <doctest/doctest.h>

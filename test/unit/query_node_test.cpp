@@ -13,7 +13,7 @@
 #include "core/types.h"
 #include "core/vector.h"
 #include "index/index_factory.h"
-#include "storage/segment_manager.h"
+#include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 #include "support/vectors.h"
 
