@@ -15,7 +15,7 @@
 #include "server/bootstrap.h"
 #include "server/builders.h"
 #include "server/flags.h"
-#include "service/proxy_service.h"
+#include "service/proxy/proxy_service.h"
 
 namespace gvdb {
 namespace {

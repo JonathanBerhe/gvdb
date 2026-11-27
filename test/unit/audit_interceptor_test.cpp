@@ -12,8 +12,8 @@
 
 #include "rpc/interceptors/audit_interceptor.h"
 #include "rpc/interceptors/auth_processor.h"
-#include "service/vectordb_service.h"
-#include "service/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
+#include "service/vectordb/collection_resolver.h"
 #include "auth/rbac.h"
 #include "auth/audit_logger.h"
 #include "config/config.h"

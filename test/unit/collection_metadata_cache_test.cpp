@@ -1,4 +1,4 @@
-#include "service/collection_metadata_cache.h"
+#include "service/vectordb/collection_metadata_cache.h"
 
 #include <doctest/doctest.h>
 #include <atomic>

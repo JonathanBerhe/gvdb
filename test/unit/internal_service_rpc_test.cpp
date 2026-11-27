@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "service/internal_service.h"
+#include "service/internal/internal_service.h"
 #include "cluster/coordinator.h"
 #include "cluster/primary_term_tracker.h"
 #include "cluster/shard_manager.h"

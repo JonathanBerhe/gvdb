@@ -2,8 +2,8 @@
 #include <filesystem>
 #include <string>
 
-#include "service/vectordb_service.h"
-#include "service/collection_resolver.h"
+#include "service/vectordb/vectordb_service.h"
+#include "service/vectordb/collection_resolver.h"
 #include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "cluster/coordinator.h"
