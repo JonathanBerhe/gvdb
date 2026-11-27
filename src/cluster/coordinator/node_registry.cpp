@@ -4,6 +4,7 @@
 #include "cluster/coordinator/node_registry.h"
 #include "common/logger.h"
 
+#include <ranges>
 #include <utility>
 
 namespace gvdb::cluster {
@@ -61,11 +62,11 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
 
     if (is_draining && !was_draining) {
       common::Logger::Instance().Info("Node {} entered DRAINING state (type={}, address={})",
-                                      node_id, static_cast<int>(node_info.node_type()),
+                                      node_id, std::to_underlying(node_info.node_type()),
                                       node_info.grpc_address());
     } else {
       common::Logger::Instance().Debug("Updated node {} (type={}, total_heartbeats={})", node_id,
-                                       static_cast<int>(node_info.node_type()),
+                                       std::to_underlying(node_info.node_type()),
                                        it->second.total_heartbeats);
     }
   } else {
@@ -80,7 +81,7 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
     nodes_[node_id] = std::move(node);
 
     common::Logger::Instance().Info("Registered new node {} (type={}, address={}{})", node_id,
-                                    static_cast<int>(node_info.node_type()),
+                                    std::to_underlying(node_info.node_type()),
                                     node_info.grpc_address(), is_draining ? ", DRAINING" : "");
   }
 }
@@ -102,12 +103,7 @@ bool NodeRegistry::GetNode(uint32_t node_id, RegisteredNode* node) const {
 std::vector<RegisteredNode> NodeRegistry::GetAllNodes() const {
   std::shared_lock lock(mutex_);
 
-  std::vector<RegisteredNode> result;
-  result.reserve(nodes_.size());
-
-  for (const auto& [id, node] : nodes_) {
-    result.push_back(node);
-  }
+  auto result = nodes_ | std::views::values | std::ranges::to<std::vector>();
 
   return result;
 }

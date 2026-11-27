@@ -81,8 +81,15 @@ See the [changelog](changelog.md) for the version-bump rules.
 The C++ code follows these conventions:
 
 - C++23, set in one place (`GVDB_CXX_STANDARD` in `cmake/GvdbCompilerSettings.cmake`). The fetched dependencies build at the same standard.
+- Use a C++23 library feature only when the libc++ of LLVM 22 and the Apple libc++ of the CI macOS job (Apple clang 17) both ship it. CI builds both. In use: `std::to_underlying`, `contains()`, `std::ranges::to` with views, and `std::println`. Not in use:
+  - `std::expected` and `std::flat_map`: absl::Status and the absl containers fill these roles.
+  - `std::move_only_function`: Apple libc++ does not ship it.
+  - `std::jthread`: each thread owner joins its threads in a set order, and an implicit join at member destruction would depend on the order of the members.
+  - `std::unreachable`: the enum switches can see values that come from disk or the network.
+  - `std::byteswap`: the on-disk formats copy host-order bytes, and every supported host is little-endian.
+  - `mdspan`, `generator` and `stacktrace`.
 - The layout follows `.clang-format`: Google style with a limit of 100 columns. `make format` applies it with clang-format 22.1.8 from PyPI, which `uvx` downloads on first use.
-- `.clang-tidy` enables the `bugprone`, `performance` and `modernize` checks and the naming check, minus the checks that it lists with a reason. `test/.clang-tidy` turns off two more checks for the tests. A `NOLINT` comment names the check and gives the reason, for example `// NOLINT(readability-identifier-naming): NuRaft name.`
+- `.clang-tidy` enables the `bugprone`, `performance` and `modernize` checks, `readability-container-contains` and the naming check, minus the checks that it lists with a reason. `test/.clang-tidy` turns off two more checks for the tests. A `NOLINT` comment names the check and gives the reason, for example `// NOLINT(readability-identifier-naming): NuRaft name.`
 - RAII + smart pointers (no raw `new`/`delete`)
 - `absl::Status` and `absl::StatusOr<T>` for fallible operations, used directly. `core/status.h` includes both and adds `RETURN_IF_ERROR` and `ASSIGN_OR_RETURN`, which return an error to the caller.
 - A class whose construction can fail has a private constructor and a static `Create()` that returns `absl::StatusOr` (for example `RaftNode::Create`). Constructors do not throw. Two exceptions stay: value types such as `core::Vector` throw on a precondition violation like a standard container, and the NuRaft log store throws from its overrides, because that interface has no other way to report an error.

@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <print>
+#include <string_view>
 #include <utility>
 
 namespace gvdb::server {
@@ -109,23 +111,21 @@ void FlagSet::PrintUsage(std::ostream& out, const std::string& program) const {
   for (const Flag& flag : flags_) {
     width = std::max(width, Synopsis(flag.name, flag.value_name).size());
   }
-  const std::string indent(2 + width + 2, ' ');
-
-  auto print = [&](const std::string& synopsis, const std::string& help) {
-    std::string line = "  " + synopsis;
-    line.resize(indent.size(), ' ');
+  // The synopsis fills a column of `width` characters. Each line of the help
+  // text follows it, and the continuation lines leave the column empty.
+  auto print = [&](std::string_view synopsis, std::string_view help) {
     std::size_t start = 0;
-    for (std::size_t end = help.find('\n'); end != std::string::npos;
-         end = help.find('\n', start)) {
-      out << line << help.substr(start, end - start) << "\n";
-      line = indent;
+    while (true) {
+      const std::size_t end = help.find('\n', start);
+      std::println(out, "  {:<{}}  {}", synopsis, width, help.substr(start, end - start));
+      if (end == std::string_view::npos) break;
+      synopsis = "";
       start = end + 1;
     }
-    out << line << help.substr(start) << "\n";
   };
 
-  out << "Usage: " << program << " [options]\n"
-      << "Options:\n";
+  std::println(out, "Usage: {} [options]", program);
+  std::println(out, "Options:");
   for (const Flag& flag : flags_) {
     print(Synopsis(flag.name, flag.value_name), flag.help);
   }

@@ -5,6 +5,8 @@
 // query routing, heartbeats and cluster health, Raft membership.
 
 #include "cluster/coordinator/coordinator.h"
+
+#include <utility>
 #include "cluster/coordinator/node_registry.h"
 #include "common/logger.h"
 #include "consensus/raft_node.h"
@@ -297,8 +299,8 @@ grpc::Status InternalService::Heartbeat(grpc::ServerContext* /*context*/,
     const auto& node_info = request->node_info();
 
     common::Logger::Instance().Debug("Heartbeat: node_id={}, type={}, status={}",
-                                     node_info.node_id(), static_cast<int>(node_info.node_type()),
-                                     static_cast<int>(node_info.status()));
+                                     node_info.node_id(), std::to_underlying(node_info.node_type()),
+                                     std::to_underlying(node_info.status()));
 
     // Update node registry if available
     if (node_registry_) {

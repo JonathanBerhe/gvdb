@@ -49,7 +49,7 @@ absl::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec) {
     return absl::InvalidArgumentError(absl::StrCat("Raft peer id must be > 0 in: ", spec));
   }
   out.endpoint = strip(trimmed.substr(first_colon + 1));
-  if (out.endpoint.empty() || out.endpoint.find(':') == std::string::npos ||
+  if (out.endpoint.empty() || !out.endpoint.contains(':') ||
       out.endpoint.find(':') == out.endpoint.size() - 1 ||
       out.endpoint.find_first_of(" \t\r\n") != std::string::npos) {
     return absl::InvalidArgumentError(

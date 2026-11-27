@@ -32,7 +32,7 @@ namespace gcs = ::google::cloud::storage;
 // IObjectStore contract tests rely on via absl::IsNotFound).
 absl::Status ToAbslStatus(const gc::Status& status) {
   if (status.ok()) return absl::OkStatus();
-  return absl::Status(static_cast<absl::StatusCode>(static_cast<int>(status.code())),
+  return absl::Status(static_cast<absl::StatusCode>(std::to_underlying(status.code())),
                       status.message());
 }
 

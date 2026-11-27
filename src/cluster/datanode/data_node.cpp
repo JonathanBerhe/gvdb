@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "cluster/datanode/data_node.h"
+
+#include <utility>
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 #include "core/config.h"
@@ -36,7 +38,7 @@ absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType in
   if (segment->GetState() != core::SegmentState::GROWING) {
     return absl::FailedPreconditionError(absl::StrCat(
         "Segment ", core::ToUInt32(segment_id),
-        " is not in GROWING state (current: ", static_cast<int>(segment->GetState()), ")"));
+        " is not in GROWING state (current: ", std::to_underlying(segment->GetState()), ")"));
   }
 
   if (segment->GetVectorCount() == 0) {
@@ -49,7 +51,7 @@ absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType in
                                              segment->GetDimension(), segment->GetMetric());
 
   common::Logger::Instance().Info("Building {} index for segment {} ({} vectors, dim={})",
-                                  static_cast<int>(config.index_type), core::ToUInt32(segment_id),
+                                  std::to_underlying(config.index_type), core::ToUInt32(segment_id),
                                   segment->GetVectorCount(), segment->GetDimension());
 
   auto status = segment_store_->SealSegment(segment_id, config);
@@ -71,7 +73,7 @@ absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType in
   }
 
   common::Logger::Instance().Info("Index built for segment {} (type={}, vectors={})",
-                                  core::ToUInt32(segment_id), static_cast<int>(config.index_type),
+                                  core::ToUInt32(segment_id), std::to_underlying(config.index_type),
                                   segment->GetVectorCount());
 
   return absl::OkStatus();
