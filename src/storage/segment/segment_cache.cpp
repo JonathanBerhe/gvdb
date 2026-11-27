@@ -30,7 +30,7 @@ std::string SegmentCache::GetSegmentPath(core::SegmentId id) const {
   return absl::StrCat(cache_dir_, "/segment_", core::ToUInt32(id));
 }
 
-core::Status SegmentCache::RegisterSegment(
+absl::Status SegmentCache::RegisterSegment(
     core::SegmentId id, size_t size_bytes) {
   std::unique_lock lock(mutex_);
   auto key = core::ToUInt32(id);
@@ -42,14 +42,14 @@ core::Status SegmentCache::RegisterSegment(
     current_size_ += size_bytes;
     it->second.size_bytes = size_bytes;
     TouchLocked(id);
-    return core::OkStatus();
+    return absl::OkStatus();
   }
 
   // Add new entry at front of LRU
   lru_list_.push_front(id);
   entries_[key] = CacheEntry{size_bytes, lru_list_.begin()};
   current_size_ += size_bytes;
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 void SegmentCache::Touch(core::SegmentId id) {
@@ -67,7 +67,7 @@ void SegmentCache::TouchLocked(core::SegmentId id) {
   it->second.lru_it = lru_list_.begin();
 }
 
-core::StatusOr<std::vector<core::SegmentId>> SegmentCache::Evict(
+absl::StatusOr<std::vector<core::SegmentId>> SegmentCache::Evict(
     size_t needed_bytes) {
   std::unique_lock lock(mutex_);
   std::vector<core::SegmentId> evicted;

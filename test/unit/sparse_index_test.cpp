@@ -1,4 +1,6 @@
-// test/unit/sparse_index_test.cpp
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+//
 // Unit tests for SparseVector and SparseIndex
 
 #include <doctest/doctest.h>

@@ -17,6 +17,7 @@ class StandardGpuResources;
 }  // namespace faiss
 #endif
 
+#include "absl/strings/str_cat.h"
 #include "core/interfaces.h"
 #include "core/status.h"
 #include "core/types.h"
@@ -27,24 +28,24 @@ namespace index {
 
 // Helper function to execute Faiss operations with exception handling
 template <typename F>
-core::Status ExecuteFaissOperation(F&& operation, const std::string& context) {
+absl::Status ExecuteFaissOperation(F&& operation, const std::string& context) {
   try {
     operation();
-    return core::OkStatus();
+    return absl::OkStatus();
   } catch (const std::exception& e) {
-    return core::InternalError(
+    return absl::InternalError(
         absl::StrCat("Faiss error in ", context, ": ", e.what()));
   }
 }
 
 // Helper function to execute Faiss operations that return StatusOr
 template <typename T, typename F>
-core::StatusOr<T> ExecuteFaissOperationWithReturn(F&& operation,
+absl::StatusOr<T> ExecuteFaissOperationWithReturn(F&& operation,
                                                    const std::string& context) {
   try {
     return operation();
   } catch (const std::exception& e) {
-    return core::InternalError(
+    return absl::InternalError(
         absl::StrCat("Faiss error in ", context, ": ", e.what()));
   }
 }
@@ -62,26 +63,26 @@ class FaissIndexBase : public core::IVectorIndex {
 
   // IVectorIndex implementation
 
-  [[nodiscard]] core::Status Build(
+  [[nodiscard]] absl::Status Build(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) override;
 
-  [[nodiscard]] core::Status Add(const core::Vector& vector,
+  [[nodiscard]] absl::Status Add(const core::Vector& vector,
                                   core::VectorId id) override;
 
-  [[nodiscard]] core::Status AddBatch(
+  [[nodiscard]] absl::Status AddBatch(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) override;
 
-  [[nodiscard]] core::Status Remove(core::VectorId id) override;
+  [[nodiscard]] absl::Status Remove(core::VectorId id) override;
 
-  [[nodiscard]] core::StatusOr<core::SearchResult> Search(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
       const core::Vector& query, int k) override;
 
-  [[nodiscard]] core::StatusOr<core::SearchResult> SearchRange(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRange(
       const core::Vector& query, float radius) override;
 
-  [[nodiscard]] core::StatusOr<std::vector<core::SearchResult>> SearchBatch(
+  [[nodiscard]] absl::StatusOr<std::vector<core::SearchResult>> SearchBatch(
       const std::vector<core::Vector>& queries, int k) override;
 
   [[nodiscard]] size_t GetMemoryUsage() const override;
@@ -89,13 +90,13 @@ class FaissIndexBase : public core::IVectorIndex {
   [[nodiscard]] core::Dimension GetDimension() const override;
   [[nodiscard]] core::MetricType GetMetricType() const override;
 
-  [[nodiscard]] core::Status Train(
+  [[nodiscard]] absl::Status Train(
       const std::vector<core::Vector>& training_data) override;
 
   [[nodiscard]] bool IsTrained() const override;
 
-  [[nodiscard]] core::Status Serialize(const std::string& path) const override;
-  [[nodiscard]] core::Status Deserialize(const std::string& path) override;
+  [[nodiscard]] absl::Status Serialize(const std::string& path) const override;
+  [[nodiscard]] absl::Status Deserialize(const std::string& path) override;
 
   [[nodiscard]] core::IndexType GetIndexType() const override = 0;
 

@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include "index/bm25_index.h"
 
 #include <algorithm>
@@ -30,7 +33,7 @@ std::vector<std::string> BM25Index::Tokenize(const std::string& text) {
   return tokens;
 }
 
-core::Status BM25Index::AddDocument(core::VectorId id, const std::string& text) {
+absl::Status BM25Index::AddDocument(core::VectorId id, const std::string& text) {
   auto tokens = Tokenize(text);
   if (tokens.empty()) {
     return absl::OkStatus();
@@ -75,10 +78,10 @@ float BM25Index::ComputeTermScore(uint32_t term_freq, uint32_t doc_len,
   return idf * numerator / denominator;
 }
 
-core::StatusOr<core::SearchResult> BM25Index::Search(
+absl::StatusOr<core::SearchResult> BM25Index::Search(
     const std::string& query, int k) {
   if (k <= 0) {
-    return core::InvalidArgumentError("k must be positive");
+    return absl::InvalidArgumentError("k must be positive");
   }
   if (total_docs_ == 0) {
     return core::SearchResult{};

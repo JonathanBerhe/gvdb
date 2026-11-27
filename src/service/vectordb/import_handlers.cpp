@@ -4,6 +4,7 @@
 // Server-side bulk import: start, status and cancel.
 
 #include "service/vectordb/vectordb_service.h"
+#include "core/status.h"
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
 #include <grpcpp/grpcpp.h>
@@ -19,8 +20,7 @@ grpc::Status VectorDBService::BulkImport(
     grpc::ServerContext* /*context*/,
     const proto::BulkImportRequest* request,
     proto::BulkImportResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::INSERT, request->collection_name());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::INSERT, request->collection_name()));
 
   if (request->collection_name().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
@@ -105,9 +105,8 @@ grpc::Status VectorDBService::GetImportStatus(
   }
 
   // RBAC: check read access on the import's collection
-  auto perm = CheckPermission(auth::Permission::SEARCH,
-                               result->collection_name);
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(CheckPermission(auth::Permission::SEARCH,
+                               result->collection_name));
 
   auto& status = *result;
   response->set_import_id(status.import_id);
@@ -140,9 +139,8 @@ grpc::Status VectorDBService::CancelImport(
   if (!job_status.ok()) {
     return rpc::toGrpcStatus(job_status.status());
   }
-  auto perm = CheckPermission(auth::Permission::INSERT,
-                               job_status->collection_name);
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(CheckPermission(auth::Permission::INSERT,
+                               job_status->collection_name));
 
   auto status = bulk_importer_->CancelImport(request->import_id());
   if (!status.ok()) {

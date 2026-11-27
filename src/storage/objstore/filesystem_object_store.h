@@ -49,7 +49,7 @@ class FilesystemObjectStore : public IObjectStore {
   // Construct a store rooted at `root`. Creates the directory (and any
   // missing parents) if it does not exist. Returns InvalidArgumentError if
   // `root` is empty, or if `root` already exists and is not a directory.
-  [[nodiscard]] static core::StatusOr<std::unique_ptr<FilesystemObjectStore>>
+  [[nodiscard]] static absl::StatusOr<std::unique_ptr<FilesystemObjectStore>>
       Create(const std::string& root);
 
   ~FilesystemObjectStore() override = default;
@@ -59,22 +59,22 @@ class FilesystemObjectStore : public IObjectStore {
   FilesystemObjectStore(FilesystemObjectStore&&) = delete;
   FilesystemObjectStore& operator=(FilesystemObjectStore&&) = delete;
 
-  core::Status PutObject(const std::string& key,
+  absl::Status PutObject(const std::string& key,
                          const std::string& data) override;
 
-  core::StatusOr<std::string> GetObject(const std::string& key) override;
+  absl::StatusOr<std::string> GetObject(const std::string& key) override;
 
-  core::Status DeleteObject(const std::string& key) override;
+  absl::Status DeleteObject(const std::string& key) override;
 
-  core::StatusOr<std::vector<std::string>> ListObjects(
+  absl::StatusOr<std::vector<std::string>> ListObjects(
       const std::string& prefix) override;
 
-  core::StatusOr<bool> ObjectExists(const std::string& key) override;
+  absl::StatusOr<bool> ObjectExists(const std::string& key) override;
 
-  core::Status PutObjectFromFile(const std::string& key,
+  absl::Status PutObjectFromFile(const std::string& key,
                                  const std::string& local_file_path) override;
 
-  core::Status GetObjectToFile(const std::string& key,
+  absl::Status GetObjectToFile(const std::string& key,
                                const std::string& local_file_path) override;
 
   // Root directory this store writes to. Useful for tests and operational
@@ -86,7 +86,7 @@ class FilesystemObjectStore : public IObjectStore {
 
   // Resolve a key to its on-disk path, rejecting keys that escape the root
   // or are otherwise malformed.
-  [[nodiscard]] core::StatusOr<std::filesystem::path> KeyToPath(
+  [[nodiscard]] absl::StatusOr<std::filesystem::path> KeyToPath(
       const std::string& key) const;
 
   std::filesystem::path root_;

@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "config/config.h"
+#include "core/status.h"
 
 #include "absl/strings/str_cat.h"
 #include "yaml-cpp/yaml.h"
@@ -194,10 +195,7 @@ absl::StatusOr<GVDBConfig> Config::load_from_file(const std::string& config_path
     config.consensus = parse_consensus_config(root["consensus"]);
 
     // Validate configuration
-    auto status = validate(config);
-    if (!status.ok()) {
-      return status;
-    }
+    RETURN_IF_ERROR(validate(config));
 
     return config;
 

@@ -40,7 +40,7 @@ class SparseVector {
   [[nodiscard]] bool empty() const noexcept;
 
   // Validation
-  [[nodiscard]] Status Validate() const;
+  [[nodiscard]] absl::Status Validate() const;
 
  private:
   std::vector<Entry> entries_;

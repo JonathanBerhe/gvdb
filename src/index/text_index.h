@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #pragma once
 
 #include <memory>
@@ -15,10 +18,10 @@ class ITextIndex {
   virtual ~ITextIndex() = default;
 
   // Add a document to the index
-  virtual core::Status AddDocument(core::VectorId id, const std::string& text) = 0;
+  virtual absl::Status AddDocument(core::VectorId id, const std::string& text) = 0;
 
   // Search for documents matching the query. Returns scored results.
-  [[nodiscard]] virtual core::StatusOr<core::SearchResult> Search(
+  [[nodiscard]] virtual absl::StatusOr<core::SearchResult> Search(
       const std::string& query, int k) = 0;
 };
 

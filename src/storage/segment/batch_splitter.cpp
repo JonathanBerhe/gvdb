@@ -8,7 +8,7 @@
 namespace gvdb {
 namespace storage {
 
-core::StatusOr<std::vector<std::pair<size_t, size_t>>> SplitBatchBySize(
+absl::StatusOr<std::vector<std::pair<size_t, size_t>>> SplitBatchBySize(
     const std::vector<size_t>& item_costs, size_t max_bytes) {
   std::vector<std::pair<size_t, size_t>> ranges;
   if (item_costs.empty()) {
@@ -19,7 +19,7 @@ core::StatusOr<std::vector<std::pair<size_t, size_t>>> SplitBatchBySize(
   size_t range_cost = 0;
   for (size_t i = 0; i < item_costs.size(); ++i) {
     if (item_costs[i] > max_bytes) {
-      return core::InvalidArgumentError(absl::StrCat(
+      return absl::InvalidArgumentError(absl::StrCat(
           "Item at index ", i, " requires ", item_costs[i],
           " bytes, which exceeds the maximum segment size of ", max_bytes,
           " bytes; raise storage.segment_max_size_mb or shrink the item"));

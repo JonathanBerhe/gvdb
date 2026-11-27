@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "core/metadata.h"
+#include "core/status.h"
 
 #include <algorithm>
 #include <cmath>
@@ -245,15 +246,9 @@ absl::Status validate_metadata(const Metadata& metadata) {
 
   // Validate each key-value pair
   for (const auto& [key, value] : metadata) {
-    auto key_status = validate_metadata_key(key);
-    if (!key_status.ok()) {
-      return key_status;
-    }
+    RETURN_IF_ERROR(validate_metadata_key(key));
 
-    auto value_status = validate_metadata_value(value);
-    if (!value_status.ok()) {
-      return value_status;
-    }
+    RETURN_IF_ERROR(validate_metadata_value(value));
   }
 
   return absl::OkStatus();

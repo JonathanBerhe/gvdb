@@ -5,6 +5,7 @@
 // nodes.
 
 #include "cluster/coordinator/coordinator.h"
+#include "core/status.h"
 #include "cluster/coordinator/internal_client.h"
 #include "rpc/proto_conversions.h"
 #include "common/logger.h"
@@ -32,10 +33,7 @@ absl::Status Coordinator::RegisterNode(const meta::NodeInfo& node_info) {
   }
 
   // Register with shard manager first (can fail)
-  auto status = shard_manager_->RegisterNode(node_info.node_id);
-  if (!status.ok()) {
-    return status;
-  }
+  RETURN_IF_ERROR(shard_manager_->RegisterNode(node_info.node_id));
 
   // Register with NodeRegistry (updates heartbeat timestamp automatically)
   proto::internal::NodeInfo proto_info;

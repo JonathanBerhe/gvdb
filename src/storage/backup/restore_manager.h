@@ -81,7 +81,7 @@ class RestoreManager {
   // Read the top-level manifest of a backup without restoring it.
   // Caller uses this to learn the original collection metadata (so the
   // coordinator can CreateCollection before issuing per-shard restores).
-  [[nodiscard]] core::StatusOr<BackupManifestV1> ReadManifest(
+  [[nodiscard]] absl::StatusOr<BackupManifestV1> ReadManifest(
       const BackupTarget& source,
       const std::string& backup_id);
 
@@ -89,7 +89,7 @@ class RestoreManager {
   // The restored segments keep their original collection_id from the
   // backup manifest. The caller MUST ensure `target_collection_id`
   // matches that id (the single-node path does not remap).
-  [[nodiscard]] core::StatusOr<std::string> StartRestoreSingleShard(
+  [[nodiscard]] absl::StatusOr<std::string> StartRestoreSingleShard(
       const BackupTarget& source,
       const std::string& backup_id,
       core::CollectionId target_collection_id,
@@ -99,7 +99,7 @@ class RestoreManager {
   // Per-shard restore executor used by the multi-shard orchestration
   // path. Caller (Coordinator) dispatches RestoreShard to the data-node
   // hosting each shard's primary.
-  using ShardRestoreExecutor = std::function<core::Status(
+  using ShardRestoreExecutor = std::function<absl::Status(
       const BackupTarget& source, const std::string& backup_id,
       core::CollectionId target_collection_id, core::ShardId shard_id)>;
 
@@ -108,18 +108,18 @@ class RestoreManager {
   // only inasmuch as the restore is repeatable (segments are installed
   // idempotently via AddReplicatedSegment), but the job's terminal
   // state reflects the first failure.
-  [[nodiscard]] core::StatusOr<std::string> StartRestoreDistributed(
+  [[nodiscard]] absl::StatusOr<std::string> StartRestoreDistributed(
       const BackupTarget& source,
       const std::string& backup_id,
       core::CollectionId target_collection_id,
       const std::vector<core::ShardId>& shard_ids,
       ShardRestoreExecutor executor);
 
-  [[nodiscard]] core::StatusOr<RestoreJobStatus> GetStatus(
+  [[nodiscard]] absl::StatusOr<RestoreJobStatus> GetStatus(
       const std::string& restore_id) const;
 
   // Pure synchronous per-shard executor.
-  [[nodiscard]] core::Status RunShardRestore(
+  [[nodiscard]] absl::Status RunShardRestore(
       const BackupTarget& source,
       const std::string& backup_id,
       core::CollectionId target_collection_id,
@@ -132,7 +132,7 @@ class RestoreManager {
     std::unique_ptr<IObjectStore> owned;
     std::string display_prefix;
   };
-  [[nodiscard]] core::StatusOr<ResolvedTarget> ResolveTarget(
+  [[nodiscard]] absl::StatusOr<ResolvedTarget> ResolveTarget(
       const BackupTarget& source);
 
   void ExecuteSingleShardJob(std::shared_ptr<RestoreJob> job,

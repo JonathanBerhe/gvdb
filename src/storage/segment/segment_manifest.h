@@ -36,7 +36,7 @@ class SegmentManifest {
       const std::vector<ManifestEntry>& entries);
 
   // Deserialize JSON string to a list of entries
-  [[nodiscard]] static core::StatusOr<std::vector<ManifestEntry>> Deserialize(
+  [[nodiscard]] static absl::StatusOr<std::vector<ManifestEntry>> Deserialize(
       const std::string& json);
 
   // Add an entry to existing manifest JSON, return updated JSON

@@ -34,13 +34,13 @@ struct NpyHeader {
 class NpyReader {
  public:
   // Parse the header of a .npy file. Returns vector count and dimension.
-  [[nodiscard]] static core::StatusOr<NpyHeader> ReadHeader(
+  [[nodiscard]] static absl::StatusOr<NpyHeader> ReadHeader(
       const std::string& file_path);
 
   // Read a chunk of vectors from [start_row, start_row + count).
   // Generates sequential VectorIds starting from start_id.
   // count is clamped to available rows.
-  [[nodiscard]] static core::StatusOr<
+  [[nodiscard]] static absl::StatusOr<
       std::vector<std::pair<core::VectorId, core::Vector>>>
   ReadChunk(const std::string& file_path, const NpyHeader& header,
             size_t start_row, size_t count, uint64_t start_id);

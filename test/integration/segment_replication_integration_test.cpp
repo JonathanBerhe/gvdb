@@ -1,4 +1,6 @@
-// test/integration/segment_replication_integration_test.cpp
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+//
 // Integration tests for segment replication
 
 #include <doctest/doctest.h>

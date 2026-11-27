@@ -2,29 +2,29 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "index/sparse_index.h"
+#include "core/status.h"
 #include <algorithm>
 #include <functional>
 
 namespace gvdb {
 namespace index {
 
-core::Status SparseIndex::AddVector(core::VectorId id,
+absl::Status SparseIndex::AddVector(core::VectorId id,
                                     const core::SparseVector& sparse) {
-  auto status = sparse.Validate();
-  if (!status.ok()) return status;
+  RETURN_IF_ERROR(sparse.Validate());
 
   for (const auto& [dim_idx, value] : sparse.entries()) {
     posting_lists_[dim_idx].push_back({id, value});
   }
 
   doc_count_++;
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::StatusOr<core::SearchResult> SparseIndex::Search(
+absl::StatusOr<core::SearchResult> SparseIndex::Search(
     const core::SparseVector& query, int k) {
   if (k <= 0) {
-    return core::InvalidArgumentError("k must be positive");
+    return absl::InvalidArgumentError("k must be positive");
   }
   if (doc_count_ == 0 || query.empty()) {
     return core::SearchResult{};

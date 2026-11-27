@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "rpc/proto_conversions.h"
+#include "core/status.h"
 #include "absl/strings/str_format.h"
 
 namespace gvdb {
@@ -82,10 +83,7 @@ absl::StatusOr<core::Metadata> fromProto(const proto::Metadata& proto_metadata) 
 
   for (const auto& [key, proto_value] : proto_metadata.fields()) {
     // Validate key
-    auto key_validation = core::validate_metadata_key(key);
-    if (!key_validation.ok()) {
-      return key_validation;
-    }
+    RETURN_IF_ERROR(core::validate_metadata_key(key));
 
     // Convert value based on which field is set
     core::MetadataValue value;
@@ -114,10 +112,7 @@ absl::StatusOr<core::Metadata> fromProto(const proto::Metadata& proto_metadata) 
   }
 
   // Validate complete metadata
-  auto metadata_validation = core::validate_metadata(metadata);
-  if (!metadata_validation.ok()) {
-    return metadata_validation;
-  }
+  RETURN_IF_ERROR(core::validate_metadata(metadata));
 
   return metadata;
 }
@@ -171,8 +166,7 @@ absl::StatusOr<core::SparseVector> fromProto(const proto::SparseVector& proto_sp
                             proto_sparse.values().end());
 
   auto sparse = core::SparseVector::FromArrays(indices, values);
-  auto status = sparse.Validate();
-  if (!status.ok()) return status;
+  RETURN_IF_ERROR(sparse.Validate());
 
   return sparse;
 }

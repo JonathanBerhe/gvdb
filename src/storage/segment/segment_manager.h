@@ -42,12 +42,12 @@ class SegmentManager : public ISegmentStore {
 
   // ========== Segment Lifecycle ==========
 
-  [[nodiscard]] core::StatusOr<core::SegmentId> CreateSegment(
+  [[nodiscard]] absl::StatusOr<core::SegmentId> CreateSegment(
       core::CollectionId collection_id,
       core::Dimension dimension,
       core::MetricType metric) override;
 
-  [[nodiscard]] core::Status CreateSegmentWithId(
+  [[nodiscard]] absl::Status CreateSegmentWithId(
       core::SegmentId segment_id,
       core::CollectionId collection_id,
       core::Dimension dimension,
@@ -57,28 +57,28 @@ class SegmentManager : public ISegmentStore {
   [[nodiscard]] Segment* GetSegment(core::SegmentId id) override;
   [[nodiscard]] const Segment* GetSegment(core::SegmentId id) const override;
 
-  [[nodiscard]] core::Status SealSegment(
+  [[nodiscard]] absl::Status SealSegment(
       core::SegmentId id,
       const core::IndexConfig& index_config) override;
 
-  [[nodiscard]] core::Status FlushSegment(core::SegmentId id) override;
+  [[nodiscard]] absl::Status FlushSegment(core::SegmentId id) override;
 
-  [[nodiscard]] core::Status DropSegment(
+  [[nodiscard]] absl::Status DropSegment(
       core::SegmentId id, bool delete_files = false) override;
 
-  [[nodiscard]] core::Status LoadSegment(core::SegmentId id);
+  [[nodiscard]] absl::Status LoadSegment(core::SegmentId id);
 
-  [[nodiscard]] core::Status AddReplicatedSegment(
+  [[nodiscard]] absl::Status AddReplicatedSegment(
       std::unique_ptr<Segment> segment) override;
 
   // ========== Data Operations ==========
 
-  [[nodiscard]] core::Status WriteVectors(
+  [[nodiscard]] absl::Status WriteVectors(
       core::SegmentId segment_id,
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) override;
 
-  [[nodiscard]] core::StatusOr<core::SearchResult> SearchCollection(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchCollection(
       core::CollectionId collection_id,
       const core::Vector& query,
       int k) const override;

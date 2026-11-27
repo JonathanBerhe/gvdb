@@ -17,30 +17,30 @@ namespace storage {
 // InMemoryObjectStore implementation
 // ============================================================================
 
-core::Status InMemoryObjectStore::PutObject(
+absl::Status InMemoryObjectStore::PutObject(
     const std::string& key, const std::string& data) {
   std::unique_lock lock(mutex_);
   objects_[key] = data;
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::StatusOr<std::string> InMemoryObjectStore::GetObject(
+absl::StatusOr<std::string> InMemoryObjectStore::GetObject(
     const std::string& key) {
   std::shared_lock lock(mutex_);
   auto it = objects_.find(key);
   if (it == objects_.end()) {
-    return core::NotFoundError(absl::StrCat("Object not found: ", key));
+    return absl::NotFoundError(absl::StrCat("Object not found: ", key));
   }
   return it->second;
 }
 
-core::Status InMemoryObjectStore::DeleteObject(const std::string& key) {
+absl::Status InMemoryObjectStore::DeleteObject(const std::string& key) {
   std::unique_lock lock(mutex_);
   objects_.erase(key);
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::StatusOr<std::vector<std::string>> InMemoryObjectStore::ListObjects(
+absl::StatusOr<std::vector<std::string>> InMemoryObjectStore::ListObjects(
     const std::string& prefix) {
   std::shared_lock lock(mutex_);
   std::vector<std::string> result;
@@ -53,17 +53,17 @@ core::StatusOr<std::vector<std::string>> InMemoryObjectStore::ListObjects(
   return result;
 }
 
-core::StatusOr<bool> InMemoryObjectStore::ObjectExists(
+absl::StatusOr<bool> InMemoryObjectStore::ObjectExists(
     const std::string& key) {
   std::shared_lock lock(mutex_);
   return objects_.count(key) > 0;
 }
 
-core::Status InMemoryObjectStore::PutObjectFromFile(
+absl::Status InMemoryObjectStore::PutObjectFromFile(
     const std::string& key, const std::string& local_file_path) {
   std::ifstream file(local_file_path, std::ios::binary);
   if (!file.is_open()) {
-    return core::NotFoundError(
+    return absl::NotFoundError(
         absl::StrCat("Local file not found: ", local_file_path));
   }
   std::ostringstream ss;
@@ -71,7 +71,7 @@ core::Status InMemoryObjectStore::PutObjectFromFile(
   return PutObject(key, ss.str());
 }
 
-core::Status InMemoryObjectStore::GetObjectToFile(
+absl::Status InMemoryObjectStore::GetObjectToFile(
     const std::string& key, const std::string& local_file_path) {
   auto result = GetObject(key);
   if (!result.ok()) {
@@ -79,11 +79,11 @@ core::Status InMemoryObjectStore::GetObjectToFile(
   }
   std::ofstream file(local_file_path, std::ios::binary);
   if (!file.is_open()) {
-    return core::InternalError(
+    return absl::InternalError(
         absl::StrCat("Failed to open local file: ", local_file_path));
   }
   file.write(result->data(), result->size());
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 size_t InMemoryObjectStore::ObjectCount() const {

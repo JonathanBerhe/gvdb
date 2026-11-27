@@ -4,6 +4,7 @@
 // BackupManager: single-shard and distributed backups.
 
 #include "storage/backup/backup_manager.h"
+#include "core/status.h"
 #include <algorithm>
 #include <chrono>
 #include <ctime>
@@ -43,20 +44,20 @@ std::string BackupManager::AllocateBackupId() {
   return absl::StrCat("bk-", RFC3339Now(), "-", RandomToken());
 }
 
-core::StatusOr<BackupManager::ResolvedTarget> BackupManager::ResolveTarget(
+absl::StatusOr<BackupManager::ResolvedTarget> BackupManager::ResolveTarget(
     const BackupTarget& target) {
   if (std::holds_alternative<std::monostate>(target)) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         "BackupTarget is unset (must select S3 or Local)");
   }
   if (auto* s3 = std::get_if<S3BackupTarget>(&target)) {
     if (!opts_.default_object_store) {
-      return core::FailedPreconditionError(
+      return absl::FailedPreconditionError(
           "Server is not configured with an S3 object store; "
           "use a LocalBackupTarget or rebuild with -DGVDB_WITH_S3=ON");
     }
     if (!opts_.s3_bucket.empty() && s3->bucket != opts_.s3_bucket) {
-      return core::InvalidArgumentError(absl::StrCat(
+      return absl::InvalidArgumentError(absl::StrCat(
           "Requested S3 bucket '", s3->bucket,
           "' does not match server-configured bucket '", opts_.s3_bucket,
           "'"));
@@ -70,11 +71,11 @@ core::StatusOr<BackupManager::ResolvedTarget> BackupManager::ResolveTarget(
   }
   if (auto* loc = std::get_if<LocalBackupTarget>(&target)) {
     if (opts_.local_root_allowlist.empty()) {
-      return core::FailedPreconditionError(
+      return absl::FailedPreconditionError(
           "LocalBackupTarget is disabled on this server (no allowlist root)");
     }
     if (!PathUnderRoot(opts_.local_root_allowlist, loc->path)) {
-      return core::InvalidArgumentError(absl::StrCat(
+      return absl::InvalidArgumentError(absl::StrCat(
           "LocalBackupTarget path '", loc->path,
           "' is not under the configured allowlist root '",
           opts_.local_root_allowlist, "'"));
@@ -87,12 +88,12 @@ core::StatusOr<BackupManager::ResolvedTarget> BackupManager::ResolveTarget(
     r.display_prefix = absl::StrCat("file://", loc->path);
     return r;
   }
-  return core::InvalidArgumentError("Unknown BackupTarget variant");
+  return absl::InvalidArgumentError("Unknown BackupTarget variant");
 }
 
 // Per-shard executor: pure synchronous logic. Iterates the collection's
 // segments on this node, uploads each, and writes the per-shard manifest.
-core::StatusOr<ShardBackupResult> BackupManager::RunShardBackup(
+absl::StatusOr<ShardBackupResult> BackupManager::RunShardBackup(
     const std::string& backup_id,
     core::CollectionId collection_id,
     core::ShardId shard_id,
@@ -100,10 +101,10 @@ core::StatusOr<ShardBackupResult> BackupManager::RunShardBackup(
     const BackupTarget& target,
     std::shared_ptr<ISegmentStore> segment_store) {
   if (backup_id.empty()) {
-    return core::InvalidArgumentError("backup_id is required");
+    return absl::InvalidArgumentError("backup_id is required");
   }
   if (!segment_store) {
-    return core::InvalidArgumentError("segment_store is null");
+    return absl::InvalidArgumentError("segment_store is null");
   }
 
   auto rt_or = ResolveTarget(target);
@@ -188,15 +189,14 @@ core::StatusOr<ShardBackupResult> BackupManager::RunShardBackup(
       backup_id, core::ToUInt16(shard_id));
   auto full_shard_key = BuildKey(s3_prefix, rel_shard_key);
   auto shard_json = BackupManifest::SerializeShard(shard_manifest);
-  auto put_status = rt.store->PutObject(full_shard_key, shard_json);
-  if (!put_status.ok()) return put_status;
+  RETURN_IF_ERROR(rt.store->PutObject(full_shard_key, shard_json));
   result.shard_manifest_key = full_shard_key;
   result.bytes_uploaded += shard_json.size();
 
   return result;
 }
 
-core::StatusOr<std::string> BackupManager::StartBackupSingleShard(
+absl::StatusOr<std::string> BackupManager::StartBackupSingleShard(
     const std::string& collection_name,
     core::CollectionId collection_id,
     core::Dimension dimension,
@@ -210,10 +210,10 @@ core::StatusOr<std::string> BackupManager::StartBackupSingleShard(
     std::shared_ptr<ISegmentStore> segment_store,
     const std::string& requested_backup_id) {
   if (collection_name.empty()) {
-    return core::InvalidArgumentError("collection_name is required");
+    return absl::InvalidArgumentError("collection_name is required");
   }
   if (!segment_store) {
-    return core::InvalidArgumentError("segment_store is null");
+    return absl::InvalidArgumentError("segment_store is null");
   }
   // Pre-validate the target so the caller gets a synchronous error
   // instead of having to poll for FAILED with a stale-target message.
@@ -316,7 +316,7 @@ void BackupManager::ExecuteSingleShardJob(
   job->state.store(BackupState::COMPLETED);
 }
 
-core::Status BackupManager::FinalizeTopManifest(
+absl::Status BackupManager::FinalizeTopManifest(
     std::shared_ptr<BackupJob> job,
     const ResolvedTarget& rt,
     core::Dimension dimension,
@@ -358,14 +358,14 @@ core::Status BackupManager::FinalizeTopManifest(
   }
   job->bytes_uploaded.fetch_add(top_json.size());
   job->manifest_uri = absl::StrCat(rt.display_prefix, "/", rel_top_key);
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 // ============================================================================
 // Distributed (multi-shard) backup
 // ============================================================================
 
-core::StatusOr<std::string> BackupManager::StartBackupDistributed(
+absl::StatusOr<std::string> BackupManager::StartBackupDistributed(
     const std::string& collection_name,
     core::CollectionId collection_id,
     core::Dimension dimension,
@@ -378,17 +378,17 @@ core::StatusOr<std::string> BackupManager::StartBackupDistributed(
     ShardBackupExecutor executor,
     const std::string& requested_backup_id) {
   if (collection_name.empty()) {
-    return core::InvalidArgumentError("collection_name is required");
+    return absl::InvalidArgumentError("collection_name is required");
   }
   if (shard_ids.empty()) {
-    return core::InvalidArgumentError("shard_ids is empty");
+    return absl::InvalidArgumentError("shard_ids is empty");
   }
   if (shard_ids.size() != primary_terms.size()) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         "shard_ids and primary_terms must have the same length");
   }
   if (!executor) {
-    return core::InvalidArgumentError("executor is required");
+    return absl::InvalidArgumentError("executor is required");
   }
   auto rt = ResolveTarget(target);
   if (!rt.ok()) return rt.status();
@@ -510,14 +510,14 @@ void BackupManager::CleanupOnFailure(const ResolvedTarget& rt,
   }
 }
 
-core::StatusOr<BackupJobStatus> BackupManager::GetStatus(
+absl::StatusOr<BackupJobStatus> BackupManager::GetStatus(
     const std::string& backup_id) const {
   std::shared_ptr<BackupJob> job;
   {
     std::lock_guard<std::mutex> lk(jobs_mutex_);
     auto it = jobs_.find(backup_id);
     if (it == jobs_.end()) {
-      return core::NotFoundError(
+      return absl::NotFoundError(
           absl::StrCat("Backup not found: ", backup_id));
     }
     job = it->second;
@@ -536,14 +536,14 @@ core::StatusOr<BackupJobStatus> BackupManager::GetStatus(
   return s;
 }
 
-core::Status BackupManager::Cancel(const std::string& backup_id) {
+absl::Status BackupManager::Cancel(const std::string& backup_id) {
   std::lock_guard<std::mutex> lk(jobs_mutex_);
   auto it = jobs_.find(backup_id);
   if (it == jobs_.end()) {
-    return core::NotFoundError(absl::StrCat("Backup not found: ", backup_id));
+    return absl::NotFoundError(absl::StrCat("Backup not found: ", backup_id));
   }
   it->second->cancelled.store(true);
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 std::vector<std::string> BackupManager::JobIds() const {

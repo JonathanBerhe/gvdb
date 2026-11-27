@@ -128,7 +128,7 @@ class BackupManager {
   // `requested_backup_id` lets the caller supply an idempotency key; if
   // a job for the same id already exists in PENDING/RUNNING/COMPLETED
   // state, the existing id is returned.
-  [[nodiscard]] core::StatusOr<std::string> StartBackupSingleShard(
+  [[nodiscard]] absl::StatusOr<std::string> StartBackupSingleShard(
       const std::string& collection_name,
       core::CollectionId collection_id,
       core::Dimension dimension,
@@ -147,7 +147,7 @@ class BackupManager {
   // of RunShardBackup on a remote data-node (via the BackupShard RPC)
   // and returns the per-shard result. The manager handles job tracking,
   // sequencing across shards, top-manifest write, and cleanup-on-failure.
-  using ShardBackupExecutor = std::function<core::StatusOr<ShardBackupResult>(
+  using ShardBackupExecutor = std::function<absl::StatusOr<ShardBackupResult>(
       const std::string& backup_id, core::ShardId shard_id,
       uint64_t primary_term, const BackupTarget& target)>;
 
@@ -156,7 +156,7 @@ class BackupManager {
   // the partial backup is cleaned up under the target prefix. The
   // top-level manifest is written ONLY after every shard succeeds,
   // so a restore that cannot find it treats the backup as nonexistent.
-  [[nodiscard]] core::StatusOr<std::string> StartBackupDistributed(
+  [[nodiscard]] absl::StatusOr<std::string> StartBackupDistributed(
       const std::string& collection_name,
       core::CollectionId collection_id,
       core::Dimension dimension,
@@ -169,17 +169,17 @@ class BackupManager {
       ShardBackupExecutor executor,
       const std::string& requested_backup_id = "");
 
-  [[nodiscard]] core::StatusOr<BackupJobStatus> GetStatus(
+  [[nodiscard]] absl::StatusOr<BackupJobStatus> GetStatus(
       const std::string& backup_id) const;
 
-  [[nodiscard]] core::Status Cancel(const std::string& backup_id);
+  [[nodiscard]] absl::Status Cancel(const std::string& backup_id);
 
   // Pure synchronous per-shard executor. Uploads every segment of the
   // collection belonging to `shard_id` (on a single node, every segment
   // of the collection on the local store), writes
   // a per-shard manifest, and returns the manifest's object key. Does
   // NOT write the top-level manifest.
-  [[nodiscard]] core::StatusOr<ShardBackupResult> RunShardBackup(
+  [[nodiscard]] absl::StatusOr<ShardBackupResult> RunShardBackup(
       const std::string& backup_id,
       core::CollectionId collection_id,
       core::ShardId shard_id,
@@ -199,7 +199,7 @@ class BackupManager {
     std::unique_ptr<IObjectStore> owned;
     std::string display_prefix;  // e.g. "s3://bucket/prefix" or "file:///path"
   };
-  [[nodiscard]] core::StatusOr<ResolvedTarget> ResolveTarget(
+  [[nodiscard]] absl::StatusOr<ResolvedTarget> ResolveTarget(
       const BackupTarget& target);
 
   void ExecuteSingleShardJob(std::shared_ptr<BackupJob> job,
@@ -226,7 +226,7 @@ class BackupManager {
   // both single- and multi-shard paths. Sets `job->manifest_uri` and
   // returns OK on success; on failure the partial upload is cleaned up
   // and the job is marked FAILED.
-  core::Status FinalizeTopManifest(
+  absl::Status FinalizeTopManifest(
       std::shared_ptr<BackupJob> job,
       const ResolvedTarget& rt,
       core::Dimension dimension,

@@ -1,4 +1,6 @@
-// test/integration/proxy_integration_test.cpp
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+//
 // Integration test: full flow through proxy -> coordinator + data node
 
 #include <doctest/doctest.h>

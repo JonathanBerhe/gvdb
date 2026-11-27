@@ -21,6 +21,7 @@
 #include "config/config.h"
 #include "consensus/raft_config.h"
 #include "consensus/raft_node.h"
+#include "core/status.h"
 #include "server/bootstrap.h"
 #include "server/builders.h"
 #include "server/cluster_steps.h"
@@ -42,9 +43,8 @@ struct Args {
 absl::Status Run(const Args& args) {
   server::InstallSignalHandlers();
 
-  auto loaded = server::LoadConfig(args.config_file);
-  if (!loaded.ok()) return loaded.status();
-  config::GVDBConfig config = std::move(*loaded);
+  ASSIGN_OR_RETURN(config::GVDBConfig config,
+                   server::LoadConfig(args.config_file));
   if (args.port != -1) config.server.grpc_port = args.port;
   if (!args.data_dir.empty()) config.storage.data_dir = args.data_dir;
   if (args.node_id != -1) config.consensus.node_id = args.node_id;
@@ -62,14 +62,11 @@ absl::Status Run(const Args& args) {
   raft_config.node_id = node_id;
   raft_config.single_node_mode = true;
   raft_config.data_dir = data_dir + "/raft";
-  auto started_raft = server::StartRaft(raft_config);
-  if (!started_raft.ok()) return started_raft.status();
-  std::unique_ptr<consensus::RaftNode> raft_node = std::move(*started_raft);
+  ASSIGN_OR_RETURN(std::unique_ptr<consensus::RaftNode> raft_node,
+                   server::StartRaft(raft_config));
 
-  auto built_storage =
-      server::BuildSegmentStore(config.storage, data_dir, server::ObjectStoreFailure::kStop);
-  if (!built_storage.ok()) return built_storage.status();
-  server::SegmentStoreParts storage = std::move(*built_storage);
+  ASSIGN_OR_RETURN(server::SegmentStoreParts storage,
+                   server::BuildSegmentStore(config.storage, data_dir, server::ObjectStoreFailure::kStop));
   auto segment_store = storage.segment_store;
   auto query_executor = std::make_shared<compute::QueryExecutor>(segment_store.get());
   query_executor->SetCache(std::make_shared<compute::QueryCache>(10000));
@@ -87,8 +84,7 @@ absl::Status Run(const Args& args) {
   }
 
   server::InterceptorFactories interceptors;
-  auto rbac_store = server::AddAuthInterceptor(config.server.auth, interceptors);
-  if (!rbac_store.ok()) return rbac_store.status();
+  ASSIGN_OR_RETURN(auto rbac_store, server::AddAuthInterceptor(config.server.auth, interceptors));
   server::AddAuditInterceptor(config.logging.audit, interceptors);
 
   // Single node runs the single-shard backup against its own segment store.
@@ -103,14 +99,12 @@ absl::Status Run(const Args& args) {
 
   auto vectordb_service = std::make_unique<service::VectorDBService>(
       segment_store, query_executor, service::MakeLocalResolver(segment_store, data_dir),
-      *rbac_store, server::MakeBulkImporter(storage, data_dir), backup.backup, backup.restore);
+      rbac_store, server::MakeBulkImporter(storage, data_dir), backup.backup, backup.restore);
   vectordb_service->SetShardWriteGate(&shard_write_gate);
 
   const std::string address = absl::StrCat("0.0.0.0:", config.server.grpc_port);
-  auto grpc_server =
-      server::StartGrpcServer(address, {vectordb_service.get()},
-                              server::MakeServerCredentials(config.server.tls), std::move(interceptors));
-  if (!grpc_server.ok()) return grpc_server.status();
+  ASSIGN_OR_RETURN(auto grpc_server,
+                   server::StartGrpcServer(address, {vectordb_service.get()}, server::MakeServerCredentials(config.server.tls), std::move(interceptors)));
 
   std::thread ttl_sweep_thread(
       [segment_store] { segment_store->RunTTLSweepLoop(server::ShutdownFlag()); });
@@ -124,7 +118,7 @@ absl::Status Run(const Args& args) {
   server::WaitForShutdown();
 
   ttl_sweep_thread.join();
-  server::StopServing(**grpc_server);
+  server::StopServing(*grpc_server);
   (void)raft_node->Shutdown();
   return absl::OkStatus();
 }

@@ -37,18 +37,18 @@ bool SparseVector::empty() const noexcept {
   return entries_.empty();
 }
 
-Status SparseVector::Validate() const {
+absl::Status SparseVector::Validate() const {
   for (size_t i = 0; i < entries_.size(); ++i) {
     if (std::isnan(entries_[i].second)) {
-      return InvalidArgumentError(
+      return absl::InvalidArgumentError(
           absl::StrCat("NaN value at index ", entries_[i].first));
     }
     if (i > 0 && entries_[i].first <= entries_[i - 1].first) {
-      return InvalidArgumentError(
+      return absl::InvalidArgumentError(
           absl::StrCat("Entries not sorted or contain duplicates at position ", i));
     }
   }
-  return OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace core

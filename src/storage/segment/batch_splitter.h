@@ -19,7 +19,7 @@ namespace storage {
 //
 // Returns InvalidArgumentError if any single item exceeds max_bytes: such an
 // item can never fit a segment, so no amount of rotation helps.
-core::StatusOr<std::vector<std::pair<size_t, size_t>>> SplitBatchBySize(
+absl::StatusOr<std::vector<std::pair<size_t, size_t>>> SplitBatchBySize(
     const std::vector<size_t>& item_costs, size_t max_bytes);
 
 }  // namespace storage

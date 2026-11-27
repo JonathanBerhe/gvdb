@@ -5,6 +5,7 @@
 // new collection.
 
 #include "cluster/coordinator/coordinator.h"
+#include "core/status.h"
 #include "cluster/coordinator/internal_client.h"
 #include "core/type_names.h"
 #include "common/logger.h"
@@ -315,19 +316,13 @@ absl::Status Coordinator::AssignShardsToCollection(core::CollectionId collection
 
     // Set primary node
     core::NodeId primary = data_nodes[i % data_nodes.size()].node_id;
-    auto status = shard_manager_->SetPrimaryNode(shard_id, primary);
-    if (!status.ok()) {
-      return status;
-    }
+    RETURN_IF_ERROR(shard_manager_->SetPrimaryNode(shard_id, primary));
 
     // Set replica nodes
     for (size_t r = 1; r < replication_factor; ++r) {
       core::NodeId replica = data_nodes[(i + r) % data_nodes.size()].node_id;
       if (replica != primary) {
-        auto replica_status = shard_manager_->AddReplica(shard_id, replica);
-        if (!replica_status.ok()) {
-          return replica_status;
-        }
+        RETURN_IF_ERROR(shard_manager_->AddReplica(shard_id, replica));
       }
     }
   }

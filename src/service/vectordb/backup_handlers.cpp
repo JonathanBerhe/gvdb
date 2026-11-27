@@ -4,6 +4,7 @@
 // Backup and restore: start, status, list and cancel.
 
 #include "service/vectordb/vectordb_service.h"
+#include "core/status.h"
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
 #include "cluster/coordinator/coordinator.h"
@@ -26,8 +27,7 @@ grpc::Status VectorDBService::BackupCollection(
     grpc::ServerContext* /*context*/,
     const proto::BackupCollectionRequest* request,
     proto::BackupCollectionResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::BACKUP, request->collection_name());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::BACKUP, request->collection_name()));
 
   if (request->collection_name().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
@@ -97,8 +97,7 @@ grpc::Status VectorDBService::RestoreCollection(
     grpc::ServerContext* /*context*/,
     const proto::RestoreCollectionRequest* request,
     proto::RestoreCollectionResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::RESTORE, request->target_collection_name());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::RESTORE, request->target_collection_name()));
 
   if (request->backup_id().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
@@ -275,8 +274,7 @@ grpc::Status VectorDBService::CancelBackup(
   // empty name (admin-only paths will reject; others fall through). The
   // strict per-collection gate lands when we surface collection_name on
   // the status struct in a later refinement.
-  auto perm = CheckPermission(auth::Permission::BACKUP, /*collection_name=*/"");
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(CheckPermission(auth::Permission::BACKUP, /*collection_name=*/""));
 
   auto status = backup_manager_->Cancel(request->backup_id());
   if (!status.ok()) {

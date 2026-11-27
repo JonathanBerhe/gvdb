@@ -34,18 +34,18 @@ std::string RestoreManager::AllocateRestoreId() {
   return absl::StrCat("rs-", RFC3339Now(), "-", RandomToken());
 }
 
-core::StatusOr<RestoreManager::ResolvedTarget> RestoreManager::ResolveTarget(
+absl::StatusOr<RestoreManager::ResolvedTarget> RestoreManager::ResolveTarget(
     const BackupTarget& source) {
   if (std::holds_alternative<std::monostate>(source)) {
-    return core::InvalidArgumentError("BackupTarget source is unset");
+    return absl::InvalidArgumentError("BackupTarget source is unset");
   }
   if (auto* s3 = std::get_if<S3BackupTarget>(&source)) {
     if (!opts_.default_object_store) {
-      return core::FailedPreconditionError(
+      return absl::FailedPreconditionError(
           "Server is not configured with an S3 object store");
     }
     if (!opts_.s3_bucket.empty() && s3->bucket != opts_.s3_bucket) {
-      return core::InvalidArgumentError(absl::StrCat(
+      return absl::InvalidArgumentError(absl::StrCat(
           "Requested S3 bucket '", s3->bucket,
           "' does not match server-configured bucket '", opts_.s3_bucket,
           "'"));
@@ -59,11 +59,11 @@ core::StatusOr<RestoreManager::ResolvedTarget> RestoreManager::ResolveTarget(
   }
   if (auto* loc = std::get_if<LocalBackupTarget>(&source)) {
     if (opts_.local_root_allowlist.empty()) {
-      return core::FailedPreconditionError(
+      return absl::FailedPreconditionError(
           "LocalBackupTarget restore is disabled on this server");
     }
     if (!PathUnderRoot(opts_.local_root_allowlist, loc->path)) {
-      return core::InvalidArgumentError(absl::StrCat(
+      return absl::InvalidArgumentError(absl::StrCat(
           "LocalBackupTarget path '", loc->path,
           "' is not under the configured allowlist root '",
           opts_.local_root_allowlist, "'"));
@@ -76,10 +76,10 @@ core::StatusOr<RestoreManager::ResolvedTarget> RestoreManager::ResolveTarget(
     r.display_prefix = absl::StrCat("file://", loc->path);
     return r;
   }
-  return core::InvalidArgumentError("Unknown BackupTarget variant");
+  return absl::InvalidArgumentError("Unknown BackupTarget variant");
 }
 
-core::StatusOr<BackupManifestV1> RestoreManager::ReadManifest(
+absl::StatusOr<BackupManifestV1> RestoreManager::ReadManifest(
     const BackupTarget& source, const std::string& backup_id) {
   auto rt_or = ResolveTarget(source);
   if (!rt_or.ok()) return rt_or.status();
@@ -94,17 +94,17 @@ core::StatusOr<BackupManifestV1> RestoreManager::ReadManifest(
   return BackupManifest::DeserializeTop(*json_or);
 }
 
-core::Status RestoreManager::RunShardRestore(
+absl::Status RestoreManager::RunShardRestore(
     const BackupTarget& source,
     const std::string& backup_id,
     core::CollectionId target_collection_id,
     core::ShardId shard_id,
     std::shared_ptr<ISegmentStore> segment_store) {
   if (backup_id.empty()) {
-    return core::InvalidArgumentError("backup_id is required");
+    return absl::InvalidArgumentError("backup_id is required");
   }
   if (!segment_store) {
-    return core::InvalidArgumentError("segment_store is null");
+    return absl::InvalidArgumentError("segment_store is null");
   }
   auto rt_or = ResolveTarget(source);
   if (!rt_or.ok()) return rt_or.status();
@@ -226,20 +226,20 @@ core::Status RestoreManager::RunShardRestore(
   }
 
   cleanup();
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::StatusOr<std::string> RestoreManager::StartRestoreSingleShard(
+absl::StatusOr<std::string> RestoreManager::StartRestoreSingleShard(
     const BackupTarget& source,
     const std::string& backup_id,
     core::CollectionId target_collection_id,
     core::ShardId shard_id,
     std::shared_ptr<ISegmentStore> segment_store) {
   if (backup_id.empty()) {
-    return core::InvalidArgumentError("backup_id is required");
+    return absl::InvalidArgumentError("backup_id is required");
   }
   if (!segment_store) {
-    return core::InvalidArgumentError("segment_store is null");
+    return absl::InvalidArgumentError("segment_store is null");
   }
   // Pre-validate target so async caller can't paper over a config error.
   auto rt = ResolveTarget(source);
@@ -288,20 +288,20 @@ void RestoreManager::ExecuteSingleShardJob(
   job->state.store(BackupState::COMPLETED);
 }
 
-core::StatusOr<std::string> RestoreManager::StartRestoreDistributed(
+absl::StatusOr<std::string> RestoreManager::StartRestoreDistributed(
     const BackupTarget& source,
     const std::string& backup_id,
     core::CollectionId target_collection_id,
     const std::vector<core::ShardId>& shard_ids,
     ShardRestoreExecutor executor) {
   if (backup_id.empty()) {
-    return core::InvalidArgumentError("backup_id is required");
+    return absl::InvalidArgumentError("backup_id is required");
   }
   if (shard_ids.empty()) {
-    return core::InvalidArgumentError("shard_ids is empty");
+    return absl::InvalidArgumentError("shard_ids is empty");
   }
   if (!executor) {
-    return core::InvalidArgumentError("executor is required");
+    return absl::InvalidArgumentError("executor is required");
   }
   auto rt = ResolveTarget(source);
   if (!rt.ok()) return rt.status();
@@ -354,14 +354,14 @@ void RestoreManager::ExecuteDistributedJob(
   job->state.store(BackupState::COMPLETED);
 }
 
-core::StatusOr<RestoreJobStatus> RestoreManager::GetStatus(
+absl::StatusOr<RestoreJobStatus> RestoreManager::GetStatus(
     const std::string& restore_id) const {
   std::shared_ptr<RestoreJob> job;
   {
     std::lock_guard<std::mutex> lk(jobs_mutex_);
     auto it = jobs_.find(restore_id);
     if (it == jobs_.end()) {
-      return core::NotFoundError(
+      return absl::NotFoundError(
           absl::StrCat("Restore not found: ", restore_id));
     }
     job = it->second;

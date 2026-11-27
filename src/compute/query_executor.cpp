@@ -31,7 +31,7 @@ QueryExecutor::QueryExecutor(storage::ISegmentStore* segment_store,
 
 QueryExecutor::~QueryExecutor() = default;
 
-core::StatusOr<core::SearchResult> QueryExecutor::Search(
+absl::StatusOr<core::SearchResult> QueryExecutor::Search(
     core::CollectionId collection_id,
     const core::Vector& query,
     int top_k,
@@ -39,7 +39,7 @@ core::StatusOr<core::SearchResult> QueryExecutor::Search(
   common::Timer timer;
 
   if (top_k <= 0) {
-    return core::InvalidArgumentError("top_k must be positive");
+    return absl::InvalidArgumentError("top_k must be positive");
   }
 
   // Validate dimension against collection
@@ -47,7 +47,7 @@ core::StatusOr<core::SearchResult> QueryExecutor::Search(
   if (!seg_ids.empty()) {
     auto* first_seg = segment_store_->GetSegment(seg_ids[0]);
     if (first_seg && query.dimension() != first_seg->GetDimension()) {
-      return core::InvalidArgumentError(
+      return absl::InvalidArgumentError(
           absl::StrFormat("Query vector dimension mismatch: expected %d, got %d",
                           first_seg->GetDimension(), query.dimension()));
     }
@@ -67,7 +67,7 @@ core::StatusOr<core::SearchResult> QueryExecutor::Search(
   }
 
   // Search via SegmentManager
-  core::StatusOr<core::SearchResult> result;
+  absl::StatusOr<core::SearchResult> result;
   if (filter.empty()) {
     result = segment_store_->SearchCollection(collection_id, query, top_k);
   } else {
