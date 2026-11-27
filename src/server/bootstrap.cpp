@@ -3,7 +3,7 @@
 
 #include "server/bootstrap.h"
 
-#include <signal.h>
+#include <csignal>
 
 #include <algorithm>
 #include <cctype>
@@ -17,8 +17,7 @@
 #include "common/file_util.h"
 #include "common/metrics.h"
 
-namespace gvdb {
-namespace server {
+namespace gvdb::server {
 
 namespace {
 
@@ -50,8 +49,8 @@ void InstallSignalHandlers() {
 
 common::LogLevel ParseLogLevel(const std::string& name) {
   std::string lower = name;
-  std::transform(lower.begin(), lower.end(), lower.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  std::ranges::transform(lower, lower.begin(),
+                         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   if (lower == "debug") return common::LogLevel::DEBUG;
   if (lower == "warn" || lower == "warning") return common::LogLevel::WARN;
   if (lower == "error") return common::LogLevel::ERROR;
@@ -164,5 +163,4 @@ int RunMain(const std::function<absl::Status()>& body) {
   }
 }
 
-}  // namespace server
-}  // namespace gvdb
+}  // namespace gvdb::server

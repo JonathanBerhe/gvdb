@@ -9,8 +9,7 @@
 
 #include "core/status.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // Splits a batch of items into contiguous [begin, end) ranges such that the
 // summed cost of each range is at most max_bytes. item_costs[i] must be the
@@ -22,5 +21,4 @@ namespace storage {
 absl::StatusOr<std::vector<std::pair<size_t, size_t>>> SplitBatchBySize(
     const std::vector<size_t>& item_costs, size_t max_bytes);
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

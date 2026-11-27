@@ -8,9 +8,7 @@
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace common {
-namespace json {
+namespace gvdb::common::json {
 
 std::string EscapeJson(const std::string& s) {
   std::string result;
@@ -224,6 +222,4 @@ std::vector<std::string> SplitObjects(std::string_view array_body) {
   return objects;
 }
 
-}  // namespace json
-}  // namespace common
-}  // namespace gvdb
+}  // namespace gvdb::common::json

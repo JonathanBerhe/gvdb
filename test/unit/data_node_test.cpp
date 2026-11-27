@@ -88,7 +88,7 @@ TEST_CASE_FIXTURE(DataNodeTest, "HasPendingTasks true after scheduling") {
 
 TEST_CASE_FIXTURE(DataNodeTest, "MultipleTasks accumulate") {
   for (uint32_t i = 1; i <= 5; ++i) {
-    BuildTask task{core::MakeSegmentId(i), core::IndexType::HNSW, i * 10};
+    BuildTask task{core::MakeSegmentId(i), core::IndexType::HNSW, uint64_t{i} * 10};
     REQUIRE(data_node_->ScheduleBuildTask(task).ok());
   }
   CHECK_EQ(data_node_->GetPendingTaskCount(), 5);
@@ -184,7 +184,7 @@ TEST_CASE("BuildIndex flushes sealed segment to the tiered object store") {
   cluster::DataNode data_node(std::move(factory), tiered);
 
   auto collection_id = core::MakeCollectionId(1);
-  auto dimension = core::Dimension(32);
+  auto dimension = static_cast<core::Dimension>(32);
   auto seg_id = *tiered->CreateSegment(collection_id, dimension, core::MetricType::L2);
   auto vectors = gvdb::test::RandomVectors(50, dimension);
   auto ids = gvdb::test::SequentialIds(50);

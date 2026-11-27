@@ -11,8 +11,7 @@
 #include <system_error>
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // Compose object keys relative to the IObjectStore's namespace.
 // For S3 targets we honor `request.prefix`; for local targets the
@@ -31,7 +30,7 @@ std::string BuildKey(const std::string& prefix, const std::string& suffix) {
 std::string RFC3339Now() {
   auto now = std::chrono::system_clock::now();
   auto secs = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
-  std::time_t t = static_cast<std::time_t>(secs);
+  auto t = static_cast<std::time_t>(secs);
   std::tm tm{};
 #if defined(_WIN32)
   gmtime_s(&tm, &t);
@@ -64,10 +63,9 @@ bool PathUnderRoot(const std::string& root, const std::string& child) {
   auto cs = c.string();
   if (rs.empty() || cs.empty()) return false;
   if (cs.size() < rs.size()) return false;
-  if (cs.compare(0, rs.size(), rs) != 0) return false;
+  if (!cs.starts_with(rs)) return false;
   // Either equal, or the next character is a separator.
   return cs.size() == rs.size() || cs[rs.size()] == '/' || cs[rs.size()] == '\\';
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

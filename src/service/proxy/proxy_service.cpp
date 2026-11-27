@@ -4,6 +4,7 @@
 #include "service/proxy/proxy_service.h"
 
 #include <thread>
+#include <utility>
 
 #include "auth/audit_context.h"
 #include "common/logger.h"
@@ -12,8 +13,7 @@
 #include "rpc/primary_term_header.h"
 #include "rpc/replica_fallback.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 namespace {
 
@@ -41,8 +41,8 @@ grpc::Status Forward(proto::VectorDBService::Stub* client, const char* unavailab
 }  // namespace
 
 ProxyService::ProxyService(const std::vector<std::string>& coordinator_addrs,
-                           const std::string& query_node_uri)
-    : coordinator_addrs_(coordinator_addrs), query_node_uri_(query_node_uri) {}
+                           std::string query_node_uri)
+    : coordinator_addrs_(coordinator_addrs), query_node_uri_(std::move(query_node_uri)) {}
 
 proto::VectorDBService::Stub* ProxyService::GetCoordinatorClient() {
   // Hot-path: lock-free load. clients_mutex_ is only taken for first-time
@@ -51,7 +51,7 @@ proto::VectorDBService::Stub* ProxyService::GetCoordinatorClient() {
   if (coordinator_client_ready_.load(std::memory_order_acquire)) {
     return coordinator_client_.get();
   }
-  std::lock_guard<std::mutex> lock(clients_mutex_);
+  std::scoped_lock lock(clients_mutex_);
   if (coordinator_client_ready_.load(std::memory_order_relaxed)) {
     return coordinator_client_.get();
   }
@@ -68,7 +68,7 @@ proto::VectorDBService::Stub* ProxyService::GetQueryNodeClient() {
   if (query_node_client_ready_.load(std::memory_order_acquire)) {
     return query_node_client_.get();
   }
-  std::lock_guard<std::mutex> lock(clients_mutex_);
+  std::scoped_lock lock(clients_mutex_);
   if (query_node_client_ready_.load(std::memory_order_relaxed)) {
     return query_node_client_.get();
   }
@@ -97,7 +97,7 @@ proto::internal::InternalService::Stub* ProxyService::GetCoordinatorInternalClie
   if (coordinator_internal_client_ready_.load(std::memory_order_acquire)) {
     return coordinator_internal_client_.get();
   }
-  std::lock_guard<std::mutex> lock(clients_mutex_);
+  std::scoped_lock lock(clients_mutex_);
   if (coordinator_internal_client_ready_.load(std::memory_order_relaxed)) {
     return coordinator_internal_client_.get();
   }
@@ -150,7 +150,7 @@ proto::VectorDBService::Stub* ProxyService::GetDataNodeClientForCollection(
 }
 
 proto::VectorDBService::Stub* ProxyService::GetOrCreateDataClient(const std::string& address) {
-  std::lock_guard<std::mutex> lock(clients_mutex_);
+  std::scoped_lock lock(clients_mutex_);
   auto it = data_client_by_addr_.find(address);
   if (it == data_client_by_addr_.end()) {
     auto channel = grpc::CreateChannel(address, grpc::InsecureChannelCredentials());
@@ -565,5 +565,4 @@ grpc::Status ProxyService::CancelBackup(grpc::ServerContext* /*context*/,
                  &proto::VectorDBService::Stub::CancelBackup, *request, response);
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

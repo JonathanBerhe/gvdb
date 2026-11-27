@@ -140,6 +140,7 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "SearchPullsMetadataFromCoordi
     vectors.emplace_back(data);
   }
   std::vector<core::VectorId> ids;
+  ids.reserve(10);
   for (int i = 0; i < 10; ++i) {
     ids.push_back(core::MakeVectorId(i + 1));
   }
@@ -193,6 +194,7 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "MetadataCacheReusedOnSecondSe
     vectors.emplace_back(data);
   }
   std::vector<core::VectorId> ids;
+  ids.reserve(10);
   for (int i = 0; i < 10; ++i) {
     ids.push_back(core::MakeVectorId(i + 1));
   }
@@ -375,6 +377,7 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "GetVectors") {
     vectors.emplace_back(data);
   }
   std::vector<core::VectorId> ids;
+  ids.reserve(5);
   for (int i = 0; i < 5; ++i) {
     ids.push_back(core::MakeVectorId(i + 1));
   }
@@ -413,6 +416,7 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "DeleteVectors") {
     vectors.emplace_back(data);
   }
   std::vector<core::VectorId> ids;
+  ids.reserve(5);
   for (int i = 0; i < 5; ++i) {
     ids.push_back(core::MakeVectorId(i + 1));
   }

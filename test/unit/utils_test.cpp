@@ -22,9 +22,7 @@
 
 namespace fs = std::filesystem;
 
-namespace gvdb {
-namespace common {
-namespace test {
+namespace gvdb::common::test {
 
 // ============================================================================
 // Logger Tests
@@ -179,6 +177,7 @@ TEST_CASE("ThreadPoolTest - EnqueueMultipleTasks") {
   std::atomic<int> counter{0};
   std::vector<std::future<int>> futures;
 
+  futures.reserve(100);
   for (int i = 0; i < 100; ++i) {
     futures.push_back(pool.Enqueue([&counter, i] {
       counter.fetch_add(1);
@@ -212,6 +211,7 @@ TEST_CASE("ThreadPoolTest - ParallelExecution") {
 
   std::vector<std::future<void>> futures;
 
+  futures.reserve(8);
   for (int i = 0; i < 8; ++i) {
     futures.push_back(pool.Enqueue([&concurrent_count, &max_concurrent] {
       int current = concurrent_count.fetch_add(1) + 1;
@@ -430,6 +430,7 @@ TEST_CASE("UtilsIntegrationTest - ThreadPoolWithTimerAndLogger") {
 
   Timer overall_timer;
 
+  futures.reserve(10);
   for (int i = 0; i < 10; ++i) {
     futures.push_back(pool.Enqueue([i, &completed] {
       Timer task_timer;
@@ -489,6 +490,4 @@ TEST_CASE("WriteFileAtomically fails when the folder does not exist") {
   CHECK_FALSE(fs::exists(path));
 }
 
-}  // namespace test
-}  // namespace common
-}  // namespace gvdb
+}  // namespace gvdb::common::test

@@ -9,8 +9,7 @@
 #include "core/sparse_vector.h"
 #include "core/types.h"
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 // Inverted-index based sparse vector search.
 // Computes dot-product scores by iterating posting lists for each query
@@ -39,5 +38,4 @@ class SparseIndex {
   size_t doc_count_ = 0;
 };
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

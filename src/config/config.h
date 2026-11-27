@@ -13,12 +13,11 @@
 #include "auth/rbac.h"
 #include "storage/objstore/object_store_factory.h"
 
-namespace YAML {
+namespace YAML {  // NOLINT(readability-identifier-naming): yaml-cpp name.
 class Node;
 }
 
-namespace gvdb {
-namespace config {
+namespace gvdb::config {
 
 /**
  * @brief Server configuration options
@@ -57,7 +56,7 @@ struct StorageConfig {
   int object_store_upload_threads = 2;
 
   // Filesystem path under which LocalBackupTarget paths must live.
-  // Empty (default) disables LocalBackupTarget — only S3 targets work.
+  // Empty (default) disables LocalBackupTarget, so only S3 targets work.
   // Typical production setting: a dedicated PVC the operator mounts at
   // /var/lib/gvdb/backups, separate from the segment data directory.
   std::string local_backup_dir;
@@ -164,5 +163,4 @@ class Config {
   static ConsensusConfig ParseConsensusConfig(const YAML::Node& node);
 };
 
-}  // namespace config
-}  // namespace gvdb
+}  // namespace gvdb::config

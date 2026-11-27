@@ -10,8 +10,7 @@
 
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // .npy magic: \x93NUMPY
 static constexpr uint8_t kNpyMagic[] = {0x93, 'N', 'U', 'M', 'P', 'Y'};
@@ -67,7 +66,7 @@ absl::StatusOr<NpyHeader> NpyReader::ReadHeader(const std::string& file_path) {
   size_t preamble_size = kMagicLen + 2 + (major_version == 1 ? 2 : 4);
   size_t data_offset = preamble_size + header_len;
 
-  // Parse 'descr' — must be '<f4' (little-endian float32)
+  // Parse 'descr': must be '<f4' (little-endian float32)
   std::regex descr_re(R"('descr'\s*:\s*'([^']+)')");
   std::smatch descr_match;
   if (!std::regex_search(header_str, descr_match, descr_re)) {
@@ -79,7 +78,7 @@ absl::StatusOr<NpyHeader> NpyReader::ReadHeader(const std::string& file_path) {
         absl::StrCat("Unsupported .npy dtype: '", descr, "' (only '<f4' / float32 supported)"));
   }
 
-  // Parse 'fortran_order' — must be False
+  // Parse 'fortran_order': must be False
   std::regex fortran_re(R"('fortran_order'\s*:\s*(True|False))");
   std::smatch fortran_match;
   if (std::regex_search(header_str, fortran_match, fortran_re)) {
@@ -89,11 +88,11 @@ absl::StatusOr<NpyHeader> NpyReader::ReadHeader(const std::string& file_path) {
     }
   }
 
-  // Parse 'shape' — expect (N,) or (N, D)
+  // Parse 'shape': expect (N,) or (N, D)
   std::regex shape_re(R"('shape'\s*:\s*\((\d+),\s*(\d+)\s*\))");
   std::smatch shape_match;
   if (!std::regex_search(header_str, shape_match, shape_re)) {
-    // Try 1D shape (N,) — not supported for vectors
+    // Try 1D shape (N,): not supported for vectors
     std::regex shape_1d_re(R"('shape'\s*:\s*\((\d+),?\s*\))");
     std::smatch shape_1d_match;
     if (std::regex_search(header_str, shape_1d_match, shape_1d_re)) {
@@ -157,12 +156,11 @@ absl::StatusOr<std::vector<std::pair<core::VectorId, core::Vector>>> NpyReader::
     auto id = core::VectorId(start_id + i);
     std::vector<float> values(buffer.begin() + static_cast<ptrdiff_t>(i * header.dimension),
                               buffer.begin() + static_cast<ptrdiff_t>((i + 1) * header.dimension));
-    core::Vector vec(std::move(values));
+    core::Vector vec(values);
     result.emplace_back(id, std::move(vec));
   }
 
   return result;
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

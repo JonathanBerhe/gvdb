@@ -17,9 +17,7 @@
 #include <faiss/Clustering.h>
 #include <faiss/IndexFlat.h>
 
-namespace gvdb {
-namespace index {
-namespace turboquant {
+namespace gvdb::index::turboquant {
 
 // IVF + TurboQuant: sub-linear search with extreme compression.
 //
@@ -102,6 +100,4 @@ class IVFTurboQuantIndex : public core::IVectorIndex {
   size_t total_vectors_ = 0;
 };
 
-}  // namespace turboquant
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index::turboquant

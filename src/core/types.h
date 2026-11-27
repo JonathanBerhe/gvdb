@@ -7,8 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 // Strong-typed IDs to prevent mixing different ID types
 // Using enum class provides type safety and prevents implicit conversions
@@ -121,5 +120,4 @@ constexpr CollectionId kInvalidCollectionId = CollectionId{0};
 constexpr ShardId kInvalidShardId = ShardId{0};
 constexpr NodeId kInvalidNodeId = NodeId{0};
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

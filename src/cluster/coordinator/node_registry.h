@@ -11,8 +11,7 @@
 #include <unordered_map>
 #include "internal.pb.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // Information about a registered node
 struct RegisteredNode {
@@ -118,5 +117,4 @@ class NodeRegistry {
   Clock clock_;
 };
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

@@ -275,7 +275,7 @@ absl::Status MetalFlatIndex::Deserialize(const std::string& path) {
 }
 
 core::IndexType MetalFlatIndex::GetIndexType() const {
-  return core::IndexType::FLAT;  // Drop-in for FLAT — same type
+  return core::IndexType::FLAT;  // Drop-in for FLAT: same type
 }
 
 }  // namespace metal

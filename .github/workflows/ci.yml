@@ -67,11 +67,11 @@ jobs:
             zlib1g-dev \
             libcurl4-gnutls-dev
 
-      # Clang 22, libc++, lld and libomp from apt.llvm.org (the ci preset
-      # uses cmake/toolchains/linux-clang-libcxx.cmake).
+      # Clang 22, libc++, lld, libomp and clang-tidy from apt.llvm.org (the
+      # ci preset uses cmake/toolchains/linux-clang-libcxx.cmake).
       - name: Install LLVM
         if: steps.filter.outputs.cpp == 'true'
-        run: tools/ci/install-llvm.sh
+        run: tools/ci/install-llvm.sh --tidy
 
       - name: Set up ccache
         if: steps.filter.outputs.cpp == 'true'
@@ -113,6 +113,14 @@ jobs:
         env:
           GVDB_TEST_S3_ENDPOINT: http://localhost:9000
         run: ctest --preset ci --parallel "$(nproc)"
+
+      # The checks in .clang-tidy on every source file of the ci build, with
+      # the clang-tidy of the toolchain's LLVM version. A hit fails the job.
+      - name: Run clang-tidy
+        if: steps.filter.outputs.cpp == 'true'
+        run: |
+          v=$(sed -n 's/^set(GVDB_LLVM_VERSION \([0-9][0-9]*\).*/\1/p' cmake/toolchains/linux-clang-libcxx.cmake)
+          make tidy PRESET=ci RUN_CLANG_TIDY="run-clang-tidy-$v -clang-tidy-binary clang-tidy-$v"
 
       - name: Upload server binary
         if: steps.filter.outputs.cpp == 'true'

@@ -5,14 +5,14 @@
 
 #include <filesystem>
 #include <mutex>
+#include <utility>
 
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
-SegmentCache::SegmentCache(const std::string& cache_dir, size_t max_cache_bytes)
-    : cache_dir_(cache_dir), max_cache_bytes_(max_cache_bytes) {
+SegmentCache::SegmentCache(std::string cache_dir, size_t max_cache_bytes)
+    : cache_dir_(std::move(cache_dir)), max_cache_bytes_(max_cache_bytes) {
   std::filesystem::create_directories(cache_dir_);
 }
 
@@ -106,5 +106,4 @@ size_t SegmentCache::GetCachedCount() const {
   return entries_.size();
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

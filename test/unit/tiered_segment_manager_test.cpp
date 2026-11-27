@@ -18,8 +18,7 @@
 #include <string>
 #include <vector>
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 namespace {
 
 const std::string kPrefix = "test-prefix";
@@ -98,7 +97,7 @@ struct TieredTest {
   // Holds the local and the cache folder, and removes both at the end.
   test::ScopedTempDir temp_dir_{"gvdb_tiered_test"};
   std::unique_ptr<index::IndexFactory> index_factory_;
-  core::Dimension dimension_ = core::Dimension(128);
+  core::Dimension dimension_ = static_cast<core::Dimension>(128);
   core::MetricType metric_ = core::MetricType::L2;
   core::CollectionId collection_id_ = core::CollectionId(1);
   const std::string test_dir_ = (temp_dir_ / "local").string();
@@ -242,7 +241,7 @@ TEST_CASE_FIXTURE(TieredTest, "FlushTriggersUpload") {
   config.metric_type = metric_;
   REQUIRE(tiered->SealSegment(seg_id, config).ok());
 
-  // Flush — should trigger async upload
+  // Flush: should trigger async upload
   REQUIRE(tiered->FlushSegment(seg_id).ok());
 
   // Wait for the async upload: it writes the manifest after the files.
@@ -378,7 +377,7 @@ TEST_CASE_FIXTURE(TieredTest, "DropUploadedSegmentRemovesRemoteCopy") {
   // upload of seg_id has returned, tracking included.
   bool marker_failed = test::WaitFor([&] {
     auto failed = tiered->GetFailedUploads();
-    return std::find(failed.begin(), failed.end(), marker_id) != failed.end();
+    return std::ranges::find(failed, marker_id) != failed.end();
   });
   REQUIRE(marker_failed);
   CHECK_EQ(tiered->GetFailedUploads().size(), 1);
@@ -434,7 +433,7 @@ TEST_CASE_FIXTURE(TieredTest, "MultipleCollectionsUploadAndSearch") {
   auto entries = WaitForManifestEntries(*store, 2);
   REQUIRE_EQ(entries.size(), 2);
   std::vector<uint32_t> collections = {entries[0].collection_id, entries[1].collection_id};
-  std::sort(collections.begin(), collections.end());
+  std::ranges::sort(collections);
   const std::vector<uint32_t> expected_collections = {1, 2};
   CHECK_EQ(collections, expected_collections);
 
@@ -464,6 +463,7 @@ TEST_CASE_FIXTURE(TieredTest, "ConcurrentFlushesAllReachManifest") {
 
   // Seal all three before flushing any, so the uploads are queued together.
   std::vector<core::SegmentId> seg_ids;
+  seg_ids.reserve(3);
   for (uint64_t i = 0; i < 3; ++i) {
     seg_ids.push_back(SealOneSegment(*tiered, 50, /*first_id=*/i * 100 + 1));
   }
@@ -479,11 +479,12 @@ TEST_CASE_FIXTURE(TieredTest, "ConcurrentFlushesAllReachManifest") {
     CHECK_EQ(entry.vector_count, 50);
   }
   std::vector<uint32_t> expected;
+  expected.reserve(seg_ids.size());
   for (auto seg_id : seg_ids) {
     expected.push_back(core::ToUInt32(seg_id));
   }
-  std::sort(listed.begin(), listed.end());
-  std::sort(expected.begin(), expected.end());
+  std::ranges::sort(listed);
+  std::ranges::sort(expected);
   CHECK_EQ(listed, expected);
   CHECK(tiered->GetFailedUploads().empty());
 }
@@ -600,5 +601,4 @@ TEST_CASE_FIXTURE(TieredTest, "StartupRedrivesUnuploadedSegments") {
 }
 
 }  // namespace
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

@@ -16,8 +16,7 @@
 #include "core/types.h"
 #include "core/vector.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 namespace {
 
 // ============================================================================
@@ -259,7 +258,7 @@ TEST_CASE("VectorUtilTest - RandomVector") {
 // ============================================================================
 
 TEST_CASE("MetadataTest - MetadataValueTypes") {
-  MetadataValue int_val = int64_t(42);
+  MetadataValue int_val = static_cast<int64_t>(42);
   MetadataValue double_val = 3.14;
   MetadataValue string_val = std::string("hello");
   MetadataValue bool_val = true;
@@ -437,8 +436,9 @@ TEST_CASE("MetadataTest - CompareInList") {
 }
 
 TEST_CASE("MetadataTest - CompareNotInList") {
-  std::vector<MetadataValue> numbers = {MetadataValue(int64_t(1)), MetadataValue(int64_t(2)),
-                                        MetadataValue(int64_t(3))};
+  std::vector<MetadataValue> numbers = {MetadataValue(static_cast<int64_t>(1)),
+                                        MetadataValue(static_cast<int64_t>(2)),
+                                        MetadataValue(static_cast<int64_t>(3))};
 
   CHECK_FALSE(CompareMetadataValueInList(MetadataValue(int64_t(2)),
                                          true,  // negated (NOT IN)
@@ -509,7 +509,7 @@ TEST_CASE("MetadataTest - ValidateValueBool") {
 }
 
 TEST_CASE("MetadataTest - ValidateMetadataValid") {
-  Metadata metadata = {{"price", MetadataValue(int64_t(100))},
+  Metadata metadata = {{"price", MetadataValue(static_cast<int64_t>(100))},
                        {"brand", MetadataValue(std::string("Nike"))},
                        {"in_stock", MetadataValue(true)},
                        {"rating", MetadataValue(4.5)}};
@@ -520,7 +520,7 @@ TEST_CASE("MetadataTest - ValidateMetadataValid") {
 TEST_CASE("MetadataTest - ValidateMetadataTooManyFields") {
   Metadata metadata;
   for (int i = 0; i < 101; ++i) {
-    metadata["field_" + std::to_string(i)] = MetadataValue(int64_t(i));
+    metadata["field_" + std::to_string(i)] = MetadataValue(static_cast<int64_t>(i));
   }
 
   auto status = ValidateMetadata(metadata);
@@ -529,7 +529,7 @@ TEST_CASE("MetadataTest - ValidateMetadataTooManyFields") {
 }
 
 TEST_CASE("MetadataTest - ValidateMetadataInvalidKey") {
-  Metadata metadata = {{"invalid-key", MetadataValue(int64_t(100))}};
+  Metadata metadata = {{"invalid-key", MetadataValue(static_cast<int64_t>(100))}};
 
   auto status = ValidateMetadata(metadata);
   CHECK_FALSE(status.ok());
@@ -552,10 +552,10 @@ TEST_CASE("FilterTest - ParseSimpleComparison") {
   auto filter = FilterParser::parse("price < 100");
   REQUIRE(filter.ok());
 
-  Metadata metadata = {{"price", MetadataValue(int64_t(50))}};
+  Metadata metadata = {{"price", MetadataValue(static_cast<int64_t>(50))}};
   CHECK((*filter)->Evaluate(metadata));
 
-  Metadata metadata2 = {{"price", MetadataValue(int64_t(150))}};
+  Metadata metadata2 = {{"price", MetadataValue(static_cast<int64_t>(150))}};
   CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
@@ -596,15 +596,15 @@ TEST_CASE("FilterTest - ParseAndExpression") {
   auto filter = FilterParser::parse("price < 100 AND brand = 'Nike'");
   REQUIRE(filter.ok());
 
-  Metadata metadata = {{"price", MetadataValue(int64_t(50))},
+  Metadata metadata = {{"price", MetadataValue(static_cast<int64_t>(50))},
                        {"brand", MetadataValue(std::string("Nike"))}};
   CHECK((*filter)->Evaluate(metadata));
 
-  Metadata metadata2 = {{"price", MetadataValue(int64_t(150))},
+  Metadata metadata2 = {{"price", MetadataValue(static_cast<int64_t>(150))},
                         {"brand", MetadataValue(std::string("Nike"))}};
   CHECK_FALSE((*filter)->Evaluate(metadata2));
 
-  Metadata metadata3 = {{"price", MetadataValue(int64_t(50))},
+  Metadata metadata3 = {{"price", MetadataValue(static_cast<int64_t>(50))},
                         {"brand", MetadataValue(std::string("Adidas"))}};
   CHECK_FALSE((*filter)->Evaluate(metadata3));
 }
@@ -613,14 +613,14 @@ TEST_CASE("FilterTest - ParseOrExpression") {
   auto filter = FilterParser::parse("price < 50 OR discount > 20");
   REQUIRE(filter.ok());
 
-  Metadata metadata1 = {{"price", MetadataValue(int64_t(30))}};
+  Metadata metadata1 = {{"price", MetadataValue(static_cast<int64_t>(30))}};
   CHECK((*filter)->Evaluate(metadata1));
 
-  Metadata metadata2 = {{"discount", MetadataValue(int64_t(25))}};
+  Metadata metadata2 = {{"discount", MetadataValue(static_cast<int64_t>(25))}};
   CHECK((*filter)->Evaluate(metadata2));
 
-  Metadata metadata3 = {{"price", MetadataValue(int64_t(80))},
-                        {"discount", MetadataValue(int64_t(10))}};
+  Metadata metadata3 = {{"price", MetadataValue(static_cast<int64_t>(80))},
+                        {"discount", MetadataValue(static_cast<int64_t>(10))}};
   CHECK_FALSE((*filter)->Evaluate(metadata3));
 }
 
@@ -628,10 +628,10 @@ TEST_CASE("FilterTest - ParseNotExpression") {
   auto filter = FilterParser::parse("NOT (price > 100)");
   REQUIRE(filter.ok());
 
-  Metadata metadata1 = {{"price", MetadataValue(int64_t(50))}};
+  Metadata metadata1 = {{"price", MetadataValue(static_cast<int64_t>(50))}};
   CHECK((*filter)->Evaluate(metadata1));
 
-  Metadata metadata2 = {{"price", MetadataValue(int64_t(150))}};
+  Metadata metadata2 = {{"price", MetadataValue(static_cast<int64_t>(150))}};
   CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
@@ -639,14 +639,16 @@ TEST_CASE("FilterTest - ParseParenthesizedExpression") {
   auto filter = FilterParser::parse("(price < 100 OR discount > 20) AND in_stock = true");
   REQUIRE(filter.ok());
 
-  Metadata metadata1 = {{"price", MetadataValue(int64_t(50))}, {"in_stock", MetadataValue(true)}};
+  Metadata metadata1 = {{"price", MetadataValue(static_cast<int64_t>(50))},
+                        {"in_stock", MetadataValue(true)}};
   CHECK((*filter)->Evaluate(metadata1));
 
-  Metadata metadata2 = {{"discount", MetadataValue(int64_t(25))},
+  Metadata metadata2 = {{"discount", MetadataValue(static_cast<int64_t>(25))},
                         {"in_stock", MetadataValue(true)}};
   CHECK((*filter)->Evaluate(metadata2));
 
-  Metadata metadata3 = {{"price", MetadataValue(int64_t(50))}, {"in_stock", MetadataValue(false)}};
+  Metadata metadata3 = {{"price", MetadataValue(static_cast<int64_t>(50))},
+                        {"in_stock", MetadataValue(false)}};
   CHECK_FALSE((*filter)->Evaluate(metadata3));
 }
 
@@ -687,10 +689,10 @@ TEST_CASE("FilterTest - ParseNotInExpression") {
   auto filter = FilterParser::parse("status NOT IN (0, 1, 2)");
   REQUIRE(filter.ok());
 
-  Metadata metadata1 = {{"status", MetadataValue(int64_t(5))}};
+  Metadata metadata1 = {{"status", MetadataValue(static_cast<int64_t>(5))}};
   CHECK((*filter)->Evaluate(metadata1));
 
-  Metadata metadata2 = {{"status", MetadataValue(int64_t(1))}};
+  Metadata metadata2 = {{"status", MetadataValue(static_cast<int64_t>(1))}};
   CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
@@ -698,7 +700,7 @@ TEST_CASE("FilterTest - ParseInWithMixedTypes") {
   auto filter = FilterParser::parse("value IN (1, 2.5, 'text')");
   REQUIRE(filter.ok());
 
-  Metadata metadata1 = {{"value", MetadataValue(int64_t(1))}};
+  Metadata metadata1 = {{"value", MetadataValue(static_cast<int64_t>(1))}};
   CHECK((*filter)->Evaluate(metadata1));
 
   Metadata metadata2 = {{"value", MetadataValue(2.5)}};
@@ -707,7 +709,7 @@ TEST_CASE("FilterTest - ParseInWithMixedTypes") {
   Metadata metadata3 = {{"value", MetadataValue(std::string("text"))}};
   CHECK((*filter)->Evaluate(metadata3));
 
-  Metadata metadata4 = {{"value", MetadataValue(int64_t(99))}};
+  Metadata metadata4 = {{"value", MetadataValue(static_cast<int64_t>(99))}};
   CHECK_FALSE((*filter)->Evaluate(metadata4));
 }
 
@@ -716,17 +718,17 @@ TEST_CASE("FilterTest - ComplexNestedExpression") {
       "(price < 100 AND brand = 'Nike') OR (discount > 50 AND in_stock = true)");
   REQUIRE(filter.ok());
 
-  Metadata metadata1 = {{"price", MetadataValue(int64_t(80))},
+  Metadata metadata1 = {{"price", MetadataValue(static_cast<int64_t>(80))},
                         {"brand", MetadataValue(std::string("Nike"))}};
   CHECK((*filter)->Evaluate(metadata1));
 
-  Metadata metadata2 = {{"discount", MetadataValue(int64_t(60))},
+  Metadata metadata2 = {{"discount", MetadataValue(static_cast<int64_t>(60))},
                         {"in_stock", MetadataValue(true)}};
   CHECK((*filter)->Evaluate(metadata2));
 
-  Metadata metadata3 = {{"price", MetadataValue(int64_t(120))},
+  Metadata metadata3 = {{"price", MetadataValue(static_cast<int64_t>(120))},
                         {"brand", MetadataValue(std::string("Adidas"))},
-                        {"discount", MetadataValue(int64_t(20))}};
+                        {"discount", MetadataValue(static_cast<int64_t>(20))}};
   CHECK_FALSE((*filter)->Evaluate(metadata3));
 }
 
@@ -734,10 +736,10 @@ TEST_CASE("FilterTest - ParseNegativeNumber") {
   auto filter = FilterParser::parse("temperature > -10");
   REQUIRE(filter.ok());
 
-  Metadata metadata1 = {{"temperature", MetadataValue(int64_t(-5))}};
+  Metadata metadata1 = {{"temperature", MetadataValue(static_cast<int64_t>(-5))}};
   CHECK((*filter)->Evaluate(metadata1));
 
-  Metadata metadata2 = {{"temperature", MetadataValue(int64_t(-15))}};
+  Metadata metadata2 = {{"temperature", MetadataValue(static_cast<int64_t>(-15))}};
   CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
@@ -905,7 +907,7 @@ namespace {
 void RunOnSmallStack(std::function<void()> fn) {
   pthread_attr_t attr;
   REQUIRE(pthread_attr_init(&attr) == 0);
-  REQUIRE(pthread_attr_setstacksize(&attr, 512 * 1024) == 0);
+  REQUIRE(pthread_attr_setstacksize(&attr, size_t{512} * 1024) == 0);
   pthread_t thread;
   REQUIRE(pthread_create(
               &thread, &attr,
@@ -1164,5 +1166,4 @@ TEST_CASE("MetadataSerializerTest - LargeMetadata") {
 }
 
 }  // namespace
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

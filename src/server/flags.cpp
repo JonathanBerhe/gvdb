@@ -8,8 +8,7 @@
 #include <iostream>
 #include <utility>
 
-namespace gvdb {
-namespace server {
+namespace gvdb::server {
 
 namespace {
 
@@ -75,8 +74,7 @@ void FlagSet::AddSwitch(std::string name, std::string help, std::function<void()
 }
 
 const FlagSet::Flag* FlagSet::Find(const std::string& name) const {
-  auto it = std::find_if(flags_.begin(), flags_.end(),
-                         [&](const Flag& flag) { return flag.name == name; });
+  auto it = std::ranges::find_if(flags_, [&](const Flag& flag) { return flag.name == name; });
   return it == flags_.end() ? nullptr : &*it;
 }
 
@@ -134,5 +132,4 @@ void FlagSet::PrintUsage(std::ostream& out, const std::string& program) const {
   print(kHelpFlag, kHelpText);
 }
 
-}  // namespace server
-}  // namespace gvdb
+}  // namespace gvdb::server

@@ -6,8 +6,7 @@
 
 #include <utility>
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 NodeRegistry::NodeRegistry(std::chrono::milliseconds heartbeat_timeout, Clock clock)
     : heartbeat_timeout_(heartbeat_timeout), clock_(std::move(clock)) {
@@ -246,5 +245,4 @@ std::vector<uint32_t> NodeRegistry::DetectFailedNodes() {
   return failed_node_ids;
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

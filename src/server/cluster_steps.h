@@ -17,8 +17,8 @@
 
 // Startup and shutdown steps of the programs in a cluster: Raft on the
 // coordinator, the heartbeat and the drain on the data and query nodes.
-namespace gvdb {
-namespace server {
+
+namespace gvdb::server {
 
 // Starts a Raft node. The error message starts with "Failed to start Raft: ".
 absl::StatusOr<std::unique_ptr<consensus::RaftNode>> StartRaft(const consensus::RaftConfig& config);
@@ -59,5 +59,4 @@ std::unique_ptr<cluster::HeartbeatSender> StartHeartbeat(
 void WaitForDrainCompletion(const std::string& coordinator_address, int node_id,
                             std::chrono::seconds timeout);
 
-}  // namespace server
-}  // namespace gvdb
+}  // namespace gvdb::server

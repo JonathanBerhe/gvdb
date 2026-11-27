@@ -5,8 +5,7 @@
 
 #include <mutex>  // std::unique_lock: header pulls in only <shared_mutex>
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 bool PrimaryTermTracker::RecordPrimary(uint32_t shard_id, uint64_t term) {
   std::unique_lock lock(mu_);
@@ -78,5 +77,4 @@ PrimaryTermTracker::Snapshot PrimaryTermTracker::Get(uint32_t shard_id) const {
   return Snapshot{true, it->second.is_primary, it->second.term};
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

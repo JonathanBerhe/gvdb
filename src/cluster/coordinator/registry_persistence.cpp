@@ -13,8 +13,7 @@
 #include "common/json_util.h"
 #include "common/logger.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // =============================================================================
 // Registry persistence
@@ -191,5 +190,4 @@ absl::Status Coordinator::LoadRegistry() {
   return absl::OkStatus();
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

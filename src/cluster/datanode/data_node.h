@@ -13,8 +13,7 @@
 #include "index/index_factory.h"
 #include "storage/segment/segment_store.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // Task for building indexes
 struct BuildTask {
@@ -60,5 +59,4 @@ class DataNode {
   std::priority_queue<BuildTask> build_queue_;
 };
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

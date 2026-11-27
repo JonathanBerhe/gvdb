@@ -9,8 +9,7 @@
 
 #include "core/status.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // ============================================================================
 // Backup manifest schemas (v1)
@@ -19,9 +18,9 @@ namespace storage {
 // Two manifests describe a backup:
 //
 // (1) Top-level manifest at <prefix>/backups/<backup_id>/backup.manifest.json
-//     — describes the collection and lists per-shard manifests.
+//     describes the collection and lists per-shard manifests.
 // (2) Per-shard manifest at <prefix>/backups/<backup_id>/shards/<shard_id>/
-//     shard.manifest.json — lists every segment uploaded for that shard.
+//     shard.manifest.json lists every segment uploaded for that shard.
 //
 // The top-level manifest is written LAST, after every shard has succeeded.
 // A restore that cannot find the top-level manifest treats the backup as
@@ -112,5 +111,4 @@ class BackupManifest {
   static std::string BackupRootPrefix(const std::string& backup_id);
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

@@ -8,8 +8,7 @@
 #include <functional>
 #include <utility>
 
-namespace gvdb {
-namespace common {
+namespace gvdb::common {
 
 // ============================================================================
 // Timer - RAII-style timer for measuring elapsed time
@@ -40,5 +39,4 @@ class Timer {
   TimePoint start_;
 };
 
-}  // namespace common
-}  // namespace gvdb
+}  // namespace gvdb::common

@@ -10,8 +10,7 @@
 
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace common {
+namespace gvdb::common {
 
 absl::StatusOr<std::string> ReadFileToString(const std::string& path) {
   std::ifstream in(path, std::ios::binary);
@@ -46,5 +45,4 @@ absl::Status WriteFileAtomically(const std::string& path, const std::string& con
   return absl::OkStatus();
 }
 
-}  // namespace common
-}  // namespace gvdb
+}  // namespace gvdb::common

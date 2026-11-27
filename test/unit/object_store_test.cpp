@@ -21,8 +21,7 @@
 #include "storage/objstore/object_store_factory.h"
 #include "support/temp_dir.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 namespace {
 
 using test::ScopedTempDir;
@@ -278,5 +277,4 @@ TEST_CASE("CreateObjectStore: gcs type selects GCS when the binary has GCS suppo
 }
 
 }  // namespace
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

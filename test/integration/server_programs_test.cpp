@@ -9,11 +9,11 @@
 #include <doctest/doctest.h>
 #include <grpcpp/grpcpp.h>
 #include <netinet/in.h>
-#include <signal.h>
 #include <spawn.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <csignal>
 
 #include <fcntl.h>
 #include <chrono>
@@ -31,8 +31,7 @@
 
 extern char** environ;
 
-namespace gvdb {
-namespace test {
+namespace gvdb::test {
 namespace {
 
 using std::chrono::seconds;
@@ -66,6 +65,7 @@ class Program {
     std::vector<std::string> argv_storage = {path};
     argv_storage.insert(argv_storage.end(), args.begin(), args.end());
     std::vector<char*> argv;
+    argv.reserve(argv_storage.size());
     for (auto& arg : argv_storage) argv.push_back(arg.data());
     argv.push_back(nullptr);
 
@@ -299,5 +299,4 @@ TEST_CASE("A coordinator, a data node, a query node and a proxy serve a collecti
   StopCleanly(coordinator, "coordinator");
 }
 
-}  // namespace test
-}  // namespace gvdb
+}  // namespace gvdb::test

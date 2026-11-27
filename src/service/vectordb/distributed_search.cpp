@@ -17,8 +17,7 @@
 #include "service/vectordb/collection_resolver.h"
 #include "service/vectordb/vectordb_service.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 grpc::Status VectorDBService::SearchDistributed(const proto::SearchRequest* request,
                                                 proto::SearchResponse* response,
@@ -166,8 +165,8 @@ grpc::Status VectorDBService::SearchDistributed(const proto::SearchRequest* requ
   }
 
   // Sort by distance ascending (L2/cosine) and take top_k
-  std::sort(all_entries.begin(), all_entries.end(),
-            [](const auto& a, const auto& b) { return a.distance < b.distance; });
+  std::ranges::sort(all_entries,
+                    [](const auto& a, const auto& b) { return a.distance < b.distance; });
 
   int top_k = std::min(static_cast<int>(all_entries.size()), static_cast<int>(request->top_k()));
 
@@ -289,8 +288,8 @@ grpc::Status VectorDBService::RangeSearchDistributed(const proto::RangeSearchReq
   }
 
   // Sort by distance and limit
-  std::sort(all_entries.begin(), all_entries.end(),
-            [](const auto& a, const auto& b) { return a.distance() < b.distance(); });
+  std::ranges::sort(all_entries,
+                    [](const auto& a, const auto& b) { return a.distance() < b.distance(); });
   if (static_cast<int>(all_entries.size()) > max_results) {
     all_entries.resize(max_results);
   }
@@ -305,5 +304,4 @@ grpc::Status VectorDBService::RangeSearchDistributed(const proto::RangeSearchReq
   return grpc::Status::OK;
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

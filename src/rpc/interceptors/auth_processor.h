@@ -9,8 +9,7 @@
 #include <string>
 #include "auth/rbac.h"
 
-namespace gvdb {
-namespace rpc {
+namespace gvdb::rpc {
 
 // gRPC server interceptor that validates API keys from the
 // "authorization: Bearer <key>" metadata header and sets thread-local auth context.
@@ -39,5 +38,4 @@ class ApiKeyAuthInterceptorFactory : public grpc::experimental::ServerIntercepto
   std::shared_ptr<auth::RbacStore> rbac_store_;
 };
 
-}  // namespace rpc
-}  // namespace gvdb
+}  // namespace gvdb::rpc

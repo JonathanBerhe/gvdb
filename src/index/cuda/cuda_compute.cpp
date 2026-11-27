@@ -13,7 +13,7 @@ namespace cuda {
 
 bool IsAvailable() {
 #ifdef GVDB_HAS_CUDA
-  // Cache the probe — cudaGetDeviceCount triggers driver init the first time.
+  // Cache the probe: cudaGetDeviceCount triggers driver init the first time.
   static const bool available = []() {
     int count = 0;
     return cudaGetDeviceCount(&count) == cudaSuccess && count > 0;

@@ -7,20 +7,21 @@
 #include <chrono>
 #include <filesystem>
 #include <mutex>
+#include <ranges>
 #include <thread>
+#include <utility>
 
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 #include "core/config.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
-SegmentManager::SegmentManager(const std::string& base_path, core::IIndexFactory* index_factory,
+SegmentManager::SegmentManager(std::string base_path, core::IIndexFactory* index_factory,
                                size_t max_segment_size)
-    : base_path_(base_path),
+    : base_path_(std::move(base_path)),
       index_factory_(index_factory),
-      next_segment_id_(1),
+
       max_segment_size_(max_segment_size) {
   // Create base directory if it doesn't exist
   std::filesystem::create_directories(base_path_);
@@ -154,8 +155,7 @@ absl::Status SegmentManager::DropSegment(core::SegmentId id, bool delete_files) 
 
   // Remove from collection mapping
   auto& coll_segments = collection_segments_[collection_id];
-  coll_segments.erase(std::remove(coll_segments.begin(), coll_segments.end(), id),
-                      coll_segments.end());
+  coll_segments.erase(std::ranges::remove(coll_segments, id).begin(), coll_segments.end());
 
   // Delete files if requested
   if (delete_files) {
@@ -250,11 +250,11 @@ absl::Status SegmentManager::LoadAllSegments() {
 
     std::string dir_name = entry.path().filename().string();
     // Look for directories named "segment_N"
-    if (dir_name.substr(0, 8) != "segment_") continue;
+    if (!dir_name.starts_with("segment_")) continue;
 
     try {
       uint32_t seg_id_raw = std::stoul(dir_name.substr(8));
-      core::SegmentId seg_id = static_cast<core::SegmentId>(seg_id_raw);
+      auto seg_id = static_cast<core::SegmentId>(seg_id_raw);
 
       // Skip if already loaded
       {
@@ -367,11 +367,11 @@ absl::StatusOr<core::SearchResult> SegmentManager::SearchCollection(
   }
 
   // Sort by distance and take top k
-  std::partial_sort(all_results.begin(), all_results.begin() + std::min(k, (int)all_results.size()),
-                    all_results.end(),
-                    [](const core::SearchResultEntry& a, const core::SearchResultEntry& b) {
-                      return a.distance < b.distance;
-                    });
+  std::partial_sort(
+      all_results.begin(), all_results.begin() + std::min(k, static_cast<int>(all_results.size())),
+      all_results.end(), [](const core::SearchResultEntry& a, const core::SearchResultEntry& b) {
+        return a.distance < b.distance;
+      });
 
   // Keep only top k
   if (all_results.size() > static_cast<size_t>(k)) {
@@ -429,8 +429,8 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
   auto& seg_ids = coll_it->second;
 
   // Find existing writable segment that can fit the batch (scan newest first)
-  for (auto it = seg_ids.rbegin(); it != seg_ids.rend(); ++it) {
-    auto seg_it = segments_.find(*it);
+  for (auto& seg_id : std::views::reverse(seg_ids)) {
+    auto seg_it = segments_.find(seg_id);
     if (seg_it != segments_.end()) {
       auto* seg = seg_it->second.get();
       if (seg->CanAcceptWrites() && (required_bytes == 0 || seg->CanFit(required_bytes))) {
@@ -439,7 +439,7 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
     }
   }
 
-  // No writable segment — need to rotate.
+  // No writable segment: need to rotate.
   // Get config from any existing segment in this collection.
   Segment* ref = nullptr;
   for (auto& sid : seg_ids) {
@@ -455,7 +455,7 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
   auto metric = ref->GetMetric();
   auto idx_type = ref->GetIndexType();
 
-  // Snapshot IDs before dropping lock for callbacks — iterating a reference
+  // Snapshot IDs before dropping lock for callbacks, because iterating a reference
   // into collection_segments_ while the lock is released is unsafe if the
   // callback modifies the map (e.g. CreateSegment appends to the vector).
   if (seal_callback_) {
@@ -473,7 +473,7 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
     }
   }
 
-  // Re-lookup after callbacks — the map may have been modified while unlocked
+  // Re-lookup after callbacks: the map may have been modified while unlocked
   coll_it = collection_segments_.find(collection_id);
   if (coll_it == collection_segments_.end() || coll_it->second.empty()) {
     return nullptr;
@@ -481,8 +481,8 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
   auto& seg_ids_refreshed = coll_it->second;
 
   // Re-check: another thread or callback may have created a writable segment
-  for (auto it = seg_ids_refreshed.rbegin(); it != seg_ids_refreshed.rend(); ++it) {
-    auto seg_it = segments_.find(*it);
+  for (auto& it : std::views::reverse(seg_ids_refreshed)) {
+    auto seg_it = segments_.find(it);
     if (seg_it != segments_.end()) {
       auto* seg = seg_it->second.get();
       if (seg->CanAcceptWrites() && (required_bytes == 0 || seg->CanFit(required_bytes))) {
@@ -545,5 +545,4 @@ std::string SegmentManager::GetSegmentPath(core::SegmentId id) const {
   return absl::StrCat(base_path_, "/segment_", core::ToUInt32(id));
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

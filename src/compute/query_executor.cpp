@@ -13,8 +13,7 @@
 #include "common/logger.h"
 #include "common/timer.h"
 
-namespace gvdb {
-namespace compute {
+namespace gvdb::compute {
 
 QueryExecutor::QueryExecutor(storage::ISegmentStore& segment_store, common::ThreadPool* thread_pool,
                              std::shared_ptr<compute::QueryCache> cache)
@@ -136,10 +135,9 @@ core::SearchResult QueryExecutor::MergeResults(
   }
 
   // Reverse to get ascending order by distance (closest first)
-  std::reverse(final_result.entries.begin(), final_result.entries.end());
+  std::ranges::reverse(final_result.entries);
 
   return final_result;
 }
 
-}  // namespace compute
-}  // namespace gvdb
+}  // namespace gvdb::compute

@@ -7,6 +7,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <utility>
 
 #include <aws/core/Aws.h>
 #include <aws/core/auth/AWSCredentials.h>
@@ -17,8 +18,7 @@
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/PutObjectRequest.h>
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 namespace {
 
@@ -30,7 +30,7 @@ struct AwsSdkGuard {
   ~AwsSdkGuard() { Aws::ShutdownAPI(options); }
 };
 
-// Singleton — initialized once, shutdown on program exit
+// Singleton: initialized once, shutdown on program exit
 AwsSdkGuard& GetSdkGuard() {
   static AwsSdkGuard guard;
   return guard;
@@ -38,8 +38,8 @@ AwsSdkGuard& GetSdkGuard() {
 
 }  // namespace
 
-S3ObjectStore::S3ObjectStore(std::shared_ptr<Aws::S3::S3Client> client, const std::string& bucket)
-    : client_(std::move(client)), bucket_(bucket) {}
+S3ObjectStore::S3ObjectStore(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket)
+    : client_(std::move(client)), bucket_(std::move(bucket)) {}
 
 S3ObjectStore::~S3ObjectStore() = default;
 
@@ -197,7 +197,6 @@ absl::Status S3ObjectStore::GetObjectToFile(const std::string& key,
   return absl::OkStatus();
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage
 
 #endif  // GVDB_HAS_S3

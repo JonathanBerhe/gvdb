@@ -5,8 +5,7 @@
 #include <cmath>
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 SparseVector::SparseVector(std::vector<Entry> entries) : entries_(std::move(entries)) {}
 
@@ -41,5 +40,4 @@ absl::Status SparseVector::Validate() const {
   return absl::OkStatus();
 }
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

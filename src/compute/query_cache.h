@@ -14,8 +14,7 @@
 
 #include "core/types.h"
 
-namespace gvdb {
-namespace compute {
+namespace gvdb::compute {
 
 struct CacheKey {
   uint32_t collection_id;
@@ -74,5 +73,4 @@ class QueryCache {
   size_t max_entries_;
 };
 
-}  // namespace compute
-}  // namespace gvdb
+}  // namespace gvdb::compute

@@ -1,4 +1,4 @@
-.PHONY: build build-release test test-s3 coverage check-layers format check-format clean \
+.PHONY: build build-release test test-s3 coverage check-layers format check-format tidy clean \
        run stop monitoring-up monitoring-down \
        docker-build kind-create kind-load deploy \
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
@@ -36,6 +36,8 @@ CLANG_FORMAT_VERSION = 22.1.8
 CLANG_FORMAT     = uvx --from clang-format==$(CLANG_FORMAT_VERSION) clang-format
 # The C++ sources that .clang-format covers.
 FORMAT_FILES     = git ls-files -z 'src/*.h' 'src/*.cpp' 'src/*.mm' 'test/*.h' 'test/*.cpp'
+# run-clang-tidy of LLVM. CI passes the Clang 22 tools.
+RUN_CLANG_TIDY  ?= run-clang-tidy
 
 # ---------------------------------------------------------------------------
 # Local development
@@ -82,6 +84,11 @@ format:
 # Fails when a C++ source does not match .clang-format. CI runs it.
 check-format:
 	@$(FORMAT_FILES) | xargs -0 $(CLANG_FORMAT) --dry-run --Werror
+
+# Runs the checks in .clang-tidy on every source file in src/ and test/ of
+# the PRESET build, which must exist. Any hit fails. CI runs it.
+tidy:
+	@$(RUN_CLANG_TIDY) -p $(BUILD_DIR) -quiet -j $(NPROC) '$(CURDIR)/(src|test)/'
 
 # Line coverage of src/ per file, from the unit and integration
 # tests. The report lands in build/coverage/coverage.

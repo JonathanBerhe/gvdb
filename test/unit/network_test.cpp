@@ -53,7 +53,7 @@ proto::MetadataValue FieldOf(const proto::Metadata& metadata, const std::string&
 
 class ProtoConversionTest {
  public:
-  ProtoConversionTest() {}
+  ProtoConversionTest() = default;
 };
 
 TEST_CASE_FIXTURE(ProtoConversionTest, "VectorConversion") {

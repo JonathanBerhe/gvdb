@@ -22,8 +22,7 @@
 #include "storage/backup/backup_manager.h"
 #include "storage/backup/restore_manager.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 VectorDBService::VectorDBService(std::shared_ptr<storage::ISegmentStore> segment_store,
                                  std::shared_ptr<compute::QueryExecutor> query_executor,
@@ -130,7 +129,7 @@ grpc::Status VectorDBService::EvaluateWriteGate(grpc::ServerContext* context,
         collection_name);
     return grpc::Status::OK;
   }
-  const uint32_t num_shards = static_cast<uint32_t>(seg_ids->size());
+  const auto num_shards = static_cast<uint32_t>(seg_ids->size());
   const uint32_t shard_id = core::ShardIndexForVector(sample_vector_id, num_shards);
 
   // Per-shard backup freeze: a frozen shard rejects writes for the
@@ -286,5 +285,4 @@ absl::StatusOr<std::vector<storage::Segment*>> VectorDBService::CollectCollectio
   return segments;
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

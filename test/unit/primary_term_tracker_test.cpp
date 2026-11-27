@@ -29,7 +29,7 @@ TEST_CASE("PrimaryTermTracker: write at older term returns StaleTerm") {
   CHECK(t.RecordPrimary(0, 5));
   CHECK(t.EvaluateWrite(0, 4) == D::StaleTerm);
   // Sanity: write at the future term that hasn't been recorded yet is
-  // ALSO StaleTerm — local view says "I'm primary at term 5", and a
+  // ALSO StaleTerm: local view says "I'm primary at term 5", and a
   // request claiming term 6 must be rejected (it would let a misbehaving
   // proxy bypass the heartbeat sync).
   CHECK(t.EvaluateWrite(0, 6) == D::StaleTerm);
@@ -66,7 +66,7 @@ TEST_CASE("PrimaryTermTracker: RecordNotPrimary advances last-known term") {
   // Now any later RecordPrimary at term ≤ 8 is rejected (regression).
   CHECK_FALSE(t.RecordPrimary(0, 8));
   CHECK_FALSE(t.RecordPrimary(0, 7));
-  // But a forward step is fine — same node may be re-promoted later.
+  // But a forward step is fine, same node may be re-promoted later.
   CHECK(t.RecordPrimary(0, 9));
   CHECK(t.EvaluateWrite(0, 9) == D::Accept);
 }
@@ -85,7 +85,7 @@ TEST_CASE("PrimaryTermTracker: concurrent readers + writers stay consistent") {
   // Stress the shared_mutex: N writer threads bump the term forward
   // monotonically, M reader threads call EvaluateWrite. The contract:
   // (a) no data race / TSAN catch (run with -fsanitize=thread locally
-  //     to confirm — not enforced by CI),
+  //     to confirm, not enforced by CI),
   // (b) every successful RecordPrimary must observe a term ≥ all
   //     previous successful records (monotonicity preserved across
   //     concurrent insert/update),
@@ -103,6 +103,7 @@ TEST_CASE("PrimaryTermTracker: concurrent readers + writers stay consistent") {
   std::atomic<bool> any_torn{false};
 
   std::vector<std::thread> threads;
+  threads.reserve(kWriters);
   for (int w = 0; w < kWriters; ++w) {
     threads.emplace_back([&, w] {
       for (int i = 0; i < kIters; ++i) {

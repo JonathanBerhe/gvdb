@@ -23,8 +23,7 @@
 #include "storage/backup/backup_manager.h"
 #include "storage/backup/restore_manager.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // Auto-rebalance configuration. `debounce` caps how often a
 // new-node event can trigger ExecuteRebalancePlan: a rolling restart of N
@@ -324,5 +323,4 @@ class Coordinator {
   std::shared_ptr<storage::RestoreManager> restore_manager_;
 };
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

@@ -15,8 +15,7 @@
 #include <string>
 #include <system_error>
 
-namespace gvdb {
-namespace test {
+namespace gvdb::test {
 
 // Returns a new, empty folder under the system temp folder. The name holds
 // the prefix, the process id, a per-process counter and a random number, so
@@ -57,5 +56,4 @@ class ScopedTempDir {
   std::filesystem::path path_;
 };
 
-}  // namespace test
-}  // namespace gvdb
+}  // namespace gvdb::test

@@ -18,8 +18,7 @@
 #include "consensus/metadata_state_machine.h"
 #include "consensus/nuraft_logger.h"
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 absl::StatusOr<std::unique_ptr<RaftNode>> RaftNode::Create(
     const RaftConfig& config, std::shared_ptr<IRaftPeerClient> peer_client) {
@@ -29,8 +28,8 @@ absl::StatusOr<std::unique_ptr<RaftNode>> RaftNode::Create(
   return std::unique_ptr<RaftNode>(new RaftNode(config, std::move(peer_client)));
 }
 
-RaftNode::RaftNode(const RaftConfig& config, std::shared_ptr<IRaftPeerClient> peer_client)
-    : config_(config), peer_client_(std::move(peer_client)) {
+RaftNode::RaftNode(RaftConfig config, std::shared_ptr<IRaftPeerClient> peer_client)
+    : config_(std::move(config)), peer_client_(std::move(peer_client)) {
   common::Logger::Instance().Info("RaftNode created (node_id={}, single_node_mode={})",
                                   config_.node_id, config_.single_node_mode);
 }
@@ -42,7 +41,7 @@ RaftNode::~RaftNode() {
 }
 
 absl::Status RaftNode::Start() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   if (running_.load(std::memory_order_acquire)) {
     return absl::FailedPreconditionError("RaftNode already running");
@@ -103,7 +102,7 @@ absl::Status RaftNode::Start() {
 }
 
 absl::Status RaftNode::Shutdown() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   if (!running_.load(std::memory_order_acquire)) {
     return absl::OkStatus();  // Already stopped
@@ -466,5 +465,4 @@ absl::Status RaftNode::InitializeNuRaft() {
   return absl::OkStatus();
 }
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

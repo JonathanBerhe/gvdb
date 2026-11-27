@@ -10,8 +10,7 @@
 #include <chrono>
 #include <thread>
 
-namespace gvdb {
-namespace test {
+namespace gvdb::test {
 
 // Calls `done` until it returns true or `timeout` passes. Returns the last
 // result, so a caller can REQUIRE(WaitFor(...)).
@@ -26,5 +25,4 @@ bool WaitFor(Predicate done, std::chrono::milliseconds timeout = std::chrono::se
   return done();
 }
 
-}  // namespace test
-}  // namespace gvdb
+}  // namespace gvdb::test

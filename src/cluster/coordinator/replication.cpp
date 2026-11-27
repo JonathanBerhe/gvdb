@@ -12,8 +12,7 @@
 #include "cluster/coordinator/internal_client.h"
 #include "common/logger.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // ============================================================================
 // Read Repair: Consistency Checking
@@ -22,7 +21,7 @@ namespace cluster {
 void Coordinator::RunConsistencyCheck() { CheckConsistency(); }
 
 size_t Coordinator::GetRepairQueueSize() const {
-  std::lock_guard lock(repair_mutex_);
+  std::scoped_lock lock(repair_mutex_);
   return shards_being_repaired_.size();
 }
 
@@ -37,7 +36,7 @@ void Coordinator::CheckConsistency() {
       core::ShardId shard_id = metadata.shard_ids[i];
 
       {
-        std::lock_guard repair_lock(repair_mutex_);
+        std::scoped_lock repair_lock(repair_mutex_);
         if (shards_being_repaired_.count(shard_id) > 0) continue;
       }
 
@@ -100,7 +99,7 @@ void Coordinator::CheckConsistency() {
             primary_total, core::ToUInt32(replica_node), replica_total);
 
         {
-          std::lock_guard repair_lock(repair_mutex_);
+          std::scoped_lock repair_lock(repair_mutex_);
           shards_being_repaired_.insert(shard_id);
         }
 
@@ -110,7 +109,7 @@ void Coordinator::CheckConsistency() {
         lock.lock();
 
         {
-          std::lock_guard repair_lock(repair_mutex_);
+          std::scoped_lock repair_lock(repair_mutex_);
           shards_being_repaired_.erase(shard_id);
         }
 
@@ -200,5 +199,4 @@ absl::Status Coordinator::ReplicateSegmentData(core::SegmentId segment_id, core:
   return absl::OkStatus();
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

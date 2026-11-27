@@ -12,9 +12,7 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
-namespace gvdb {
-
-namespace auth {
+namespace gvdb::auth {
 
 // One API key and the role it grants (the auth.roles entries of the YAML
 // configuration).
@@ -47,7 +45,7 @@ enum class Permission {
   UPDATE_METADATA,
   UPSERT,
   LIST_VECTORS,
-  // BACKUP captures a point-in-time copy of a collection — structurally
+  // BACKUP captures a point-in-time copy of a collection, structurally
   // a read across every segment plus an upload to a server-configured
   // object store. RESTORE materializes a collection from such a copy
   // and is gated like CREATE/DROP because it can create or destroy
@@ -94,5 +92,4 @@ class RbacStore {
   mutable std::shared_mutex mutex_;
 };
 
-}  // namespace auth
-}  // namespace gvdb
+}  // namespace gvdb::auth

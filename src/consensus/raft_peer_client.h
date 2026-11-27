@@ -9,8 +9,7 @@
 
 #include "absl/status/statusor.h"
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 // The calls that a Raft node makes to the other coordinators while it
 // starts: the leader probe and the join request. The cluster module
@@ -50,5 +49,4 @@ class IRaftPeerClient {
                                                 std::chrono::milliseconds timeout) = 0;
 };
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

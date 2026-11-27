@@ -14,8 +14,7 @@
 #include "internal.grpc.pb.h"
 #include "vectordb.grpc.pb.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 // Proxy service that routes client requests to backend nodes.
 //
@@ -32,8 +31,7 @@ namespace service {
 // than fanning out to a random data node).
 class ProxyService final : public proto::VectorDBService::Service {
  public:
-  ProxyService(const std::vector<std::string>& coordinator_addrs,
-               const std::string& query_node_uri);
+  ProxyService(const std::vector<std::string>& coordinator_addrs, std::string query_node_uri);
 
   ~ProxyService() override = default;
 
@@ -162,5 +160,4 @@ class ProxyService final : public proto::VectorDBService::Service {
   proto::VectorDBService::Stub* GetOrCreateDataClient(const std::string& address);
 };
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

@@ -13,8 +13,7 @@
 #include "core/types.h"
 #include "storage/segment/segment.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // ============================================================================
 // SegmentExporter - package and reconstruct one segment for backup/restore
@@ -66,7 +65,7 @@ class SegmentExporter {
  public:
   // Materialize a snapshot of the segment suitable for upload.
   // `flushed_segments_root` is the base path the segment manager uses
-  // for Segment::Flush — i.e. the value such that the flushed sealed
+  // for Segment::Flush, that is, the value such that the flushed sealed
   // segment lives at <flushed_segments_root>/segment_<id>/.
   // `tmp_root` is a writable directory used for GROWING-segment
   // snapshots.
@@ -82,5 +81,4 @@ class SegmentExporter {
       const std::filesystem::path& segment_dir, core::SegmentId segment_id);
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

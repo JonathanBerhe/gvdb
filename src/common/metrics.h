@@ -12,8 +12,7 @@
 #include "prometheus/histogram.h"
 #include "prometheus/registry.h"
 
-namespace gvdb {
-namespace common {
+namespace gvdb::common {
 
 /**
  * @brief Singleton metrics registry for Prometheus integration
@@ -240,7 +239,7 @@ class MetricsRegistry {
   prometheus::Family<prometheus::Counter>* auto_rebalance_moves_completed_;
   prometheus::Family<prometheus::Counter>* auto_rebalance_failures_;
 
-  // Read replica-fallback observability — how often the proxy / query-node
+  // Read replica-fallback observability: how often the proxy / query-node
   // had to skip past an unreachable target, and how often the entire
   // candidate list was exhausted.
   prometheus::Family<prometheus::Counter>* read_replica_fallback_total_;
@@ -261,7 +260,7 @@ class MetricsTimer {
  public:
   enum class OperationType { INSERT, SEARCH, GET, DELETE, UPDATE_METADATA };
 
-  MetricsTimer(MetricsRegistry& registry, OperationType type, const std::string& collection_name);
+  MetricsTimer(MetricsRegistry& registry, OperationType type, std::string collection_name);
   ~MetricsTimer();
 
   // Delete copy/move
@@ -275,5 +274,4 @@ class MetricsTimer {
   std::chrono::steady_clock::time_point start_;
 };
 
-}  // namespace common
-}  // namespace gvdb
+}  // namespace gvdb::common

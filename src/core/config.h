@@ -10,8 +10,7 @@
 
 #include "core/types.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 // ============================================================================
 // IndexConfig - Configuration for vector index creation
@@ -71,12 +70,12 @@ struct IndexConfig {
 // Sub-tier boundary within HNSW range
 constexpr size_t kAutoTierSmallHnswMax = 100'000;  // 10K–100K → small HNSW
 
-// HNSW parameters — small graphs (10K–100K vectors)
+// HNSW parameters: small graphs (10K–100K vectors)
 constexpr int kSmallHnswM = 12;
 constexpr int kSmallHnswEfConstruction = 128;
 constexpr int kSmallHnswEfSearch = 64;
 
-// HNSW parameters — large graphs (100K–500K vectors)
+// HNSW parameters: large graphs (100K–500K vectors)
 constexpr int kLargeHnswM = 16;
 constexpr int kLargeHnswEfConstruction = 200;
 constexpr int kLargeHnswEfSearch = 100;
@@ -90,7 +89,7 @@ constexpr int kHighDimHnswM = 20;
 // ============================================================================
 // Returns a complete IndexConfig with parameters tuned for the given vector
 // count and dimension. For non-AUTO types, returns an IndexConfig with only
-// index_type/dimension/metric_type populated — callers wanting explicit tuning
+// index_type/dimension/metric_type populated, callers wanting explicit tuning
 // should construct IndexConfig directly.
 // Tier boundaries from core/types.h: kAutoTierFlatMax, kAutoTierHnswMax, etc.
 
@@ -103,7 +102,7 @@ struct IvfAdaptiveParams {
 // nlist and nprobe are each floored at 1; sqrt is clamped to INT_MAX to guard
 // against overflow on pathologically large counts.
 inline IvfAdaptiveParams ComputeIvfParams(size_t vector_count) {
-  constexpr double kIntMax = static_cast<double>(std::numeric_limits<int>::max());
+  constexpr auto kIntMax = static_cast<double>(std::numeric_limits<int>::max());
   const double raw_nlist = std::sqrt(static_cast<double>(vector_count));
   const int nlist = std::max(1, static_cast<int>(std::min(raw_nlist, kIntMax)));
   const int nprobe = std::max(1, static_cast<int>(std::sqrt(static_cast<double>(nlist))));
@@ -120,7 +119,7 @@ inline IndexConfig ResolveAutoIndexConfig(IndexType type, size_t vector_count, D
   if (type != IndexType::AUTO) return config;
 
   if (vector_count < kAutoTierFlatMax) {
-    // FLAT — brute force, no parameters to tune
+    // FLAT: brute force, no parameters to tune
 
   } else if (vector_count < kAutoTierSmallHnswMax) {
     // Small HNSW: lower connectivity sufficient for small graphs
@@ -154,7 +153,7 @@ inline IndexConfig ResolveAutoIndexConfig(IndexType type, size_t vector_count, D
     config.ivf_turboquant_params.bit_width = 4;
 
   } else {
-    // IVF_TURBOQUANT 2-bit (≥100M vectors) — aggressive compression, lowest
+    // IVF_TURBOQUANT 2-bit (≥100M vectors): aggressive compression, lowest
     // recall per the TurboQuant paper; reserved for the largest tier.
     const auto ivf = ComputeIvfParams(vector_count);
     config.ivf_turboquant_params.nlist = ivf.nlist;
@@ -165,5 +164,4 @@ inline IndexConfig ResolveAutoIndexConfig(IndexType type, size_t vector_count, D
   return config;
 }
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

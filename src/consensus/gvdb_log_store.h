@@ -19,8 +19,7 @@ class DB;
 class ColumnFamilyHandle;
 }  // namespace rocksdb
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 /**
  * GVDB implementation of NuRaft's log_store interface, backed by RocksDB.
@@ -140,7 +139,7 @@ class GvdbLogStore : public nuraft::log_store {
   bool flush() override;
 
  private:
-  explicit GvdbLogStore(const std::string& db_path);
+  explicit GvdbLogStore(std::string db_path);
 
   // Mutex protecting all data structures
   mutable std::mutex mutex_;
@@ -168,5 +167,4 @@ class GvdbLogStore : public nuraft::log_store {
   bool DeleteRangeFromDb(nuraft::ulong start_index, nuraft::ulong end_index);
 };
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

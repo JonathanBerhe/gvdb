@@ -3,10 +3,9 @@
 
 #include "common/thread_pool.h"
 
-namespace gvdb {
-namespace common {
+namespace gvdb::common {
 
-ThreadPool::ThreadPool(size_t threads) : stop_(false) {
+ThreadPool::ThreadPool(size_t threads) {
   // Use hardware concurrency if threads == 0
   size_t num_threads = threads;
   if (num_threads == 0) {
@@ -64,5 +63,4 @@ ThreadPool::~ThreadPool() {
   }
 }
 
-}  // namespace common
-}  // namespace gvdb
+}  // namespace gvdb::common

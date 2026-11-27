@@ -106,7 +106,7 @@ class MockQueryNodeService : public proto::VectorDBService::Service {
 
     // Add a result entry with node ID encoded in the vector ID
     auto* result = response->add_results();
-    result->set_id(node_id * 1000);  // Encode node ID
+    result->set_id(static_cast<uint64_t>(node_id) * 1000);  // Encode node ID
     result->set_distance(0.5f);
 
     return grpc::Status::OK;
@@ -331,7 +331,7 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "SearchRoutesToQueryNode") {
 }
 
 // Post-1.7 the proxy dials a single query-node channel (dns:///<headless>
-// with round_robin LB policy) rather than a vector of addresses —
+// with round_robin LB policy) rather than a vector of addresses,
 // application-level round-robin across 2+ backends is no longer exercised
 // at this layer. The dns:/// fan-out is covered in the DNS integration
 // test (test/integration/proxy_dns_test.cpp, new in 1.7), which fakes a
@@ -494,6 +494,7 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "ConcurrentRequests") {
   std::atomic<int> success_count{0};
 
   // Launch 10 concurrent search requests
+  threads.reserve(10);
   for (int i = 0; i < 10; ++i) {
     threads.emplace_back([&]() {
       grpc::ServerContext context;

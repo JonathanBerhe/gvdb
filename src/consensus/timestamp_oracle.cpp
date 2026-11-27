@@ -5,8 +5,7 @@
 #include <chrono>
 #include "common/logger.h"
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 TimestampOracle::TimestampOracle() {
   // Initialize with current time in microseconds for uniqueness across restarts
@@ -24,5 +23,4 @@ core::Timestamp TimestampOracle::GetTimestamp() {
   return timestamp_.fetch_add(1, std::memory_order_acq_rel);
 }
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

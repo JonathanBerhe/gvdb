@@ -20,8 +20,7 @@
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_store.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // Progress of one restore job. The atomics have the same shape as the
 // BackupJob and BulkImporter jobs.
@@ -39,11 +38,11 @@ struct RestoreJob {
   std::chrono::steady_clock::time_point start_time;
 
   void SetError(const std::string& msg) {
-    std::lock_guard<std::mutex> lk(error_mutex);
+    std::scoped_lock lk(error_mutex);
     error_message = msg;
   }
   std::string GetError() const {
-    std::lock_guard<std::mutex> lk(error_mutex);
+    std::scoped_lock lk(error_mutex);
     return error_message;
   }
 };
@@ -91,7 +90,7 @@ class RestoreManager {
   [[nodiscard]] absl::StatusOr<std::string> StartRestoreSingleShard(
       const BackupTarget& source, const std::string& backup_id,
       core::CollectionId target_collection_id, core::ShardId shard_id,
-      std::shared_ptr<ISegmentStore> segment_store);
+      const std::shared_ptr<ISegmentStore>& segment_store);
 
   // Per-shard restore executor used by the multi-shard orchestration
   // path. Caller (Coordinator) dispatches RestoreShard to the data-node
@@ -117,7 +116,7 @@ class RestoreManager {
                                              const std::string& backup_id,
                                              core::CollectionId target_collection_id,
                                              core::ShardId shard_id,
-                                             std::shared_ptr<ISegmentStore> segment_store);
+                                             const std::shared_ptr<ISegmentStore>& segment_store);
 
  private:
   struct ResolvedTarget {
@@ -127,11 +126,12 @@ class RestoreManager {
   };
   [[nodiscard]] absl::StatusOr<ResolvedTarget> ResolveTarget(const BackupTarget& source);
 
-  void ExecuteSingleShardJob(std::shared_ptr<RestoreJob> job, core::ShardId shard_id,
-                             std::shared_ptr<ISegmentStore> segment_store);
+  void ExecuteSingleShardJob(const std::shared_ptr<RestoreJob>& job, core::ShardId shard_id,
+                             const std::shared_ptr<ISegmentStore>& segment_store);
 
-  void ExecuteDistributedJob(std::shared_ptr<RestoreJob> job, std::vector<core::ShardId> shard_ids,
-                             ShardRestoreExecutor executor);
+  void ExecuteDistributedJob(const std::shared_ptr<RestoreJob>& job,
+                             const std::vector<core::ShardId>& shard_ids,
+                             const ShardRestoreExecutor& executor);
 
   static std::string AllocateRestoreId();
 
@@ -141,5 +141,4 @@ class RestoreManager {
   std::unordered_map<std::string, std::shared_ptr<RestoreJob>> jobs_;
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

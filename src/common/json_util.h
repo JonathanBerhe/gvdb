@@ -8,9 +8,7 @@
 #include <string_view>
 #include <vector>
 
-namespace gvdb {
-namespace common {
-namespace json {
+namespace gvdb::common::json {
 
 // Minimal helpers for the hand-rolled JSON documents GVDB reads and writes
 // (segment manifests, backup manifests, the coordinator registry). They are
@@ -40,6 +38,4 @@ std::string_view ExtractArrayBody(const std::string& json, std::string_view fiel
 // Handles nested objects, nested arrays, and strings containing braces.
 std::vector<std::string> SplitObjects(std::string_view array_body);
 
-}  // namespace json
-}  // namespace common
-}  // namespace gvdb
+}  // namespace gvdb::common::json

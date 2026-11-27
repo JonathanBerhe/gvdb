@@ -13,8 +13,7 @@
 #include "absl/status/statusor.h"
 #include "core/types.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // Shard state during lifecycle
 enum class ShardState {
@@ -26,10 +25,10 @@ enum class ShardState {
 
 // Information about a single shard assignment
 struct ShardInfo {
-  core::ShardId shard_id;
-  core::NodeId primary_node;
+  core::ShardId shard_id{core::kInvalidShardId};
+  core::NodeId primary_node{core::kInvalidNodeId};
   std::vector<core::NodeId> replica_nodes;
-  ShardState state;
+  ShardState state{ShardState::ACTIVE};
 
   // Monotonic generation number, bumped on every primary change. Anchors
   // write linearizability across primary swaps: the proxy stamps
@@ -38,12 +37,12 @@ struct ShardInfo {
   // match its locally-recorded term. Without this, a write routed to
   // the old primary just before a swap would commit silently and leak
   // out of consensus.
-  uint64_t primary_term;
+  uint64_t primary_term{0};
 
   // Metrics for rebalancing decisions
-  size_t data_size_bytes;
-  size_t vector_count;
-  uint64_t query_count;
+  size_t data_size_bytes{0};
+  size_t vector_count{0};
+  uint64_t query_count{0};
 
   // Range: which vectors belong to this shard
   // For simple hash-based sharding, this can be empty
@@ -51,13 +50,8 @@ struct ShardInfo {
   std::vector<std::pair<uint64_t, uint64_t>> key_ranges;
 
   ShardInfo()
-      : shard_id(core::kInvalidShardId),
-        primary_node(core::kInvalidNodeId),
-        state(ShardState::ACTIVE),
-        primary_term(0),
-        data_size_bytes(0),
-        vector_count(0),
-        query_count(0) {}
+
+      = default;
 };
 
 // Shard assignment strategy
@@ -85,7 +79,7 @@ class ShardManager {
   absl::StatusOr<core::NodeId> GetPrimaryNode(core::ShardId shard_id) const;
 
   // Returns (primary_node, primary_term) atomically. Use this when both
-  // pieces are needed — calling GetPrimaryNode() then GetPrimaryTerm()
+  // pieces are needed, calling GetPrimaryNode() then GetPrimaryTerm()
   // would race against a concurrent SetPrimaryNode and could pair an
   // old node with a new term (or vice versa).
   struct PrimaryView {
@@ -97,13 +91,13 @@ class ShardManager {
   absl::StatusOr<std::vector<core::NodeId>> GetReplicaNodes(core::ShardId shard_id) const;
 
   // Sets the primary for a shard. The single-arg form auto-increments
-  // primary_term — preserves callers that don't pin a term explicitly
+  // primary_term, preserves callers that don't pin a term explicitly
   // (rebalance plan, drain handler before they're refactored to the
   // two-phase swap). The three-arg form is for the orchestrated swap
   // path (Coordinator::TransferPrimary): the caller has computed the
   // term on its own and wants the term written exactly. Both forms
   // reject term regressions (writing a term ≤ existing primary_term)
-  // — primary_term is monotonic by contract.
+  // because primary_term is monotonic by contract.
   absl::Status SetPrimaryNode(core::ShardId shard_id, core::NodeId node_id);
   absl::Status SetPrimaryNode(core::ShardId shard_id, core::NodeId node_id, uint64_t primary_term);
 
@@ -144,7 +138,7 @@ class ShardManager {
   mutable std::shared_mutex shard_mutex_;
   std::map<core::ShardId, ShardInfo> shards_;
 
-  // Nodes with shard assignments (not all cluster nodes — see NodeRegistry for that)
+  // Nodes with shard assignments (not all cluster nodes, see NodeRegistry for that)
   mutable std::shared_mutex node_mutex_;
   std::set<core::NodeId> assigned_nodes_;
 
@@ -162,5 +156,4 @@ class ShardManager {
   void InitializeShards();
 };
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

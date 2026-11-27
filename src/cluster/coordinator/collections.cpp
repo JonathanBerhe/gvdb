@@ -13,8 +13,7 @@
 #include "core/status.h"
 #include "core/type_names.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 absl::StatusOr<core::CollectionId> Coordinator::CreateCollection(
     const std::string& name, core::Dimension dimension, core::MetricType metric_type,
@@ -320,5 +319,4 @@ absl::Status Coordinator::AssignShardsToCollection(core::CollectionId collection
   return absl::OkStatus();
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

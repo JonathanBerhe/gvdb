@@ -25,8 +25,7 @@
 #include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 
-namespace gvdb {
-namespace test {
+namespace gvdb::test {
 
 namespace {
 
@@ -276,5 +275,4 @@ TEST_CASE_FIXTURE(ProxyIntegrationTest, "HealthCheckThroughProxy") {
   CHECK_EQ(resp.status(), proto::HealthCheckResponse::SERVING);
 }
 
-}  // namespace test
-}  // namespace gvdb
+}  // namespace gvdb::test

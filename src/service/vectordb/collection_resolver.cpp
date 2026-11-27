@@ -20,8 +20,7 @@
 #include "service/vectordb/collection_metadata_cache.h"
 #include "storage/segment/segment_store.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 // ============================================================================
 // LocalCollectionResolver: single-node mode
@@ -42,7 +41,7 @@ class LocalCollectionResolver : public ICollectionResolver {
  public:
   LocalCollectionResolver(std::shared_ptr<storage::ISegmentStore> segment_store,
                           const std::string& registry_dir)
-      : segment_store_(std::move(segment_store)), next_id_(1) {
+      : segment_store_(std::move(segment_store)) {
     if (!registry_dir.empty()) {
       registry_path_ = registry_dir + "/collections.json";
       LoadRegistry();
@@ -69,7 +68,7 @@ class LocalCollectionResolver : public ICollectionResolver {
     }
     if (num_shards == 0) num_shards = 1;
 
-    core::CollectionId id = core::CollectionId(next_id_++);
+    auto id = core::CollectionId(next_id_++);
 
     LocalEntry entry;
     entry.id = id;
@@ -252,7 +251,7 @@ class LocalCollectionResolver : public ICollectionResolver {
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   mutable std::shared_mutex mutex_;
   std::unordered_map<std::string, LocalEntry> entries_;
-  uint32_t next_id_;
+  uint32_t next_id_{1};
 };
 
 // ============================================================================
@@ -489,5 +488,4 @@ std::unique_ptr<ICollectionResolver> MakeCachedCoordinatorResolver(
   return std::make_unique<CachedCoordinatorResolver>(coordinator_address);
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

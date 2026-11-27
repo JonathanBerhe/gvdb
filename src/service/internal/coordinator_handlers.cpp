@@ -12,8 +12,7 @@
 #include "core/types.h"
 #include "service/internal/internal_service.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 // =============================================================================
 // Shard Management
@@ -553,5 +552,4 @@ grpc::Status InternalService::TransferLeadership(
   return grpc::Status::OK;
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

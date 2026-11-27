@@ -3,8 +3,7 @@
 
 #include "auth/audit_context.h"
 
-namespace gvdb {
-namespace auth {
+namespace gvdb::auth {
 
 namespace {
 thread_local std::string g_audit_collection;
@@ -24,5 +23,4 @@ void AuditContext::Clear() {
   g_audit_item_count = 0;
 }
 
-}  // namespace auth
-}  // namespace gvdb
+}  // namespace gvdb::auth

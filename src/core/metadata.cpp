@@ -10,8 +10,7 @@
 #include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 // ============================================================================
 // Metadata Value Comparison
@@ -89,7 +88,7 @@ bool CompareMetadataValues(const MetadataValue& left, ComparisonOp op, const Met
 
 bool CompareMetadataValueInList(const MetadataValue& value, bool negate,
                                 const std::vector<MetadataValue>& list) {
-  bool found = std::find(list.begin(), list.end(), value) != list.end();
+  bool found = std::ranges::find(list, value) != list.end();
   return negate ? !found : found;
 }
 
@@ -221,11 +220,11 @@ absl::Status ValidateMetadataValue(const MetadataValue& value) {
 
 absl::Status ValidateMetadata(const Metadata& metadata) {
   // Maximum metadata fields per vector
-  constexpr size_t MAX_METADATA_FIELDS = 100;
+  constexpr size_t kMaxMetadataFields = 100;
 
-  if (metadata.size() > MAX_METADATA_FIELDS) {
-    return absl::InvalidArgumentError(absl::StrCat("Too many metadata fields (max ",
-                                                   MAX_METADATA_FIELDS, "): ", metadata.size()));
+  if (metadata.size() > kMaxMetadataFields) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Too many metadata fields (max ", kMaxMetadataFields, "): ", metadata.size()));
   }
 
   // Validate each key-value pair
@@ -257,13 +256,13 @@ MetadataSerializer::TypeTag MetadataSerializer::GetTypeTag(const MetadataValue& 
 void MetadataSerializer::SerializeEntry(const std::string& key, const MetadataValue& value,
                                         std::ostream& os) {
   // Write key length and key
-  uint32_t key_len = static_cast<uint32_t>(key.size());
+  auto key_len = static_cast<uint32_t>(key.size());
   os.write(reinterpret_cast<const char*>(&key_len), sizeof(key_len));
   os.write(key.data(), key_len);
 
   // Write type tag
   TypeTag tag = GetTypeTag(value);
-  uint8_t tag_byte = static_cast<uint8_t>(tag);
+  auto tag_byte = static_cast<uint8_t>(tag);
   os.write(reinterpret_cast<const char*>(&tag_byte), sizeof(tag_byte));
 
   // Write value based on type
@@ -275,7 +274,7 @@ void MetadataSerializer::SerializeEntry(const std::string& key, const MetadataVa
         } else if constexpr (std::is_same_v<T, double>) {
           os.write(reinterpret_cast<const char*>(&v), sizeof(double));
         } else if constexpr (std::is_same_v<T, std::string>) {
-          uint32_t str_len = static_cast<uint32_t>(v.size());
+          auto str_len = static_cast<uint32_t>(v.size());
           os.write(reinterpret_cast<const char*>(&str_len), sizeof(str_len));
           os.write(v.data(), str_len);
         } else if constexpr (std::is_same_v<T, bool>) {
@@ -308,7 +307,7 @@ absl::StatusOr<std::pair<std::string, MetadataValue>> MetadataSerializer::Deseri
     return absl::InvalidArgumentError("Invalid type tag");
   }
 
-  TypeTag tag = static_cast<TypeTag>(tag_byte);
+  auto tag = static_cast<TypeTag>(tag_byte);
   MetadataValue value;
 
   // Read value based on type
@@ -353,7 +352,7 @@ absl::StatusOr<std::pair<std::string, MetadataValue>> MetadataSerializer::Deseri
 
 void MetadataSerializer::Serialize(const Metadata& metadata, std::ostream& os) {
   // Write entry count
-  uint64_t count = static_cast<uint64_t>(metadata.size());
+  auto count = static_cast<uint64_t>(metadata.size());
   os.write(reinterpret_cast<const char*>(&count), sizeof(count));
 
   // Write each entry
@@ -385,5 +384,4 @@ absl::StatusOr<Metadata> MetadataSerializer::Deserialize(std::istream& is) {
   return metadata;
 }
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

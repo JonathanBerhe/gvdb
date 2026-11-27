@@ -6,8 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 // Configuration for a Raft node
 struct RaftConfig {
@@ -47,5 +46,4 @@ struct RaftConfig {
   }
 };
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

@@ -4,20 +4,19 @@
 #include "cluster/datanode/heartbeat_sender.h"
 #include <grpcpp/grpcpp.h>
 #include <chrono>
+#include <utility>
 #include "cluster/datanode/primary_term_tracker.h"
 #include "common/logger.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
-HeartbeatSender::HeartbeatSender(const std::string& coordinator_address, int node_id,
-                                 const std::string& grpc_address,
-                                 proto::internal::NodeType node_type,
+HeartbeatSender::HeartbeatSender(std::string coordinator_address, int node_id,
+                                 std::string grpc_address, proto::internal::NodeType node_type,
                                  std::atomic<bool>& shutdown_flag,
                                  PrimaryTermTracker* primary_term_tracker)
-    : coordinator_address_(coordinator_address),
+    : coordinator_address_(std::move(coordinator_address)),
       node_id_(node_id),
-      grpc_address_(grpc_address),
+      grpc_address_(std::move(grpc_address)),
       node_type_(node_type),
       shutdown_flag_(shutdown_flag),
       primary_term_tracker_(primary_term_tracker) {}
@@ -142,5 +141,4 @@ void HeartbeatSender::SendLoop() {
   common::Logger::Instance().Info("Heartbeat sender stopped");
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

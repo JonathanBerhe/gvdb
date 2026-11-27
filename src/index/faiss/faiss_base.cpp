@@ -17,10 +17,9 @@
 
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
-// faiss-gpu's StandardGpuResources is not safe under concurrent search —
+// faiss-gpu's StandardGpuResources is not safe under concurrent search,
 // each search uses the shared scratch state. On CUDA builds we therefore
 // serialize all read paths; CPU-only builds keep multi-reader concurrency.
 #ifdef GVDB_HAS_CUDA
@@ -30,7 +29,7 @@ using SearchLock = std::shared_lock<std::shared_mutex>;
 #endif
 
 FaissIndexBase::FaissIndexBase(std::unique_ptr<faiss::Index> index, core::MetricType metric)
-    : index_(std::move(index)), metric_type_(metric), is_trained_(false) {
+    : index_(std::move(index)), metric_type_(metric) {
   // Check if index is already trained (FLAT doesn't need training)
   is_trained_ = index_->is_trained;
 }
@@ -272,7 +271,7 @@ absl::Status FaissIndexBase::Serialize(const std::string& path) const {
 
 #ifdef GVDB_HAS_CUDA
   if (gpu_resident_) {
-    // GPU faiss indices aren't serializable directly — round-trip to CPU
+    // GPU faiss indices aren't serializable directly, so round-trip to CPU
     // for the write. The temporary CPU clone is discarded after the write.
     return ExecuteFaissOperation(
         [&]() {
@@ -346,5 +345,4 @@ core::VectorId FaissIndexBase::IdxToVectorId(faiss::idx_t idx) {
   return core::MakeVectorId(static_cast<uint64_t>(idx));
 }
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

@@ -8,8 +8,7 @@
 #include <vector>
 #include "core/status.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 // Sparse vector representation for learned sparse retrieval (SPLADE, etc.)
 // Entries are stored sorted by dimension index with no duplicates.
@@ -46,5 +45,4 @@ class SparseVector {
   std::vector<Entry> entries_;
 };
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

@@ -6,8 +6,7 @@
 #include <cstdint>
 #include <string>
 
-namespace gvdb {
-namespace auth {
+namespace gvdb::auth {
 
 // Thread-local storage for audit enrichment fields.
 // Set by service handlers, read by the audit interceptor in PRE_SEND_STATUS.
@@ -21,5 +20,4 @@ class AuditContext {
   static void Clear();
 };
 
-}  // namespace auth
-}  // namespace gvdb
+}  // namespace gvdb::auth

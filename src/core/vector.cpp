@@ -10,8 +10,7 @@
 
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 // ============================================================================
 // AlignedAllocator Implementation
@@ -103,7 +102,7 @@ Vector& Vector::operator=(Vector&& other) noexcept {
   return *this;
 }
 
-Vector::Vector(const Vector& other) : dimension_(other.dimension_), data_(other.data_) {}
+Vector::Vector(const Vector& other) = default;
 
 Vector& Vector::operator=(const Vector& other) {
   if (this != &other) {
@@ -115,8 +114,8 @@ Vector& Vector::operator=(const Vector& other) {
 
 float Vector::Norm() const {
   float sum = 0.0f;
-  for (size_t i = 0; i < data_.size(); ++i) {
-    sum += data_[i] * data_[i];
+  for (float i : data_) {
+    sum += i * i;
   }
   return std::sqrt(sum);
 }
@@ -183,5 +182,4 @@ Vector RandomVector(Dimension dim) {
   return vec;
 }
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

@@ -20,8 +20,7 @@
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_store.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // Progress of one backup job. The atomics have the same shape as the
 // RestoreJob and BulkImporter jobs.
@@ -41,11 +40,11 @@ struct BackupJob {
   std::chrono::steady_clock::time_point start_time;
 
   void SetError(const std::string& msg) {
-    std::lock_guard<std::mutex> lk(error_mutex);
+    std::scoped_lock lk(error_mutex);
     error_message = msg;
   }
   std::string GetError() const {
-    std::lock_guard<std::mutex> lk(error_mutex);
+    std::scoped_lock lk(error_mutex);
     return error_message;
   }
 };
@@ -133,7 +132,8 @@ class BackupManager {
       core::Dimension dimension, core::MetricType metric, core::IndexType index_type,
       uint32_t num_shards, uint32_t replication_factor, core::ShardId shard_id,
       uint64_t primary_term, const BackupTarget& target,
-      std::shared_ptr<ISegmentStore> segment_store, const std::string& requested_backup_id = "");
+      const std::shared_ptr<ISegmentStore>& segment_store,
+      const std::string& requested_backup_id = "");
 
   // Per-shard executor used by the multi-shard orchestration path. The
   // caller (Coordinator) supplies a callable that runs the equivalent
@@ -154,7 +154,7 @@ class BackupManager {
       core::Dimension dimension, core::MetricType metric, core::IndexType index_type,
       uint32_t replication_factor, const std::vector<core::ShardId>& shard_ids,
       const std::vector<uint64_t>& primary_terms,  // parallel to shard_ids
-      const BackupTarget& target, ShardBackupExecutor executor,
+      const BackupTarget& target, const ShardBackupExecutor& executor,
       const std::string& requested_backup_id = "");
 
   [[nodiscard]] absl::StatusOr<BackupJobStatus> GetStatus(const std::string& backup_id) const;
@@ -169,7 +169,7 @@ class BackupManager {
   [[nodiscard]] absl::StatusOr<ShardBackupResult> RunShardBackup(
       const std::string& backup_id, core::CollectionId collection_id, core::ShardId shard_id,
       uint64_t primary_term, const BackupTarget& target,
-      std::shared_ptr<ISegmentStore> segment_store);
+      const std::shared_ptr<ISegmentStore>& segment_store);
 
   // Test helper: list all known job ids (deterministic order).
   std::vector<std::string> JobIds() const;
@@ -185,22 +185,23 @@ class BackupManager {
   };
   [[nodiscard]] absl::StatusOr<ResolvedTarget> ResolveTarget(const BackupTarget& target);
 
-  void ExecuteSingleShardJob(std::shared_ptr<BackupJob> job, core::Dimension dimension,
+  void ExecuteSingleShardJob(const std::shared_ptr<BackupJob>& job, core::Dimension dimension,
                              core::MetricType metric, core::IndexType index_type,
                              uint32_t num_shards, uint32_t replication_factor,
                              core::ShardId shard_id, uint64_t primary_term,
-                             std::shared_ptr<ISegmentStore> segment_store);
+                             const std::shared_ptr<ISegmentStore>& segment_store);
 
-  void ExecuteDistributedJob(std::shared_ptr<BackupJob> job, core::Dimension dimension,
+  void ExecuteDistributedJob(const std::shared_ptr<BackupJob>& job, core::Dimension dimension,
                              core::MetricType metric, core::IndexType index_type,
                              uint32_t replication_factor, std::vector<core::ShardId> shard_ids,
-                             std::vector<uint64_t> primary_terms, ShardBackupExecutor executor);
+                             std::vector<uint64_t> primary_terms,
+                             const ShardBackupExecutor& executor);
 
   // Write the top-level manifest after every shard succeeded. Shared by
   // both single- and multi-shard paths. Sets `job->manifest_uri` and
   // returns OK on success; on failure the partial upload is cleaned up
   // and the job is marked FAILED.
-  absl::Status FinalizeTopManifest(std::shared_ptr<BackupJob> job, const ResolvedTarget& rt,
+  absl::Status FinalizeTopManifest(const std::shared_ptr<BackupJob>& job, const ResolvedTarget& rt,
                                    core::Dimension dimension, core::MetricType metric,
                                    core::IndexType index_type, uint32_t num_shards,
                                    uint32_t replication_factor,
@@ -217,5 +218,4 @@ class BackupManager {
   std::unordered_map<std::string, std::shared_ptr<BackupJob>> jobs_;
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

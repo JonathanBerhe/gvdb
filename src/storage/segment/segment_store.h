@@ -13,8 +13,7 @@
 #include "core/vector.h"
 #include "storage/segment/segment.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // ============================================================================
 // ISegmentStore - Abstract interface for segment storage backends
@@ -90,7 +89,7 @@ class ISegmentStore {
   [[nodiscard]] virtual Segment* GetWritableSegment(core::CollectionId collection_id,
                                                     size_t required_bytes = 0) = 0;
 
-  // Run TTL sweep loop — blocks until shutdown. Sweeps expired vectors from
+  // Run TTL sweep loop: blocks until shutdown. Sweeps expired vectors from
   // GROWING segments at periodic interval.
   virtual void RunTTLSweepLoop(const std::atomic<bool>& shutdown) = 0;
 
@@ -117,5 +116,4 @@ class ISegmentStore {
   ISegmentStore() = default;
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

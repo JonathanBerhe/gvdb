@@ -11,8 +11,7 @@
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 namespace {
 
@@ -173,7 +172,7 @@ absl::StatusOr<BackupManifestV1> BackupManifest::DeserializeTop(const std::strin
   if (!ParseString(json, "backup_id", m.backup_id)) {
     return absl::InvalidArgumentError("Backup manifest missing 'backup_id'");
   }
-  // Collection sub-object lives between "collection":{ ... } — extract by
+  // Collection sub-object lives between "collection":{ ... }, extract by
   // matching braces because the field parsers stop at the first comma or
   // closing brace, which would clip inside the sub-object.
   std::string coll_needle = "\"collection\":{";
@@ -303,5 +302,4 @@ std::string BackupManifest::SegmentFileKey(const std::string& backup_id, uint32_
                       "/", filename);
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

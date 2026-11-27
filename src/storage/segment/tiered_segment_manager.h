@@ -20,8 +20,7 @@
 #include "storage/segment/segment_manifest.h"
 #include "storage/segment/segment_store.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // ============================================================================
 // TieredSegmentManager - Local disk + object storage tiered backend
@@ -37,7 +36,7 @@ class TieredSegmentManager : public ISegmentStore {
  public:
   TieredSegmentManager(std::unique_ptr<SegmentManager> local,
                        std::unique_ptr<IObjectStore> object_store,
-                       std::unique_ptr<SegmentCache> cache, const std::string& prefix,
+                       std::unique_ptr<SegmentCache> cache, std::string prefix,
                        int upload_threads = 2,
                        // Base delay before the first upload retry. Doubles per attempt up to a
                        // hard cap. Kept configurable so tests can drive retries in milliseconds.
@@ -192,5 +191,4 @@ class TieredSegmentManager : public ISegmentStore {
                                       const std::string& filename) const;
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

@@ -3,11 +3,13 @@
 # from apt.llvm.org on Ubuntu or Debian. CI, the release image and the CUDA
 # image use it.
 #
-# Usage: tools/ci/install-llvm.sh [--runtime] [major-version]
+# Usage: tools/ci/install-llvm.sh [--runtime | --tidy] [major-version]
 #
 # --runtime installs only the OpenMP runtime (libomp5) of that version, for a
 # host that runs GVDB programs but does not build them. The programs link
 # libc++ statically, but they need the OpenMP runtime they were built with.
+#
+# --tidy also installs clang-tidy of that version, for `make tidy`.
 #
 # Without a version, the script takes GVDB_LLVM_VERSION from
 # cmake/toolchains/linux-clang-libcxx.cmake, so the version is set in one
@@ -17,8 +19,12 @@ set -euo pipefail
 script_dir=$(cd "$(dirname "$0")" && pwd)
 toolchain="$script_dir/../../cmake/toolchains/linux-clang-libcxx.cmake"
 runtime_only=false
+with_tidy=false
 if [[ "${1:-}" == "--runtime" ]]; then
   runtime_only=true
+  shift
+elif [[ "${1:-}" == "--tidy" ]]; then
+  with_tidy=true
   shift
 fi
 version=${1:-}
@@ -51,3 +57,7 @@ $sudo apt-get install -y -qq --no-install-recommends \
   "clang-${version}" "lld-${version}" \
   "libc++-${version}-dev" "libc++abi-${version}-dev" "libomp-${version}-dev"
 "clang++-${version}" --version | head -1
+if [[ "$with_tidy" == true ]]; then
+  $sudo apt-get install -y -qq --no-install-recommends "clang-tidy-${version}"
+  "clang-tidy-${version}" --version | head -1
+fi

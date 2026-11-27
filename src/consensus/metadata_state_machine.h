@@ -9,8 +9,7 @@
 #include <memory>
 #include <mutex>
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 // Import NuRaft types
 using nuraft::ulong;
@@ -47,7 +46,7 @@ class MetadataStateMachine : public nuraft::state_machine {
   // Read the committed index
   // This tells NuRaft which log entries have been applied
   ulong last_commit_index() override {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     return last_committed_idx_;
   }
 
@@ -62,7 +61,7 @@ class MetadataStateMachine : public nuraft::state_machine {
 
   // Read the last snapshot metadata
   nuraft::ptr<nuraft::snapshot> last_snapshot() override {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     return last_snapshot_;
   }
 
@@ -86,5 +85,4 @@ class MetadataStateMachine : public nuraft::state_machine {
   nuraft::ptr<nuraft::snapshot> last_snapshot_;
 };
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

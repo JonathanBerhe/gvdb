@@ -8,8 +8,7 @@
 
 #include <chrono>
 
-namespace gvdb {
-namespace rpc {
+namespace gvdb::rpc {
 
 // gRPC server interceptor that emits structured audit log entries.
 // Captures timing at POST_RECV_INITIAL_METADATA and emits JSON at PRE_SEND_STATUS.
@@ -34,5 +33,4 @@ class AuditInterceptorFactory : public grpc::experimental::ServerInterceptorFact
       grpc::experimental::ServerRpcInfo* info) override;
 };
 
-}  // namespace rpc
-}  // namespace gvdb
+}  // namespace gvdb::rpc

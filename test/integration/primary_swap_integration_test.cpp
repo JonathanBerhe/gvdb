@@ -5,7 +5,7 @@
 //
 // Spins up:
 //   - A coordinator that answers RouteQuery from a tunable stack of
-//     (primary_address, primary_term) views — the test pre-loads a
+//     (primary_address, primary_term) views, the test pre-loads a
 //     "stale-view-then-fresh-view" sequence to deterministically simulate
 //     a primary swap landing during a write.
 //   - Two mock data-nodes (mock_a, mock_b). Each one knows its own
@@ -36,8 +36,7 @@
 #include "support/grpc_server.h"
 #include "vectordb.grpc.pb.h"
 
-namespace gvdb {
-namespace test {
+namespace gvdb::test {
 
 // Coordinator stand-in. Holds a queue of (address, term) views that
 // RouteQuery returns in FIFO order; the last entry "sticks" once
@@ -48,7 +47,7 @@ class PrimarySwapCoordinator : public proto::internal::InternalService::Service 
   std::atomic<int> route_query_calls{0};
 
   void Push(std::string addr, uint64_t term) {
-    std::lock_guard<std::mutex> lock(mu_);
+    std::scoped_lock lock(mu_);
     queue_.push_back({std::move(addr), term});
   }
 
@@ -58,7 +57,7 @@ class PrimarySwapCoordinator : public proto::internal::InternalService::Service 
     route_query_calls++;
     View v;
     {
-      std::lock_guard<std::mutex> lock(mu_);
+      std::scoped_lock lock(mu_);
       if (queue_.empty()) {
         return grpc::Status(grpc::StatusCode::UNAVAILABLE, "test coordinator: no view queued");
       }
@@ -235,10 +234,10 @@ TEST_CASE_FIXTURE(PrimarySwapTest, "UpsertSucceedsWithMatchingTerm") {
 }
 
 // Retry across a real swap. Pre-load TWO views in the coordinator queue:
-//   1. (mock_a, term=1) — stale; the proxy's first RouteQuery picks
+//   1. (mock_a, term=1): stale; the proxy's first RouteQuery picks
 //      this. mock_a's accepted_term is 2 (it was paused), so the call
 //      bounces with ABORTED.
-//   2. (mock_b, term=2) — fresh; the proxy's helper sees ABORTED,
+//   2. (mock_b, term=2): fresh; the proxy's helper sees ABORTED,
 //      re-issues RouteQuery, gets this, dispatches to mock_b which
 //      accepts. The user-visible result is OK.
 //
@@ -317,5 +316,4 @@ TEST_CASE_FIXTURE(PrimarySwapTest, "UpsertSurfacesPreconditionAfterExhaustingRer
   CHECK_EQ(mock_a_->precondition_calls.load(), 3);
 }
 
-}  // namespace test
-}  // namespace gvdb
+}  // namespace gvdb::test
