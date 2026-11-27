@@ -11,7 +11,7 @@
 
 #include "absl/strings/str_cat.h"
 #include "core/config.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 
 namespace gvdb {
 namespace storage {
@@ -73,7 +73,7 @@ core::Status SegmentManager::CreateSegmentWithId(
   // Add to collection mapping
   collection_segments_[collection_id].push_back(segment_id);
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Created segment {} for collection {} (dimension: {}, metric: {}, "
       "index: {})",
       core::ToUInt32(segment_id), core::ToUInt32(collection_id), dimension,
@@ -195,7 +195,7 @@ void SegmentManager::RebuildIndexIfMissing(Segment* segment) {
 
   auto index_result = index_factory_->CreateIndex(config);
   if (!index_result.ok()) {
-    utils::Logger::Instance().Warn(
+    common::Logger::Instance().Warn(
         "Failed to create index for segment {}: {}",
         core::ToUInt32(segment->GetId()), index_result.status().message());
     return;
@@ -206,7 +206,7 @@ void SegmentManager::RebuildIndexIfMissing(Segment* segment) {
   segment->state_ = core::SegmentState::GROWING;
   auto seal_status = segment->Seal(index_result.value().release());
   if (!seal_status.ok()) {
-    utils::Logger::Instance().Warn(
+    common::Logger::Instance().Warn(
         "Failed to rebuild index for segment {}: {}",
         core::ToUInt32(segment->GetId()), seal_status.message());
   }
@@ -276,17 +276,17 @@ absl::Status SegmentManager::LoadAllSegments() {
       if (status.ok()) {
         loaded++;
       } else {
-        utils::Logger::Instance().Warn("Failed to load segment {}: {}",
+        common::Logger::Instance().Warn("Failed to load segment {}: {}",
                                         seg_id_raw, status.message());
       }
     } catch (const std::exception& e) {
-      utils::Logger::Instance().Warn("Skipping directory '{}': {}",
+      common::Logger::Instance().Warn("Skipping directory '{}': {}",
                                       dir_name, e.what());
     }
   }
 
   if (loaded > 0) {
-    utils::Logger::Instance().Info("Recovered {} segments from {}",
+    common::Logger::Instance().Info("Recovered {} segments from {}",
                                     loaded, base_path_);
   }
 
@@ -320,7 +320,7 @@ core::Status SegmentManager::AddReplicatedSegment(std::unique_ptr<Segment> segme
   // Add to collection mapping
   collection_segments_[collection_id].push_back(id);
 
-  utils::Logger::Instance().Info("Added replicated segment {} to collection {}",
+  common::Logger::Instance().Info("Added replicated segment {} to collection {}",
                                   core::ToUInt32(id), core::ToUInt32(collection_id));
 
   return core::OkStatus();
@@ -521,7 +521,7 @@ Segment* SegmentManager::GetWritableSegment(core::CollectionId collection_id,
   segments_[new_id] = std::move(new_seg);
   seg_ids_refreshed.push_back(new_id);
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Rotated: created new segment {} for collection {} (dim={}, metric={})",
       core::ToUInt32(new_id), core::ToUInt32(collection_id), dim,
       static_cast<int>(metric));
@@ -540,7 +540,7 @@ std::vector<core::SegmentId> SegmentManager::GetAllSegmentIds() const {
 }
 
 void SegmentManager::RunTTLSweepLoop(const std::atomic<bool>& shutdown) {
-  utils::Logger::Instance().Info("TTL sweep loop started");
+  common::Logger::Instance().Info("TTL sweep loop started");
   while (!shutdown.load(std::memory_order_relaxed)) {
     std::this_thread::sleep_for(
         std::chrono::seconds(Segment::kTTLSweepIntervalSeconds));
@@ -552,13 +552,13 @@ void SegmentManager::RunTTLSweepLoop(const std::atomic<bool>& shutdown) {
       if (!seg || seg->GetState() != core::SegmentState::GROWING) continue;
       size_t swept = seg->SweepExpired();
       if (swept > 0) {
-        utils::Logger::Instance().Info(
+        common::Logger::Instance().Info(
             "TTL sweep: deleted {} expired vectors from segment {}",
             swept, core::ToUInt32(seg_id));
       }
     }
   }
-  utils::Logger::Instance().Info("TTL sweep loop stopped");
+  common::Logger::Instance().Info("TTL sweep loop stopped");
 }
 
 core::SegmentId SegmentManager::AllocateSegmentId() {

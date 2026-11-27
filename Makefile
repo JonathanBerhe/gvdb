@@ -1,4 +1,4 @@
-.PHONY: build build-release test test-s3 coverage clean \
+.PHONY: build build-release test test-s3 coverage check-layers clean \
        run stop monitoring-up monitoring-down \
        docker-build kind-create kind-load deploy \
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
@@ -64,6 +64,10 @@ bench-cuda:
 # runs them in parallel, one per CPU.
 test:
 	@ctest --preset $(PRESET) --parallel $(NPROC)
+
+# Every module in src/ includes only the modules before it in the layer order.
+check-layers:
+	@python3 tools/check_layers.py
 
 # Line coverage of src/ per file, from the unit and integration
 # tests. The report lands in build/coverage/coverage.

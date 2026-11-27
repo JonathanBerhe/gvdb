@@ -1,6 +1,6 @@
 # Configuration
 
-Every GVDB binary reads a YAML config file. For the authoritative schema, see [`src/utils/config.h`](https://github.com/JonathanBerhe/gvdb/blob/main/src/utils/config.h); the struct field names map directly to YAML keys.
+Every GVDB binary reads a YAML config file. For the authoritative schema, see [`src/config/config.h`](https://github.com/JonathanBerhe/gvdb/blob/main/src/config/config.h). The struct field names are the YAML keys. The one exception is the `object_store_*` keys of `storage`: they fill [`storage::ObjectStoreConfig`](https://github.com/JonathanBerhe/gvdb/blob/main/src/storage/objstore/object_store_factory.h), and the field name drops the prefix (`object_store_bucket` sets `bucket`). `object_store_cache_size_mb` and `object_store_upload_threads` stay fields of the storage configuration. The `server.auth` and `logging.audit` sections fill structs of the auth module, in [`src/auth/rbac.h`](https://github.com/JonathanBerhe/gvdb/blob/main/src/auth/rbac.h) and [`src/auth/audit_logger.h`](https://github.com/JonathanBerhe/gvdb/blob/main/src/auth/audit_logger.h).
 
 ## Minimal YAML
 

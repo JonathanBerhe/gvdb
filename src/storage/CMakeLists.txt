@@ -20,10 +20,12 @@ gvdb_add_library(storage
   PUBLIC_DEPS
     gvdb::core
     gvdb::index
-    gvdb::utils
+    gvdb::common
     absl::status
     absl::statusor
     absl::strings
+  PRIVATE_DEPS
+    absl::flat_hash_set
 )
 
 if(GVDB_WITH_S3)

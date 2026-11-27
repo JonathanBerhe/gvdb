@@ -870,3 +870,17 @@ jobs:
       - name: Skip notice
         if: steps.filter.outputs.proto == 'false'
         run: echo "No proto or stub changes, skipping the stub check"
+
+  # Every module in src/ includes only the modules before it in the layer
+  # order. All modules share one include root, so the build cannot catch a
+  # forbidden include.
+  layers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check the module layers
+        run: python3 tools/check_layers.py

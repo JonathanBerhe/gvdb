@@ -3,13 +3,16 @@
 gvdb_add_executable(gvdb-single-node
   SOURCES single_node_main.cpp
   DEPS
-    gvdb::consensus
+    gvdb::server
+    gvdb::config
+    gvdb::service
     gvdb::cluster
-    gvdb::network
+    gvdb::consensus
+    gvdb::rpc
     gvdb::compute
     gvdb::storage
     gvdb::index
-    gvdb::utils
+    gvdb::auth
     gvdb::core
     gvdb::proto
     absl::strings
@@ -18,13 +21,17 @@ gvdb_add_executable(gvdb-single-node
 gvdb_add_executable(gvdb-coordinator
   SOURCES coordinator_main.cpp
   DEPS
-    gvdb::consensus
+    gvdb::server
+    gvdb::config
+    gvdb::service
     gvdb::cluster
-    gvdb::network
+    gvdb::consensus
+    gvdb::rpc
     gvdb::compute
     gvdb::storage
     gvdb::index
-    gvdb::utils
+    gvdb::auth
+    gvdb::common
     gvdb::core
     absl::strings
     absl::str_format
@@ -33,12 +40,16 @@ gvdb_add_executable(gvdb-coordinator
 gvdb_add_executable(gvdb-data-node
   SOURCES data_node_main.cpp
   DEPS
+    gvdb::server
+    gvdb::config
+    gvdb::service
     gvdb::cluster
-    gvdb::network
+    gvdb::rpc
     gvdb::compute
     gvdb::storage
     gvdb::index
-    gvdb::utils
+    gvdb::auth
+    gvdb::common
     gvdb::core
     gvdb::proto
     absl::strings
@@ -47,12 +58,13 @@ gvdb_add_executable(gvdb-data-node
 gvdb_add_executable(gvdb-query-node
   SOURCES query_node_main.cpp
   DEPS
+    gvdb::server
+    gvdb::service
     gvdb::cluster
-    gvdb::network
     gvdb::compute
     gvdb::storage
     gvdb::index
-    gvdb::utils
+    gvdb::common
     gvdb::core
     gvdb::proto
     absl::strings
@@ -61,9 +73,12 @@ gvdb_add_executable(gvdb-query-node
 gvdb_add_executable(gvdb-proxy
   SOURCES proxy_main.cpp
   DEPS
-    gvdb::network
-    gvdb::cluster
-    gvdb::utils
+    gvdb::server
+    gvdb::config
+    gvdb::service
+    gvdb::rpc
+    gvdb::auth
+    gvdb::common
     gvdb::core
     gvdb::proto
     absl::strings

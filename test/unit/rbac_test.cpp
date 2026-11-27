@@ -5,7 +5,7 @@
 
 #include "auth/rbac.h"
 #include "auth/auth_context.h"
-#include "utils/config.h"
+#include "config/config.h"
 
 using namespace gvdb;
 
@@ -128,7 +128,7 @@ TEST_CASE("RoleFromString - unknown role returns error") {
 // ============================================================================
 
 TEST_CASE("RbacStore - lookup found") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   config.roles = {{"my-key", "readwrite", {"products"}}};
   auto store = auth::RbacStore::Create(config);
   REQUIRE(store.ok());
@@ -141,7 +141,7 @@ TEST_CASE("RbacStore - lookup found") {
 }
 
 TEST_CASE("RbacStore - lookup not found") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   config.roles = {{"my-key", "admin", {}}};
   auto store = auth::RbacStore::Create(config);
   REQUIRE(store.ok());
@@ -150,7 +150,7 @@ TEST_CASE("RbacStore - lookup not found") {
 }
 
 TEST_CASE("RbacStore - legacy api_keys treated as admin") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   config.api_keys = {"old-key-1", "old-key-2"};
   auto store = auth::RbacStore::Create(config);
   REQUIRE(store.ok());
@@ -165,7 +165,7 @@ TEST_CASE("RbacStore - legacy api_keys treated as admin") {
 }
 
 TEST_CASE("RbacStore - role-based takes precedence over legacy") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   config.api_keys = {"shared-key"};
   config.roles = {{"shared-key", "readonly", {"*"}}};
   auto store = auth::RbacStore::Create(config);
@@ -177,7 +177,7 @@ TEST_CASE("RbacStore - role-based takes precedence over legacy") {
 }
 
 TEST_CASE("RbacStore - size") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   config.api_keys = {"key1"};
   config.roles = {{"key2", "readwrite", {"*"}}, {"key3", "readonly", {"*"}}};
   auto store = auth::RbacStore::Create(config);
@@ -190,7 +190,7 @@ TEST_CASE("RbacStore - size") {
 // ============================================================================
 
 TEST_CASE("RbacStore rejects unknown role string") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   config.roles = {{"key1", "readwritee", {"*"}}};
   auto result = auth::RbacStore::Create(config);
   CHECK_FALSE(result.ok());
@@ -198,7 +198,7 @@ TEST_CASE("RbacStore rejects unknown role string") {
 }
 
 TEST_CASE("RbacStore rejects empty key") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   config.roles = {{"", "admin", {}}};
   auto result = auth::RbacStore::Create(config);
   CHECK_FALSE(result.ok());
@@ -206,7 +206,7 @@ TEST_CASE("RbacStore rejects empty key") {
 }
 
 TEST_CASE("RbacStore rejects empty legacy key") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   config.api_keys = {""};
   auto result = auth::RbacStore::Create(config);
   CHECK_FALSE(result.ok());
@@ -214,7 +214,7 @@ TEST_CASE("RbacStore rejects empty legacy key") {
 }
 
 TEST_CASE("RbacStore rejects readwrite with empty collections") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   config.roles = {{"key1", "readwrite", {}}};
   auto result = auth::RbacStore::Create(config);
   CHECK_FALSE(result.ok());
@@ -222,7 +222,7 @@ TEST_CASE("RbacStore rejects readwrite with empty collections") {
 }
 
 TEST_CASE("RbacStore rejects readonly with empty collections") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   config.roles = {{"key1", "readonly", {}}};
   auto result = auth::RbacStore::Create(config);
   CHECK_FALSE(result.ok());
@@ -230,7 +230,7 @@ TEST_CASE("RbacStore rejects readonly with empty collections") {
 }
 
 TEST_CASE("RbacStore rejects collection_admin with empty collections") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   config.roles = {{"key1", "collection_admin", {}}};
   auto result = auth::RbacStore::Create(config);
   CHECK_FALSE(result.ok());
@@ -238,14 +238,14 @@ TEST_CASE("RbacStore rejects collection_admin with empty collections") {
 }
 
 TEST_CASE("RbacStore accepts admin with empty collections") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   config.roles = {{"key1", "admin", {}}};
   auto result = auth::RbacStore::Create(config);
   CHECK(result.ok());
 }
 
 TEST_CASE("RbacStore rejects enabled auth with no keys") {
-  utils::AuthConfig config;
+  auth::AuthConfig config;
   // enabled but no api_keys and no roles
   auto result = auth::RbacStore::Create(config);
   CHECK_FALSE(result.ok());

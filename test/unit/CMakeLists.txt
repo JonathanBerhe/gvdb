@@ -49,7 +49,7 @@ gvdb_add_test(storage_tests
 # service when the S3 tests create a client off EC2.
 gvdb_add_test(object_store_tests
   SOURCES object_store_test.cpp
-  DEPS gvdb::storage gvdb::utils gvdb::core
+  DEPS gvdb::storage gvdb::config gvdb::common gvdb::core
   ENVIRONMENT AWS_EC2_METADATA_DISABLED=true
   TIMEOUT 30 LABELS unit)
 
@@ -81,7 +81,7 @@ gvdb_add_test(segment_cache_tests
 
 gvdb_add_test(tiered_segment_manager_tests
   SOURCES tiered_segment_manager_test.cpp
-  DEPS gvdb::storage gvdb::index gvdb::core gvdb::utils
+  DEPS gvdb::storage gvdb::index gvdb::core gvdb::common
   TIMEOUT 60 LABELS unit)
 
 gvdb_add_test(segment_manifest_tests
@@ -91,7 +91,7 @@ gvdb_add_test(segment_manifest_tests
 
 gvdb_add_test(bulk_import_tests
   SOURCES bulk_import_test.cpp
-  DEPS gvdb::storage gvdb::index gvdb::utils gvdb::core
+  DEPS gvdb::storage gvdb::index gvdb::common gvdb::core
   TIMEOUT 120 LABELS unit)
 
 gvdb_add_test(backup_manifest_tests
@@ -101,25 +101,25 @@ gvdb_add_test(backup_manifest_tests
 
 gvdb_add_test(backup_manager_tests
   SOURCES backup_manager_test.cpp
-  DEPS gvdb::storage gvdb::index gvdb::utils gvdb::core
+  DEPS gvdb::storage gvdb::index gvdb::common gvdb::core
   TIMEOUT 60 LABELS unit)
 
-# utils
+# common and config
 gvdb_add_test(utils_tests
   SOURCES utils_test.cpp
-  DEPS gvdb::utils gvdb::core
+  DEPS gvdb::common gvdb::config gvdb::core
   TIMEOUT 60 LABELS unit)
 
 # auth
 gvdb_add_test(rbac_tests
   SOURCES rbac_test.cpp
-  DEPS gvdb::auth gvdb::utils gvdb::core
+  DEPS gvdb::auth gvdb::config gvdb::common gvdb::core
   TIMEOUT 60 LABELS unit)
 
 # compute
 gvdb_add_test(compute_tests
   SOURCES compute_test.cpp
-  DEPS gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core
+  DEPS gvdb::compute gvdb::storage gvdb::index gvdb::common gvdb::core
   TIMEOUT 120 LABELS unit)
 
 # cluster
@@ -155,12 +155,12 @@ gvdb_add_test(shard_write_gate_tests
 
 gvdb_add_test(coordinator_backup_tests
   SOURCES coordinator_backup_test.cpp
-  DEPS gvdb::cluster gvdb::storage gvdb::network gvdb::consensus gvdb::core gvdb::proto
+  DEPS gvdb::cluster gvdb::storage gvdb::service gvdb::consensus gvdb::core gvdb::proto
   TIMEOUT 60 LABELS unit)
 
 gvdb_add_test(query_node_tests
   SOURCES query_node_test.cpp
-  DEPS gvdb::cluster gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core
+  DEPS gvdb::cluster gvdb::compute gvdb::storage gvdb::index gvdb::common gvdb::core
   TIMEOUT 120 LABELS unit)
 
 # consensus
@@ -174,84 +174,84 @@ gvdb_add_test(consensus_persistence_tests
   DEPS gvdb::consensus gvdb::cluster gvdb::core
   TIMEOUT 180 LABELS unit)
 
-# network
+# rpc and service
 gvdb_add_test(network_tests
   SOURCES network_test.cpp
-  DEPS gvdb::network gvdb::rpc gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::rpc gvdb::compute gvdb::storage gvdb::index gvdb::common gvdb::core gvdb::proto
   TIMEOUT 120 LABELS unit)
 
 gvdb_add_test(metadata_cache_tests
   SOURCES collection_metadata_cache_test.cpp
-  DEPS gvdb::network gvdb::core
+  DEPS gvdb::service gvdb::core
   TIMEOUT 60 LABELS unit)
 
 gvdb_add_test(internal_service_metadata_tests
   SOURCES internal_service_metadata_test.cpp
-  DEPS gvdb::network gvdb::cluster gvdb::consensus gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::cluster gvdb::consensus gvdb::core gvdb::proto
   TIMEOUT 60 LABELS unit)
 
 gvdb_add_test(internal_service_rpc_tests
   SOURCES internal_service_rpc_test.cpp
-  DEPS gvdb::network gvdb::cluster gvdb::consensus gvdb::storage gvdb::index gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::cluster gvdb::consensus gvdb::storage gvdb::index gvdb::core gvdb::proto
   TIMEOUT 120 LABELS unit)
 
 gvdb_add_test(proxy_service_tests
   SOURCES proxy_service_test.cpp
-  DEPS gvdb::network gvdb::cluster gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::cluster gvdb::core gvdb::proto
   TIMEOUT 120 LABELS unit)
 
 gvdb_add_test(dns_channel_args_tests
   SOURCES dns_channel_args_test.cpp
-  DEPS gvdb::network
+  DEPS gvdb::rpc
   TIMEOUT 30 LABELS unit)
 
 gvdb_add_test(replica_fallback_tests
   SOURCES replica_fallback_test.cpp
-  DEPS gvdb::network
+  DEPS gvdb::rpc
   TIMEOUT 30 LABELS unit)
 
 gvdb_add_test(vectordb_service_distributed_tests
   SOURCES vectordb_service_distributed_test.cpp
-  DEPS gvdb::network gvdb::storage gvdb::compute gvdb::index gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::storage gvdb::compute gvdb::index gvdb::core gvdb::proto
   TIMEOUT 120 LABELS unit)
 
 # VectorDBService handlers end to end, in local mode.
 gvdb_add_test(vectordb_service_write_tests
   SOURCES vectordb_service_write_test.cpp
-  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::compute gvdb::storage gvdb::index gvdb::common gvdb::core gvdb::proto
   TIMEOUT 60 LABELS unit)
 
 gvdb_add_test(vectordb_service_backup_tests
   SOURCES vectordb_service_backup_test.cpp
-  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::compute gvdb::storage gvdb::index gvdb::common gvdb::core gvdb::proto
   TIMEOUT 60 LABELS unit)
 
 gvdb_add_test(vectordb_service_search_tests
   SOURCES vectordb_service_search_test.cpp
-  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::compute gvdb::storage gvdb::index gvdb::common gvdb::core gvdb::proto
   TIMEOUT 60 LABELS unit)
 
 gvdb_add_test(vectordb_service_import_tests
   SOURCES vectordb_service_import_test.cpp
-  DEPS gvdb::network gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::compute gvdb::storage gvdb::index gvdb::common gvdb::core gvdb::proto
   TIMEOUT 60 LABELS unit)
 
 gvdb_add_test(vectordb_service_coordinator_tests
   SOURCES vectordb_service_coordinator_test.cpp
-  DEPS gvdb::network gvdb::cluster gvdb::storage gvdb::compute gvdb::index gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::cluster gvdb::storage gvdb::compute gvdb::index gvdb::core gvdb::proto
   TIMEOUT 120 LABELS unit)
 
 gvdb_add_test(collection_resolver_tests
   SOURCES collection_resolver_test.cpp
-  DEPS gvdb::network gvdb::cluster gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::cluster gvdb::storage gvdb::index gvdb::common gvdb::core gvdb::proto
   TIMEOUT 120 LABELS unit)
 
 gvdb_add_test(auth_processor_tests
   SOURCES auth_processor_test.cpp
-  DEPS gvdb::network gvdb::auth gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::rpc gvdb::config gvdb::auth gvdb::compute gvdb::storage gvdb::index gvdb::common gvdb::core gvdb::proto
   TIMEOUT 60 LABELS unit)
 
 gvdb_add_test(audit_interceptor_tests
   SOURCES audit_interceptor_test.cpp
-  DEPS gvdb::network gvdb::auth gvdb::compute gvdb::storage gvdb::index gvdb::utils gvdb::core gvdb::proto
+  DEPS gvdb::service gvdb::rpc gvdb::config gvdb::auth gvdb::compute gvdb::storage gvdb::index gvdb::common gvdb::core gvdb::proto
   TIMEOUT 60 LABELS unit)

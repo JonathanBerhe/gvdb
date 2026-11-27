@@ -16,7 +16,7 @@
 #include "core/types.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_store.h"
-#include "utils/thread_pool.h"
+#include "common/thread_pool.h"
 
 namespace gvdb {
 namespace storage {
@@ -187,7 +187,7 @@ class BulkImporter {
   std::unordered_map<std::string, std::string> fingerprint_to_job_;
 
   // Concurrency control
-  std::unique_ptr<utils::ThreadPool> import_pool_;
+  std::unique_ptr<common::ThreadPool> import_pool_;
   int max_concurrent_;
   std::atomic<int> active_imports_{0};
 };

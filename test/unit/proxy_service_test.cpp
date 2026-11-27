@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "network/proxy_service.h"
+#include "service/proxy_service.h"
 #include "support/grpc_server.h"
 #include "vectordb.grpc.pb.h"
 #include "internal.grpc.pb.h"
@@ -197,7 +197,7 @@ struct ProxyServiceTest {
     query_node_server_ = StartServer({mock_query_node_.get()});
     query_node_address_ = query_node_server_->address();
 
-    proxy_service_ = std::make_unique<network::ProxyService>(
+    proxy_service_ = std::make_unique<service::ProxyService>(
         std::vector<std::string>{coordinator_address_},
         query_node_address_);
   }
@@ -239,7 +239,7 @@ struct ProxyServiceTest {
   std::string data_node_address_;
 
   // ProxyService under test
-  std::unique_ptr<network::ProxyService> proxy_service_;
+  std::unique_ptr<service::ProxyService> proxy_service_;
 };
 
 // ============================================================================
@@ -432,7 +432,7 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "NoCoordinatorAvailable") {
   coordinator_server_.reset();
 
   // Create new proxy whose coordinator address has nothing listening
-  auto proxy = std::make_unique<network::ProxyService>(
+  auto proxy = std::make_unique<service::ProxyService>(
       std::vector<std::string>{coordinator_address_},
       query_node_address_);
 
@@ -457,7 +457,7 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "NoQueryNodeReturnsUnavailable") {
   // query-node URI fails Search cleanly rather than silently fanning out
   // to a random data-node. Users deploying without query-nodes are an
   // unsupported configuration; failure here is the correct surface.
-  auto proxy = std::make_unique<network::ProxyService>(
+  auto proxy = std::make_unique<service::ProxyService>(
       std::vector<std::string>{coordinator_address_},
       std::string{});  // empty URI = no query-node target
 
@@ -486,7 +486,7 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "NoQueryNodeReturnsUnavailable") {
 
 TEST_CASE_FIXTURE(ProxyServiceTest, "LazyClientInitialization") {
   // Create new proxy (clients not initialized yet)
-  auto proxy = std::make_unique<network::ProxyService>(
+  auto proxy = std::make_unique<service::ProxyService>(
       std::vector<std::string>{coordinator_address_},
       query_node_address_);
 

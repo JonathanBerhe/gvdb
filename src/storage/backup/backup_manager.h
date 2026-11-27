@@ -18,7 +18,7 @@
 #include "storage/backup/backup_manifest.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_store.h"
-#include "utils/thread_pool.h"
+#include "common/thread_pool.h"
 
 namespace gvdb {
 namespace storage {
@@ -315,7 +315,7 @@ class BackupManager {
   static std::string AllocateBackupId();
 
   BackupManagerOptions opts_;
-  std::unique_ptr<utils::ThreadPool> pool_;
+  std::unique_ptr<common::ThreadPool> pool_;
   mutable std::mutex jobs_mutex_;
   std::unordered_map<std::string, std::shared_ptr<BackupJob>> jobs_;
 };
@@ -399,7 +399,7 @@ class RestoreManager {
   static std::string AllocateRestoreId();
 
   RestoreManagerOptions opts_;
-  std::unique_ptr<utils::ThreadPool> pool_;
+  std::unique_ptr<common::ThreadPool> pool_;
   mutable std::mutex jobs_mutex_;
   std::unordered_map<std::string, std::shared_ptr<RestoreJob>> jobs_;
 };

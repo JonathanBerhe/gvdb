@@ -15,10 +15,10 @@
 #include "cluster/internal_client.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "network/internal_service.h"
-#include "network/vectordb_service.h"
-#include "network/proxy_service.h"
-#include "network/collection_resolver.h"
+#include "service/internal_service.h"
+#include "service/vectordb_service.h"
+#include "service/proxy_service.h"
+#include "service/collection_resolver.h"
 #include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
@@ -70,12 +70,12 @@ class ProxyIntegrationTest {
     coordinator_ = std::make_shared<cluster::Coordinator>(
         shard_manager_, node_registry_, client_factory);
 
-    coord_internal_service_ = std::make_unique<network::InternalService>(
+    coord_internal_service_ = std::make_unique<service::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
         node_registry_, coordinator_);
 
-    auto coord_resolver = network::MakeCoordinatorResolver(coordinator_);
-    coord_vectordb_service_ = std::make_unique<network::VectorDBService>(
+    auto coord_resolver = service::MakeCoordinatorResolver(coordinator_);
+    coord_vectordb_service_ = std::make_unique<service::VectorDBService>(
         coord_segment_store_, coord_query_executor_, std::move(coord_resolver));
 
     coord_server_ = StartServer(
@@ -88,12 +88,12 @@ class ProxyIntegrationTest {
         dn_segment_store_.get());
 
     auto dn_shard_manager = std::make_shared<cluster::ShardManager>(8, cluster::ShardingStrategy::HASH);
-    dn_internal_service_ = std::make_unique<network::InternalService>(
+    dn_internal_service_ = std::make_unique<service::InternalService>(
         dn_shard_manager, dn_segment_store_, dn_query_executor_);
 
     // Data node's VectorDBService uses CachedCoordinatorResolver -> can resolve collection names
-    auto dn_resolver = network::MakeCachedCoordinatorResolver(coord_address_);
-    dn_vectordb_service_ = std::make_unique<network::VectorDBService>(
+    auto dn_resolver = service::MakeCachedCoordinatorResolver(coord_address_);
+    dn_vectordb_service_ = std::make_unique<service::VectorDBService>(
         dn_segment_store_, dn_query_executor_, std::move(dn_resolver));
 
     dn_server_ = StartServer(
@@ -117,7 +117,7 @@ class ProxyIntegrationTest {
     // query-node binary. Do NOT take this as "data-nodes serve Search in
     // production" — they don't; a real deployment always has query-node
     // pods.
-    proxy_service_ = std::make_unique<network::ProxyService>(
+    proxy_service_ = std::make_unique<service::ProxyService>(
         std::vector<std::string>{coord_address_},
         dn_address_);
     proxy_server_ = StartServer({proxy_service_.get()}, &proxy_address_);
@@ -160,19 +160,19 @@ class ProxyIntegrationTest {
 
   std::shared_ptr<storage::ISegmentStore> coord_segment_store_;
   std::shared_ptr<compute::QueryExecutor> coord_query_executor_;
-  std::unique_ptr<network::InternalService> coord_internal_service_;
-  std::unique_ptr<network::VectorDBService> coord_vectordb_service_;
+  std::unique_ptr<service::InternalService> coord_internal_service_;
+  std::unique_ptr<service::VectorDBService> coord_vectordb_service_;
   std::unique_ptr<grpc::Server> coord_server_;
   std::string coord_address_;
 
   std::shared_ptr<storage::ISegmentStore> dn_segment_store_;
   std::shared_ptr<compute::QueryExecutor> dn_query_executor_;
-  std::unique_ptr<network::InternalService> dn_internal_service_;
-  std::unique_ptr<network::VectorDBService> dn_vectordb_service_;
+  std::unique_ptr<service::InternalService> dn_internal_service_;
+  std::unique_ptr<service::VectorDBService> dn_vectordb_service_;
   std::unique_ptr<grpc::Server> dn_server_;
   std::string dn_address_;
 
-  std::unique_ptr<network::ProxyService> proxy_service_;
+  std::unique_ptr<service::ProxyService> proxy_service_;
   std::unique_ptr<grpc::Server> proxy_server_;
   std::string proxy_address_;
 

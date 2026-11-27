@@ -12,8 +12,8 @@
 #include <string>
 #include <vector>
 
-#include "network/vectordb_service.h"
-#include "network/collection_resolver.h"
+#include "service/vectordb_service.h"
+#include "service/collection_resolver.h"
 #include "storage/segment/segment_manager.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
@@ -109,8 +109,8 @@ class ServiceWriteTest {
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
 
-    auto resolver = network::MakeLocalResolver(segment_store_);
-    service_ = std::make_unique<network::VectorDBService>(
+    auto resolver = service::MakeLocalResolver(segment_store_);
+    service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_, std::move(resolver));
   }
 
@@ -238,7 +238,7 @@ class ServiceWriteTest {
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
-  std::unique_ptr<network::VectorDBService> service_;
+  std::unique_ptr<service::VectorDBService> service_;
 };
 
 // Same service, also served by a real in-process gRPC server on an

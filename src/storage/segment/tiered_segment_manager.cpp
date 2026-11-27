@@ -11,8 +11,8 @@
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/str_cat.h"
-#include "utils/logger.h"
-#include "utils/metrics.h"
+#include "common/logger.h"
+#include "common/metrics.h"
 
 namespace gvdb {
 namespace storage {
@@ -41,7 +41,7 @@ TieredSegmentManager::TieredSegmentManager(
       object_store_(std::move(object_store)),
       cache_(std::move(cache)),
       prefix_(prefix),
-      upload_pool_(std::make_unique<utils::ThreadPool>(
+      upload_pool_(std::make_unique<common::ThreadPool>(
           std::max(1, upload_threads))),
       retry_base_delay_(retry_base_delay) {
   retry_thread_ = std::thread([this]() { RetryLoop(); });
@@ -371,7 +371,7 @@ void TieredSegmentManager::RunUpload(
 
   if (upload_status.ok()) {
     if (prior_failures > 0) {
-      utils::Logger::Instance().Info(
+      common::Logger::Instance().Info(
           "Object storage upload recovered for segment {} after {} failed "
           "attempt(s)", seg_key, prior_failures);
     }
@@ -385,11 +385,11 @@ void TieredSegmentManager::RunUpload(
       attempts, std::chrono::steady_clock::now() + BackoffDelay(attempts)};
 
   if (attempts >= kUploadErrorThreshold) {
-    utils::Logger::Instance().Error(
+    common::Logger::Instance().Error(
         "Object storage upload still failing for segment {} after {} "
         "attempts: {}", seg_key, attempts, upload_status.message());
   } else {
-    utils::Logger::Instance().Warn(
+    common::Logger::Instance().Warn(
         "Object storage upload failed for segment {} (attempt {}): {}",
         seg_key, attempts, upload_status.message());
   }
@@ -492,7 +492,7 @@ void TieredSegmentManager::RedriveUnuploadedSegments() {
       }
       uploading_.insert(seg_key);
     }
-    utils::Logger::Instance().Info(
+    common::Logger::Instance().Info(
         "Re-driving segment {} to object storage (flushed locally but missing "
         "from remote manifest)", seg_key);
     upload_pool_->enqueue([this, id]() { RunUpload(id, 0); });
@@ -500,7 +500,7 @@ void TieredSegmentManager::RedriveUnuploadedSegments() {
 }
 
 void TieredSegmentManager::UpdateFailedUploadsMetricLocked() const {
-  utils::MetricsRegistry::Instance().SetPendingFailedUploads(
+  common::MetricsRegistry::Instance().SetPendingFailedUploads(
       failed_uploads_.size());
 }
 

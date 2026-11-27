@@ -3,7 +3,7 @@
 
 #include "cluster/data_node.h"
 #include "core/config.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 #include "absl/strings/str_cat.h"
 
 namespace gvdb {
@@ -13,7 +13,7 @@ DataNode::DataNode(std::unique_ptr<index::IndexFactory> index_factory,
                    std::shared_ptr<storage::ISegmentStore> segment_store)
     : index_factory_(std::move(index_factory)),
       segment_store_(std::move(segment_store)) {
-  utils::Logger::Instance().Info("DataNode initialized");
+  common::Logger::Instance().Info("DataNode initialized");
 }
 
 absl::Status DataNode::ScheduleBuildTask(const BuildTask& task) {
@@ -23,7 +23,7 @@ absl::Status DataNode::ScheduleBuildTask(const BuildTask& task) {
   }
   build_cv_.notify_one();
 
-  utils::Logger::Instance().Info("Scheduled build task for segment {}, priority: {}",
+  common::Logger::Instance().Info("Scheduled build task for segment {}, priority: {}",
                                  core::ToUInt32(task.segment_id),
                                  task.priority);
 
@@ -54,14 +54,14 @@ absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType in
       index_type, segment->GetVectorCount(),
       segment->GetDimension(), segment->GetMetric());
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Building {} index for segment {} ({} vectors, dim={})",
       static_cast<int>(config.index_type), core::ToUInt32(segment_id),
       segment->GetVectorCount(), segment->GetDimension());
 
   auto status = segment_store_->SealSegment(segment_id, config);
   if (!status.ok()) {
-    utils::Logger::Instance().Error(
+    common::Logger::Instance().Error(
         "Failed to build index for segment {}: {}",
         core::ToUInt32(segment_id), status.message());
     return status;
@@ -74,12 +74,12 @@ absl::Status DataNode::BuildIndex(core::SegmentId segment_id, core::IndexType in
   // rather than fail the build task (upload retries are tracked separately).
   auto flush_status = segment_store_->FlushSegment(segment_id);
   if (!flush_status.ok()) {
-    utils::Logger::Instance().Error(
+    common::Logger::Instance().Error(
         "Failed to flush segment {} after seal: {}",
         core::ToUInt32(segment_id), flush_status.message());
   }
 
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Index built for segment {} (type={}, vectors={})",
       core::ToUInt32(segment_id), static_cast<int>(config.index_type),
       segment->GetVectorCount());
@@ -103,7 +103,7 @@ size_t DataNode::ProcessBuildQueue() {
     if (status.ok()) {
       processed++;
     } else {
-      utils::Logger::Instance().Error(
+      common::Logger::Instance().Error(
           "Build task failed for segment {}: {}",
           core::ToUInt32(task.segment_id), status.message());
     }
@@ -113,7 +113,7 @@ size_t DataNode::ProcessBuildQueue() {
 }
 
 void DataNode::RunBuildLoop(const std::atomic<bool>& shutdown) {
-  utils::Logger::Instance().Info("Build loop started");
+  common::Logger::Instance().Info("Build loop started");
   while (!shutdown.load(std::memory_order_relaxed)) {
     {
       std::unique_lock lock(queue_mutex_);
@@ -125,7 +125,7 @@ void DataNode::RunBuildLoop(const std::atomic<bool>& shutdown) {
   }
   // Drain remaining tasks on shutdown
   ProcessBuildQueue();
-  utils::Logger::Instance().Info("Build loop stopped");
+  common::Logger::Instance().Info("Build loop stopped");
 }
 
 void DataNode::RunTTLSweepLoop(const std::atomic<bool>& shutdown) {

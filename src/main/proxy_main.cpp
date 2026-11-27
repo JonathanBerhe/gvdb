@@ -6,14 +6,14 @@
 #include <string>
 #include <vector>
 
-#include "network/proxy_service.h"
-#include "network/auth_processor.h"
-#include "network/audit_interceptor.h"
-#include "utils/audit_logger.h"
+#include "service/proxy_service.h"
+#include "rpc/interceptors/auth_processor.h"
+#include "rpc/interceptors/audit_interceptor.h"
+#include "auth/audit_logger.h"
 #include "auth/rbac.h"
-#include "utils/server_bootstrap.h"
-#include "utils/config.h"
-#include "utils/env_flags.h"
+#include "server/bootstrap.h"
+#include "config/config.h"
+#include "common/env_flags.h"
 
 struct ProxyArgs {
   int node_id = 1;
@@ -96,26 +96,26 @@ int main(int argc, char** argv) {
   using namespace gvdb;
 
   // Env vars override CLI flags
-  args.bind_address = utils::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
-  args.data_dir = utils::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
-  utils::ServerBootstrap::InstallSignalHandlers();
+  args.bind_address = common::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
+  args.data_dir = common::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
+  server::ServerBootstrap::InstallSignalHandlers();
 
-  auto log_status = utils::ServerBootstrap::InitializeLogger(
+  auto log_status = server::ServerBootstrap::InitializeLogger(
       args.data_dir, "proxy.log");
   if (!log_status.ok()) {
     std::cerr << "Warning: Failed to initialize logger: " << log_status.message() << std::endl;
   }
 
-  utils::Logger::Instance().Info("Starting GVDB Proxy (ID: {})", args.node_id);
+  common::Logger::Instance().Info("Starting GVDB Proxy (ID: {})", args.node_id);
 
   int metrics_port = 9050;
-  utils::ServerBootstrap::StartMetricsServer(metrics_port);
+  server::ServerBootstrap::StartMetricsServer(metrics_port);
 
   try {
     // Load config for auth (optional)
-    utils::GVDBConfig config = utils::Config::get_default();
+    config::GVDBConfig config = config::Config::get_default();
     if (!args.config_file.empty()) {
-      auto cfg_result = utils::Config::load_from_file(args.config_file);
+      auto cfg_result = config::Config::load_from_file(args.config_file);
       if (cfg_result.ok()) config = std::move(*cfg_result);
     }
 
@@ -130,22 +130,22 @@ int main(int argc, char** argv) {
       }
       rbac_store = std::move(*rbac_result);
       interceptors.push_back(
-          std::make_unique<network::ApiKeyAuthInterceptorFactory>(rbac_store));
+          std::make_unique<rpc::ApiKeyAuthInterceptorFactory>(rbac_store));
     }
 
     // Audit logging
     if (config.logging.audit.enabled) {
-      utils::AuditLogger::Initialize(config.logging.audit);
+      auth::AuditLogger::Initialize(config.logging.audit);
       interceptors.push_back(
-          std::make_unique<network::AuditInterceptorFactory>());
+          std::make_unique<rpc::AuditInterceptorFactory>());
     }
 
-    auto proxy_service = std::make_unique<network::ProxyService>(
+    auto proxy_service = std::make_unique<service::ProxyService>(
         args.coordinator_addresses,
         args.query_node_uri);
 
-    auto credentials = utils::ServerBootstrap::MakeServerCredentials(config.server.tls);
-    auto grpc_server = utils::ServerBootstrap::StartGrpcServer(
+    auto credentials = server::ServerBootstrap::MakeServerCredentials(config.server.tls);
+    auto grpc_server = server::ServerBootstrap::StartGrpcServer(
         args.bind_address, {proxy_service.get()}, credentials, std::move(interceptors));
     if (!grpc_server) {
       std::cerr << "Failed to start gRPC server on " << args.bind_address << std::endl;
@@ -161,14 +161,14 @@ int main(int argc, char** argv) {
     if (!args.query_node_uri.empty()) {
       banner_lines.push_back("Query Nodes URI: " + args.query_node_uri);
     }
-    utils::ServerBootstrap::PrintBanner("GVDB Proxy", banner_lines);
+    server::ServerBootstrap::PrintBanner("GVDB Proxy", banner_lines);
 
-    utils::ServerBootstrap::WaitForShutdown();
+    server::ServerBootstrap::WaitForShutdown();
 
     // Graceful shutdown
     std::cout << "\nShutting down gracefully..." << std::endl;
     grpc_server->Shutdown();
-    utils::ServerBootstrap::StopMetricsServer();
+    server::ServerBootstrap::StopMetricsServer();
     std::cout << "Shutdown complete. Goodbye!" << std::endl;
     return 0;
 

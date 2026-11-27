@@ -19,7 +19,7 @@
 #include "storage/objstore/object_store.h"
 #include "storage/objstore/object_store_factory.h"
 #include "support/temp_dir.h"
-#include "utils/config.h"
+#include "config/config.h"
 
 namespace gvdb {
 namespace storage {
@@ -212,9 +212,9 @@ TEST_CASE(
 
 TEST_CASE("CreateObjectStore: filesystem type builds a store rooted at the bucket") {
   const ScopedTempDir tmp("gvdb_objstore_factory_fs");
-  utils::StorageConfig config;
-  config.object_store_type = "filesystem";
-  config.object_store_bucket = (tmp / "cold").string();
+  ObjectStoreConfig config;
+  config.type = "filesystem";
+  config.bucket = (tmp / "cold").string();
 
   auto store = CreateObjectStore(config);
   REQUIRE(store.ok());
@@ -224,8 +224,8 @@ TEST_CASE("CreateObjectStore: filesystem type builds a store rooted at the bucke
 }
 
 TEST_CASE("CreateObjectStore: filesystem type without a bucket is rejected") {
-  utils::StorageConfig config;
-  config.object_store_type = "filesystem";
+  ObjectStoreConfig config;
+  config.type = "filesystem";
 
   auto store = CreateObjectStore(config);
   CHECK_FALSE(store.ok());
@@ -233,7 +233,7 @@ TEST_CASE("CreateObjectStore: filesystem type without a bucket is rejected") {
 }
 
 TEST_CASE("CreateObjectStore: no type and no endpoint disables object storage") {
-  utils::StorageConfig config;
+  ObjectStoreConfig config;
 
   auto store = CreateObjectStore(config);
   REQUIRE(store.ok());
@@ -243,9 +243,9 @@ TEST_CASE("CreateObjectStore: no type and no endpoint disables object storage") 
 TEST_CASE("CreateObjectStore: s3 or minio type without an endpoint disables object storage") {
   for (const char* type : {"s3", "minio"}) {
     CAPTURE(type);
-    utils::StorageConfig config;
-    config.object_store_type = type;
-    config.object_store_bucket = "bucket";
+    ObjectStoreConfig config;
+    config.type = type;
+    config.bucket = "bucket";
 
     auto store = CreateObjectStore(config);
     REQUIRE(store.ok());
@@ -254,14 +254,14 @@ TEST_CASE("CreateObjectStore: s3 or minio type without an endpoint disables obje
 }
 
 TEST_CASE("CreateObjectStore: an endpoint selects S3 when the binary has S3 support") {
-  utils::StorageConfig config;
-  config.object_store_type = "minio";
-  config.object_store_endpoint = "localhost:9000";
-  config.object_store_bucket = "bucket";
-  config.object_store_access_key = "key";
-  config.object_store_secret_key = "secret";
-  config.object_store_use_ssl = false;
-  config.object_store_region = "us-east-1";
+  ObjectStoreConfig config;
+  config.type = "minio";
+  config.endpoint = "localhost:9000";
+  config.bucket = "bucket";
+  config.access_key = "key";
+  config.secret_key = "secret";
+  config.use_ssl = false;
+  config.region = "us-east-1";
 
   // Creating the client does not contact the endpoint.
   auto store = CreateObjectStore(config);
@@ -274,10 +274,10 @@ TEST_CASE("CreateObjectStore: an endpoint selects S3 when the binary has S3 supp
 }
 
 TEST_CASE("CreateObjectStore: gcs type selects GCS when the binary has GCS support") {
-  utils::StorageConfig config;
-  config.object_store_type = "gcs";
-  config.object_store_bucket = "bucket";
-  config.object_store_endpoint = "http://localhost:4443";
+  ObjectStoreConfig config;
+  config.type = "gcs";
+  config.bucket = "bucket";
+  config.endpoint = "http://localhost:4443";
 
   // Creating the client does not contact the endpoint.
   auto store = CreateObjectStore(config);

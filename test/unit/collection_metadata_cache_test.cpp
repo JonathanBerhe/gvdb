@@ -1,4 +1,4 @@
-#include "network/collection_metadata_cache.h"
+#include "service/collection_metadata_cache.h"
 
 #include <doctest/doctest.h>
 #include <atomic>
@@ -7,7 +7,7 @@
 #include <vector>
 
 using namespace gvdb;
-using namespace gvdb::network;
+using namespace gvdb::service;
 
 class CollectionMetadataCacheTest {
  public:

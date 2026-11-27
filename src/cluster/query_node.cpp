@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "cluster/query_node.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 #include "absl/strings/str_cat.h"
 #include <mutex>
 
@@ -16,7 +16,7 @@ QueryNode::QueryNode(std::shared_ptr<storage::ISegmentStore> segment_store,
       query_executor_(std::move(query_executor)),
       memory_limit_bytes_(memory_limit_bytes),
       memory_used_bytes_(0) {
-  utils::Logger::Instance().Info("QueryNode initialized with {} MB memory limit",
+  common::Logger::Instance().Info("QueryNode initialized with {} MB memory limit",
                                  memory_limit_bytes / (1024 * 1024));
 }
 
@@ -49,7 +49,7 @@ absl::Status QueryNode::LoadSegment(core::SegmentId segment_id) {
       segment, [](storage::Segment*) {});  // Non-owning shared_ptr
   memory_used_bytes_ += segment_size;
 
-  utils::Logger::Instance().Info("Loaded segment {}, memory usage: {} MB / {} MB",
+  common::Logger::Instance().Info("Loaded segment {}, memory usage: {} MB / {} MB",
                                  core::ToUInt32(segment_id),
                                  memory_used_bytes_ / (1024 * 1024),
                                  memory_limit_bytes_ / (1024 * 1024));
@@ -70,7 +70,7 @@ absl::Status QueryNode::UnloadSegment(core::SegmentId segment_id) {
   loaded_segments_.erase(it);
   memory_used_bytes_ -= segment_size;
 
-  utils::Logger::Instance().Info("Unloaded segment {}, memory usage: {} MB / {} MB",
+  common::Logger::Instance().Info("Unloaded segment {}, memory usage: {} MB / {} MB",
                                  core::ToUInt32(segment_id),
                                  memory_used_bytes_ / (1024 * 1024),
                                  memory_limit_bytes_ / (1024 * 1024));
@@ -129,7 +129,7 @@ absl::Status QueryNode::EvictSegmentsIfNeeded(size_t required_bytes) {
     loaded_segments_.erase(it);
     memory_used_bytes_ -= segment_size;
 
-    utils::Logger::Instance().Info("Evicted segment {} to free memory",
+    common::Logger::Instance().Info("Evicted segment {} to free memory",
                                    core::ToUInt32(evicted_id));
   }
 

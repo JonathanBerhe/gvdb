@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "cluster/shard_manager.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 #include "absl/strings/str_cat.h"
 #include <algorithm>
 #include <mutex>
@@ -30,7 +30,7 @@ uint64_t FNV1aHash(const void* data, size_t len) {
 ShardManager::ShardManager(size_t num_shards, ShardingStrategy strategy)
     : num_shards_(num_shards), strategy_(strategy) {
   InitializeShards();
-  utils::Logger::Instance().Info("ShardManager initialized with {} shards, strategy: {}",
+  common::Logger::Instance().Info("ShardManager initialized with {} shards, strategy: {}",
                                  num_shards, static_cast<int>(strategy));
 }
 
@@ -208,7 +208,7 @@ absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id,
   // the stale-write rejection horizon.
   it->second.primary_node = node_id;
   it->second.primary_term += 1;
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Set primary node for shard {} to node {} (term={})",
       core::ToUInt16(shard_id), core::ToUInt32(node_id),
       it->second.primary_term);
@@ -240,7 +240,7 @@ absl::Status ShardManager::SetPrimaryNode(core::ShardId shard_id,
 
   it->second.primary_node = node_id;
   it->second.primary_term = primary_term;
-  utils::Logger::Instance().Info(
+  common::Logger::Instance().Info(
       "Set primary node for shard {} to node {} (explicit term={})",
       core::ToUInt16(shard_id), core::ToUInt32(node_id), primary_term);
   return absl::OkStatus();
@@ -263,7 +263,7 @@ absl::Status ShardManager::AddReplica(core::ShardId shard_id, core::NodeId node_
   }
 
   it->second.replica_nodes.push_back(node_id);
-  utils::Logger::Instance().Info("Added replica node {} for shard {}",
+  common::Logger::Instance().Info("Added replica node {} for shard {}",
                                  core::ToUInt32(node_id),
                                  core::ToUInt16(shard_id));
   return absl::OkStatus();
@@ -285,7 +285,7 @@ absl::Status ShardManager::RemoveReplica(core::ShardId shard_id, core::NodeId no
   }
 
   replicas.erase(replica_it);
-  utils::Logger::Instance().Info("Removed replica node {} from shard {}",
+  common::Logger::Instance().Info("Removed replica node {} from shard {}",
                                  core::ToUInt32(node_id),
                                  core::ToUInt16(shard_id));
   return absl::OkStatus();
@@ -299,7 +299,7 @@ absl::Status ShardManager::RegisterNode(core::NodeId node_id) {
   }
 
   assigned_nodes_.insert(node_id);
-  utils::Logger::Instance().Info("Registered node {}", core::ToUInt32(node_id));
+  common::Logger::Instance().Info("Registered node {}", core::ToUInt32(node_id));
   return absl::OkStatus();
 }
 
@@ -317,10 +317,10 @@ absl::Status ShardManager::UnregisterNode(core::NodeId node_id, bool graceful) {
     // before reaching here — see Coordinator::HandleDrainingNode which
     // promotes replicas / drops replica entries and only then calls this
     // with graceful=true.
-    utils::Logger::Instance().Info("Gracefully unregistering node {}",
+    common::Logger::Instance().Info("Gracefully unregistering node {}",
                                    core::ToUInt32(node_id));
   } else {
-    utils::Logger::Instance().Warn("Force unregistering node {}",
+    common::Logger::Instance().Warn("Force unregistering node {}",
                                    core::ToUInt32(node_id));
   }
 

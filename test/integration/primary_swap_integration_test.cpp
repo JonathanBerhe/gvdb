@@ -31,8 +31,8 @@
 #include <string>
 
 #include "internal.grpc.pb.h"
-#include "network/primary_term_header.h"
-#include "network/proxy_service.h"
+#include "rpc/primary_term_header.h"
+#include "service/proxy_service.h"
 #include "support/grpc_server.h"
 #include "vectordb.grpc.pb.h"
 
@@ -134,7 +134,7 @@ class PrimarySwapDataNode : public proto::VectorDBService::Service {
           "primary-swap test: " + label +
               " has no primary record for shard 0; re-route via RouteQuery");
     }
-    auto header = network::ReadPrimaryTermHeader(context);
+    auto header = rpc::ReadPrimaryTermHeader(context);
     if (header.parse_error) {
       return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
                            "primary-swap test: bad term header");
@@ -184,7 +184,7 @@ class PrimarySwapTest {
     coord_ = std::make_unique<PrimarySwapCoordinator>();
     coord_server_ = StartServer({coord_.get()});
 
-    proxy_ = std::make_unique<network::ProxyService>(
+    proxy_ = std::make_unique<service::ProxyService>(
         std::vector<std::string>{coord_server_->address()}, mock_a_address_);
     proxy_server_ = StartServer({proxy_.get()});
 
@@ -223,7 +223,7 @@ class PrimarySwapTest {
   std::unique_ptr<PrimarySwapCoordinator> coord_;
   std::unique_ptr<TestGrpcServer> coord_server_;
 
-  std::unique_ptr<network::ProxyService> proxy_;
+  std::unique_ptr<service::ProxyService> proxy_;
   std::unique_ptr<TestGrpcServer> proxy_server_;
 
   std::unique_ptr<proto::VectorDBService::Stub> client_;

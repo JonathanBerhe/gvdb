@@ -13,7 +13,7 @@
 #include "absl/strings/str_cat.h"
 #include "storage/objstore/filesystem_object_store.h"
 #include "storage/backup/segment_export.h"
-#include "utils/logger.h"
+#include "common/logger.h"
 
 namespace gvdb {
 namespace storage {
@@ -98,7 +98,7 @@ bool PathUnderRoot(const std::string& root, const std::string& child) {
 
 BackupManager::BackupManager(BackupManagerOptions opts)
     : opts_(std::move(opts)) {
-  pool_ = std::make_unique<utils::ThreadPool>(
+  pool_ = std::make_unique<common::ThreadPool>(
       static_cast<size_t>(std::max(1, opts_.max_concurrent_jobs)));
   std::error_code ec;
   std::filesystem::create_directories(opts_.tmp_dir, ec);
@@ -626,7 +626,7 @@ std::vector<std::string> BackupManager::JobIds() const {
 
 RestoreManager::RestoreManager(RestoreManagerOptions opts)
     : opts_(std::move(opts)) {
-  pool_ = std::make_unique<utils::ThreadPool>(
+  pool_ = std::make_unique<common::ThreadPool>(
       static_cast<size_t>(std::max(1, opts_.max_concurrent_jobs)));
   std::error_code ec;
   std::filesystem::create_directories(opts_.staging_dir, ec);
@@ -818,7 +818,7 @@ core::Status RestoreManager::RunShardRestore(
     if (!installed_growing) {
       auto flush_status = segment_store->FlushSegment(installed_id);
       if (!flush_status.ok()) {
-        utils::Logger::Instance().Error(
+        common::Logger::Instance().Error(
             "Failed to flush restored segment {}: {}",
             core::ToUInt32(installed_id), flush_status.message());
         cleanup();

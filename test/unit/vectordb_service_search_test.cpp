@@ -17,12 +17,12 @@
 #include "compute/query_executor.h"
 #include "core/types.h"
 #include "index/index_factory.h"
-#include "network/collection_resolver.h"
-#include "network/vectordb_service.h"
+#include "service/collection_resolver.h"
+#include "service/vectordb_service.h"
 #include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
 #include "support/vectors.h"
-#include "utils/query_cache.h"
+#include "compute/query_cache.h"
 
 using namespace gvdb;
 
@@ -146,8 +146,8 @@ class SearchServiceTest {
     query_executor_ = std::make_shared<compute::QueryExecutor>(
         segment_store_.get());
 
-    auto resolver = network::MakeLocalResolver(segment_store_);
-    service_ = std::make_unique<network::VectorDBService>(
+    auto resolver = service::MakeLocalResolver(segment_store_);
+    service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_, std::move(resolver));
   }
 
@@ -233,7 +233,7 @@ class SearchServiceTest {
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
-  std::unique_ptr<network::VectorDBService> service_;
+  std::unique_ptr<service::VectorDBService> service_;
 };
 
 // ============================================================================
@@ -1482,7 +1482,7 @@ class ConcurrentSearchTest : public SearchServiceTest {
 
   ConcurrentSearchTest() {
     // As in the single-node server, Search results go through a query cache.
-    query_executor_->SetCache(std::make_shared<utils::QueryCache>(10000));
+    query_executor_->SetCache(std::make_shared<compute::QueryCache>(10000));
     CreateCollection(kCollection, kDim);
 
     const auto vectors = test::RandomVectors(kCount, kDim, 97);
