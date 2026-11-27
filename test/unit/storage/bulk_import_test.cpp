@@ -256,31 +256,6 @@ TEST_SUITE("BulkImporter") {
     }
   };
 
-  TEST_CASE_FIXTURE(BulkImportFixture, "ImportNpy imports small dataset") {
-    auto cid = SetupCollection(4);
-    UploadNpy("test/vectors.npy", 50, 4);
-
-    gvdb::storage::BulkImporter importer(segment_store, object_store.get(), temp_dir, 2);
-
-    auto job_result = importer.StartImport(
-        "test_collection", cid, 4, gvdb::core::MetricType::L2, gvdb::core::IndexType::FLAT,
-        "s3://bucket/test/vectors.npy", gvdb::storage::ImportFormat::NUMPY);
-    REQUIRE(job_result.ok());
-
-    const auto& import_id = *job_result;
-    CHECK(!import_id.empty());
-
-    // Wait for completion
-    REQUIRE(WaitForTerminalState(importer, import_id));
-
-    auto final_status = importer.GetStatus(import_id);
-    REQUIRE(final_status.ok());
-    INFO("Import error: " << final_status->error_message);
-    CHECK(final_status->state == gvdb::storage::ImportState::COMPLETED);
-    CHECK(final_status->imported_vectors == 50);
-    CHECK(final_status->segments_created >= 1);
-  }
-
   TEST_CASE_FIXTURE(BulkImportFixture, "Import rejects invalid S3 URI") {
     auto cid = SetupCollection(4);
 

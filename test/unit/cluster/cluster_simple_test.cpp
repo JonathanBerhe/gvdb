@@ -551,35 +551,6 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleDrainingNodeNoReplicaLeavesShardInPlac
 // Auto-rebalance on node join: Coordinator::DetectNewDataNodes
 // ---------------------------------------------------------------------------
 
-// Baseline: a brand-new coordinator has an empty known-nodes set.
-TEST_CASE_FIXTURE(CoordinatorTest, "DetectNewDataNodesStartsEmpty") {
-  auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
-  auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
-  auto coord = std::make_unique<Coordinator>(shard_manager, node_registry);
-
-  CHECK(coord->KnownDataNodesForTesting().empty());
-}
-
-// Registering a new data node is detected; the known set grows by one.
-TEST_CASE_FIXTURE(CoordinatorTest, "DetectNewDataNodesTracksFreshlyJoinedNode") {
-  auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
-  auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
-  auto coord = std::make_unique<Coordinator>(shard_manager, node_registry);
-
-  proto::internal::NodeInfo n;
-  n.set_node_id(101);
-  n.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
-  n.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
-  n.set_grpc_address("localhost:50060");
-  node_registry->UpdateNode(n);
-
-  coord->DetectNewDataNodes();
-
-  auto known = coord->KnownDataNodesForTesting();
-  REQUIRE_EQ(known.size(), 1);
-  CHECK(known.count(core::MakeNodeId(101)) == 1);
-}
-
 // Calling DetectNewDataNodes twice with no changes is idempotent, no new
 // entries.
 TEST_CASE_FIXTURE(CoordinatorTest, "DetectNewDataNodesIsIdempotentWithoutNewJoin") {

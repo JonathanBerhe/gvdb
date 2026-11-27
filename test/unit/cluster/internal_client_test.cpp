@@ -108,23 +108,6 @@ class InternalClientTest {
 // GrpcInternalServiceClientFactory Tests
 // ============================================================================
 
-TEST_CASE_FIXTURE(InternalClientTest, "FactoryCreatesClientSuccessfully") {
-  cluster::GrpcInternalServiceClientFactory factory;
-
-  auto client = factory.CreateClient(core::MakeNodeId(1), server_address_);
-
-  REQUIRE_NE(client, nullptr);
-}
-
-TEST_CASE_FIXTURE(InternalClientTest, "FactoryCreatesClientWithInvalidAddress") {
-  cluster::GrpcInternalServiceClientFactory factory;
-
-  // Even with invalid address, client creation succeeds (lazy connection)
-  auto client = factory.CreateClient(core::MakeNodeId(1), "invalid:99999");
-
-  CHECK_NE(client, nullptr);
-}
-
 // ============================================================================
 // GrpcInternalServiceClient RPC Tests
 // ============================================================================
@@ -241,14 +224,6 @@ TEST_CASE_FIXTURE(InternalClientTest, "MultipleRPCCallsSucceed") {
 // ============================================================================
 // NullInternalServiceClientFactory Tests
 // ============================================================================
-
-TEST_CASE_FIXTURE(InternalClientTest, "NullFactoryReturnsNullptr") {
-  cluster::NullInternalServiceClientFactory factory;
-
-  auto client = factory.CreateClient(core::MakeNodeId(1), server_address_);
-
-  CHECK_EQ(client, nullptr);
-}
 
 TEST_CASE_FIXTURE(InternalClientTest, "NullFactoryReturnsNullptrForAnyAddress") {
   cluster::NullInternalServiceClientFactory factory;

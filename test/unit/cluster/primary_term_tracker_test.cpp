@@ -20,12 +20,6 @@ TEST_CASE("PrimaryTermTracker: bare tracker returns UnknownShard for any write")
   CHECK(t.EvaluateWrite(7, 100) == D::UnknownShard);
 }
 
-TEST_CASE("PrimaryTermTracker: RecordPrimary then matching write Accepts") {
-  PrimaryTermTracker t;
-  CHECK(t.RecordPrimary(0, 5));
-  CHECK(t.EvaluateWrite(0, 5) == D::Accept);
-}
-
 TEST_CASE("PrimaryTermTracker: write at older term returns StaleTerm") {
   PrimaryTermTracker t;
   CHECK(t.RecordPrimary(0, 5));

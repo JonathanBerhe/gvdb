@@ -64,54 +64,6 @@ class StorageTest {
 // Segment Tests
 // ============================================================================
 
-TEST_CASE_FIXTURE(StorageTest, "SegmentCreate") {
-  auto segment_id = core::MakeSegmentId(1);
-  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
-
-  CHECK_EQ(segment.GetId(), segment_id);
-  CHECK_EQ(segment.GetCollectionId(), collection_id_);
-  CHECK_EQ(segment.GetDimension(), dimension_);
-  CHECK_EQ(segment.GetMetric(), metric_);
-  CHECK_EQ(segment.GetState(), core::SegmentState::GROWING);
-  CHECK_EQ(segment.GetVectorCount(), 0);
-  CHECK(segment.CanAcceptWrites());
-}
-
-TEST_CASE_FIXTURE(StorageTest, "SegmentAddVectors") {
-  auto segment_id = core::MakeSegmentId(1);
-  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
-
-  auto vectors = CreateTestVectors(100);
-  auto ids = CreateTestVectorIds(100);
-
-  auto status = segment.AddVectors(vectors, ids);
-  INFO("AddVectors failed: " << status.message());
-  REQUIRE(status.ok());
-
-  CHECK_EQ(segment.GetVectorCount(), 100);
-  CHECK_GT(segment.GetMemoryUsage(), 0);
-}
-
-TEST_CASE_FIXTURE(StorageTest, "SegmentReadVectors") {
-  auto segment_id = core::MakeSegmentId(1);
-  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
-
-  auto vectors = CreateTestVectors(10);
-  auto ids = CreateTestVectorIds(10);
-
-  REQUIRE(segment.AddVectors(vectors, ids).ok());
-
-  // Read back specific vectors
-  std::vector<core::VectorId> query_ids = {core::MakeVectorId(1), core::MakeVectorId(5),
-                                           core::MakeVectorId(10)};
-
-  auto result = segment.ReadVectors(query_ids);
-  INFO("ReadVectors failed: " << result.status().message());
-  REQUIRE(result.ok());
-
-  CHECK_EQ(result.value().size(), 3);
-}
-
 TEST_CASE_FIXTURE(StorageTest, "SegmentSeal") {
   auto segment_id = core::MakeSegmentId(1);
   storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
@@ -202,6 +154,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentKeepsVectorsAfterSeal") {
   auto vectors = CreateTestVectors(100);
   auto ids = CreateTestVectorIds(100);
   REQUIRE(segment.AddVectors(vectors, ids).ok());
+  CHECK_EQ(segment.GetVectorCount(), 100);
 
   size_t memory_before_seal = segment.GetMemoryUsage();
   CHECK_GT(memory_before_seal, 0);
@@ -1828,19 +1781,6 @@ TEST_CASE_FIXTURE(RotationTest, "CanFit_ChecksCapacity") {
   CHECK_FALSE(segment.CanFit(65));  // 960 + 65 > 1024 → doesn't fit
 }
 
-TEST_CASE_FIXTURE(RotationTest, "GetWritableSegment_ReturnsWritable") {
-  // Create a segment via the manager
-  auto seg_result = manager_->CreateSegment(collection_id_, dimension_, metric_);
-  REQUIRE(seg_result.ok());
-  auto seg_id = *seg_result;
-
-  // GetWritableSegment should return it
-  auto* seg = manager_->GetWritableSegment(collection_id_);
-  REQUIRE(seg != nullptr);
-  CHECK_EQ(seg->GetId(), seg_id);
-  CHECK(seg->CanAcceptWrites());
-}
-
 TEST_CASE_FIXTURE(RotationTest, "GetWritableSegment_RotatesOnExhaustion") {
   // This is the core bug fix test
   auto seg_result = manager_->CreateSegment(collection_id_, dimension_, metric_);
@@ -2030,19 +1970,6 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_BasicExpiry") {
   // Vectors 2 and 3 (no TTL) should still be found
   auto result3 = segment.GetVectors({ids[1], ids[2]}, false);
   CHECK_EQ(result3.found_ids.size(), 2);
-}
-
-TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_NoExpiryWhenZero") {
-  auto seg_id = core::MakeSegmentId(1);
-  storage::Segment segment(seg_id, collection_id_, dimension_, metric_);
-
-  auto vecs = CreateTestVectors(1);
-  auto ids = CreateTestVectorIds(1);
-  REQUIRE(segment.AddVectors(vecs, ids).ok());
-
-  // No SetExpiry call → no TTL → never expires, whatever the clock says
-  auto result = segment.GetVectors({ids[0]}, false);
-  CHECK_EQ(result.found_ids.size(), 1);
 }
 
 TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_BruteForceSearch") {

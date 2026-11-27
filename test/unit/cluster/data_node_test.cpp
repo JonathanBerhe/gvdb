@@ -68,20 +68,6 @@ class DataNodeTest {
 // Task Queue Tests
 // ============================================================================
 
-TEST_CASE_FIXTURE(DataNodeTest, "ScheduleBuildTask returns OK") {
-  BuildTask task{core::MakeSegmentId(1), core::IndexType::HNSW, 10};
-  auto status = data_node_->ScheduleBuildTask(task);
-  CHECK(status.ok());
-}
-
-TEST_CASE_FIXTURE(DataNodeTest, "GetPendingTaskCount starts at zero") {
-  CHECK_EQ(data_node_->GetPendingTaskCount(), 0);
-}
-
-TEST_CASE_FIXTURE(DataNodeTest, "HasPendingTasks false when empty") {
-  CHECK_FALSE(data_node_->HasPendingTasks());
-}
-
 TEST_CASE_FIXTURE(DataNodeTest, "HasPendingTasks true after scheduling") {
   BuildTask task{core::MakeSegmentId(1), core::IndexType::FLAT, 5};
   REQUIRE(data_node_->ScheduleBuildTask(task).ok());
@@ -225,10 +211,6 @@ TEST_CASE_FIXTURE(DataNodeTest, "ProcessBuildQueue processes all tasks") {
   // Both segments should be SEALED
   CHECK_EQ(segment_store_->GetSegment(seg1)->GetState(), core::SegmentState::SEALED);
   CHECK_EQ(segment_store_->GetSegment(seg2)->GetState(), core::SegmentState::SEALED);
-}
-
-TEST_CASE_FIXTURE(DataNodeTest, "ProcessBuildQueue empty queue returns 0") {
-  CHECK_EQ(data_node_->ProcessBuildQueue(), 0);
 }
 
 TEST_CASE_FIXTURE(DataNodeTest, "ProcessBuildQueue handles failed tasks") {

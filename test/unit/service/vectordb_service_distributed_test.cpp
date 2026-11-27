@@ -127,62 +127,6 @@ struct VectorDBServiceDistributedTest {
 // Metadata Pull-on-Miss Tests
 // ============================================================================
 
-TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "SearchPullsMetadataFromCoordinator") {
-  // Insert vectors first (requires collection to exist in segment manager)
-  // Segment ID uses ShardSegmentId scheme: collection_id * 1000 + shard_index
-  auto segment_id = core::ShardSegmentId(core::MakeCollectionId(42), 0);
-  auto create_status = segment_store_->CreateSegmentWithId(
-      segment_id, core::MakeCollectionId(42), 128, core::MetricType::L2, core::IndexType::FLAT);
-  REQUIRE(create_status.ok());
-
-  // Add some test vectors
-  std::vector<core::Vector> vectors;
-  for (int i = 0; i < 10; ++i) {
-    std::vector<float> data(128, 1.0f);
-    vectors.emplace_back(data);
-  }
-  std::vector<core::VectorId> ids;
-  ids.reserve(10);
-  for (int i = 0; i < 10; ++i) {
-    ids.push_back(core::MakeVectorId(i + 1));
-  }
-
-  auto* segment = segment_store_->GetSegment(segment_id);
-  REQUIRE_NE(segment, nullptr);
-  auto add_status = segment->AddVectors(vectors, ids);
-  REQUIRE(add_status.ok());
-
-  // Build index and seal segment
-  core::IndexConfig index_config;
-  index_config.index_type = core::IndexType::FLAT;
-  index_config.dimension = 128;
-  index_config.metric_type = core::MetricType::L2;
-  auto index_result = index_factory_->CreateIndex(index_config);
-  REQUIRE(index_result.ok());
-  auto seal_status = segment->Seal(index_result.value().release());
-  REQUIRE(seal_status.ok());
-
-  // Now search - this should trigger metadata pull from coordinator
-  grpc::ServerContext context;
-  proto::SearchRequest request;
-  request.set_collection_name("test_collection");
-  auto* query = request.mutable_query_vector();
-  query->set_dimension(128);
-  for (int i = 0; i < 128; ++i) {
-    query->add_values(1.0f);
-  }
-  request.set_top_k(5);
-  proto::SearchResponse response;
-
-  auto status = service_->Search(&context, &request, &response);
-
-  CHECK(status.ok());
-  CHECK_GT(response.results().size(), 0);
-
-  // Verify coordinator was called for metadata
-  CHECK_GE(mock_coordinator_->get_collection_metadata_calls.load(), 1);
-}
-
 TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "MetadataCacheReusedOnSecondSearch") {
   // Set up collection and vectors
   auto segment_id = core::ShardSegmentId(core::MakeCollectionId(42), 0);
@@ -231,9 +175,12 @@ TEST_CASE_FIXTURE(VectorDBServiceDistributedTest, "MetadataCacheReusedOnSecondSe
 
     auto status = service_->Search(&context, &request, &response);
     CHECK(status.ok());
+    CHECK_GT(response.results().size(), 0);
   }
 
+  // The first search pulls the metadata from the coordinator.
   int calls_after_first_search = mock_coordinator_->get_collection_metadata_calls.load();
+  CHECK_GE(calls_after_first_search, 1);
 
   // Second search - should use cached metadata
   {

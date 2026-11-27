@@ -118,6 +118,8 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchWithData") {
   INFO(result.status().message());
   REQUIRE(result.ok());
   CHECK_EQ(result.value().entries.size(), 10);
+  // The query is the first inserted vector, so the first result has distance 0.
+  CHECK(result.value().entries[0].distance == doctest::Approx(0.0f).epsilon(1e-5));
 
   // Verify results are sorted by distance (ascending)
   for (size_t i = 1; i < result.value().entries.size(); ++i) {
@@ -150,60 +152,6 @@ TEST_CASE_FIXTURE(ComputeTest, "SearchInvalidTopK") {
   result = executor.Search(collection_id_, query, -1);
   CHECK_FALSE(result.ok());
   CHECK_EQ(result.status().code(), absl::StatusCode::kInvalidArgument);
-}
-
-TEST_CASE_FIXTURE(ComputeTest, "SearchMultipleSegments") {
-  // Create and populate multiple segments
-  for (int i = 0; i < 3; ++i) {
-    auto vectors = CreateTestVectors(30, dimension_);
-    auto ids = CreateTestVectorIds(30, static_cast<size_t>(i) * 30);
-
-    auto segment_result = segment_manager_->CreateSegment(collection_id_, dimension_, metric_);
-    REQUIRE(segment_result.ok());
-    auto segment_id = segment_result.value();
-
-    auto status = segment_manager_->WriteVectors(segment_id, vectors, ids);
-    REQUIRE(status.ok());
-
-    core::IndexConfig config;
-    config.index_type = core::IndexType::FLAT;
-    config.dimension = dimension_;
-    config.metric_type = metric_;
-
-    status = segment_manager_->SealSegment(segment_id, config);
-    REQUIRE(status.ok());
-  }
-
-  compute::QueryExecutor executor(*segment_manager_);
-
-  auto query = CreateTestVectors(1, dimension_)[0];
-  auto result = executor.Search(collection_id_, query, 20);
-
-  INFO(result.status().message());
-  REQUIRE(result.ok());
-  CHECK_EQ(result.value().entries.size(), 20);
-
-  // Verify results are merged and sorted
-  for (size_t i = 1; i < result.value().entries.size(); ++i) {
-    CHECK_LE(result.value().entries[i - 1].distance, result.value().entries[i].distance);
-  }
-}
-
-TEST_CASE_FIXTURE(ComputeTest, "SearchExactMatch") {
-  PopulateSegmentManager(100);
-
-  compute::QueryExecutor executor(*segment_manager_);
-
-  // Query with the exact vector that was inserted (should have distance ~0)
-  auto query = CreateTestVectors(1, dimension_)[0];
-  auto result = executor.Search(collection_id_, query, 5);
-
-  INFO(result.status().message());
-  REQUIRE(result.ok());
-  REQUIRE_GT(result.value().entries.size(), 0);
-
-  // First result should be the exact match with distance ~0
-  CHECK(result.value().entries[0].distance == doctest::Approx(0.0f).epsilon(1e-5));
 }
 
 // Search latency is measured by test/bench/search_bench.cpp (make

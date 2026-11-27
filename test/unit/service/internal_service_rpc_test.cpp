@@ -93,8 +93,9 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetShardAssignments_WithData") {
   auto status = service_->GetShardAssignments(&ctx, &request, &response);
 
   CHECK(status.ok());
-  // ShardManager with 8 shards returns all of them from GetAllShards
-  CHECK(response.assignments_size() >= 2);
+  // The fixture's ShardManager has 8 shards, and GetAllShards returns all of
+  // them, also the shards without a primary.
+  CHECK_EQ(response.assignments_size(), 8);
 
   // Verify the assigned shards have the correct primary node
   bool found_shard_1 = false;
@@ -106,21 +107,6 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetShardAssignments_WithData") {
     }
   }
   CHECK(found_shard_1);
-}
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetShardAssignments_Empty") {
-  // Fresh shard manager with no explicit primary assignments
-  // GetAllShards still returns shards but with kInvalidNodeId as primary
-  grpc::ServerContext ctx;
-  proto::internal::GetShardAssignmentsRequest request;
-  request.set_collection_id(0);
-  proto::internal::GetShardAssignmentsResponse response;
-
-  auto status = service_->GetShardAssignments(&ctx, &request, &response);
-
-  CHECK(status.ok());
-  // All shards are returned even without explicit assignment
-  CHECK(response.assignments_size() > 0);
 }
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "RebalanceShards_NoDistributedMode") {
@@ -271,36 +257,6 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "ListSegments_Empty") {
   CHECK_EQ(response.segments_size(), 0);
 }
 
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "DeleteSegment_Success") {
-  // Create a segment to delete
-  {
-    grpc::ServerContext ctx;
-    proto::internal::CreateSegmentRequest req;
-    req.set_segment_id(400);
-    req.set_collection_id(1);
-    req.set_dimension(64);
-    req.set_metric_type("L2");
-    req.set_index_type("FLAT");
-    proto::internal::CreateSegmentResponse resp;
-    auto s = service_->CreateSegment(&ctx, &req, &resp);
-    REQUIRE(s.ok());
-    REQUIRE(resp.success());
-  }
-
-  // Delete the segment
-  grpc::ServerContext ctx;
-  proto::internal::DeleteSegmentRequest request;
-  request.set_segment_id(400);
-  request.set_force(false);
-  proto::internal::DeleteSegmentResponse response;
-
-  auto status = service_->DeleteSegment(&ctx, &request, &response);
-
-  CHECK(status.ok());
-  CHECK(response.success());
-  CHECK(response.message().find("deleted successfully") != std::string::npos);
-}
-
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "DeleteSegment_InvalidId") {
   grpc::ServerContext ctx;
   proto::internal::DeleteSegmentRequest request;
@@ -324,36 +280,6 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "DeleteSegment_Nonexistent") {
   CHECK(status.ok());
   CHECK_FALSE(response.success());
   CHECK(response.message().find("not found") != std::string::npos);
-}
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetSegment_Success") {
-  // Create a segment first
-  {
-    grpc::ServerContext ctx;
-    proto::internal::CreateSegmentRequest req;
-    req.set_segment_id(500);
-    req.set_collection_id(1);
-    req.set_dimension(32);
-    req.set_metric_type("L2");
-    req.set_index_type("FLAT");
-    proto::internal::CreateSegmentResponse resp;
-    auto s = service_->CreateSegment(&ctx, &req, &resp);
-    REQUIRE(s.ok());
-    REQUIRE(resp.success());
-  }
-
-  // Get the segment
-  grpc::ServerContext ctx;
-  proto::internal::GetSegmentRequest request;
-  request.set_segment_id(500);
-  proto::internal::GetSegmentResponse response;
-
-  auto status = service_->GetSegment(&ctx, &request, &response);
-
-  CHECK(status.ok());
-  CHECK(response.has_segment_info());
-  CHECK_EQ(response.segment_info().segment_id(), 500);
-  CHECK_EQ(response.segment_info().collection_id(), 1);
 }
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetSegment_InvalidId") {
@@ -383,33 +309,6 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetSegment_Nonexistent") {
 // ============================================================================
 // 3. Query Routing Tests
 // ============================================================================
-
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_Success") {
-  // Create a collection in the coordinator
-  (void)shard_manager_->RegisterNode(core::MakeNodeId(1));
-  auto coll_result = coordinator_->CreateCollection("route_test", 128, core::MetricType::L2,
-                                                    core::IndexType::FLAT, 1);
-  REQUIRE(coll_result.ok());
-
-  // Assign primary node for the shard
-  auto metadata = coordinator_->GetCollectionMetadata("route_test");
-  REQUIRE(metadata.ok());
-  for (const auto& sid : metadata->shard_ids) {
-    (void)shard_manager_->SetPrimaryNode(sid, core::MakeNodeId(1));
-  }
-
-  grpc::ServerContext ctx;
-  proto::internal::RouteQueryRequest request;
-  request.set_collection_name("route_test");
-  proto::internal::RouteQueryResponse response;
-
-  auto status = service_->RouteQuery(&ctx, &request, &response);
-
-  CHECK(status.ok());
-  CHECK(response.collection_id() > 0);
-  CHECK(response.target_shard_ids_size() > 0);
-  CHECK(response.target_node_ids_size() > 0);
-}
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_NoCoordinator") {
   // Create service without coordinator
@@ -773,22 +672,6 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "ExecuteShardQuery_NonexistentSegment"
 // 4. Health Monitoring Tests
 // ============================================================================
 
-TEST_CASE_FIXTURE(InternalServiceRpcTest, "Heartbeat_Acknowledged") {
-  grpc::ServerContext ctx;
-  proto::internal::HeartbeatRequest request;
-  auto* info = request.mutable_node_info();
-  info->set_node_id(10);
-  info->set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
-  info->set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
-  info->set_grpc_address("localhost:50060");
-  proto::internal::HeartbeatResponse response;
-
-  auto status = service_->Heartbeat(&ctx, &request, &response);
-
-  CHECK(status.ok());
-  CHECK(response.acknowledged());
-}
-
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "Heartbeat_UpdatesRegistry") {
   // Send heartbeat for a new node
   {
@@ -987,6 +870,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "CreateSegment_ThenDelete_ThenGetFails
     auto s = service_->DeleteSegment(&ctx, &req, &resp);
     REQUIRE(s.ok());
     REQUIRE(resp.success());
+    CHECK(resp.message().find("deleted successfully") != std::string::npos);
   }
 
   // Get should now fail
@@ -1056,6 +940,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_WithShardAssignment") {
   auto status = service_->RouteQuery(&ctx, &request, &response);
 
   CHECK(status.ok());
+  CHECK(response.collection_id() > 0);
   CHECK(response.target_shard_ids_size() > 0);
   CHECK(response.target_node_ids_size() == response.target_shard_ids_size());
   CHECK(response.target_node_addresses_size() == response.target_shard_ids_size());

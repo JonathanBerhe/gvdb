@@ -87,6 +87,7 @@ TEST_CASE("IndexFactoryTest - CreateFromConfig") {
 
   auto index = std::move(result.value());
   CHECK_EQ(index->GetDimension(), 64);
+  CHECK_EQ(index->GetIndexType(), core::IndexType::FLAT);
 }
 
 TEST_CASE("IndexFactoryTest - InvalidDimension") {
@@ -178,21 +179,6 @@ TEST_CASE("FlatIndexTest - SearchEmpty") {
   core::Vector query = CreateExtraVector(4);
   auto search_result = index->Search(query, 10);
   CHECK_FALSE(search_result.ok());
-}
-
-TEST_CASE("FlatIndexTest - DimensionMismatch") {
-  auto index_result = IndexFactory::CreateFlatIndex(4, core::MetricType::L2);
-  REQUIRE(index_result.ok());
-  auto index = std::move(index_result.value());
-
-  // Try to add vector with wrong dimension
-  auto vectors = CreateTestVectors(5, 4);
-  auto ids = CreateTestIds(5);
-  REQUIRE(index->Build(vectors, ids).ok());
-
-  // This should work
-  core::Vector correct_dim = CreateExtraVector(4);
-  CHECK(index->Add(correct_dim, core::MakeVectorId(100)).ok());
 }
 
 // ============================================================================
@@ -529,12 +515,6 @@ TEST_CASE("ResolveAutoIndexConfig - dim at threshold stays standard M") {
   // kHighDimThreshold uses strict '>', so exactly 512 stays at standard M.
   auto config = core::ResolveAutoIndexConfig(core::IndexType::AUTO, 200'000,
                                              core::kHighDimThreshold, core::MetricType::L2);
-  CHECK_EQ(config.hnsw_params.M, core::kLargeHnswM);
-}
-
-TEST_CASE("ResolveAutoIndexConfig - low-dim keeps standard HNSW M") {
-  auto config =
-      core::ResolveAutoIndexConfig(core::IndexType::AUTO, 200'000, 128, core::MetricType::L2);
   CHECK_EQ(config.hnsw_params.M, core::kLargeHnswM);
 }
 

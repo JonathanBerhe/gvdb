@@ -35,6 +35,7 @@ TEST_CASE("SparseVector_Construction") {
     std::vector<core::SparseVector::Entry> entries = {{0, 1.0f}, {5, 2.0f}, {10, 3.0f}};
     core::SparseVector sv(entries);
     CHECK_EQ(sv.nnz(), 3);
+    CHECK_EQ(sv.byte_size(), 3 * sizeof(core::SparseVector::Entry));
     CHECK_FALSE(sv.empty());
     CHECK(sv.Validate().ok());
   }
@@ -70,12 +71,6 @@ TEST_CASE("SparseVector_Validation") {
     core::SparseVector sv({{0, std::nanf("")}});
     CHECK_FALSE(sv.Validate().ok());
   }
-}
-
-TEST_CASE("SparseVector_ByteSize") {
-  core::SparseVector sv({{0, 1.0f}, {5, 2.0f}, {10, 3.0f}});
-  // 3 entries * sizeof(pair<uint32_t, float>) = 3 * 8 = 24
-  CHECK_EQ(sv.byte_size(), 3 * sizeof(core::SparseVector::Entry));
 }
 
 // ============================================================================

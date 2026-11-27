@@ -34,16 +34,9 @@ TEST_CASE_FIXTURE(CacheTest, "RegisterAndCheck") {
   SegmentCache cache(test_dir_, 1024);
   REQUIRE(cache.RegisterSegment(MakeId(1), 100).ok());
   CHECK(cache.HasSegment(MakeId(1)));
-  CHECK_FALSE(cache.GetSegmentPath(MakeId(1)).empty());
+  CHECK_NE(cache.GetSegmentPath(MakeId(1)).find("segment_1"), std::string::npos);
   CHECK_EQ(cache.GetCachedSize(), 100);
   CHECK_EQ(cache.GetCachedCount(), 1);
-}
-
-TEST_CASE_FIXTURE(CacheTest, "GetSegmentPath") {
-  SegmentCache cache(test_dir_, 1024);
-  REQUIRE(cache.RegisterSegment(MakeId(5), 50).ok());
-  auto path = cache.GetSegmentPath(MakeId(5));
-  CHECK_NE(path.find("segment_5"), std::string::npos);
 }
 
 TEST_CASE_FIXTURE(CacheTest, "LRUEviction") {

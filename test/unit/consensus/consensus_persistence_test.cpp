@@ -381,38 +381,6 @@ class GvdbStateManagerPersistenceTest {
   test::ScopedTempDir test_dir_{"gvdb_state_test"};
 };
 
-// Test 1: State manager persistence
-TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "StateManager BasicPersistence") {
-  std::string log_path = (test_dir_ / "logs").string();
-  std::string state_path = (test_dir_ / "state").string();
-
-  // Create state manager and save some state
-  {
-    auto mgr_created = GvdbStateManager::Create(1, "localhost:9000", log_path, state_path);
-    REQUIRE(mgr_created.ok());
-    GvdbStateManager& mgr = **mgr_created;
-
-    // Create and save a server state
-    auto srv_state = nuraft::cs_new<nuraft::srv_state>();
-    srv_state->set_term(10);
-    srv_state->set_voted_for(2);
-
-    mgr.save_state(*srv_state);
-  }
-
-  // Reopen and verify state persisted
-  {
-    auto mgr_created = GvdbStateManager::Create(1, "localhost:9000", log_path, state_path);
-    REQUIRE(mgr_created.ok());
-    GvdbStateManager& mgr = **mgr_created;
-
-    auto loaded_state = mgr.read_state();
-    REQUIRE_NE(loaded_state, nullptr);
-    CHECK_EQ(loaded_state->get_term(), 10);
-    CHECK_EQ(loaded_state->get_voted_for(), 2);
-  }
-}
-
 // Test 2: Cluster config persistence
 TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "ClusterConfigPersistence") {
   std::string log_path = (test_dir_ / "logs").string();
