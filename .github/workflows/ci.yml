@@ -290,7 +290,8 @@ jobs:
               - 'cmake/**'
               - 'test/CMakeLists.txt'
               - 'test/unit/CMakeLists.txt'
-              - 'test/unit/object_store_*'
+              - 'test/unit/storage/CMakeLists.txt'
+              - 'test/unit/storage/object_store_*'
               - 'test/integration/docker-compose.fake-gcs.yml'
               - 'test/integration/fake-gcs-seed/**'
               - 'tools/ci/**'
@@ -406,7 +407,9 @@ jobs:
         if: steps.filter.outputs.gcs == 'true'
         env:
           GVDB_TEST_GCS_ENDPOINT: http://localhost:4443
-        run: ctest --preset gcs -R '^object_store_(gcs_)?tests$'
+        run: >
+          ctest --preset gcs
+          -R '^object_store_gcs_tests$|^storage_tests:(ObjectStore contract|InMemoryObjectStore|FilesystemObjectStore|CreateObjectStore)'
 
       - name: Skip notice
         if: steps.filter.outputs.gcs == 'false'

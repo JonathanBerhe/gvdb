@@ -190,8 +190,9 @@ To run the object store tests against the emulator, build the `gcs` preset first
 
 ```bash
 cmake --preset gcs
-cmake --build --preset gcs --target object_store_tests object_store_gcs_tests
-GVDB_TEST_GCS_ENDPOINT=http://localhost:4443 ctest --preset gcs -R '^object_store_(gcs_)?tests$'
+cmake --build --preset gcs --target storage_tests object_store_gcs_tests
+GVDB_TEST_GCS_ENDPOINT=http://localhost:4443 ctest --preset gcs \
+  -R '^object_store_gcs_tests$|^storage_tests:(ObjectStore contract|InMemoryObjectStore|FilesystemObjectStore|CreateObjectStore)'
 ```
 
 ## Cache behaviour
