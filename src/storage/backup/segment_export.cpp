@@ -48,7 +48,7 @@ std::string RenderGrowingMetadata(const Segment& segment) {
 // Export
 // ============================================================================
 
-core::StatusOr<SegmentExport> SegmentExporter::Export(
+absl::StatusOr<SegmentExport> SegmentExporter::Export(
     const Segment& segment,
     const std::filesystem::path& flushed_segments_root,
     const std::filesystem::path& tmp_root) {
@@ -70,7 +70,7 @@ core::StatusOr<SegmentExport> SegmentExporter::Export(
                    absl::StrCat("segment_", out.segment_id);
     std::error_code ec;
     if (!std::filesystem::exists(seg_dir, ec)) {
-      return core::FailedPreconditionError(absl::StrCat(
+      return absl::FailedPreconditionError(absl::StrCat(
           "Sealed segment ", out.segment_id,
           " has no flushed directory at ", seg_dir.string(),
           ". Flush() must run before backup"));
@@ -82,7 +82,7 @@ core::StatusOr<SegmentExport> SegmentExporter::Export(
       auto p = seg_dir / name;
       if (!std::filesystem::exists(p, ec)) {
         if (name == std::string(kIndexFile)) continue;  // tolerate
-        return core::FailedPreconditionError(absl::StrCat(
+        return absl::FailedPreconditionError(absl::StrCat(
             "Sealed segment ", out.segment_id, " missing required file ",
             name));
       }
@@ -109,7 +109,7 @@ core::StatusOr<SegmentExport> SegmentExporter::Export(
   std::filesystem::remove_all(tmp_dir, ec);
   std::filesystem::create_directories(tmp_dir, ec);
   if (ec) {
-    return core::InternalError(absl::StrCat(
+    return absl::InternalError(absl::StrCat(
         "Failed to create export tmp dir: ", tmp_dir.string(),
         ": ", ec.message()));
   }
@@ -120,13 +120,13 @@ core::StatusOr<SegmentExport> SegmentExporter::Export(
   {
     std::ofstream f(growing_path, std::ios::binary);
     if (!f.is_open()) {
-      return core::InternalError(absl::StrCat(
+      return absl::InternalError(absl::StrCat(
           "Failed to open ", growing_path.string()));
     }
     f.write(bytes_or->data(),
             static_cast<std::streamsize>(bytes_or->size()));
     if (!f.good()) {
-      return core::InternalError(absl::StrCat(
+      return absl::InternalError(absl::StrCat(
           "Failed to write ", growing_path.string()));
     }
   }
@@ -140,12 +140,12 @@ core::StatusOr<SegmentExport> SegmentExporter::Export(
   {
     std::ofstream f(meta_path);
     if (!f.is_open()) {
-      return core::InternalError(absl::StrCat(
+      return absl::InternalError(absl::StrCat(
           "Failed to open ", meta_path.string()));
     }
     f << RenderGrowingMetadata(segment);
     if (!f.good()) {
-      return core::InternalError(absl::StrCat(
+      return absl::InternalError(absl::StrCat(
           "Failed to write ", meta_path.string()));
     }
   }
@@ -160,13 +160,13 @@ core::StatusOr<SegmentExport> SegmentExporter::Export(
 // Import
 // ============================================================================
 
-core::StatusOr<std::unique_ptr<Segment>> SegmentExporter::Import(
+absl::StatusOr<std::unique_ptr<Segment>> SegmentExporter::Import(
     const std::filesystem::path& segment_dir,
     core::SegmentId segment_id) {
 
   std::error_code ec;
   if (!std::filesystem::is_directory(segment_dir, ec)) {
-    return core::NotFoundError(absl::StrCat(
+    return absl::NotFoundError(absl::StrCat(
         "Segment import directory not found: ", segment_dir.string()));
   }
 
@@ -186,7 +186,7 @@ core::StatusOr<std::unique_ptr<Segment>> SegmentExporter::Import(
   }
 
   if (!has_vectors) {
-    return core::InvalidArgumentError(absl::StrCat(
+    return absl::InvalidArgumentError(absl::StrCat(
         "Segment import directory ", segment_dir.string(),
         " has neither growing.bin nor vectors.bin"));
   }

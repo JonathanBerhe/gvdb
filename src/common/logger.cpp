@@ -53,16 +53,16 @@ Logger::~Logger() {
   }
 }
 
-core::Status Logger::Initialize(const LogConfig& config) {
+absl::Status Logger::Initialize(const LogConfig& config) {
   static std::mutex init_mutex;
   std::lock_guard<std::mutex> lock(init_mutex);
 
   if (instance_ != nullptr) {
-    return core::AlreadyExistsError("Logger already initialized");
+    return absl::AlreadyExistsError("Logger already initialized");
   }
 
   if (!config.IsValid()) {
-    return core::InvalidArgumentError("Invalid logger configuration");
+    return absl::InvalidArgumentError("Invalid logger configuration");
   }
 
   instance_ = std::unique_ptr<Logger>(new Logger());
@@ -110,11 +110,11 @@ core::Status Logger::Initialize(const LogConfig& config) {
 
   } catch (const spdlog::spdlog_ex& ex) {
     instance_.reset();
-    return core::InternalError(
+    return absl::InternalError(
         std::string("Failed to initialize logger: ") + ex.what());
   }
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 Logger& Logger::Instance() {

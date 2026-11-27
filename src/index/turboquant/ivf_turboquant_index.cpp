@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "index/turboquant/ivf_turboquant_index.h"
+#include "core/status.h"
 
 #include <algorithm>
 #include <cstring>
@@ -39,10 +40,10 @@ IVFTurboQuantIndex::IVFTurboQuantIndex(
 // Training
 // ============================================================================
 
-core::Status IVFTurboQuantIndex::Train(
+absl::Status IVFTurboQuantIndex::Train(
     const std::vector<core::Vector>& training_data) {
   if (training_data.empty()) {
-    return core::InvalidArgumentError("Training data is empty");
+    return absl::InvalidArgumentError("Training data is empty");
   }
 
   // Flatten training vectors for Faiss
@@ -77,7 +78,7 @@ core::Status IVFTurboQuantIndex::Train(
   coarse_quantizer_->add(nlist_, clus.centroids.data());
 
   trained_ = true;
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 bool IVFTurboQuantIndex::IsTrained() const {
@@ -88,20 +89,19 @@ bool IVFTurboQuantIndex::IsTrained() const {
 // Build
 // ============================================================================
 
-core::Status IVFTurboQuantIndex::Build(
+absl::Status IVFTurboQuantIndex::Build(
     const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids) {
   if (vectors.size() != ids.size()) {
-    return core::InvalidArgumentError("Vectors and IDs size mismatch");
+    return absl::InvalidArgumentError("Vectors and IDs size mismatch");
   }
   if (vectors.empty()) {
-    return core::InvalidArgumentError("Cannot build from empty vectors");
+    return absl::InvalidArgumentError("Cannot build from empty vectors");
   }
 
   // Train if needed
   if (!trained_) {
-    auto status = Train(vectors);
-    if (!status.ok()) return status;
+    RETURN_IF_ERROR(Train(vectors));
   }
 
   std::unique_lock lock(mutex_);
@@ -127,16 +127,16 @@ core::Status IVFTurboQuantIndex::Build(
     total_vectors_++;
   }
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 // ============================================================================
 // Add / AddBatch
 // ============================================================================
 
-core::Status IVFTurboQuantIndex::Add(const core::Vector& vector, core::VectorId id) {
+absl::Status IVFTurboQuantIndex::Add(const core::Vector& vector, core::VectorId id) {
   if (!trained_) {
-    return core::FailedPreconditionError("Index must be trained before adding vectors");
+    return absl::FailedPreconditionError("Index must be trained before adding vectors");
   }
 
   float dist;
@@ -144,34 +144,33 @@ core::Status IVFTurboQuantIndex::Add(const core::Vector& vector, core::VectorId 
   coarse_quantizer_->search(1, vector.data(), 1, &dist, &cluster_id);
 
   if (cluster_id < 0 || cluster_id >= nlist_) {
-    return core::InternalError("Failed to assign vector to cluster");
+    return absl::InternalError("Failed to assign vector to cluster");
   }
 
   std::unique_lock lock(mutex_);
   EncodeAndStore(clusters_[cluster_id], vector, id);
   total_vectors_++;
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status IVFTurboQuantIndex::AddBatch(
+absl::Status IVFTurboQuantIndex::AddBatch(
     const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids) {
   if (vectors.size() != ids.size()) {
-    return core::InvalidArgumentError("Vectors and IDs size mismatch");
+    return absl::InvalidArgumentError("Vectors and IDs size mismatch");
   }
   for (size_t i = 0; i < vectors.size(); ++i) {
-    auto status = Add(vectors[i], ids[i]);
-    if (!status.ok()) return status;
+    RETURN_IF_ERROR(Add(vectors[i], ids[i]));
   }
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 // ============================================================================
 // Remove
 // ============================================================================
 
-core::Status IVFTurboQuantIndex::Remove(core::VectorId id) {
+absl::Status IVFTurboQuantIndex::Remove(core::VectorId id) {
   std::unique_lock lock(mutex_);
 
   uint64_t target = core::ToUInt64(id);
@@ -205,12 +204,12 @@ core::Status IVFTurboQuantIndex::Remove(core::VectorId id) {
         cluster.ids.pop_back();
         cluster.num_vectors--;
         total_vectors_--;
-        return core::OkStatus();
+        return absl::OkStatus();
       }
     }
   }
 
-  return core::NotFoundError(
+  return absl::NotFoundError(
       absl::StrCat("Vector ID ", core::ToUInt64(id), " not found in index"));
 }
 
@@ -218,10 +217,10 @@ core::Status IVFTurboQuantIndex::Remove(core::VectorId id) {
 // Search
 // ============================================================================
 
-core::StatusOr<core::SearchResult> IVFTurboQuantIndex::Search(
+absl::StatusOr<core::SearchResult> IVFTurboQuantIndex::Search(
     const core::Vector& query, int k) {
   if (!trained_) {
-    return core::FailedPreconditionError("Index not trained");
+    return absl::FailedPreconditionError("Index not trained");
   }
 
   std::shared_lock lock(mutex_);
@@ -281,10 +280,10 @@ core::StatusOr<core::SearchResult> IVFTurboQuantIndex::Search(
   return result;
 }
 
-core::StatusOr<core::SearchResult> IVFTurboQuantIndex::SearchRange(
+absl::StatusOr<core::SearchResult> IVFTurboQuantIndex::SearchRange(
     const core::Vector& query, float radius) {
   if (!trained_) {
-    return core::FailedPreconditionError("Index not trained");
+    return absl::FailedPreconditionError("Index not trained");
   }
 
   std::shared_lock lock(mutex_);
@@ -332,7 +331,7 @@ core::StatusOr<core::SearchResult> IVFTurboQuantIndex::SearchRange(
   return result;
 }
 
-core::StatusOr<std::vector<core::SearchResult>> IVFTurboQuantIndex::SearchBatch(
+absl::StatusOr<std::vector<core::SearchResult>> IVFTurboQuantIndex::SearchBatch(
     const std::vector<core::Vector>& queries, int k) {
   std::vector<core::SearchResult> results;
   results.reserve(queries.size());
@@ -348,12 +347,12 @@ core::StatusOr<std::vector<core::SearchResult>> IVFTurboQuantIndex::SearchBatch(
 // Serialization
 // ============================================================================
 
-core::Status IVFTurboQuantIndex::Serialize(const std::string& path) const {
+absl::Status IVFTurboQuantIndex::Serialize(const std::string& path) const {
   std::shared_lock lock(mutex_);
 
   std::ofstream out(path, std::ios::binary);
   if (!out) {
-    return core::InternalError(absl::StrCat("Cannot open file: ", path));
+    return absl::InternalError(absl::StrCat("Cannot open file: ", path));
   }
 
   // Write header
@@ -404,21 +403,21 @@ core::Status IVFTurboQuantIndex::Serialize(const std::string& path) const {
     }
   }
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status IVFTurboQuantIndex::Deserialize(const std::string& path) {
+absl::Status IVFTurboQuantIndex::Deserialize(const std::string& path) {
   std::unique_lock lock(mutex_);
 
   std::ifstream in(path, std::ios::binary);
   if (!in) {
-    return core::InternalError(absl::StrCat("Cannot open file: ", path));
+    return absl::InternalError(absl::StrCat("Cannot open file: ", path));
   }
 
   uint32_t magic;
   in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
   if (magic != 0x49545151) {
-    return core::InternalError("Invalid IVF_TURBOQUANT file magic");
+    return absl::InternalError("Invalid IVF_TURBOQUANT file magic");
   }
 
   uint32_t dim;
@@ -496,7 +495,7 @@ core::Status IVFTurboQuantIndex::Deserialize(const std::string& path) {
     total_vectors_ += n;
   }
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 // ============================================================================

@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "consensus/raft_node.h"
+#include "core/status.h"
 
 #include <libnuraft/nuraft.hxx>
 
@@ -38,11 +39,11 @@ RaftNode::~RaftNode() {
   }
 }
 
-core::Status RaftNode::Start() {
+absl::Status RaftNode::Start() {
   std::lock_guard<std::mutex> lock(mutex_);
 
   if (running_.load(std::memory_order_acquire)) {
-    return core::FailedPreconditionError("RaftNode already running");
+    return absl::FailedPreconditionError("RaftNode already running");
   }
 
   common::Logger::Instance().Info("Starting RaftNode (node_id={})", config_.node_id);
@@ -61,21 +62,18 @@ core::Status RaftNode::Start() {
     // back to initial-bootstrap semantics only: don't enforce.
     if (!config_.coordinator_grpc_peers.empty() &&
         config_.coordinator_grpc_peers.size() != config_.peers.size()) {
-      return core::InvalidArgumentError(absl::StrCat(
+      return absl::InvalidArgumentError(absl::StrCat(
           "coordinator_grpc_peers size (", config_.coordinator_grpc_peers.size(),
           ") must match --raft-peers size (", config_.peers.size(),
           ") for correct leader-redirect indexing"));
     }
     if (!config_.coordinator_grpc_peers.empty() && !peer_client_) {
-      return core::InvalidArgumentError(
+      return absl::InvalidArgumentError(
           "coordinator_grpc_peers is set, but the RaftNode has no peer client "
           "for the startup probe and the join request");
     }
 
-    auto status = InitializeNuRaft();
-    if (!status.ok()) {
-      return status;
-    }
+    RETURN_IF_ERROR(InitializeNuRaft());
 
     // If the peer probe during InitializeNuRaft found a live leader, we
     // skipped self-seeding and must now announce our join. Failure here
@@ -100,14 +98,14 @@ core::Status RaftNode::Start() {
   running_.store(true, std::memory_order_release);
 
   common::Logger::Instance().Info("RaftNode started successfully");
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status RaftNode::Shutdown() {
+absl::Status RaftNode::Shutdown() {
   std::lock_guard<std::mutex> lock(mutex_);
 
   if (!running_.load(std::memory_order_acquire)) {
-    return core::OkStatus();  // Already stopped
+    return absl::OkStatus();  // Already stopped
   }
 
   common::Logger::Instance().Info("Shutting down RaftNode");
@@ -126,7 +124,7 @@ core::Status RaftNode::Shutdown() {
   running_.store(false, std::memory_order_release);
 
   common::Logger::Instance().Info("RaftNode shut down successfully");
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 bool RaftNode::IsRunning() const {
@@ -177,17 +175,17 @@ uint64_t RaftNode::GetCurrentTerm() const {
 
 namespace {
 
-// Map a NuRaft cmd_result_code to a GVDB core::Status. Only the codes that
+// Map a NuRaft cmd_result_code to a GVDB absl::Status. Only the codes that
 // can arise from add_srv / remove_srv are enumerated; anything else falls
 // through to InternalError so the caller sees an opaque failure rather than
 // silently swallowing a new error path added in a future NuRaft version.
-core::Status MapNuRaftCode(nuraft::cmd_result_code code, const char* op) {
+absl::Status MapNuRaftCode(nuraft::cmd_result_code code, const char* op) {
   using namespace nuraft;
   switch (code) {
     case cmd_result_code::OK:
-      return core::OkStatus();
+      return absl::OkStatus();
     case cmd_result_code::NOT_LEADER:
-      return core::FailedPreconditionError(
+      return absl::FailedPreconditionError(
           absl::StrCat(op, " rejected: not leader"));
     case cmd_result_code::SERVER_ALREADY_EXISTS:
       // Idempotent outcome: the peer was already a member. Surface as OK
@@ -196,36 +194,36 @@ core::Status MapNuRaftCode(nuraft::cmd_result_code code, const char* op) {
       // "why did JoinCluster return success but the peer never joined?").
       common::Logger::Instance().Info(
           "{} idempotent: peer already present in cluster_config", op);
-      return core::OkStatus();
+      return absl::OkStatus();
     case cmd_result_code::SERVER_NOT_FOUND:
       // Same logic: removing a peer that's not there is a no-op, treat OK.
       common::Logger::Instance().Info(
           "{} idempotent: peer not present in cluster_config", op);
-      return core::OkStatus();
+      return absl::OkStatus();
     case cmd_result_code::CONFIG_CHANGING:
-      return core::UnavailableError(
+      return absl::UnavailableError(
           absl::StrCat(op, " busy: another membership change in progress"));
     case cmd_result_code::SERVER_IS_JOINING:
-      return core::UnavailableError(
+      return absl::UnavailableError(
           absl::StrCat(op, " busy: peer still catching up"));
     case cmd_result_code::SERVER_IS_LEAVING:
-      return core::UnavailableError(
+      return absl::UnavailableError(
           absl::StrCat(op, " busy: peer is mid-leave"));
     case cmd_result_code::CANNOT_REMOVE_LEADER:
-      return core::FailedPreconditionError(
+      return absl::FailedPreconditionError(
           absl::StrCat(op, " rejected: cannot remove current leader; "
                            "transfer leadership first"));
     case cmd_result_code::TIMEOUT:
-      return core::DeadlineExceededError(absl::StrCat(op, " timed out"));
+      return absl::DeadlineExceededError(absl::StrCat(op, " timed out"));
     case cmd_result_code::CANCELLED:
-      return core::CancelledError(absl::StrCat(op, " cancelled"));
+      return absl::CancelledError(absl::StrCat(op, " cancelled"));
     case cmd_result_code::BAD_REQUEST:
-      return core::InvalidArgumentError(absl::StrCat(op, " bad request"));
+      return absl::InvalidArgumentError(absl::StrCat(op, " bad request"));
     case cmd_result_code::TERM_MISMATCH:
-      return core::FailedPreconditionError(
+      return absl::FailedPreconditionError(
           absl::StrCat(op, " term mismatch; retry"));
     default:
-      return core::InternalError(
+      return absl::InternalError(
           absl::StrCat(op, " failed with NuRaft code ",
                        static_cast<int>(code)));
   }
@@ -233,19 +231,19 @@ core::Status MapNuRaftCode(nuraft::cmd_result_code code, const char* op) {
 
 }  // namespace
 
-core::Status RaftNode::AddPeer(int32_t node_id, const std::string& raft_endpoint) {
+absl::Status RaftNode::AddPeer(int32_t node_id, const std::string& raft_endpoint) {
   if (config_.single_node_mode) {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         "AddPeer not supported in single-node mode");
   }
   if (!raft_server_) {
-    return core::FailedPreconditionError("RaftNode not initialized");
+    return absl::FailedPreconditionError("RaftNode not initialized");
   }
   // Leader-only guard; NuRaft would reject with NOT_LEADER anyway, but
   // checking here lets us surface a clearer error to the RPC caller
   // (JoinCluster handler populates current_leader_id from this path).
   if (!raft_server_->is_leader()) {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         absl::StrCat("AddPeer rejected: not leader (current leader=",
                      raft_server_->get_leader(), ")"));
   }
@@ -256,7 +254,7 @@ core::Status RaftNode::AddPeer(int32_t node_id, const std::string& raft_endpoint
   nuraft::srv_config new_srv(node_id, raft_endpoint);
   auto result = raft_server_->add_srv(new_srv);
   if (!result) {
-    return core::InternalError("add_srv returned null cmd_result");
+    return absl::InternalError("add_srv returned null cmd_result");
   }
   // Block until the membership change is committed or NuRaft reports an
   // error. The async handler pattern is available via when_ready() but
@@ -266,16 +264,16 @@ core::Status RaftNode::AddPeer(int32_t node_id, const std::string& raft_endpoint
   return MapNuRaftCode(result->get_result_code(), "AddPeer");
 }
 
-core::Status RaftNode::RemovePeer(int32_t node_id) {
+absl::Status RaftNode::RemovePeer(int32_t node_id) {
   if (config_.single_node_mode) {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         "RemovePeer not supported in single-node mode");
   }
   if (!raft_server_) {
-    return core::FailedPreconditionError("RaftNode not initialized");
+    return absl::FailedPreconditionError("RaftNode not initialized");
   }
   if (!raft_server_->is_leader()) {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         absl::StrCat("RemovePeer rejected: not leader (current leader=",
                      raft_server_->get_leader(), ")"));
   }
@@ -284,7 +282,7 @@ core::Status RaftNode::RemovePeer(int32_t node_id) {
 
   auto result = raft_server_->remove_srv(node_id);
   if (!result) {
-    return core::InternalError("remove_srv returned null cmd_result");
+    return absl::InternalError("remove_srv returned null cmd_result");
   }
   (void)result->get();  // block until NuRaft commits / errors; we read the code below
   return MapNuRaftCode(result->get_result_code(), "RemovePeer");
@@ -314,16 +312,16 @@ std::vector<RaftNode::RaftMemberInfo> RaftNode::GetClusterMembership() const {
   return out;
 }
 
-core::Status RaftNode::YieldLeadership(int32_t target_node_id) {
+absl::Status RaftNode::YieldLeadership(int32_t target_node_id) {
   if (config_.single_node_mode) {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         "YieldLeadership not supported in single-node mode");
   }
   if (!raft_server_) {
-    return core::FailedPreconditionError("RaftNode not initialized");
+    return absl::FailedPreconditionError("RaftNode not initialized");
   }
   if (!raft_server_->is_leader()) {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         absl::StrCat("YieldLeadership rejected: not leader (current leader=",
                      raft_server_->get_leader(), ")"));
   }
@@ -331,7 +329,7 @@ core::Status RaftNode::YieldLeadership(int32_t target_node_id) {
     // No-op: we're already the leader. NuRaft would silently ignore a
     // self-target; return OK so the caller's success-predicate
     // (GetLeaderId() == target) holds immediately.
-    return core::OkStatus();
+    return absl::OkStatus();
   }
 
   common::Logger::Instance().Info(
@@ -352,17 +350,17 @@ core::Status RaftNode::YieldLeadership(int32_t target_node_id) {
     if (raft_server_->get_leader() == target_node_id) {
       common::Logger::Instance().Info(
           "YieldLeadership: target {} is now leader", target_node_id);
-      return core::OkStatus();
+      return absl::OkStatus();
     }
     std::this_thread::sleep_for(kPollInterval);
   }
-  return core::DeadlineExceededError(absl::StrCat(
+  return absl::DeadlineExceededError(absl::StrCat(
       "YieldLeadership: target ", target_node_id,
       " did not become leader within ", kTransferTimeout.count(),
       "s (current leader=", raft_server_->get_leader(), ")"));
 }
 
-core::Status RaftNode::InitializeNuRaft() {
+absl::Status RaftNode::InitializeNuRaft() {
   common::Logger::Instance().Info("Initializing NuRaft for multi-node mode");
 
   // Create NuRaft logger adapter
@@ -446,7 +444,7 @@ core::Status RaftNode::InitializeNuRaft() {
   // Format: "host:port" -> extract port number
   size_t colon_pos = config_.listen_address.find(':');
   if (colon_pos == std::string::npos) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("Invalid listen_address format (expected 'host:port'): ",
                      config_.listen_address));
   }
@@ -456,7 +454,7 @@ core::Status RaftNode::InitializeNuRaft() {
   try {
     port = std::stoi(port_str);
   } catch (const std::exception& e) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("Invalid port number in listen_address: ", port_str));
   }
 
@@ -490,7 +488,7 @@ core::Status RaftNode::InitializeNuRaft() {
       init_opts);
 
   if (!raft_server_) {
-    return core::InternalError("Failed to initialize NuRaft launcher (returned null server)");
+    return absl::InternalError("Failed to initialize NuRaft launcher (returned null server)");
   }
 
   common::Logger::Instance().Info(
@@ -500,7 +498,7 @@ core::Status RaftNode::InitializeNuRaft() {
 
   // Note: Leader election will happen asynchronously
   // Use IsLeader() to check leadership status
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace consensus

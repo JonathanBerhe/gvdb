@@ -21,6 +21,7 @@
 #include "config/config.h"
 #include "core/types.h"
 #include "internal.pb.h"
+#include "core/status.h"
 #include "server/bootstrap.h"
 #include "server/builders.h"
 #include "server/cluster_steps.h"
@@ -55,10 +56,9 @@ absl::Status Run(const Args& args) {
   const config::GVDBConfig config = server::LoadConfigOrDefault(args.config_file);
   const bool in_cluster = !args.coordinator_addresses.empty();
 
-  auto built_storage = server::BuildSegmentStore(config.storage, args.data_dir,
-                                                 server::ObjectStoreFailure::kLocalOnly);
-  if (!built_storage.ok()) return built_storage.status();
-  server::SegmentStoreParts storage = std::move(*built_storage);
+  ASSIGN_OR_RETURN(server::SegmentStoreParts storage,
+                   server::BuildSegmentStore(config.storage, args.data_dir,
+                                                 server::ObjectStoreFailure::kLocalOnly));
   auto segment_store = storage.segment_store;
   auto bulk_importer = server::MakeBulkImporter(storage, args.data_dir);
   auto data_node =
@@ -106,10 +106,8 @@ absl::Status Run(const Args& args) {
 
   server::InterceptorFactories interceptors;
   server::AddAuditInterceptor(config.logging.audit, interceptors);
-  auto grpc_server = server::StartGrpcServer(
-      args.bind_address, {internal_service.get(), vectordb_service.get()},
-      grpc::InsecureServerCredentials(), std::move(interceptors));
-  if (!grpc_server.ok()) return grpc_server.status();
+  ASSIGN_OR_RETURN(auto grpc_server,
+                   server::StartGrpcServer(args.bind_address, {internal_service.get(), vectordb_service.get()}, grpc::InsecureServerCredentials(), std::move(interceptors)));
 
   std::thread build_thread([data_node] { data_node->RunBuildLoop(server::ShutdownFlag()); });
   std::thread ttl_sweep_thread(
@@ -144,7 +142,7 @@ absl::Status Run(const Args& args) {
     server::WaitForDrainCompletion(args.coordinator_addresses[0], args.node_id,
                                    std::chrono::seconds(args.drain_wait_seconds));
   }
-  server::StopServing(**grpc_server);
+  server::StopServing(*grpc_server);
   return absl::OkStatus();
 }
 

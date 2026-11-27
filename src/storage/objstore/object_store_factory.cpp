@@ -19,7 +19,7 @@
 namespace gvdb {
 namespace storage {
 
-core::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(
+absl::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(
     const ObjectStoreConfig& config) {
   const std::string& type = config.type;
 
@@ -27,7 +27,7 @@ core::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(
   // Useful for dev / CI / single-node / NFS-mounted cold tiers.
   if (type == "filesystem") {
     if (config.bucket.empty()) {
-      return core::InvalidArgumentError(
+      return absl::InvalidArgumentError(
           "object_store.type=filesystem requires object_store.bucket "
           "(interpreted as the root directory)");
     }

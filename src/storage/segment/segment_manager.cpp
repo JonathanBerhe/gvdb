@@ -29,7 +29,7 @@ SegmentManager::SegmentManager(const std::string& base_path,
 
 // ========== Segment Lifecycle ==========
 
-core::StatusOr<core::SegmentId> SegmentManager::CreateSegment(
+absl::StatusOr<core::SegmentId> SegmentManager::CreateSegment(
     core::CollectionId collection_id, core::Dimension dimension,
     core::MetricType metric) {
   std::unique_lock lock(mutex_);
@@ -50,7 +50,7 @@ core::StatusOr<core::SegmentId> SegmentManager::CreateSegment(
   return segment_id;
 }
 
-core::Status SegmentManager::CreateSegmentWithId(
+absl::Status SegmentManager::CreateSegmentWithId(
     core::SegmentId segment_id, core::CollectionId collection_id,
     core::Dimension dimension, core::MetricType metric,
     core::IndexType index_type) {
@@ -58,7 +58,7 @@ core::Status SegmentManager::CreateSegmentWithId(
 
   // Check if segment already exists
   if (segments_.find(segment_id) != segments_.end()) {
-    return core::AlreadyExistsError(
+    return absl::AlreadyExistsError(
         absl::StrCat("Segment already exists: ", core::ToUInt32(segment_id)));
   }
 
@@ -79,7 +79,7 @@ core::Status SegmentManager::CreateSegmentWithId(
       core::ToUInt32(segment_id), core::ToUInt32(collection_id), dimension,
       static_cast<int>(metric), static_cast<int>(index_type));
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 Segment* SegmentManager::GetSegment(core::SegmentId id) {
@@ -102,7 +102,7 @@ const Segment* SegmentManager::GetSegment(core::SegmentId id) const {
   return it->second.get();
 }
 
-core::Status SegmentManager::SealSegment(
+absl::Status SegmentManager::SealSegment(
     core::SegmentId id, const core::IndexConfig& index_config) {
   // Get segment (read lock first)
   Segment* segment = nullptr;
@@ -110,7 +110,7 @@ core::Status SegmentManager::SealSegment(
     std::shared_lock lock(mutex_);
     auto it = segments_.find(id);
     if (it == segments_.end()) {
-      return core::NotFoundError(
+      return absl::NotFoundError(
           absl::StrCat("Segment not found: ", core::ToUInt32(id)));
     }
     segment = it->second.get();
@@ -126,12 +126,12 @@ core::Status SegmentManager::SealSegment(
   return segment->Seal(index_result.value().release());
 }
 
-core::Status SegmentManager::FlushSegment(core::SegmentId id) {
+absl::Status SegmentManager::FlushSegment(core::SegmentId id) {
   std::shared_lock lock(mutex_);
 
   auto it = segments_.find(id);
   if (it == segments_.end()) {
-    return core::NotFoundError(
+    return absl::NotFoundError(
         absl::StrCat("Segment not found: ", core::ToUInt32(id)));
   }
 
@@ -141,13 +141,13 @@ core::Status SegmentManager::FlushSegment(core::SegmentId id) {
   return it->second->Flush(base_path_);
 }
 
-core::Status SegmentManager::DropSegment(core::SegmentId id,
+absl::Status SegmentManager::DropSegment(core::SegmentId id,
                                           bool delete_files) {
   std::unique_lock lock(mutex_);
 
   auto it = segments_.find(id);
   if (it == segments_.end()) {
-    return core::NotFoundError(
+    return absl::NotFoundError(
         absl::StrCat("Segment not found: ", core::ToUInt32(id)));
   }
 
@@ -169,12 +169,12 @@ core::Status SegmentManager::DropSegment(core::SegmentId id,
     std::error_code ec;
     std::filesystem::remove_all(segment_path, ec);
     if (ec) {
-      return core::InternalError(
+      return absl::InternalError(
           absl::StrCat("Failed to delete segment files: ", ec.message()));
     }
   }
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 void SegmentManager::RebuildIndexIfMissing(Segment* segment) {
@@ -212,7 +212,7 @@ void SegmentManager::RebuildIndexIfMissing(Segment* segment) {
   }
 }
 
-core::Status SegmentManager::LoadSegment(core::SegmentId id) {
+absl::Status SegmentManager::LoadSegment(core::SegmentId id) {
   // Load segment from disk
   auto segment_result = Segment::Load(base_path_, id);
   if (!segment_result.ok()) {
@@ -228,7 +228,7 @@ core::Status SegmentManager::LoadSegment(core::SegmentId id) {
 
   // Check if already loaded
   if (segments_.find(id) != segments_.end()) {
-    return core::AlreadyExistsError(
+    return absl::AlreadyExistsError(
         absl::StrCat("Segment already loaded: ", core::ToUInt32(id)));
   }
 
@@ -246,7 +246,7 @@ core::Status SegmentManager::LoadSegment(core::SegmentId id) {
   // Add to collection mapping
   collection_segments_[collection_id].push_back(id);
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 absl::Status SegmentManager::LoadAllSegments() {
@@ -293,9 +293,9 @@ absl::Status SegmentManager::LoadAllSegments() {
   return absl::OkStatus();
 }
 
-core::Status SegmentManager::AddReplicatedSegment(std::unique_ptr<Segment> segment) {
+absl::Status SegmentManager::AddReplicatedSegment(std::unique_ptr<Segment> segment) {
   if (!segment) {
-    return core::InvalidArgumentError("Segment is null");
+    return absl::InvalidArgumentError("Segment is null");
   }
 
   auto id = segment->GetId();
@@ -310,7 +310,7 @@ core::Status SegmentManager::AddReplicatedSegment(std::unique_ptr<Segment> segme
 
   // Check if segment already exists
   if (segments_.find(id) != segments_.end()) {
-    return core::AlreadyExistsError(
+    return absl::AlreadyExistsError(
         absl::StrCat("Segment already exists: ", core::ToUInt32(id)));
   }
 
@@ -323,33 +323,33 @@ core::Status SegmentManager::AddReplicatedSegment(std::unique_ptr<Segment> segme
   common::Logger::Instance().Info("Added replicated segment {} to collection {}",
                                   core::ToUInt32(id), core::ToUInt32(collection_id));
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 // ========== Data Operations ==========
 
-core::Status SegmentManager::WriteVectors(
+absl::Status SegmentManager::WriteVectors(
     core::SegmentId segment_id, const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids) {
   std::shared_lock lock(mutex_);
 
   auto it = segments_.find(segment_id);
   if (it == segments_.end()) {
-    return core::NotFoundError(
+    return absl::NotFoundError(
         absl::StrCat("Segment not found: ", core::ToUInt32(segment_id)));
   }
 
   return it->second->AddVectors(vectors, ids);
 }
 
-core::StatusOr<core::SearchResult> SegmentManager::SearchCollection(
+absl::StatusOr<core::SearchResult> SegmentManager::SearchCollection(
     core::CollectionId collection_id, const core::Vector& query, int k) const {
   std::shared_lock lock(mutex_);
 
   // Get all segments for collection
   auto coll_it = collection_segments_.find(collection_id);
   if (coll_it == collection_segments_.end()) {
-    return core::NotFoundError(absl::StrCat(
+    return absl::NotFoundError(absl::StrCat(
         "Collection not found: ", core::ToUInt32(collection_id)));
   }
 

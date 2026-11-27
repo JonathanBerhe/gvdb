@@ -1,4 +1,6 @@
-// test/integration/distributed_data_node_test.cpp
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+//
 // Integration test: coordinator creates collection -> data node serves Insert/Search
 
 #include <doctest/doctest.h>

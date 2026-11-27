@@ -33,7 +33,7 @@ class SegmentCache {
   [[nodiscard]] std::string GetSegmentPath(core::SegmentId id) const;
 
   // Register a downloaded segment in the cache (after download completes)
-  [[nodiscard]] core::Status RegisterSegment(
+  [[nodiscard]] absl::Status RegisterSegment(
       core::SegmentId id, size_t size_bytes);
 
   // Touch a segment to update its LRU position (most recently used)
@@ -41,7 +41,7 @@ class SegmentCache {
 
   // Evict least-recently-used segments to free at least needed_bytes.
   // Returns the IDs of evicted segments.
-  [[nodiscard]] core::StatusOr<std::vector<core::SegmentId>> Evict(
+  [[nodiscard]] absl::StatusOr<std::vector<core::SegmentId>> Evict(
       size_t needed_bytes);
 
   // Get total size of all cached segments in bytes

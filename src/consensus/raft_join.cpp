@@ -18,7 +18,7 @@
 namespace gvdb {
 namespace consensus {
 
-core::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec) {
+absl::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec) {
   // Be tolerant of whitespace introduced by hand-edited YAML / env vars:
   // strip leading/trailing whitespace on the whole spec, the id, and the
   // endpoint. Reject any embedded whitespace in the id or inside the
@@ -33,23 +33,23 @@ core::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec) {
   std::string trimmed = strip(spec);
   auto first_colon = trimmed.find(':');
   if (first_colon == std::string::npos || first_colon == 0) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("Raft peer must be 'id:host:port', got: ", spec));
   }
   RaftPeerSpec out;
   std::string id_str = strip(trimmed.substr(0, first_colon));
   if (id_str.find_first_of(" \t\r\n") != std::string::npos) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("Raft peer id contains whitespace in: ", spec));
   }
   try {
     out.id = std::stoi(id_str);
   } catch (const std::exception&) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("Raft peer id must be an integer in: ", spec));
   }
   if (out.id <= 0) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("Raft peer id must be > 0 in: ", spec));
   }
   out.endpoint = strip(trimmed.substr(first_colon + 1));
@@ -57,13 +57,13 @@ core::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec) {
       out.endpoint.find(':') == std::string::npos ||
       out.endpoint.find(':') == out.endpoint.size() - 1 ||
       out.endpoint.find_first_of(" \t\r\n") != std::string::npos) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("Raft peer endpoint must be 'host:port' in: ", spec));
   }
   return out;
 }
 
-core::StatusOr<PeerListPlan> PrepareRaftPeerList(
+absl::StatusOr<PeerListPlan> PrepareRaftPeerList(
     int self_id,
     const std::vector<std::string>& declared_peers,
     size_t persisted_cluster_size) {
@@ -76,7 +76,7 @@ core::StatusOr<PeerListPlan> PrepareRaftPeerList(
     if (!parsed.ok()) return parsed.status();
 
     if (!seen_ids.insert(parsed->id).second) {
-      return core::InvalidArgumentError(
+      return absl::InvalidArgumentError(
           absl::StrCat("Duplicate Raft peer id ", parsed->id,
                        " in --raft-peers"));
     }
@@ -85,7 +85,7 @@ core::StatusOr<PeerListPlan> PrepareRaftPeerList(
   }
 
   if (!plan.peers.empty() && !self_found) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("--node-id ", self_id,
                      " does not appear in --raft-peers, the declared "
                      "peer list must include this node"));
@@ -135,7 +135,7 @@ std::optional<RaftNode::LeaderProbeResult> RaftNode::ProbePeersForLeader() const
   return std::nullopt;
 }
 
-core::Status RaftNode::AnnounceJoinToCluster() {
+absl::Status RaftNode::AnnounceJoinToCluster() {
   // Called from Start() after InitializeNuRaft returns, only when
   // joining_peer_ was set by the peer probe. Calls JoinCluster on the
   // responding peer; if that peer is a follower, it returns NOT_LEADER
@@ -149,7 +149,7 @@ core::Status RaftNode::AnnounceJoinToCluster() {
   // typically commits in 100-300ms; snapshot-install for log catch-up
   // can extend that to seconds. 20s total budget accommodates both.
   if (joining_peer_.empty() || config_.coordinator_grpc_peers.empty()) {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         "AnnounceJoinToCluster called without joining_peer_ set");
   }
 
@@ -190,7 +190,7 @@ core::Status RaftNode::AnnounceJoinToCluster() {
           "JoinCluster succeeded on attempt {} via {}: {}",
           attempt, target, reply->message);
       joining_peer_.clear();
-      return core::OkStatus();
+      return absl::OkStatus();
     } else if (reply->current_leader_id > 0) {
       // Non-leader redirect: follow the returned leader id without
       // consuming extra backoff (the target was simply wrong).
@@ -229,7 +229,7 @@ core::Status RaftNode::AnnounceJoinToCluster() {
     backoff = std::min(backoff * 2, max_backoff_ms);
   }
 
-  return core::UnavailableError(absl::StrCat(
+  return absl::UnavailableError(absl::StrCat(
       "AnnounceJoinToCluster: no coordinator accepted the join after ",
       attempt, " attempts within ", kTotalBudget.count(), "s"));
 }

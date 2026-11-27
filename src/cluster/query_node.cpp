@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "cluster/query_node.h"
+#include "core/status.h"
 #include "common/logger.h"
 #include "absl/strings/str_cat.h"
 #include <mutex>
@@ -31,10 +32,7 @@ absl::Status QueryNode::LoadSegment(core::SegmentId segment_id) {
   size_t segment_size = segment->GetMemoryUsage();
 
   // Check if we need to evict segments
-  auto evict_status = EvictSegmentsIfNeeded(segment_size);
-  if (!evict_status.ok()) {
-    return evict_status;
-  }
+  RETURN_IF_ERROR(EvictSegmentsIfNeeded(segment_size));
 
   std::unique_lock lock(segment_mutex_);
 

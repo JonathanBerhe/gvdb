@@ -4,6 +4,7 @@
 // The two-phase primary swap of a shard.
 
 #include "cluster/coordinator/coordinator.h"
+#include "core/status.h"
 #include "cluster/coordinator/internal_client.h"
 #include "common/logger.h"
 #include "absl/strings/str_cat.h"
@@ -128,10 +129,7 @@ absl::Status Coordinator::TransferPrimary(core::ShardId shard_id,
   // 4. Commit the assignment with the explicit term. Term-aware overload
   //    rejects regression so a concurrent swap that already advanced
   //    the term gets surfaced rather than silently overwritten.
-  auto commit_status = shard_manager_->SetPrimaryNode(shard_id, new_node, new_term);
-  if (!commit_status.ok()) {
-    return commit_status;
-  }
+  RETURN_IF_ERROR(shard_manager_->SetPrimaryNode(shard_id, new_node, new_term));
 
   common::Logger::Instance().Info(
       "TransferPrimary: shard={} old_node={} new_node={} new_term={}",

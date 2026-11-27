@@ -49,7 +49,7 @@ void Cleanup() {
 
 // Stops the benchmark: timings of a segment or index that failed to build
 // would be meaningless.
-[[noreturn]] void Fail(const std::string& what, const core::Status& status) {
+[[noreturn]] void Fail(const std::string& what, const absl::Status& status) {
   std::fprintf(stderr, "search_bench: %s failed: %s\n", what.c_str(),
                std::string(status.message()).c_str());
   Cleanup();

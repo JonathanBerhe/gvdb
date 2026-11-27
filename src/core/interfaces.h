@@ -27,31 +27,31 @@ class IVectorIndex {
   // Building and modification operations
 
   // Build index from a batch of vectors
-  [[nodiscard]] virtual Status Build(const std::vector<Vector>& vectors,
+  [[nodiscard]] virtual absl::Status Build(const std::vector<Vector>& vectors,
                                        const std::vector<VectorId>& ids) = 0;
 
   // Add a single vector to the index
-  [[nodiscard]] virtual Status Add(const Vector& vector, VectorId id) = 0;
+  [[nodiscard]] virtual absl::Status Add(const Vector& vector, VectorId id) = 0;
 
   // Add multiple vectors to the index (batch operation)
-  [[nodiscard]] virtual Status AddBatch(const std::vector<Vector>& vectors,
+  [[nodiscard]] virtual absl::Status AddBatch(const std::vector<Vector>& vectors,
                                          const std::vector<VectorId>& ids) = 0;
 
   // Remove a vector from the index
-  [[nodiscard]] virtual Status Remove(VectorId id) = 0;
+  [[nodiscard]] virtual absl::Status Remove(VectorId id) = 0;
 
   // Search operations
 
   // Search for k nearest neighbors
-  [[nodiscard]] virtual StatusOr<SearchResult> Search(
+  [[nodiscard]] virtual absl::StatusOr<SearchResult> Search(
       const Vector& query, int k) = 0;
 
   // Range search: find all vectors within a radius
-  [[nodiscard]] virtual StatusOr<SearchResult> SearchRange(
+  [[nodiscard]] virtual absl::StatusOr<SearchResult> SearchRange(
       const Vector& query, float radius) = 0;
 
   // Batch search: multiple queries at once
-  [[nodiscard]] virtual StatusOr<std::vector<SearchResult>> SearchBatch(
+  [[nodiscard]] virtual absl::StatusOr<std::vector<SearchResult>> SearchBatch(
       const std::vector<Vector>& queries, int k) = 0;
 
   // Index management
@@ -69,7 +69,7 @@ class IVectorIndex {
   [[nodiscard]] virtual MetricType GetMetricType() const = 0;
 
   // Train the index (for indexes that require training like IVF)
-  [[nodiscard]] virtual Status Train(const std::vector<Vector>& training_data) = 0;
+  [[nodiscard]] virtual absl::Status Train(const std::vector<Vector>& training_data) = 0;
 
   // Check if index is trained
   [[nodiscard]] virtual bool IsTrained() const = 0;
@@ -77,10 +77,10 @@ class IVectorIndex {
   // Serialization
 
   // Serialize index to file
-  [[nodiscard]] virtual Status Serialize(const std::string& path) const = 0;
+  [[nodiscard]] virtual absl::Status Serialize(const std::string& path) const = 0;
 
   // Deserialize index from file
-  [[nodiscard]] virtual Status Deserialize(const std::string& path) = 0;
+  [[nodiscard]] virtual absl::Status Deserialize(const std::string& path) = 0;
 
   // Get index type
   [[nodiscard]] virtual IndexType GetIndexType() const = 0;
@@ -94,7 +94,7 @@ class IIndexFactory {
   virtual ~IIndexFactory() = default;
 
   // Create an index instance based on configuration
-  [[nodiscard]] virtual StatusOr<std::unique_ptr<IVectorIndex>> CreateIndex(
+  [[nodiscard]] virtual absl::StatusOr<std::unique_ptr<IVectorIndex>> CreateIndex(
       const IndexConfig& config) = 0;
 };
 

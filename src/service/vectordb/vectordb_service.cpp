@@ -5,6 +5,7 @@
 // the segment lookups that the handlers in this folder share.
 
 #include "service/vectordb/vectordb_service.h"
+#include "core/status.h"
 #include "service/vectordb/collection_resolver.h"
 #include "rpc/primary_term_header.h"
 #include "cluster/datanode/primary_term_tracker.h"
@@ -80,8 +81,7 @@ grpc::Status VectorDBService::CheckPermission(
 grpc::Status VectorDBService::AuthorizeCollection(auth::Permission perm,
                                                   const std::string& collection_name,
                                                   std::optional<size_t> item_count) const {
-  auto status = CheckPermission(perm, collection_name);
-  if (!status.ok()) return status;
+  RETURN_IF_ERROR(CheckPermission(perm, collection_name));
   auth::AuditContext::SetCollection(collection_name);
   if (item_count) auth::AuditContext::SetItemCount(static_cast<int64_t>(*item_count));
   return grpc::Status::OK;
@@ -248,7 +248,7 @@ storage::Segment* VectorDBService::GetOrReplicateSegment(core::SegmentId segment
   return segment_store_->GetSegment(segment_id);
 }
 
-core::StatusOr<std::vector<storage::Segment*>>
+absl::StatusOr<std::vector<storage::Segment*>>
 VectorDBService::CollectCollectionSegments(const std::string& collection_name) {
   // The resolver knows the shard-primary segments but not the rotated ones
   // auto-seal created; those live in the store keyed by collection id. Start

@@ -63,16 +63,16 @@ class PrefixedObjectStore final : public IObjectStore {
            std::to_string(seq.fetch_add(1, std::memory_order_relaxed)) + "/";
   }
 
-  core::Status PutObject(const std::string& key, const std::string& data) override {
+  absl::Status PutObject(const std::string& key, const std::string& data) override {
     return inner_->PutObject(prefix_ + key, data);
   }
-  core::StatusOr<std::string> GetObject(const std::string& key) override {
+  absl::StatusOr<std::string> GetObject(const std::string& key) override {
     return inner_->GetObject(prefix_ + key);
   }
-  core::Status DeleteObject(const std::string& key) override {
+  absl::Status DeleteObject(const std::string& key) override {
     return inner_->DeleteObject(prefix_ + key);
   }
-  core::StatusOr<std::vector<std::string>> ListObjects(const std::string& prefix) override {
+  absl::StatusOr<std::vector<std::string>> ListObjects(const std::string& prefix) override {
     auto keys = inner_->ListObjects(prefix_ + prefix);
     if (!keys.ok()) return keys.status();
     std::vector<std::string> stripped;
@@ -80,14 +80,14 @@ class PrefixedObjectStore final : public IObjectStore {
     for (const auto& key : *keys) stripped.push_back(key.substr(prefix_.size()));
     return stripped;
   }
-  core::StatusOr<bool> ObjectExists(const std::string& key) override {
+  absl::StatusOr<bool> ObjectExists(const std::string& key) override {
     return inner_->ObjectExists(prefix_ + key);
   }
-  core::Status PutObjectFromFile(const std::string& key,
+  absl::Status PutObjectFromFile(const std::string& key,
                                  const std::string& local_file_path) override {
     return inner_->PutObjectFromFile(prefix_ + key, local_file_path);
   }
-  core::Status GetObjectToFile(const std::string& key,
+  absl::Status GetObjectToFile(const std::string& key,
                                const std::string& local_file_path) override {
     return inner_->GetObjectToFile(prefix_ + key, local_file_path);
   }

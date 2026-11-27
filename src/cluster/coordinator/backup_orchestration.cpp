@@ -4,6 +4,7 @@
 // Backups and restores fanned out to the data nodes of each shard.
 
 #include "cluster/coordinator/coordinator.h"
+#include "core/status.h"
 #include "cluster/coordinator/internal_client.h"
 #include "rpc/proto_conversions.h"
 #include "common/logger.h"
@@ -96,14 +97,14 @@ absl::StatusOr<std::string> Coordinator::StartBackupDistributed(
       const std::string& backup_id, core::ShardId shard_id,
       uint64_t primary_term,
       const storage::BackupTarget& target_inner)
-      -> core::StatusOr<storage::ShardBackupResult> {
+      -> absl::StatusOr<storage::ShardBackupResult> {
     (void)primary_term;  // recorded for forensics, not consulted here
 
     auto primary = self->shard_manager_->GetPrimaryNode(shard_id);
     if (!primary.ok()) return primary.status();
     auto* client = self->GetOrCreateDataNodeClient(*primary);
     if (!client) {
-      return core::UnavailableError(absl::StrCat(
+      return absl::UnavailableError(absl::StrCat(
           "Cannot dial primary node ", core::ToUInt32(*primary),
           " for shard ", core::ToUInt16(shard_id)));
     }
@@ -118,12 +119,12 @@ absl::StatusOr<std::string> Coordinator::StartBackupDistributed(
       grpc::ClientContext ctx;
       auto status = client->FreezeWrites(&ctx, req, &resp);
       if (!status.ok()) {
-        return core::UnavailableError(absl::StrCat(
+        return absl::UnavailableError(absl::StrCat(
             "FreezeWrites for shard ", core::ToUInt16(shard_id),
             " failed: ", status.error_message()));
       }
       if (!resp.success()) {
-        return core::FailedPreconditionError(absl::StrCat(
+        return absl::FailedPreconditionError(absl::StrCat(
             "FreezeWrites for shard ", core::ToUInt16(shard_id),
             " refused: ", resp.message()));
       }
@@ -138,8 +139,7 @@ absl::StatusOr<std::string> Coordinator::StartBackupDistributed(
       req.set_backup_id(backup_id);
       req.set_collection_id(core::ToUInt32(collection_id));
       req.set_shard_id(core::ToUInt16(shard_id));
-      auto pt = rpc::toProto(target_inner, req.mutable_target());
-      if (!pt.ok()) return pt;
+      RETURN_IF_ERROR(rpc::toProto(target_inner, req.mutable_target()));
       grpc::ClientContext ctx;
       backup_status = client->BackupShard(&ctx, req, &backup_resp);
     }
@@ -163,12 +163,12 @@ absl::StatusOr<std::string> Coordinator::StartBackupDistributed(
 
     // 4. Propagate the backup result.
     if (!backup_status.ok()) {
-      return core::UnavailableError(absl::StrCat(
+      return absl::UnavailableError(absl::StrCat(
           "BackupShard for shard ", core::ToUInt16(shard_id),
           " failed: ", backup_status.error_message()));
     }
     if (!backup_resp.success()) {
-      return core::InternalError(absl::StrCat(
+      return absl::InternalError(absl::StrCat(
           "BackupShard for shard ", core::ToUInt16(shard_id),
           " refused: ", backup_resp.message()));
     }
@@ -213,8 +213,7 @@ absl::StatusOr<std::string> Coordinator::StartRestoreDistributed(
             "Target collection '", target_collection_name,
             "' already exists; pass overwrite=true to drop and recreate"));
       }
-      auto drop_status = DropCollection(target_collection_name);
-      if (!drop_status.ok()) return drop_status;
+      RETURN_IF_ERROR(DropCollection(target_collection_name));
     }
   }
   auto create_or = CreateCollection(
@@ -238,12 +237,12 @@ absl::StatusOr<std::string> Coordinator::StartRestoreDistributed(
       const storage::BackupTarget& source_inner,
       const std::string& bkp_id,
       core::CollectionId target_id,
-      core::ShardId shard_id) -> core::Status {
+      core::ShardId shard_id) -> absl::Status {
     auto primary = self->shard_manager_->GetPrimaryNode(shard_id);
     if (!primary.ok()) return primary.status();
     auto* client = self->GetOrCreateDataNodeClient(*primary);
     if (!client) {
-      return core::UnavailableError(absl::StrCat(
+      return absl::UnavailableError(absl::StrCat(
           "Cannot dial primary node ", core::ToUInt32(*primary),
           " for shard ", core::ToUInt16(shard_id)));
     }
@@ -251,22 +250,21 @@ absl::StatusOr<std::string> Coordinator::StartRestoreDistributed(
     req.set_backup_id(bkp_id);
     req.set_target_collection_id(core::ToUInt32(target_id));
     req.set_shard_id(core::ToUInt16(shard_id));
-    auto pt = rpc::toProto(source_inner, req.mutable_source());
-    if (!pt.ok()) return pt;
+    RETURN_IF_ERROR(rpc::toProto(source_inner, req.mutable_source()));
     proto::internal::RestoreShardResponse resp;
     grpc::ClientContext ctx;
     auto status = client->RestoreShard(&ctx, req, &resp);
     if (!status.ok()) {
-      return core::UnavailableError(absl::StrCat(
+      return absl::UnavailableError(absl::StrCat(
           "RestoreShard for shard ", core::ToUInt16(shard_id),
           " failed: ", status.error_message()));
     }
     if (!resp.success()) {
-      return core::InternalError(absl::StrCat(
+      return absl::InternalError(absl::StrCat(
           "RestoreShard for shard ", core::ToUInt16(shard_id),
           " refused: ", resp.message()));
     }
-    return core::OkStatus();
+    return absl::OkStatus();
   };
 
   return restore_manager_->StartRestoreDistributed(

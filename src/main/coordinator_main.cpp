@@ -21,6 +21,7 @@
 #include "consensus/raft_config.h"
 #include "consensus/raft_node.h"
 #include "index/index_factory.h"
+#include "core/status.h"
 #include "server/bootstrap.h"
 #include "server/builders.h"
 #include "server/cluster_steps.h"
@@ -70,9 +71,8 @@ absl::Status Run(const Args& args) {
   raft_config.peers = args.raft_peers;
   raft_config.coordinator_grpc_peers = args.coordinator_grpc_peers;
   raft_config.data_dir = args.data_dir + "/raft";
-  auto started_raft = server::StartRaft(raft_config);
-  if (!started_raft.ok()) return started_raft.status();
-  std::unique_ptr<consensus::RaftNode> raft_node = std::move(*started_raft);
+  ASSIGN_OR_RETURN(std::unique_ptr<consensus::RaftNode> raft_node,
+                   server::StartRaft(raft_config));
   if (!args.single_node_mode) {
     server::WaitForLeaderElection(*raft_node, std::chrono::seconds(60));
   }
@@ -125,12 +125,11 @@ absl::Status Run(const Args& args) {
   coordinator->SetRestoreManager(backup.restore);
 
   server::InterceptorFactories interceptors;
-  auto rbac_store = server::AddAuthInterceptor(config.server.auth, interceptors);
-  if (!rbac_store.ok()) return rbac_store.status();
+  ASSIGN_OR_RETURN(auto rbac_store, server::AddAuthInterceptor(config.server.auth, interceptors));
   server::AddAuditInterceptor(config.logging.audit, interceptors);
 
   auto vectordb_service = std::make_unique<service::VectorDBService>(
-      segment_manager, query_executor, service::MakeCoordinatorResolver(coordinator), *rbac_store);
+      segment_manager, query_executor, service::MakeCoordinatorResolver(coordinator), rbac_store);
   // Client backup and restore calls fan out to the shards through the
   // coordinator. Without it, they would back up the empty local store. The
   // service logs "Backup disabled" because it has no local backup manager,
@@ -139,10 +138,8 @@ absl::Status Run(const Args& args) {
   common::Logger::Instance().Info(
       "Coordinator backup/restore served via distributed shard orchestration");
 
-  auto grpc_server = server::StartGrpcServer(
-      args.bind_address, {internal_service.get(), vectordb_service.get()},
-      server::MakeServerCredentials(config.server.tls), std::move(interceptors));
-  if (!grpc_server.ok()) return grpc_server.status();
+  ASSIGN_OR_RETURN(auto grpc_server,
+                   server::StartGrpcServer(args.bind_address, {internal_service.get(), vectordb_service.get()}, server::MakeServerCredentials(config.server.tls), std::move(interceptors)));
 
   server::PrintBanner(
       "GVDB Coordinator Node",
@@ -171,7 +168,7 @@ absl::Status Run(const Args& args) {
   if (!args.single_node_mode) {
     server::RemoveSelfFromRaft(*raft_node, args.node_id, args.coordinator_grpc_peers);
   }
-  server::StopServing(**grpc_server);
+  server::StopServing(*grpc_server);
   (void)raft_node->Shutdown();
   return absl::OkStatus();
 }

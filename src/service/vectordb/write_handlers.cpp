@@ -4,6 +4,7 @@
 // Insert, stream insert, upsert, delete and metadata update.
 
 #include "service/vectordb/vectordb_service.h"
+#include "core/status.h"
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
 #include "storage/segment/batch_splitter.h"
@@ -26,8 +27,7 @@ grpc::Status VectorDBService::Insert(
     grpc::ServerContext* context,
     const proto::InsertRequest* request,
     proto::InsertResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::INSERT, request->collection_name(), request->vectors().size());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::INSERT, request->collection_name(), request->vectors().size()));
 
   common::Logger::Instance().Info("Insert: {} vectors into {}",
                                  request->vectors().size(),
@@ -295,8 +295,7 @@ grpc::Status VectorDBService::StreamInsert(
     if (chunk.vectors().empty()) continue;
     if (collection_name.empty()) collection_name = chunk.collection_name();
     if (!perm_checked) {
-      auto perm = AuthorizeCollection(auth::Permission::STREAM_INSERT, collection_name);
-      if (!perm.ok()) return perm;
+      RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::STREAM_INSERT, collection_name));
       perm_checked = true;
     }
 
@@ -401,8 +400,7 @@ grpc::Status VectorDBService::Upsert(
     grpc::ServerContext* context,
     const proto::UpsertRequest* request,
     proto::UpsertResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::UPSERT, request->collection_name(), request->vectors().size());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::UPSERT, request->collection_name(), request->vectors().size()));
   if (request->collection_name().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Collection name is required");
   }
@@ -496,8 +494,7 @@ grpc::Status VectorDBService::Delete(
     grpc::ServerContext* context,
     const proto::DeleteRequest* request,
     proto::DeleteResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::DELETE, request->collection_name(), request->ids().size());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::DELETE, request->collection_name(), request->ids().size()));
 
   common::Logger::Instance().Info("Delete: {} IDs from {}",
                                  request->ids().size(),
@@ -616,8 +613,7 @@ grpc::Status VectorDBService::UpdateMetadata(
     grpc::ServerContext* context,
     const proto::UpdateMetadataRequest* request,
     proto::UpdateMetadataResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::UPDATE_METADATA, request->collection_name());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::UPDATE_METADATA, request->collection_name()));
 
   common::Logger::Instance().Info("UpdateMetadata: ID {} in {}",
                                  request->id(), request->collection_name());

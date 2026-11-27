@@ -5,6 +5,7 @@
 // backoff, download, discovery and the manifest.
 
 #include "storage/segment/tiered_segment_manager.h"
+#include "core/status.h"
 #include <algorithm>
 #include <array>
 #include <filesystem>
@@ -47,11 +48,11 @@ std::vector<core::SegmentId> TieredSegmentManager::GetFailedUploads() const {
 // Internal S3 methods
 // ============================================================================
 
-core::Status TieredSegmentManager::UploadSegmentToS3(core::SegmentId id) {
+absl::Status TieredSegmentManager::UploadSegmentToS3(core::SegmentId id) {
   auto seg_key = core::ToUInt32(id);
   auto* seg = local_->GetSegment(id);
   if (seg == nullptr) {
-    return core::NotFoundError(
+    return absl::NotFoundError(
         absl::StrCat("Segment not found for upload: ", seg_key));
   }
 
@@ -65,8 +66,7 @@ core::Status TieredSegmentManager::UploadSegmentToS3(core::SegmentId id) {
     if (!std::filesystem::exists(local_file)) continue;
 
     auto s3_key = MakeS3Key(col_id, seg_key, filename);
-    auto status = object_store_->PutObjectFromFile(s3_key, local_file);
-    if (!status.ok()) return status;
+    RETURN_IF_ERROR(object_store_->PutObjectFromFile(s3_key, local_file));
   }
 
   // Update manifest
@@ -103,7 +103,7 @@ core::Status TieredSegmentManager::UploadSegmentToS3(core::SegmentId id) {
   }
 
   // Segment uploaded successfully
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 void TieredSegmentManager::RunUpload(
@@ -249,7 +249,7 @@ void TieredSegmentManager::UpdateFailedUploadsMetricLocked() const {
       failed_uploads_.size());
 }
 
-core::Status TieredSegmentManager::DownloadSegmentFromS3(
+absl::Status TieredSegmentManager::DownloadSegmentFromS3(
     core::SegmentId id) const {
   auto seg_key = core::ToUInt32(id);
 
@@ -258,7 +258,7 @@ core::Status TieredSegmentManager::DownloadSegmentFromS3(
     std::shared_lock lock(remote_mutex_);
     auto it = remote_segments_.find(seg_key);
     if (it == remote_segments_.end()) {
-      return core::NotFoundError(
+      return absl::NotFoundError(
           absl::StrCat("Segment not in remote index: ", seg_key));
     }
     info = it->second;
@@ -276,8 +276,7 @@ core::Status TieredSegmentManager::DownloadSegmentFromS3(
     if (!exists.ok() || !*exists) continue;
 
     auto local_file = absl::StrCat(local_seg_path, "/", filename);
-    auto status = object_store_->GetObjectToFile(s3_key, local_file);
-    if (!status.ok()) return status;
+    RETURN_IF_ERROR(object_store_->GetObjectToFile(s3_key, local_file));
   }
 
   // Register in cache
@@ -295,10 +294,10 @@ core::Status TieredSegmentManager::DownloadSegmentFromS3(
   }
 
   // Segment downloaded successfully
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status TieredSegmentManager::DiscoverSegmentsFromS3() {
+absl::Status TieredSegmentManager::DiscoverSegmentsFromS3() {
   auto manifest_key = absl::StrCat(prefix_, "/manifest.json");
 
   // Try reading manifest
@@ -326,7 +325,7 @@ core::Status TieredSegmentManager::DiscoverSegmentsFromS3() {
       manifest_json_ = *manifest_result;
 
       // Manifest loaded successfully
-      return core::OkStatus();
+      return absl::OkStatus();
     }
   }
 
@@ -340,10 +339,10 @@ core::Status TieredSegmentManager::DiscoverSegmentsFromS3() {
   // For now, just log that we'd need to download metadata.txt for each
   // This is a degraded path: the manifest is the primary discovery mechanism
   (void)list_result;
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status TieredSegmentManager::UpdateManifest(
+absl::Status TieredSegmentManager::UpdateManifest(
     const ManifestEntry& entry, bool remove) {
   std::lock_guard lock(manifest_mutex_);
 
@@ -358,17 +357,17 @@ core::Status TieredSegmentManager::UpdateManifest(
   return object_store_->PutObject(manifest_key, manifest_json_);
 }
 
-core::Status TieredSegmentManager::EnsureSegmentLoaded(
+absl::Status TieredSegmentManager::EnsureSegmentLoaded(
     core::SegmentId id) const {
   // Already loaded locally?
-  if (local_->GetSegment(id) != nullptr) return core::OkStatus();
+  if (local_->GetSegment(id) != nullptr) return absl::OkStatus();
 
   // Known remote segment?
   auto seg_key = core::ToUInt32(id);
   {
     std::shared_lock lock(remote_mutex_);
     if (remote_segments_.count(seg_key) == 0) {
-      return core::NotFoundError(
+      return absl::NotFoundError(
           absl::StrCat("Segment not found locally or remotely: ", seg_key));
     }
   }
@@ -380,8 +379,7 @@ core::Status TieredSegmentManager::EnsureSegmentLoaded(
   }
 
   // Download from S3
-  auto status = DownloadSegmentFromS3(id);
-  if (!status.ok()) return status;
+  RETURN_IF_ERROR(DownloadSegmentFromS3(id));
 
   // Load into memory
   return local_->LoadSegment(id);

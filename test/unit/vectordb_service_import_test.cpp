@@ -103,27 +103,27 @@ class GatedObjectStore : public storage::IObjectStore {
     cv_.notify_all();
   }
 
-  core::Status PutObject(const std::string& key, const std::string& data) override {
+  absl::Status PutObject(const std::string& key, const std::string& data) override {
     return inner_.PutObject(key, data);
   }
-  core::StatusOr<std::string> GetObject(const std::string& key) override {
+  absl::StatusOr<std::string> GetObject(const std::string& key) override {
     return inner_.GetObject(key);
   }
-  core::Status DeleteObject(const std::string& key) override {
+  absl::Status DeleteObject(const std::string& key) override {
     return inner_.DeleteObject(key);
   }
-  core::StatusOr<std::vector<std::string>> ListObjects(
+  absl::StatusOr<std::vector<std::string>> ListObjects(
       const std::string& prefix) override {
     return inner_.ListObjects(prefix);
   }
-  core::StatusOr<bool> ObjectExists(const std::string& key) override {
+  absl::StatusOr<bool> ObjectExists(const std::string& key) override {
     return inner_.ObjectExists(key);
   }
-  core::Status PutObjectFromFile(const std::string& key,
+  absl::Status PutObjectFromFile(const std::string& key,
                                  const std::string& local_file_path) override {
     return inner_.PutObjectFromFile(key, local_file_path);
   }
-  core::Status GetObjectToFile(const std::string& key,
+  absl::Status GetObjectToFile(const std::string& key,
                                const std::string& local_file_path) override {
     {
       std::unique_lock lock(mutex_);

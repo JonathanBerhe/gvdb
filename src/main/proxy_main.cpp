@@ -12,6 +12,7 @@
 
 #include "common/logger.h"
 #include "config/config.h"
+#include "core/status.h"
 #include "server/bootstrap.h"
 #include "server/builders.h"
 #include "server/flags.h"
@@ -49,10 +50,8 @@ absl::Status Run(const Args& args) {
 
   auto proxy_service =
       std::make_unique<service::ProxyService>(args.coordinator_addresses, args.query_node_uri);
-  auto grpc_server =
-      server::StartGrpcServer(args.bind_address, {proxy_service.get()},
-                              server::MakeServerCredentials(config.server.tls), std::move(interceptors));
-  if (!grpc_server.ok()) return grpc_server.status();
+  ASSIGN_OR_RETURN(auto grpc_server,
+                   server::StartGrpcServer(args.bind_address, {proxy_service.get()}, server::MakeServerCredentials(config.server.tls), std::move(interceptors)));
 
   std::vector<std::string> banner_lines = {
       "Node ID: " + std::to_string(args.node_id),
@@ -66,7 +65,7 @@ absl::Status Run(const Args& args) {
   server::PrintBanner("GVDB Proxy", banner_lines);
 
   server::WaitForShutdown();
-  server::StopServing(**grpc_server);
+  server::StopServing(*grpc_server);
   return absl::OkStatus();
 }
 

@@ -60,7 +60,7 @@ struct LogConfig {
 class Logger {
  public:
   // Initialize global logger
-  static core::Status Initialize(const LogConfig& config);
+  static absl::Status Initialize(const LogConfig& config);
 
   // Get global logger instance
   static Logger& Instance();

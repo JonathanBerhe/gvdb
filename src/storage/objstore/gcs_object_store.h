@@ -53,28 +53,28 @@ class GcsObjectStore : public IObjectStore {
   // Factory method — constructs the GCS client from config. Returns an error
   // only for clearly-invalid config (e.g. empty bucket); connection/auth
   // problems surface on the first request, mirroring S3ObjectStore::Create.
-  [[nodiscard]] static core::StatusOr<std::unique_ptr<GcsObjectStore>> Create(
+  [[nodiscard]] static absl::StatusOr<std::unique_ptr<GcsObjectStore>> Create(
       const GcsConfig& config);
 
   ~GcsObjectStore() override;
 
-  core::Status PutObject(
+  absl::Status PutObject(
       const std::string& key, const std::string& data) override;
 
-  core::StatusOr<std::string> GetObject(const std::string& key) override;
+  absl::StatusOr<std::string> GetObject(const std::string& key) override;
 
-  core::Status DeleteObject(const std::string& key) override;
+  absl::Status DeleteObject(const std::string& key) override;
 
-  core::StatusOr<std::vector<std::string>> ListObjects(
+  absl::StatusOr<std::vector<std::string>> ListObjects(
       const std::string& prefix) override;
 
-  core::StatusOr<bool> ObjectExists(const std::string& key) override;
+  absl::StatusOr<bool> ObjectExists(const std::string& key) override;
 
-  core::Status PutObjectFromFile(
+  absl::Status PutObjectFromFile(
       const std::string& key,
       const std::string& local_file_path) override;
 
-  core::Status GetObjectToFile(
+  absl::Status GetObjectToFile(
       const std::string& key,
       const std::string& local_file_path) override;
 

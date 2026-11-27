@@ -97,11 +97,11 @@ struct ShardManifestV1 {
 class BackupManifest {
  public:
   [[nodiscard]] static std::string SerializeTop(const BackupManifestV1& m);
-  [[nodiscard]] static core::StatusOr<BackupManifestV1> DeserializeTop(
+  [[nodiscard]] static absl::StatusOr<BackupManifestV1> DeserializeTop(
       const std::string& json);
 
   [[nodiscard]] static std::string SerializeShard(const ShardManifestV1& m);
-  [[nodiscard]] static core::StatusOr<ShardManifestV1> DeserializeShard(
+  [[nodiscard]] static absl::StatusOr<ShardManifestV1> DeserializeShard(
       const std::string& json);
 
   // Conventional object keys / paths. All keys are slash-delimited and

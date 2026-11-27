@@ -9,5 +9,6 @@ gvdb_add_library(config
     absl::status
     absl::statusor
   PRIVATE_DEPS
+    gvdb::core
     yaml-cpp
 )

@@ -41,18 +41,18 @@ class FlakyObjectStore : public InMemoryObjectStore {
   // Put is one failed upload attempt.
   int RejectedPuts() const { return rejected_puts_.load(); }
 
-  core::Status PutObject(
+  absl::Status PutObject(
       const std::string& key, const std::string& data) override {
     if (ConsumeFailure()) {
-      return core::InternalError("injected object-store put failure");
+      return absl::InternalError("injected object-store put failure");
     }
     return InMemoryObjectStore::PutObject(key, data);
   }
 
-  core::Status PutObjectFromFile(
+  absl::Status PutObjectFromFile(
       const std::string& key, const std::string& local_file_path) override {
     if (ConsumeFailure()) {
-      return core::InternalError("injected object-store put failure");
+      return absl::InternalError("injected object-store put failure");
     }
     return InMemoryObjectStore::PutObjectFromFile(key, local_file_path);
   }
@@ -85,11 +85,11 @@ class SegmentRejectingObjectStore : public InMemoryObjectStore {
         "/segments/" + std::to_string(core::ToUInt32(id)) + "/";
   }
 
-  core::Status PutObjectFromFile(
+  absl::Status PutObjectFromFile(
       const std::string& key, const std::string& local_file_path) override {
     if (!rejected_key_part_.empty() &&
         key.find(rejected_key_part_) != std::string::npos) {
-      return core::InternalError("injected put failure for a rejected segment");
+      return absl::InternalError("injected put failure for a rejected segment");
     }
     return InMemoryObjectStore::PutObjectFromFile(key, local_file_path);
   }

@@ -50,20 +50,20 @@ class Segment {
   // ========== Data Operations ==========
 
   // Add vectors to segment (only valid for GROWING state)
-  [[nodiscard]] core::Status AddVectors(
+  [[nodiscard]] absl::Status AddVectors(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids,
       const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Add vectors with metadata to segment (only valid for GROWING state)
-  [[nodiscard]] core::Status AddVectorsWithMetadata(
+  [[nodiscard]] absl::Status AddVectorsWithMetadata(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids,
       const std::vector<core::Metadata>& metadata,
       const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Read specific vectors by ID (fails if any ID not found)
-  [[nodiscard]] core::StatusOr<std::vector<core::Vector>> ReadVectors(
+  [[nodiscard]] absl::StatusOr<std::vector<core::Vector>> ReadVectors(
       const std::vector<core::VectorId>& ids) const;
 
   // Get vectors by ID with metadata (returns partial results)
@@ -81,24 +81,24 @@ class Segment {
     uint64_t deleted_count;
     std::vector<core::VectorId> not_found_ids;
   };
-  [[nodiscard]] core::StatusOr<DeleteVectorsResult> DeleteVectors(
+  [[nodiscard]] absl::StatusOr<DeleteVectorsResult> DeleteVectors(
       const std::vector<core::VectorId>& ids);
 
   // Update metadata for a vector (only valid for GROWING state)
-  [[nodiscard]] core::Status UpdateMetadata(
+  [[nodiscard]] absl::Status UpdateMetadata(
       core::VectorId id, const core::Metadata& metadata, bool merge);
 
   // Search for nearest neighbors (requires index to be built)
-  [[nodiscard]] core::StatusOr<core::SearchResult> Search(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
       const core::Vector& query, int k) const;
 
   // Search with metadata filtering (requires index to be built)
-  [[nodiscard]] core::StatusOr<core::SearchResult> SearchWithFilter(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchWithFilter(
       const core::Vector& query, int k, const std::string& filter_expr) const;
 
   // Hybrid search combining vector similarity and BM25 text relevance
   // Uses Reciprocal Rank Fusion to combine ranked results
-  [[nodiscard]] core::StatusOr<core::SearchResult> SearchHybrid(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchHybrid(
       const core::Vector& query_vector,
       const std::string& text_query,
       int k,
@@ -113,32 +113,32 @@ class Segment {
     uint64_t inserted_count;
     uint64_t updated_count;
   };
-  [[nodiscard]] core::StatusOr<UpsertResult> UpsertVectors(
+  [[nodiscard]] absl::StatusOr<UpsertResult> UpsertVectors(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids,
       const std::vector<core::Metadata>& metadata,
       const std::unordered_map<uint64_t, int64_t>& expiry_entries = {});
 
   // Range search: find all vectors within distance radius
-  [[nodiscard]] core::StatusOr<core::SearchResult> SearchRange(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRange(
       const core::Vector& query, float radius, int max_results = 1000) const;
 
   // Range search with metadata filter
-  [[nodiscard]] core::StatusOr<core::SearchResult> SearchRangeWithFilter(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRangeWithFilter(
       const core::Vector& query, float radius, const std::string& filter_expr,
       int max_results = 1000) const;
 
   // Get metadata for a vector
-  [[nodiscard]] core::StatusOr<core::Metadata> GetMetadata(core::VectorId id) const;
+  [[nodiscard]] absl::StatusOr<core::Metadata> GetMetadata(core::VectorId id) const;
 
   // ========== State Management ==========
 
   // Build a BM25 text index from a metadata field across all vectors in this segment
-  core::Status BuildTextIndex(std::unique_ptr<index::ITextIndex> text_index,
+  absl::Status BuildTextIndex(std::unique_ptr<index::ITextIndex> text_index,
                                const std::string& text_field = "text");
 
   // Build sparse index from stored sparse vectors
-  core::Status BuildSparseIndex(std::unique_ptr<index::SparseIndex> sparse_index);
+  absl::Status BuildSparseIndex(std::unique_ptr<index::SparseIndex> sparse_index);
 
   // TTL: set expiry timestamp for a vector
   void SetExpiry(core::VectorId id, int64_t expiry_timestamp);
@@ -147,7 +147,7 @@ class Segment {
   size_t SweepExpired();
 
   // Add vectors with sparse data alongside dense vectors and metadata
-  [[nodiscard]] core::Status AddVectorsWithSparse(
+  [[nodiscard]] absl::Status AddVectorsWithSparse(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids,
       const std::vector<core::Metadata>& metadata,
@@ -156,22 +156,22 @@ class Segment {
 
   // Seal the segment (transition from GROWING to SEALED)
   // This builds the index and makes the segment immutable
-  [[nodiscard]] core::Status Seal(core::IVectorIndex* index);
+  [[nodiscard]] absl::Status Seal(core::IVectorIndex* index);
 
   // Flush segment data to persistent storage
-  [[nodiscard]] core::Status Flush(const std::string& base_path);
+  [[nodiscard]] absl::Status Flush(const std::string& base_path);
 
   // Load segment from persistent storage
-  [[nodiscard]] static core::StatusOr<std::unique_ptr<Segment>> Load(
+  [[nodiscard]] static absl::StatusOr<std::unique_ptr<Segment>> Load(
       const std::string& base_path, core::SegmentId id);
 
   // ========== Serialization for Replication ==========
 
   // Serialize segment data to bytes (for network transfer)
-  [[nodiscard]] core::StatusOr<std::string> SerializeToBytes() const;
+  [[nodiscard]] absl::StatusOr<std::string> SerializeToBytes() const;
 
   // Deserialize segment data from bytes and create segment
-  [[nodiscard]] static core::StatusOr<std::unique_ptr<Segment>> DeserializeFromBytes(
+  [[nodiscard]] static absl::StatusOr<std::unique_ptr<Segment>> DeserializeFromBytes(
       const std::string& bytes_data);
 
   // Rebind this segment to a different collection_id. ONLY valid in the
@@ -278,12 +278,12 @@ class Segment {
     if (it == expiry_map_.end()) return false;
     return now >= it->second;
   }
-  [[nodiscard]] core::Status ValidateVectors(
+  [[nodiscard]] absl::Status ValidateVectors(
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) const;
 
   // Delete vectors without acquiring the lock. Caller must hold unique_lock.
-  [[nodiscard]] core::StatusOr<DeleteVectorsResult> DeleteVectorsUnlocked(
+  [[nodiscard]] absl::StatusOr<DeleteVectorsResult> DeleteVectorsUnlocked(
       const std::vector<core::VectorId>& ids);
 
 
@@ -292,7 +292,7 @@ class Segment {
                                       const core::Vector& b) const;
 
   // Brute-force search over in-memory vectors. Caller must hold the lock.
-  [[nodiscard]] core::StatusOr<core::SearchResult> BruteForceSearchUnlocked(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> BruteForceSearchUnlocked(
       const core::Vector& query, int k) const;
 };
 

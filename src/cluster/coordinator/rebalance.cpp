@@ -5,6 +5,7 @@
 // recovery of moves that a restart interrupted.
 
 #include "cluster/coordinator/coordinator.h"
+#include "core/status.h"
 #include "cluster/coordinator/internal_client.h"
 #include "common/logger.h"
 #include "absl/strings/str_cat.h"
@@ -123,9 +124,8 @@ absl::Status Coordinator::ExecuteSingleMove(
   });
 
   // 2. Set shard to MIGRATING
-  auto state_status = shard_manager_->SetShardState(
-      move.shard_id, ShardState::MIGRATING);
-  if (!state_status.ok()) return state_status;
+  RETURN_IF_ERROR(shard_manager_->SetShardState(
+      move.shard_id, ShardState::MIGRATING));
 
   // 3. Compute segment ID
   core::SegmentId seg_id = core::ShardSegmentId(collection_id, shard_index);

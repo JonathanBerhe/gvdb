@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #pragma once
 
 #include <cmath>
@@ -18,9 +21,9 @@ class BM25Index : public ITextIndex {
   explicit BM25Index(float k1 = 1.2f, float b = 0.75f);
   ~BM25Index() override = default;
 
-  core::Status AddDocument(core::VectorId id, const std::string& text) override;
+  absl::Status AddDocument(core::VectorId id, const std::string& text) override;
 
-  [[nodiscard]] core::StatusOr<core::SearchResult> Search(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
       const std::string& query, int k) override;
 
  private:
