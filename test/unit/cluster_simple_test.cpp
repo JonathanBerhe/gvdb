@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include <doctest/doctest.h>
 #include "cluster/shard_manager.h"
 #include "cluster/coordinator/coordinator.h"

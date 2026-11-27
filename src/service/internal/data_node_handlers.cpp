@@ -349,7 +349,7 @@ grpc::Status InternalService::ExecuteShardQuery(
     }
 
     // Execute search
-    core::StatusOr<core::SearchResult> search_result;
+    absl::StatusOr<core::SearchResult> search_result;
 
     if (!request->filter().empty()) {
       search_result = segment->SearchWithFilter(query, top_k, request->filter());

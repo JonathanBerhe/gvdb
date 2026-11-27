@@ -34,7 +34,7 @@ BulkImporter::BulkImporter(std::shared_ptr<ISegmentStore> segment_store,
 // Public API
 // ============================================================================
 
-core::StatusOr<std::string> BulkImporter::StartImport(
+absl::StatusOr<std::string> BulkImporter::StartImport(
     const std::string& collection_name,
     core::CollectionId collection_id,
     core::Dimension dimension,
@@ -46,13 +46,13 @@ core::StatusOr<std::string> BulkImporter::StartImport(
     const std::string& id_column) {
 
   if (!object_store_) {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         "Bulk import requires object storage (S3/MinIO). "
         "Build with -DGVDB_WITH_S3=ON and configure storage.object_store");
   }
 
   if (source_uri.empty()) {
-    return core::InvalidArgumentError("source_uri is required");
+    return absl::InvalidArgumentError("source_uri is required");
   }
 
   // Check idempotency
@@ -80,7 +80,7 @@ core::StatusOr<std::string> BulkImporter::StartImport(
   int prev = active_imports_.fetch_add(1);
   if (prev >= max_concurrent_) {
     active_imports_.fetch_sub(1);
-    return core::ResourceExhaustedError(
+    return absl::ResourceExhaustedError(
         absl::StrCat("Maximum concurrent imports reached (",
                       max_concurrent_, "). Try again later."));
   }
@@ -119,12 +119,12 @@ core::StatusOr<std::string> BulkImporter::StartImport(
   return job->id;
 }
 
-core::StatusOr<ImportJobStatus> BulkImporter::GetStatus(
+absl::StatusOr<ImportJobStatus> BulkImporter::GetStatus(
     const std::string& import_id) const {
   std::lock_guard lock(jobs_mutex_);
   auto it = jobs_.find(import_id);
   if (it == jobs_.end()) {
-    return core::NotFoundError(
+    return absl::NotFoundError(
         absl::StrCat("Import job not found: ", import_id));
   }
 
@@ -149,11 +149,11 @@ core::StatusOr<ImportJobStatus> BulkImporter::GetStatus(
   };
 }
 
-core::Status BulkImporter::CancelImport(const std::string& import_id) {
+absl::Status BulkImporter::CancelImport(const std::string& import_id) {
   std::lock_guard lock(jobs_mutex_);
   auto it = jobs_.find(import_id);
   if (it == jobs_.end()) {
-    return core::NotFoundError(
+    return absl::NotFoundError(
         absl::StrCat("Import job not found: ", import_id));
   }
 
@@ -161,13 +161,13 @@ core::Status BulkImporter::CancelImport(const std::string& import_id) {
   auto state = job->state.load();
   if (state == ImportState::COMPLETED || state == ImportState::FAILED ||
       state == ImportState::CANCELLED) {
-    return core::OkStatus();  // Already terminal — idempotent
+    return absl::OkStatus();  // Already terminal: idempotent
   }
 
   job->cancelled.store(true);
   common::Logger::Instance().Info("Bulk import job {} cancellation requested",
                                   import_id);
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 // ============================================================================
@@ -188,7 +188,7 @@ void BulkImporter::ExecuteImport(
   job->state.store(ImportState::RUNNING);
 
   std::string temp_path;
-  core::Status status;
+  absl::Status status;
 
   // Download file from S3
   auto s3_key = ParseS3Uri(job->source_uri);
@@ -222,7 +222,7 @@ void BulkImporter::ExecuteImport(
       status = ImportNpy(job, temp_path, collection_id, dimension);
       break;
     case ImportFormat::PARQUET:
-      status = core::UnimplementedError(
+      status = absl::UnimplementedError(
           "Parquet import is not yet available. Use NUMPY format.");
       break;
   }
@@ -248,7 +248,7 @@ void BulkImporter::ExecuteImport(
   active_imports_.fetch_sub(1);
 }
 
-core::Status BulkImporter::ImportNpy(
+absl::Status BulkImporter::ImportNpy(
     std::shared_ptr<ImportJob> job,
     const std::string& local_path,
     core::CollectionId collection_id,
@@ -263,7 +263,7 @@ core::Status BulkImporter::ImportNpy(
 
   // Validate dimension
   if (header.dimension != static_cast<size_t>(expected_dim)) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("Dimension mismatch: .npy file has dimension ",
                       header.dimension, " but collection expects ",
                       expected_dim));
@@ -278,7 +278,7 @@ core::Status BulkImporter::ImportNpy(
   while (start_row < header.num_vectors) {
     // Check cancellation between batches
     if (job->cancelled.load()) {
-      return core::CancelledError("Import cancelled by user");
+      return absl::CancelledError("Import cancelled by user");
     }
 
     size_t batch_count = std::min(kImportBatchSize,
@@ -337,7 +337,7 @@ core::Status BulkImporter::ImportNpy(
       auto* segment =
           segment_store_->GetWritableSegment(collection_id, range_bytes);
       if (!segment) {
-        return core::InternalError(
+        return absl::InternalError(
             "Failed to get writable segment for collection");
       }
 
@@ -351,7 +351,7 @@ core::Status BulkImporter::ImportNpy(
         // Segment might have filled up concurrently: rotate and retry once
         segment = segment_store_->GetWritableSegment(collection_id, range_bytes);
         if (!segment) {
-          return core::InternalError(
+          return absl::InternalError(
               "Failed to get writable segment after rotation");
         }
         seg_id = segment->GetId();
@@ -368,17 +368,17 @@ core::Status BulkImporter::ImportNpy(
     next_id += chunk.size();
   }
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-core::StatusOr<std::string> BulkImporter::ParseS3Uri(const std::string& uri) {
+absl::StatusOr<std::string> BulkImporter::ParseS3Uri(const std::string& uri) {
   // Expected format: s3://bucket/key or s3://bucket/path/to/file
   if (uri.size() < 6 || uri.substr(0, 5) != "s3://") {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("Invalid S3 URI (must start with s3://): ", uri));
   }
 
@@ -388,7 +388,7 @@ core::StatusOr<std::string> BulkImporter::ParseS3Uri(const std::string& uri) {
   auto path = uri.substr(5);  // Remove "s3://"
   auto slash_pos = path.find('/');
   if (slash_pos == std::string::npos || slash_pos == path.size() - 1) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("Invalid S3 URI (no key path after bucket): ", uri));
   }
 
@@ -396,14 +396,14 @@ core::StatusOr<std::string> BulkImporter::ParseS3Uri(const std::string& uri) {
   return path.substr(slash_pos + 1);
 }
 
-core::StatusOr<std::string> BulkImporter::DownloadToTemp(
+absl::StatusOr<std::string> BulkImporter::DownloadToTemp(
     const std::string& s3_key, const std::string& job_id) {
   // Use job_id for unique temp file path (job IDs are already unique)
   auto temp_path = temp_dir_ + "/import_" + job_id;
 
   auto status = object_store_->GetObjectToFile(s3_key, temp_path);
   if (!status.ok()) {
-    return core::InternalError(
+    return absl::InternalError(
         absl::StrCat("Failed to download from S3 key '", s3_key,
                       "': ", status.message()));
   }

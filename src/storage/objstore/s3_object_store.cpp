@@ -44,7 +44,7 @@ S3ObjectStore::S3ObjectStore(std::shared_ptr<Aws::S3::S3Client> client,
 
 S3ObjectStore::~S3ObjectStore() = default;
 
-core::StatusOr<std::unique_ptr<S3ObjectStore>> S3ObjectStore::Create(
+absl::StatusOr<std::unique_ptr<S3ObjectStore>> S3ObjectStore::Create(
     const S3Config& config) {
   // Ensure AWS SDK is initialized
   (void)GetSdkGuard();
@@ -69,7 +69,7 @@ core::StatusOr<std::unique_ptr<S3ObjectStore>> S3ObjectStore::Create(
       new S3ObjectStore(std::move(client), config.bucket));
 }
 
-core::Status S3ObjectStore::PutObject(
+absl::Status S3ObjectStore::PutObject(
     const std::string& key, const std::string& data) {
   Aws::S3::Model::PutObjectRequest request;
   request.SetBucket(bucket_);
@@ -82,12 +82,12 @@ core::Status S3ObjectStore::PutObject(
 
   auto outcome = client_->PutObject(request);
   if (!outcome.IsSuccess()) {
-    return core::InternalError(outcome.GetError().GetMessage());
+    return absl::InternalError(outcome.GetError().GetMessage());
   }
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::StatusOr<std::string> S3ObjectStore::GetObject(
+absl::StatusOr<std::string> S3ObjectStore::GetObject(
     const std::string& key) {
   Aws::S3::Model::GetObjectRequest request;
   request.SetBucket(bucket_);
@@ -98,9 +98,9 @@ core::StatusOr<std::string> S3ObjectStore::GetObject(
     auto& error = outcome.GetError();
     if (error.GetErrorType() == Aws::S3::S3Errors::NO_SUCH_KEY ||
         error.GetErrorType() == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
-      return core::NotFoundError("Object not found: " + key);
+      return absl::NotFoundError("Object not found: " + key);
     }
-    return core::InternalError(error.GetMessage());
+    return absl::InternalError(error.GetMessage());
   }
 
   std::ostringstream ss;
@@ -108,7 +108,7 @@ core::StatusOr<std::string> S3ObjectStore::GetObject(
   return ss.str();
 }
 
-core::Status S3ObjectStore::DeleteObject(const std::string& key) {
+absl::Status S3ObjectStore::DeleteObject(const std::string& key) {
   Aws::S3::Model::DeleteObjectRequest request;
   request.SetBucket(bucket_);
   request.SetKey(key);
@@ -116,12 +116,12 @@ core::Status S3ObjectStore::DeleteObject(const std::string& key) {
   auto outcome = client_->DeleteObject(request);
   if (!outcome.IsSuccess()) {
     // Delete of non-existent key is OK (S3 returns success anyway)
-    return core::InternalError(outcome.GetError().GetMessage());
+    return absl::InternalError(outcome.GetError().GetMessage());
   }
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::StatusOr<std::vector<std::string>> S3ObjectStore::ListObjects(
+absl::StatusOr<std::vector<std::string>> S3ObjectStore::ListObjects(
     const std::string& prefix) {
   std::vector<std::string> keys;
 
@@ -133,7 +133,7 @@ core::StatusOr<std::vector<std::string>> S3ObjectStore::ListObjects(
   while (has_more) {
     auto outcome = client_->ListObjectsV2(request);
     if (!outcome.IsSuccess()) {
-      return core::InternalError(outcome.GetError().GetMessage());
+      return absl::InternalError(outcome.GetError().GetMessage());
     }
 
     auto& result = outcome.GetResult();
@@ -150,7 +150,7 @@ core::StatusOr<std::vector<std::string>> S3ObjectStore::ListObjects(
   return keys;
 }
 
-core::StatusOr<bool> S3ObjectStore::ObjectExists(const std::string& key) {
+absl::StatusOr<bool> S3ObjectStore::ObjectExists(const std::string& key) {
   Aws::S3::Model::HeadObjectRequest request;
   request.SetBucket(bucket_);
   request.SetKey(key);
@@ -159,14 +159,14 @@ core::StatusOr<bool> S3ObjectStore::ObjectExists(const std::string& key) {
   return outcome.IsSuccess();
 }
 
-core::Status S3ObjectStore::PutObjectFromFile(
+absl::Status S3ObjectStore::PutObjectFromFile(
     const std::string& key, const std::string& local_file_path) {
   auto input = Aws::MakeShared<Aws::FStream>(
       "PutObjectFromFile", local_file_path,
       std::ios_base::in | std::ios_base::binary);
 
   if (!input->good()) {
-    return core::NotFoundError("Local file not found: " + local_file_path);
+    return absl::NotFoundError("Local file not found: " + local_file_path);
   }
 
   Aws::S3::Model::PutObjectRequest request;
@@ -176,12 +176,12 @@ core::Status S3ObjectStore::PutObjectFromFile(
 
   auto outcome = client_->PutObject(request);
   if (!outcome.IsSuccess()) {
-    return core::InternalError(outcome.GetError().GetMessage());
+    return absl::InternalError(outcome.GetError().GetMessage());
   }
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status S3ObjectStore::GetObjectToFile(
+absl::Status S3ObjectStore::GetObjectToFile(
     const std::string& key, const std::string& local_file_path) {
   Aws::S3::Model::GetObjectRequest request;
   request.SetBucket(bucket_);
@@ -192,18 +192,18 @@ core::Status S3ObjectStore::GetObjectToFile(
     auto& error = outcome.GetError();
     if (error.GetErrorType() == Aws::S3::S3Errors::NO_SUCH_KEY ||
         error.GetErrorType() == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
-      return core::NotFoundError("Object not found: " + key);
+      return absl::NotFoundError("Object not found: " + key);
     }
-    return core::InternalError(error.GetMessage());
+    return absl::InternalError(error.GetMessage());
   }
 
   std::ofstream file(local_file_path, std::ios::binary);
   if (!file.is_open()) {
-    return core::InternalError("Failed to open local file: " + local_file_path);
+    return absl::InternalError("Failed to open local file: " + local_file_path);
   }
 
   file << outcome.GetResult().GetBody().rdbuf();
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace storage

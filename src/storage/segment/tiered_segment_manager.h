@@ -49,12 +49,12 @@ class TieredSegmentManager : public ISegmentStore {
 
   // ── ISegmentStore implementation ──
 
-  [[nodiscard]] core::StatusOr<core::SegmentId> CreateSegment(
+  [[nodiscard]] absl::StatusOr<core::SegmentId> CreateSegment(
       core::CollectionId collection_id,
       core::Dimension dimension,
       core::MetricType metric) override;
 
-  [[nodiscard]] core::Status CreateSegmentWithId(
+  [[nodiscard]] absl::Status CreateSegmentWithId(
       core::SegmentId segment_id,
       core::CollectionId collection_id,
       core::Dimension dimension,
@@ -64,24 +64,24 @@ class TieredSegmentManager : public ISegmentStore {
   [[nodiscard]] Segment* GetSegment(core::SegmentId id) override;
   [[nodiscard]] const Segment* GetSegment(core::SegmentId id) const override;
 
-  [[nodiscard]] core::Status SealSegment(
+  [[nodiscard]] absl::Status SealSegment(
       core::SegmentId id,
       const core::IndexConfig& index_config) override;
 
-  [[nodiscard]] core::Status FlushSegment(core::SegmentId id) override;
+  [[nodiscard]] absl::Status FlushSegment(core::SegmentId id) override;
 
-  [[nodiscard]] core::Status DropSegment(
+  [[nodiscard]] absl::Status DropSegment(
       core::SegmentId id, bool delete_files = false) override;
 
-  [[nodiscard]] core::Status AddReplicatedSegment(
+  [[nodiscard]] absl::Status AddReplicatedSegment(
       std::unique_ptr<Segment> segment) override;
 
-  [[nodiscard]] core::Status WriteVectors(
+  [[nodiscard]] absl::Status WriteVectors(
       core::SegmentId segment_id,
       const std::vector<core::Vector>& vectors,
       const std::vector<core::VectorId>& ids) override;
 
-  [[nodiscard]] core::StatusOr<core::SearchResult> SearchCollection(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> SearchCollection(
       core::CollectionId collection_id,
       const core::Vector& query, int k) const override;
 
@@ -167,7 +167,7 @@ class TieredSegmentManager : public ISegmentStore {
   // ── Internal methods ──
 
   // Upload a flushed segment's files to object storage
-  core::Status UploadSegmentToS3(core::SegmentId id);
+  absl::Status UploadSegmentToS3(core::SegmentId id);
 
   // Run one upload attempt on the pool and update in-flight/failed tracking.
   // prior_failures is the number of times this segment's upload has already
@@ -190,16 +190,16 @@ class TieredSegmentManager : public ISegmentStore {
   void UpdateFailedUploadsMetricLocked() const;
 
   // Download a segment's files from object storage to local cache
-  core::Status DownloadSegmentFromS3(core::SegmentId id) const;
+  absl::Status DownloadSegmentFromS3(core::SegmentId id) const;
 
   // Discover segments from manifest (or fallback to ListObjects)
-  core::Status DiscoverSegmentsFromS3();
+  absl::Status DiscoverSegmentsFromS3();
 
   // Update manifest in object storage after upload/delete
-  core::Status UpdateManifest(const ManifestEntry& entry, bool remove = false);
+  absl::Status UpdateManifest(const ManifestEntry& entry, bool remove = false);
 
   // Ensure a remote segment is loaded locally (lazy load)
-  core::Status EnsureSegmentLoaded(core::SegmentId id) const;
+  absl::Status EnsureSegmentLoaded(core::SegmentId id) const;
 
   // Build S3 key for a segment file
   [[nodiscard]] std::string MakeS3Key(

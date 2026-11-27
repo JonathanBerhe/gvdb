@@ -42,7 +42,7 @@ std::string EntryToJson(const ManifestEntry& e) {
   return ss.str();
 }
 
-core::StatusOr<ManifestEntry> ParseEntry(const std::string& json) {
+absl::StatusOr<ManifestEntry> ParseEntry(const std::string& json) {
   ManifestEntry e;
   if (!ParseUint32(json, "segment_id", e.segment_id) ||
       !ParseUint32(json, "collection_id", e.collection_id) ||
@@ -51,7 +51,7 @@ core::StatusOr<ManifestEntry> ParseEntry(const std::string& json) {
       !ParseInt32(json, "index_type", e.index_type) ||
       !ParseUint64(json, "vector_count", e.vector_count) ||
       !ParseUint64(json, "size_bytes", e.size_bytes)) {
-    return core::InvalidArgumentError("Failed to parse manifest entry");
+    return absl::InvalidArgumentError("Failed to parse manifest entry");
   }
   ParseString(json, "uploaded_at", e.uploaded_at);  // optional
   return e;
@@ -90,7 +90,7 @@ std::string SegmentManifest::Serialize(
   return ss.str();
 }
 
-core::StatusOr<std::vector<ManifestEntry>> SegmentManifest::Deserialize(
+absl::StatusOr<std::vector<ManifestEntry>> SegmentManifest::Deserialize(
     const std::string& json) {
   if (json.empty()) {
     return std::vector<ManifestEntry>{};
@@ -99,7 +99,7 @@ core::StatusOr<std::vector<ManifestEntry>> SegmentManifest::Deserialize(
   // Find the "segments" array
   auto pos = json.find("\"segments\":[");
   if (pos == std::string::npos) {
-    return core::InvalidArgumentError("Manifest missing 'segments' array");
+    return absl::InvalidArgumentError("Manifest missing 'segments' array");
   }
 
   // Extract the array portion
@@ -107,7 +107,7 @@ core::StatusOr<std::vector<ManifestEntry>> SegmentManifest::Deserialize(
   auto array_end = json.rfind(']');
   if (array_start == std::string::npos || array_end == std::string::npos ||
       array_end <= array_start) {
-    return core::InvalidArgumentError("Malformed segments array");
+    return absl::InvalidArgumentError("Malformed segments array");
   }
   auto array_str = json.substr(array_start, array_end - array_start + 1);
 

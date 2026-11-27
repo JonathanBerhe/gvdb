@@ -30,8 +30,8 @@ namespace gcs = ::google::cloud::storage;
 // google::cloud::StatusCode mirrors absl::StatusCode 1:1, so a numeric cast
 // preserves the code (kNotFound stays kNotFound, which the callers and the
 // IObjectStore contract tests rely on via absl::IsNotFound).
-core::Status ToAbslStatus(const gc::Status& status) {
-  if (status.ok()) return core::OkStatus();
+absl::Status ToAbslStatus(const gc::Status& status) {
+  if (status.ok()) return absl::OkStatus();
   return absl::Status(
       static_cast<absl::StatusCode>(static_cast<int>(status.code())),
       status.message());
@@ -59,10 +59,10 @@ GcsObjectStore::GcsObjectStore(std::unique_ptr<Impl> impl)
 
 GcsObjectStore::~GcsObjectStore() = default;
 
-core::StatusOr<std::unique_ptr<GcsObjectStore>> GcsObjectStore::Create(
+absl::StatusOr<std::unique_ptr<GcsObjectStore>> GcsObjectStore::Create(
     const GcsConfig& config) {
   if (config.bucket.empty()) {
-    return core::InvalidArgumentError("GcsConfig.bucket must be set");
+    return absl::InvalidArgumentError("GcsConfig.bucket must be set");
   }
 
   gc::Options options;
@@ -77,13 +77,13 @@ core::StatusOr<std::unique_ptr<GcsObjectStore>> GcsObjectStore::Create(
     // one store's key leak into another (or clobber the ambient env).
     std::ifstream key_file(config.credentials_path, std::ios::binary);
     if (!key_file.good()) {
-      return core::NotFoundError(
+      return absl::NotFoundError(
           "GCS credentials file not found: " + config.credentials_path);
     }
     std::string key_json((std::istreambuf_iterator<char>(key_file)),
                          std::istreambuf_iterator<char>());
     if (key_file.bad()) {
-      return core::InternalError(
+      return absl::InternalError(
           "Failed reading GCS credentials file: " + config.credentials_path);
     }
     options.set<gc::UnifiedCredentialsOption>(
@@ -104,17 +104,17 @@ core::StatusOr<std::unique_ptr<GcsObjectStore>> GcsObjectStore::Create(
       new GcsObjectStore(std::move(impl)));
 }
 
-core::Status GcsObjectStore::PutObject(
+absl::Status GcsObjectStore::PutObject(
     const std::string& key, const std::string& data) {
   auto client = impl_->Get();
   auto metadata = client.InsertObject(impl_->bucket, key, data);
   if (!metadata) {
     return ToAbslStatus(metadata.status());
   }
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::StatusOr<std::string> GcsObjectStore::GetObject(const std::string& key) {
+absl::StatusOr<std::string> GcsObjectStore::GetObject(const std::string& key) {
   auto client = impl_->Get();
   auto reader = client.ReadObject(impl_->bucket, key);
   std::string body(std::istreambuf_iterator<char>{reader},
@@ -125,7 +125,7 @@ core::StatusOr<std::string> GcsObjectStore::GetObject(const std::string& key) {
   return body;
 }
 
-core::Status GcsObjectStore::DeleteObject(const std::string& key) {
+absl::Status GcsObjectStore::DeleteObject(const std::string& key) {
   auto client = impl_->Get();
   auto status = client.DeleteObject(impl_->bucket, key);
   // Idempotent: deleting a missing key is success (matches the interface
@@ -133,10 +133,10 @@ core::Status GcsObjectStore::DeleteObject(const std::string& key) {
   if (!status.ok() && status.code() != gc::StatusCode::kNotFound) {
     return ToAbslStatus(status);
   }
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::StatusOr<std::vector<std::string>> GcsObjectStore::ListObjects(
+absl::StatusOr<std::vector<std::string>> GcsObjectStore::ListObjects(
     const std::string& prefix) {
   auto client = impl_->Get();
   std::vector<std::string> keys;
@@ -153,7 +153,7 @@ core::StatusOr<std::vector<std::string>> GcsObjectStore::ListObjects(
   return keys;
 }
 
-core::StatusOr<bool> GcsObjectStore::ObjectExists(const std::string& key) {
+absl::StatusOr<bool> GcsObjectStore::ObjectExists(const std::string& key) {
   auto client = impl_->Get();
   auto metadata = client.GetObjectMetadata(impl_->bucket, key);
   if (metadata) {
@@ -167,11 +167,11 @@ core::StatusOr<bool> GcsObjectStore::ObjectExists(const std::string& key) {
   return ToAbslStatus(metadata.status());
 }
 
-core::Status GcsObjectStore::PutObjectFromFile(
+absl::Status GcsObjectStore::PutObjectFromFile(
     const std::string& key, const std::string& local_file_path) {
   std::ifstream input(local_file_path, std::ios::binary);
   if (!input.good()) {
-    return core::NotFoundError("Local file not found: " + local_file_path);
+    return absl::NotFoundError("Local file not found: " + local_file_path);
   }
 
   auto client = impl_->Get();
@@ -189,7 +189,7 @@ core::Status GcsObjectStore::PutObjectFromFile(
   // here, before Close() commits anything, so a partial read can't be
   // silently finalized into a truncated object.
   if (writer.fail()) {
-    return core::InternalError(
+    return absl::InternalError(
         "Failed reading local file while uploading: " + local_file_path);
   }
   writer.Close();
@@ -197,10 +197,10 @@ core::Status GcsObjectStore::PutObjectFromFile(
   if (!metadata) {
     return ToAbslStatus(metadata.status());
   }
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status GcsObjectStore::GetObjectToFile(
+absl::Status GcsObjectStore::GetObjectToFile(
     const std::string& key, const std::string& local_file_path) {
   auto client = impl_->Get();
   auto reader = client.ReadObject(impl_->bucket, key);
@@ -213,7 +213,7 @@ core::Status GcsObjectStore::GetObjectToFile(
 
   std::ofstream output(local_file_path, std::ios::binary);
   if (!output.is_open()) {
-    return core::InternalError("Failed to open local file: " + local_file_path);
+    return absl::InternalError("Failed to open local file: " + local_file_path);
   }
   output << reader.rdbuf();
   if (!reader.status().ok()) {
@@ -222,7 +222,7 @@ core::Status GcsObjectStore::GetObjectToFile(
     std::filesystem::remove(local_file_path, ec);
     return ToAbslStatus(reader.status());
   }
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace storage

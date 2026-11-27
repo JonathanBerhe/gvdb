@@ -1,3 +1,6 @@
+// Copyright 2026 jonathanberhe
+// Licensed under the Apache License, Version 2.0
+
 #include <doctest/doctest.h>
 #include <pthread.h>
 
@@ -60,36 +63,36 @@ TEST_CASE("TypesTest - SearchResult") {
 }
 
 // ============================================================================
-// Status Tests
+// absl::Status Tests
 // ============================================================================
 
 TEST_CASE("StatusTest - OkStatus") {
-  Status status = OkStatus();
+  absl::Status status = absl::OkStatus();
   CHECK(status.ok());
 }
 
 TEST_CASE("StatusTest - ErrorStatuses") {
-  Status invalid = InvalidArgumentError("invalid arg");
+  absl::Status invalid = absl::InvalidArgumentError("invalid arg");
   CHECK_FALSE(invalid.ok());
   CHECK(absl::IsInvalidArgument(invalid));
 
-  Status internal = InternalError("internal error");
+  absl::Status internal = absl::InternalError("internal error");
   CHECK_FALSE(internal.ok());
   CHECK(absl::IsInternal(internal));
 
-  Status not_found = NotFoundError("not found");
+  absl::Status not_found = absl::NotFoundError("not found");
   CHECK_FALSE(not_found.ok());
   CHECK(absl::IsNotFound(not_found));
 }
 
 TEST_CASE("StatusTest - StatusOrSuccess") {
-  StatusOr<int> result = 42;
+  absl::StatusOr<int> result = 42;
   CHECK(result.ok());
   CHECK_EQ(result.value(), 42);
 }
 
 TEST_CASE("StatusTest - StatusOrError") {
-  StatusOr<int> result = InvalidArgumentError("error");
+  absl::StatusOr<int> result = absl::InvalidArgumentError("error");
   CHECK_FALSE(result.ok());
   CHECK(absl::IsInvalidArgument(result.status()));
 }

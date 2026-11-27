@@ -41,7 +41,7 @@ struct RaftPeerSpec {
 // Parse one peer spec. Returns an error if the format is wrong, the id
 // isn't an integer, the id is non-positive, or the endpoint is missing
 // its port separator. Tolerant of leading/trailing whitespace.
-core::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec);
+absl::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec);
 
 // Result of preparing a declared peer list for NuRaft bootstrap.
 // Callers inspect `needs_seed` to decide whether to replace the current
@@ -61,7 +61,7 @@ struct PeerListPlan {
 //     caller should replace the config with these peers. Otherwise trust
 //     the persisted multi-member config and leave it alone so runtime
 //     add_srv / remove_srv changes aren't clobbered on restart.
-core::StatusOr<PeerListPlan> PrepareRaftPeerList(
+absl::StatusOr<PeerListPlan> PrepareRaftPeerList(
     int self_id,
     const std::vector<std::string>& declared_peers,
     size_t persisted_cluster_size);
@@ -84,8 +84,8 @@ class RaftNode {
   RaftNode& operator=(const RaftNode&) = delete;
 
   // Lifecycle
-  core::Status Start();
-  core::Status Shutdown();
+  absl::Status Start();
+  absl::Status Shutdown();
   bool IsRunning() const;
 
   // Leadership (in single-node mode, always true after Start())
@@ -104,14 +104,14 @@ class RaftNode {
   // of the JoinCluster RPC when a new coordinator pod announces itself.
   // On success, NuRaft replicates the cluster_config change via Raft log
   // and the joining pod is caught up via snapshot transfer.
-  core::Status AddPeer(int32_t node_id, const std::string& raft_endpoint);
+  absl::Status AddPeer(int32_t node_id, const std::string& raft_endpoint);
 
   // RemovePeer wraps NuRaft raft_server::remove_srv. Used by the leader
   // handler of the RemovePeer RPC, typically invoked by a coordinator pod
   // self-removing during graceful shutdown. Cannot remove the current
   // leader (NuRaft rejects with CANNOT_REMOVE_LEADER); caller must either
   // transfer leadership first or let NuRaft re-elect after the pod exits.
-  core::Status RemovePeer(int32_t node_id);
+  absl::Status RemovePeer(int32_t node_id);
 
   // Raft scale reconciliation. Unlike Add/Remove above,
   // these two methods support the operator's scale-down safety net
@@ -136,7 +136,7 @@ class RaftNode {
   // observed as leader; DeadlineExceeded on timeout. NuRaft aborts the
   // transfer if quorum is lost mid-flight; the caller treats that as
   // transient and retries next reconcile.
-  core::Status YieldLeadership(int32_t target_node_id);
+  absl::Status YieldLeadership(int32_t target_node_id);
 
   // Timestamp oracle access
   TimestampOracle* GetTimestampOracle() { return &tso_; }
@@ -174,7 +174,7 @@ class RaftNode {
   };
 
   // Helpers
-  core::Status InitializeNuRaft();
+  absl::Status InitializeNuRaft();
   // Asks each coordinator in coordinator_grpc_peers, in order, for the
   // current leader. Returns the first answer with a leader, or nullopt.
   std::optional<LeaderProbeResult> ProbePeersForLeader() const;
@@ -182,7 +182,7 @@ class RaftNode {
   // Start() after InitializeNuRaft returns when joining_peer_ is set.
   // Retries on NOT_LEADER by following the current_leader_id. Bounded
   // retry budget; returns error if no leader accepts our join.
-  core::Status AnnounceJoinToCluster();
+  absl::Status AnnounceJoinToCluster();
 };
 
 } // namespace consensus

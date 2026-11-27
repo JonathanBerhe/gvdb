@@ -24,33 +24,33 @@ class IObjectStore {
   virtual ~IObjectStore() = default;
 
   // Put an object from a memory buffer
-  [[nodiscard]] virtual core::Status PutObject(
+  [[nodiscard]] virtual absl::Status PutObject(
       const std::string& key,
       const std::string& data) = 0;
 
   // Get an object into a memory buffer
-  [[nodiscard]] virtual core::StatusOr<std::string> GetObject(
+  [[nodiscard]] virtual absl::StatusOr<std::string> GetObject(
       const std::string& key) = 0;
 
   // Delete an object (idempotent — deleting a missing key is OK)
-  [[nodiscard]] virtual core::Status DeleteObject(
+  [[nodiscard]] virtual absl::Status DeleteObject(
       const std::string& key) = 0;
 
   // List objects matching a key prefix
-  [[nodiscard]] virtual core::StatusOr<std::vector<std::string>> ListObjects(
+  [[nodiscard]] virtual absl::StatusOr<std::vector<std::string>> ListObjects(
       const std::string& prefix) = 0;
 
   // Check if an object exists
-  [[nodiscard]] virtual core::StatusOr<bool> ObjectExists(
+  [[nodiscard]] virtual absl::StatusOr<bool> ObjectExists(
       const std::string& key) = 0;
 
   // Put an object by streaming from a local file (avoids double-buffering)
-  [[nodiscard]] virtual core::Status PutObjectFromFile(
+  [[nodiscard]] virtual absl::Status PutObjectFromFile(
       const std::string& key,
       const std::string& local_file_path) = 0;
 
   // Get an object by streaming to a local file (avoids double-buffering)
-  [[nodiscard]] virtual core::Status GetObjectToFile(
+  [[nodiscard]] virtual absl::Status GetObjectToFile(
       const std::string& key,
       const std::string& local_file_path) = 0;
 };
@@ -63,23 +63,23 @@ class InMemoryObjectStore : public IObjectStore {
  public:
   InMemoryObjectStore() = default;
 
-  core::Status PutObject(
+  absl::Status PutObject(
       const std::string& key, const std::string& data) override;
 
-  core::StatusOr<std::string> GetObject(const std::string& key) override;
+  absl::StatusOr<std::string> GetObject(const std::string& key) override;
 
-  core::Status DeleteObject(const std::string& key) override;
+  absl::Status DeleteObject(const std::string& key) override;
 
-  core::StatusOr<std::vector<std::string>> ListObjects(
+  absl::StatusOr<std::vector<std::string>> ListObjects(
       const std::string& prefix) override;
 
-  core::StatusOr<bool> ObjectExists(const std::string& key) override;
+  absl::StatusOr<bool> ObjectExists(const std::string& key) override;
 
-  core::Status PutObjectFromFile(
+  absl::Status PutObjectFromFile(
       const std::string& key,
       const std::string& local_file_path) override;
 
-  core::Status GetObjectToFile(
+  absl::Status GetObjectToFile(
       const std::string& key,
       const std::string& local_file_path) override;
 

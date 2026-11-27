@@ -16,7 +16,7 @@
 namespace gvdb {
 namespace index {
 
-core::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateIndex(
+absl::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateIndex(
     const core::IndexConfig& config) {
   RETURN_IF_ERROR(ValidateConfig(config));
 
@@ -61,20 +61,20 @@ core::StatusOr<std::unique_ptr<core::IVectorIndex>> IndexFactory::CreateIndex(
       return CreateIVFTurboQuantIndex(config);
 
     case core::IndexType::AUTO:
-      return core::InvalidArgumentError(
+      return absl::InvalidArgumentError(
           "AUTO index type must be resolved before reaching IndexFactory");
 
     default:
-      return core::UnimplementedError(
+      return absl::UnimplementedError(
           "Index type not yet implemented");
   }
 }
 
-core::StatusOr<std::unique_ptr<core::IVectorIndex>>
+absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
 IndexFactory::CreateFlatIndex(core::Dimension dimension,
                                core::MetricType metric) {
   if (dimension <= 0) {
-    return core::InvalidArgumentError("Dimension must be positive");
+    return absl::InvalidArgumentError("Dimension must be positive");
   }
 
 #ifdef GVDB_HAS_METAL
@@ -85,62 +85,62 @@ IndexFactory::CreateFlatIndex(core::Dimension dimension,
   return std::make_unique<FaissFlatIndex>(dimension, metric);
 }
 
-core::StatusOr<std::unique_ptr<core::IVectorIndex>>
+absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
 IndexFactory::CreateHNSWIndex(core::Dimension dimension, core::MetricType metric,
                                int M, int ef_construction, int ef_search) {
   if (dimension <= 0) {
-    return core::InvalidArgumentError("Dimension must be positive");
+    return absl::InvalidArgumentError("Dimension must be positive");
   }
 
   if (M <= 0 || M > 64) {
-    return core::InvalidArgumentError("M must be in range (0, 64]");
+    return absl::InvalidArgumentError("M must be in range (0, 64]");
   }
 
   if (ef_construction <= 0) {
-    return core::InvalidArgumentError("ef_construction must be positive");
+    return absl::InvalidArgumentError("ef_construction must be positive");
   }
 
   if (ef_search <= 0) {
-    return core::InvalidArgumentError("ef_search must be positive");
+    return absl::InvalidArgumentError("ef_search must be positive");
   }
 
   return std::make_unique<FaissHNSWIndex>(dimension, metric, M, ef_construction,
                                           ef_search);
 }
 
-core::StatusOr<std::unique_ptr<core::IVectorIndex>>
+absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
 IndexFactory::CreateIVFIndex(core::Dimension dimension, core::MetricType metric,
                               int nlist, IVFQuantizationType quantization,
                               int pq_m, int pq_nbits, int nprobe) {
   if (dimension <= 0) {
-    return core::InvalidArgumentError("Dimension must be positive");
+    return absl::InvalidArgumentError("Dimension must be positive");
   }
 
   if (nlist <= 0) {
-    return core::InvalidArgumentError("nlist must be positive");
+    return absl::InvalidArgumentError("nlist must be positive");
   }
 
   // Faiss tolerates nprobe > nlist by probing all clusters, so we only
   // require nprobe > 0.
   if (nprobe <= 0) {
-    return core::InvalidArgumentError("nprobe must be positive");
+    return absl::InvalidArgumentError("nprobe must be positive");
   }
 
   return std::make_unique<FaissIVFIndex>(dimension, metric, nlist, nprobe,
                                          quantization, pq_m, pq_nbits);
 }
 
-core::StatusOr<std::unique_ptr<core::IVectorIndex>>
+absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
 IndexFactory::CreateTurboQuantIndex(core::Dimension dimension,
                                      core::MetricType metric,
                                      int bit_width, bool use_qjl,
                                      int qjl_dim) {
   if (dimension <= 0) {
-    return core::InvalidArgumentError("Dimension must be positive");
+    return absl::InvalidArgumentError("Dimension must be positive");
   }
 
   if (bit_width != 1 && bit_width != 2 && bit_width != 4 && bit_width != 8) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         "TurboQuant bit_width must be 1, 2, 4, or 8");
   }
 
@@ -148,18 +148,18 @@ IndexFactory::CreateTurboQuantIndex(core::Dimension dimension,
       dimension, metric, bit_width, use_qjl, qjl_dim);
 }
 
-core::StatusOr<std::unique_ptr<core::IVectorIndex>>
+absl::StatusOr<std::unique_ptr<core::IVectorIndex>>
 IndexFactory::CreateIVFTurboQuantIndex(const core::IndexConfig& config) {
   if (config.dimension <= 0) {
-    return core::InvalidArgumentError("Dimension must be positive");
+    return absl::InvalidArgumentError("Dimension must be positive");
   }
 
   const auto& p = config.ivf_turboquant_params;
   if (p.nlist <= 0) {
-    return core::InvalidArgumentError("nlist must be positive");
+    return absl::InvalidArgumentError("nlist must be positive");
   }
   if (p.bit_width != 1 && p.bit_width != 2 && p.bit_width != 4 && p.bit_width != 8) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         "IVF_TURBOQUANT bit_width must be 1, 2, 4, or 8");
   }
 
@@ -174,16 +174,16 @@ bool IndexFactory::IsGPUAvailable() {
   return false;
 }
 
-core::Status IndexFactory::ValidateConfig(const core::IndexConfig& config) {
+absl::Status IndexFactory::ValidateConfig(const core::IndexConfig& config) {
   if (!config.IsValid()) {
-    return core::InvalidArgumentError("Invalid index configuration");
+    return absl::InvalidArgumentError("Invalid index configuration");
   }
 
   if (config.use_gpu && !IsGPUAvailable()) {
-    return core::UnavailableError("GPU requested but not available");
+    return absl::UnavailableError("GPU requested but not available");
   }
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace index

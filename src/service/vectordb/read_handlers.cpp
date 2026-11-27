@@ -4,6 +4,7 @@
 // Search, range search, hybrid search, get and list.
 
 #include "service/vectordb/vectordb_service.h"
+#include "core/status.h"
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
 #include "common/logger.h"
@@ -78,8 +79,7 @@ grpc::Status VectorDBService::RangeSearch(
     grpc::ServerContext* /*context*/,
     const proto::RangeSearchRequest* request,
     proto::RangeSearchResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::RANGE_SEARCH, request->collection_name());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::RANGE_SEARCH, request->collection_name()));
   common::Timer timer;
 
   if (request->collection_name().empty()) {
@@ -127,7 +127,7 @@ grpc::Status VectorDBService::RangeSearch(
     auto* segment = GetOrReplicateSegment(seg_id);
     if (!segment) continue;
 
-    core::StatusOr<core::SearchResult> seg_result;
+    absl::StatusOr<core::SearchResult> seg_result;
     if (request->filter().empty()) {
       seg_result = segment->SearchRange(*query_result, request->radius(), max_results);
     } else {
@@ -170,8 +170,7 @@ grpc::Status VectorDBService::Search(
     grpc::ServerContext* /*context*/,
     const proto::SearchRequest* request,
     proto::SearchResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::SEARCH, request->collection_name());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::SEARCH, request->collection_name()));
 
   common::Timer search_timer;
 
@@ -272,8 +271,7 @@ grpc::Status VectorDBService::HybridSearch(
     grpc::ServerContext* /*context*/,
     const proto::HybridSearchRequest* request,
     proto::HybridSearchResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::HYBRID_SEARCH, request->collection_name());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::HYBRID_SEARCH, request->collection_name()));
 
   common::Timer search_timer;
   common::Logger::Instance().Info("HybridSearch: collection={}, text_query='{}'",
@@ -349,7 +347,7 @@ grpc::Status VectorDBService::HybridSearch(
     auto* segment = segment_store_->GetSegment(seg_id);
     if (!segment) continue;
 
-    core::StatusOr<core::SearchResult> result;
+    absl::StatusOr<core::SearchResult> result;
 
     const core::SparseVector* sq_ptr = sparse_query ? &*sparse_query : nullptr;
 
@@ -400,8 +398,7 @@ grpc::Status VectorDBService::Get(
     grpc::ServerContext* /*context*/,
     const proto::GetRequest* request,
     proto::GetResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::GET, request->collection_name(), request->ids().size());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::GET, request->collection_name(), request->ids().size()));
 
   common::Logger::Instance().Info("Get: {} IDs from {}",
                                  request->ids().size(),
@@ -481,8 +478,7 @@ grpc::Status VectorDBService::ListVectors(
     grpc::ServerContext* /*context*/,
     const proto::ListVectorsRequest* request,
     proto::ListVectorsResponse* response) {
-  auto perm = CheckPermission(auth::Permission::LIST_VECTORS, request->collection_name());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(CheckPermission(auth::Permission::LIST_VECTORS, request->collection_name()));
 
   if (!resolver_->SupportsDataOps()) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,

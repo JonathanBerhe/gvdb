@@ -4,6 +4,7 @@
 // Collection create, drop and list, health check and stats.
 
 #include "service/vectordb/vectordb_service.h"
+#include "core/status.h"
 #include "core/type_names.h"
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
@@ -23,8 +24,7 @@ grpc::Status VectorDBService::CreateCollection(
     grpc::ServerContext* /*context*/,
     const proto::CreateCollectionRequest* request,
     proto::CreateCollectionResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::CREATE_COLLECTION, request->collection_name());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::CREATE_COLLECTION, request->collection_name()));
 
   common::Logger::Instance().Info("CreateCollection: {}", request->collection_name());
 
@@ -70,8 +70,7 @@ grpc::Status VectorDBService::DropCollection(
     grpc::ServerContext* /*context*/,
     const proto::DropCollectionRequest* request,
     proto::DropCollectionResponse* response) {
-  auto perm = AuthorizeCollection(auth::Permission::DROP_COLLECTION, request->collection_name());
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::DROP_COLLECTION, request->collection_name()));
 
   common::Logger::Instance().Info("DropCollection: {}", request->collection_name());
 
@@ -97,8 +96,7 @@ grpc::Status VectorDBService::ListCollections(
     grpc::ServerContext* /*context*/,
     const proto::ListCollectionsRequest* /*request*/,
     proto::ListCollectionsResponse* response) {
-  auto perm = CheckPermission(auth::Permission::LIST_COLLECTIONS, "");
-  if (!perm.ok()) return perm;
+  RETURN_IF_ERROR(CheckPermission(auth::Permission::LIST_COLLECTIONS, ""));
 
   auto collections = resolver_->ListCollections();
 

@@ -222,7 +222,7 @@ class VectorDBService final : public proto::VectorDBService::Service {
   // the collection. The list is de-duplicated with the shard primaries first.
   // Returns NotFound when the collection resolves to no segments. Used by the
   // by-id handlers so vectors that moved to a rotated segment stay reachable.
-  core::StatusOr<std::vector<storage::Segment*>> CollectCollectionSegments(
+  absl::StatusOr<std::vector<storage::Segment*>> CollectCollectionSegments(
       const std::string& collection_name);
 
   // Fan out search to remote data nodes holding shards for the collection

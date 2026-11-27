@@ -38,14 +38,14 @@ FaissIndexBase::FaissIndexBase(std::unique_ptr<faiss::Index> index,
 
 FaissIndexBase::~FaissIndexBase() = default;
 
-core::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
+absl::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
                                     const std::vector<core::VectorId>& ids) {
   if (vectors.empty()) {
-    return core::InvalidArgumentError("Cannot build index with empty vectors");
+    return absl::InvalidArgumentError("Cannot build index with empty vectors");
   }
 
   if (vectors.size() != ids.size()) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("Vector and ID count mismatch: ", vectors.size(), " vs ",
                      ids.size()));
   }
@@ -79,15 +79,15 @@ core::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
   }
 
   MaybeCloneToGpu();
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status FaissIndexBase::Add(const core::Vector& vector,
+absl::Status FaissIndexBase::Add(const core::Vector& vector,
                                   core::VectorId id) {
   std::unique_lock lock(mutex_);
 
   if (!index_->is_trained) {
-    return core::FailedPreconditionError("Index must be trained before adding vectors");
+    return absl::FailedPreconditionError("Index must be trained before adding vectors");
   }
 
   auto float_data = VectorToFloatArray(vector);
@@ -97,21 +97,21 @@ core::Status FaissIndexBase::Add(const core::Vector& vector,
       [&]() { index_->add_with_ids(1, float_data.data(), &faiss_id); }, "Add");
 }
 
-core::Status FaissIndexBase::AddBatch(
+absl::Status FaissIndexBase::AddBatch(
     const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids) {
   if (vectors.empty()) {
-    return core::OkStatus();
+    return absl::OkStatus();
   }
 
   if (vectors.size() != ids.size()) {
-    return core::InvalidArgumentError("Vector and ID count mismatch");
+    return absl::InvalidArgumentError("Vector and ID count mismatch");
   }
 
   std::unique_lock lock(mutex_);
 
   if (!index_->is_trained) {
-    return core::FailedPreconditionError("Index must be trained before adding vectors");
+    return absl::FailedPreconditionError("Index must be trained before adding vectors");
   }
 
   auto float_data = VectorsToFloatArray(vectors);
@@ -126,25 +126,25 @@ core::Status FaissIndexBase::AddBatch(
       "AddBatch");
 }
 
-core::Status FaissIndexBase::Remove(core::VectorId /*id*/) {
+absl::Status FaissIndexBase::Remove(core::VectorId /*id*/) {
   std::unique_lock lock(mutex_);
 
   // Faiss doesn't support direct removal in all index types
   // This would need to be implemented per-index-type
-  return core::UnimplementedError("Remove not supported for this index type");
+  return absl::UnimplementedError("Remove not supported for this index type");
 }
 
-core::StatusOr<core::SearchResult> FaissIndexBase::Search(
+absl::StatusOr<core::SearchResult> FaissIndexBase::Search(
     const core::Vector& query, int k) {
   if (k <= 0) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("k must be positive, got ", k));
   }
 
   SearchLock lock(mutex_);
 
   if (index_->ntotal == 0) {
-    return core::FailedPreconditionError("Cannot search empty index");
+    return absl::FailedPreconditionError("Cannot search empty index");
   }
 
   // Clamp k to available vectors
@@ -170,12 +170,12 @@ core::StatusOr<core::SearchResult> FaissIndexBase::Search(
       "Search");
 }
 
-core::StatusOr<core::SearchResult> FaissIndexBase::SearchRange(
+absl::StatusOr<core::SearchResult> FaissIndexBase::SearchRange(
     const core::Vector& query, float radius) {
   SearchLock lock(mutex_);
 
   if (index_->ntotal == 0) {
-    return core::FailedPreconditionError("Cannot search empty index");
+    return absl::FailedPreconditionError("Cannot search empty index");
   }
 
   // Faiss range_search API
@@ -196,20 +196,20 @@ core::StatusOr<core::SearchResult> FaissIndexBase::SearchRange(
       "SearchRange");
 }
 
-core::StatusOr<std::vector<core::SearchResult>> FaissIndexBase::SearchBatch(
+absl::StatusOr<std::vector<core::SearchResult>> FaissIndexBase::SearchBatch(
     const std::vector<core::Vector>& queries, int k) {
   if (queries.empty()) {
     return std::vector<core::SearchResult>();
   }
 
   if (k <= 0) {
-    return core::InvalidArgumentError("k must be positive");
+    return absl::InvalidArgumentError("k must be positive");
   }
 
   SearchLock lock(mutex_);
 
   if (index_->ntotal == 0) {
-    return core::FailedPreconditionError("Cannot search empty index");
+    return absl::FailedPreconditionError("Cannot search empty index");
   }
 
   k = std::min(k, static_cast<int>(index_->ntotal));
@@ -257,16 +257,16 @@ core::Dimension FaissIndexBase::GetDimension() const {
 
 core::MetricType FaissIndexBase::GetMetricType() const { return metric_type_; }
 
-core::Status FaissIndexBase::Train(
+absl::Status FaissIndexBase::Train(
     const std::vector<core::Vector>& training_data) {
   if (training_data.empty()) {
-    return core::InvalidArgumentError("Training data cannot be empty");
+    return absl::InvalidArgumentError("Training data cannot be empty");
   }
 
   std::unique_lock lock(mutex_);
 
   if (index_->is_trained) {
-    return core::OkStatus();  // Already trained
+    return absl::OkStatus();  // Already trained
   }
 
   auto float_data = VectorsToFloatArray(training_data);
@@ -280,7 +280,7 @@ bool FaissIndexBase::IsTrained() const {
   return index_->is_trained;
 }
 
-core::Status FaissIndexBase::Serialize(const std::string& path) const {
+absl::Status FaissIndexBase::Serialize(const std::string& path) const {
   // SearchLock because index_gpu_to_cpu reads the GPU index's scratch state.
   SearchLock lock(mutex_);
 
@@ -301,7 +301,7 @@ core::Status FaissIndexBase::Serialize(const std::string& path) const {
       [&]() { faiss::write_index(index_.get(), path.c_str()); }, "Serialize");
 }
 
-core::Status FaissIndexBase::Deserialize(const std::string& path) {
+absl::Status FaissIndexBase::Deserialize(const std::string& path) {
   std::unique_lock lock(mutex_);
 
   auto status = ExecuteFaissOperation(
@@ -315,7 +315,7 @@ core::Status FaissIndexBase::Deserialize(const std::string& path) {
   }
 
   MaybeCloneToGpu();
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 void FaissIndexBase::MaybeCloneToGpu() {

@@ -70,7 +70,7 @@ class SegmentExporter {
   // segment lives at <flushed_segments_root>/segment_<id>/.
   // `tmp_root` is a writable directory used for GROWING-segment
   // snapshots.
-  [[nodiscard]] static core::StatusOr<SegmentExport> Export(
+  [[nodiscard]] static absl::StatusOr<SegmentExport> Export(
       const Segment& segment,
       const std::filesystem::path& flushed_segments_root,
       const std::filesystem::path& tmp_root);
@@ -79,7 +79,7 @@ class SegmentExporter {
   // produced (either SEALED-layout or GROWING-layout). Returns a
   // Segment owned by the caller, ready to hand to
   // ISegmentStore::AddReplicatedSegment.
-  [[nodiscard]] static core::StatusOr<std::unique_ptr<Segment>> Import(
+  [[nodiscard]] static absl::StatusOr<std::unique_ptr<Segment>> Import(
       const std::filesystem::path& segment_dir,
       core::SegmentId segment_id);
 };

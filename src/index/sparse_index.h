@@ -22,10 +22,10 @@ class SparseIndex {
   ~SparseIndex() = default;
 
   // Add a sparse vector to the index
-  core::Status AddVector(core::VectorId id, const core::SparseVector& sparse);
+  absl::Status AddVector(core::VectorId id, const core::SparseVector& sparse);
 
   // Search for top-k vectors by dot product with query (higher = better)
-  [[nodiscard]] core::StatusOr<core::SearchResult> Search(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
       const core::SparseVector& query, int k);
 
  private:

@@ -37,7 +37,7 @@ class QueryExecutor {
   // Execute a vector search query
   // Searches across all segments in the collection and merges results
   // Optional filter expression for metadata filtering
-  [[nodiscard]] core::StatusOr<core::SearchResult> Search(
+  [[nodiscard]] absl::StatusOr<core::SearchResult> Search(
       core::CollectionId collection_id,
       const core::Vector& query,
       int top_k,

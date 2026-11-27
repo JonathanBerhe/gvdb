@@ -121,7 +121,7 @@ class BulkImporter {
 
   // Start an async import job. Returns job_id immediately.
   // The collection must already exist — caller resolves metadata.
-  [[nodiscard]] core::StatusOr<std::string> StartImport(
+  [[nodiscard]] absl::StatusOr<std::string> StartImport(
       const std::string& collection_name,
       core::CollectionId collection_id,
       core::Dimension dimension,
@@ -133,11 +133,11 @@ class BulkImporter {
       const std::string& id_column = "id");
 
   // Get current job status snapshot.
-  [[nodiscard]] core::StatusOr<ImportJobStatus> GetStatus(
+  [[nodiscard]] absl::StatusOr<ImportJobStatus> GetStatus(
       const std::string& import_id) const;
 
   // Cancel a running or pending import. Idempotent.
-  [[nodiscard]] core::Status CancelImport(const std::string& import_id);
+  [[nodiscard]] absl::Status CancelImport(const std::string& import_id);
 
   // Number of batch vectors to add per AddVectorsWithMetadata call
   static constexpr size_t kImportBatchSize = 10000;
@@ -154,16 +154,16 @@ class BulkImporter {
                      const std::string& id_column);
 
   // Import a NumPy .npy file
-  core::Status ImportNpy(std::shared_ptr<ImportJob> job,
+  absl::Status ImportNpy(std::shared_ptr<ImportJob> job,
                          const std::string& local_path,
                          core::CollectionId collection_id,
                          core::Dimension expected_dim);
 
   // Parse s3://bucket/key URI into object store key
-  static core::StatusOr<std::string> ParseS3Uri(const std::string& uri);
+  static absl::StatusOr<std::string> ParseS3Uri(const std::string& uri);
 
   // Download file from object store to local temp path
-  core::StatusOr<std::string> DownloadToTemp(const std::string& s3_key,
+  absl::StatusOr<std::string> DownloadToTemp(const std::string& s3_key,
                                               const std::string& job_id);
 
   // Generate a unique import ID

@@ -13,6 +13,7 @@
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "internal.pb.h"
+#include "core/status.h"
 #include "server/bootstrap.h"
 #include "server/cluster_steps.h"
 #include "server/flags.h"
@@ -54,9 +55,8 @@ absl::Status Run(const Args& args) {
   auto vectordb_service = std::make_unique<service::VectorDBService>(
       segment_manager, query_executor, std::move(resolver));
 
-  auto grpc_server = server::StartGrpcServer(args.bind_address, {vectordb_service.get()},
-                                             grpc::InsecureServerCredentials());
-  if (!grpc_server.ok()) return grpc_server.status();
+  ASSIGN_OR_RETURN(auto grpc_server,
+                   server::StartGrpcServer(args.bind_address, {vectordb_service.get()}, grpc::InsecureServerCredentials()));
 
   server::PrintBanner(
       "GVDB Query Node",
@@ -78,7 +78,7 @@ absl::Status Run(const Args& args) {
   // heartbeat can overwrite the DRAINING one.
   if (heartbeat) heartbeat->DrainAndStop();
   heartbeat.reset();
-  server::StopServing(**grpc_server);
+  server::StopServing(*grpc_server);
   return absl::OkStatus();
 }
 

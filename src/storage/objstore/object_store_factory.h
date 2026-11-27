@@ -53,7 +53,7 @@ struct ObjectStoreConfig {
 //                   local-only storage is visible rather than silent).
 //   error         : the backend is compiled in and configured but creation
 //                   failed (e.g. invalid config).
-[[nodiscard]] core::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(
+[[nodiscard]] absl::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(
     const ObjectStoreConfig& config);
 
 }  // namespace storage

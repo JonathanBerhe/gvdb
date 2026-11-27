@@ -5,6 +5,7 @@
 // sparse), and the text and sparse indexes they use.
 
 #include "storage/segment/segment.h"
+#include "core/status.h"
 #include <algorithm>
 #include <mutex>
 #include "absl/strings/str_cat.h"
@@ -28,7 +29,7 @@ float Segment::ComputeDistance(const core::Vector& a,
   }
 }
 
-core::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(
+absl::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(
     const core::Vector& query, int k) const {
   if (vectors_.empty()) {
     return core::SearchResult{};
@@ -59,7 +60,7 @@ core::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(
   return result;
 }
 
-core::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
+absl::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
                                                      int k) const {
   std::shared_lock lock(mutex_);
 
@@ -69,13 +70,13 @@ core::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
 
   if (state_ != core::SegmentState::SEALED &&
       state_ != core::SegmentState::FLUSHED) {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         absl::StrCat("Cannot search in segment state: ",
                      static_cast<int>(state_)));
   }
 
   if (!index_) {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         absl::StrCat("Segment ", core::ToUInt32(id_), " has no index"));
   }
 
@@ -105,25 +106,24 @@ core::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query,
 
 // ========== Build Sparse Index ==========
 
-core::Status Segment::BuildSparseIndex(
+absl::Status Segment::BuildSparseIndex(
     std::unique_ptr<index::SparseIndex> sparse_index) {
   std::unique_lock lock(mutex_);
   if (!sparse_index) {
-    return core::InvalidArgumentError("Sparse index pointer is null");
+    return absl::InvalidArgumentError("Sparse index pointer is null");
   }
 
   for (const auto& [id_val, sparse] : sparse_vectors_) {
-    auto status = sparse_index->AddVector(core::MakeVectorId(id_val), sparse);
-    if (!status.ok()) return status;
+    RETURN_IF_ERROR(sparse_index->AddVector(core::MakeVectorId(id_val), sparse));
   }
 
   sparse_index_ = std::move(sparse_index);
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 // ========== Range Search ==========
 
-core::StatusOr<core::SearchResult> Segment::SearchRange(
+absl::StatusOr<core::SearchResult> Segment::SearchRange(
     const core::Vector& query, float radius, int max_results) const {
   std::shared_lock lock(mutex_);
 
@@ -144,7 +144,7 @@ core::StatusOr<core::SearchResult> Segment::SearchRange(
   } else if (state_ == core::SegmentState::SEALED ||
              state_ == core::SegmentState::FLUSHED) {
     if (!index_) {
-      return core::FailedPreconditionError("Segment has no index");
+      return absl::FailedPreconditionError("Segment has no index");
     }
     // Use index range search if available, otherwise brute-force over vectors
     auto index_result = index_->SearchRange(query, radius);
@@ -168,7 +168,7 @@ core::StatusOr<core::SearchResult> Segment::SearchRange(
       }
     }
   } else {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         absl::StrCat("Cannot search in segment state: ",
                      static_cast<int>(state_)));
   }
@@ -182,7 +182,7 @@ core::StatusOr<core::SearchResult> Segment::SearchRange(
   return result;
 }
 
-core::StatusOr<core::SearchResult> Segment::SearchRangeWithFilter(
+absl::StatusOr<core::SearchResult> Segment::SearchRangeWithFilter(
     const core::Vector& query, float radius, const std::string& filter_expr,
     int max_results) const {
   // Get range results first
@@ -214,7 +214,7 @@ core::StatusOr<core::SearchResult> Segment::SearchRangeWithFilter(
   return filtered;
 }
 
-core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
+absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(
     const core::Vector& query, int k, const std::string& filter_expr) const {
   std::shared_lock lock(mutex_);
 
@@ -285,13 +285,13 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
   // For SEALED segments with index
   if (state_ != core::SegmentState::SEALED &&
       state_ != core::SegmentState::FLUSHED) {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         absl::StrCat("Cannot search in segment state: ",
                      static_cast<int>(state_)));
   }
 
   if (!index_) {
-    return core::FailedPreconditionError(
+    return absl::FailedPreconditionError(
         absl::StrCat("Segment ", core::ToUInt32(id_), " has no index"));
   }
 
@@ -335,7 +335,7 @@ core::StatusOr<core::SearchResult> Segment::SearchWithFilter(
   return filtered_result;
 }
 
-core::StatusOr<core::SearchResult> Segment::SearchHybrid(
+absl::StatusOr<core::SearchResult> Segment::SearchHybrid(
     const core::Vector& query_vector,
     const std::string& text_query,
     int k,
@@ -353,7 +353,7 @@ core::StatusOr<core::SearchResult> Segment::SearchHybrid(
   int overfetch = std::min(k * 3, std::max(1, static_cast<int>(vectors_.size())));
 
   // 1. Dense vector search (index if sealed, brute-force if growing)
-  core::StatusOr<core::SearchResult> vector_result;
+  absl::StatusOr<core::SearchResult> vector_result;
   if (index_) {
     vector_result = index_->Search(query_vector, overfetch);
   } else {
@@ -429,13 +429,13 @@ core::StatusOr<core::SearchResult> Segment::SearchHybrid(
   return result;
 }
 
-core::Status Segment::BuildTextIndex(
+absl::Status Segment::BuildTextIndex(
     std::unique_ptr<index::ITextIndex> text_index,
     const std::string& text_field) {
   std::unique_lock lock(mutex_);
 
   if (!text_index) {
-    return core::InvalidArgumentError("Text index pointer is null");
+    return absl::InvalidArgumentError("Text index pointer is null");
   }
 
   // Build from metadata: extract the text field from each vector's metadata
@@ -445,8 +445,7 @@ core::Status Segment::BuildTextIndex(
     if (it != metadata.end()) {
       // Check if the value is a string
       if (auto* str_val = std::get_if<std::string>(&it->second)) {
-        auto status = text_index->AddDocument(core::MakeVectorId(id_val), *str_val);
-        if (!status.ok()) return status;
+        RETURN_IF_ERROR(text_index->AddDocument(core::MakeVectorId(id_val), *str_val));
         indexed++;
       }
     }
@@ -458,7 +457,7 @@ core::Status Segment::BuildTextIndex(
       "Built text index for segment {} ({} documents from '{}' field)",
       core::ToUInt32(id_), indexed, text_field);
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 }  // namespace storage

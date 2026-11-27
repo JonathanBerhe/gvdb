@@ -79,7 +79,8 @@ The C++ code follows these conventions:
 
 - C++23, set in one place (`GVDB_CXX_STANDARD` in `cmake/GvdbCompilerSettings.cmake`). The fetched dependencies build at the same standard.
 - RAII + smart pointers (no raw `new`/`delete`)
-- `absl::Status` / `absl::StatusOr<T>` for fallible operations
+- `absl::Status` and `absl::StatusOr<T>` for fallible operations, used directly. `core/status.h` includes both and adds `RETURN_IF_ERROR` and `ASSIGN_OR_RETURN`, which return an error to the caller.
+- Every source and test file starts with the two-line license header (`// Copyright 2026 jonathanberhe` and `// Licensed under the Apache License, Version 2.0`).
 - `-Wall -Wextra -Wpedantic` on every GVDB target, and warnings are errors in every preset
 - Each module is a folder in `src/`. Its headers sit next to its sources, and code includes a header by its path below `src/`, for example `#include "storage/segment/segment.h"`. Headers use `#pragma once`.
 - A module includes and links only the modules before it in this order: `core`, `common`, `auth`, `index`, `storage`, `compute`, `meta`, `rpc`, `consensus`, `cluster`, `service`, `config`, `server`. The programs in `src/main` can use all of them. `make check-layers` (`tools/check_layers.py`) finds a forbidden include, and CI runs it.

@@ -6,6 +6,7 @@
 // store side: upload with retry, download and discovery.
 
 #include "storage/segment/tiered_segment_manager.h"
+#include "core/status.h"
 #include <algorithm>
 #include <array>
 #include <mutex>
@@ -49,14 +50,14 @@ TieredSegmentManager::~TieredSegmentManager() {
 // Segment Lifecycle: delegate to local, add S3 on top
 // ============================================================================
 
-core::StatusOr<core::SegmentId> TieredSegmentManager::CreateSegment(
+absl::StatusOr<core::SegmentId> TieredSegmentManager::CreateSegment(
     core::CollectionId collection_id,
     core::Dimension dimension,
     core::MetricType metric) {
   return local_->CreateSegment(collection_id, dimension, metric);
 }
 
-core::Status TieredSegmentManager::CreateSegmentWithId(
+absl::Status TieredSegmentManager::CreateSegmentWithId(
     core::SegmentId segment_id,
     core::CollectionId collection_id,
     core::Dimension dimension,
@@ -88,15 +89,14 @@ const Segment* TieredSegmentManager::GetSegment(core::SegmentId id) const {
   return local_->GetSegment(id);
 }
 
-core::Status TieredSegmentManager::SealSegment(
+absl::Status TieredSegmentManager::SealSegment(
     core::SegmentId id, const core::IndexConfig& index_config) {
   return local_->SealSegment(id, index_config);
 }
 
-core::Status TieredSegmentManager::FlushSegment(core::SegmentId id) {
+absl::Status TieredSegmentManager::FlushSegment(core::SegmentId id) {
   // 1. Flush to local disk
-  auto status = local_->FlushSegment(id);
-  if (!status.ok()) return status;
+  RETURN_IF_ERROR(local_->FlushSegment(id));
 
   // 2. Async upload to object storage. A failed upload is not dropped: RunUpload
   //    records it in failed_uploads_ and the retry thread re-drives it.
@@ -108,10 +108,10 @@ core::Status TieredSegmentManager::FlushSegment(core::SegmentId id) {
 
   upload_pool_->enqueue([this, seg_id]() { RunUpload(seg_id, 0); });
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status TieredSegmentManager::DropSegment(
+absl::Status TieredSegmentManager::DropSegment(
     core::SegmentId id, bool delete_files) {
   auto status = local_->DropSegment(id, delete_files);
 
@@ -152,7 +152,7 @@ core::Status TieredSegmentManager::DropSegment(
   return status;
 }
 
-core::Status TieredSegmentManager::AddReplicatedSegment(
+absl::Status TieredSegmentManager::AddReplicatedSegment(
     std::unique_ptr<Segment> segment) {
   return local_->AddReplicatedSegment(std::move(segment));
 }
@@ -161,14 +161,14 @@ core::Status TieredSegmentManager::AddReplicatedSegment(
 // Data Operations: delegate with lazy load fallback
 // ============================================================================
 
-core::Status TieredSegmentManager::WriteVectors(
+absl::Status TieredSegmentManager::WriteVectors(
     core::SegmentId segment_id,
     const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids) {
   return local_->WriteVectors(segment_id, vectors, ids);
 }
 
-core::StatusOr<core::SearchResult> TieredSegmentManager::SearchCollection(
+absl::StatusOr<core::SearchResult> TieredSegmentManager::SearchCollection(
     core::CollectionId collection_id,
     const core::Vector& query, int k) const {
   // Collect remote segment IDs under lock, then load outside the lock
@@ -215,8 +215,7 @@ void TieredSegmentManager::RunTTLSweepLoop(const std::atomic<bool>& shutdown) {
 
 absl::Status TieredSegmentManager::LoadAllSegments() {
   // 1. Load local segments
-  auto status = local_->LoadAllSegments();
-  if (!status.ok()) return status;
+  RETURN_IF_ERROR(local_->LoadAllSegments());
 
   // 2. Discover remote segments from S3 manifest
   auto s3_status = DiscoverSegmentsFromS3();

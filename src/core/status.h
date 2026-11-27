@@ -1,76 +1,36 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
+//
+// GVDB reports errors with absl::Status and absl::StatusOr. This header
+// includes both and adds two macros that pass an error to the caller.
 
 #pragma once
 
+#include <utility>
+
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace core {
+#define GVDB_STATUS_CONCAT_INNER(a, b) a##b
+#define GVDB_STATUS_CONCAT(a, b) GVDB_STATUS_CONCAT_INNER(a, b)
 
-// Re-export absl status types for consistent usage across the codebase
-using Status = absl::Status;
-
-template <typename T>
-using StatusOr = absl::StatusOr<T>;
-
-// Convenience function to create OK status
-inline Status OkStatus() {
-  return absl::OkStatus();
-}
-
-// Error creation helpers with consistent formatting
-inline Status InvalidArgumentError(absl::string_view message) {
-  return absl::InvalidArgumentError(message);
-}
-
-inline Status InternalError(absl::string_view message) {
-  return absl::InternalError(message);
-}
-
-inline Status NotFoundError(absl::string_view message) {
-  return absl::NotFoundError(message);
-}
-
-inline Status AlreadyExistsError(absl::string_view message) {
-  return absl::AlreadyExistsError(message);
-}
-
-inline Status ResourceExhaustedError(absl::string_view message) {
-  return absl::ResourceExhaustedError(message);
-}
-
-inline Status FailedPreconditionError(absl::string_view message) {
-  return absl::FailedPreconditionError(message);
-}
-
-inline Status UnimplementedError(absl::string_view message) {
-  return absl::UnimplementedError(message);
-}
-
-inline Status UnavailableError(absl::string_view message) {
-  return absl::UnavailableError(message);
-}
-
-inline Status DeadlineExceededError(absl::string_view message) {
-  return absl::DeadlineExceededError(message);
-}
-
-inline Status CancelledError(absl::string_view message) {
-  return absl::CancelledError(message);
-}
-
-// Macro for checking status and propagating errors
-#define RETURN_IF_ERROR(expr)                                       \
-  do {                                                              \
-    const auto _status = (expr);                                    \
-    if (!_status.ok()) {                                            \
-      return _status;                                               \
-    }                                                               \
+// Evaluates `expr`, an absl::Status. When it is not OK, returns it from the
+// calling function.
+#define RETURN_IF_ERROR(expr)    \
+  do {                           \
+    const auto _status = (expr); \
+    if (!_status.ok()) {         \
+      return _status;            \
+    }                            \
   } while (0)
 
-}  // namespace core
-}  // namespace gvdb
+// Evaluates `expr`, an absl::StatusOr. When it is not OK, returns its status
+// from the calling function. Otherwise moves its value into `lhs`, which can
+// be a declaration: ASSIGN_OR_RETURN(auto segment, store.GetSegment(id));
+#define ASSIGN_OR_RETURN(lhs, expr) \
+  GVDB_ASSIGN_OR_RETURN_IMPL(GVDB_STATUS_CONCAT(_status_or_, __LINE__), lhs, expr)
 
+#define GVDB_ASSIGN_OR_RETURN_IMPL(status_or, lhs, expr) \
+  auto status_or = (expr);                               \
+  if (!status_or.ok()) return std::move(status_or).status(); \
+  lhs = std::move(*status_or)

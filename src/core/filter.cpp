@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "core/filter.h"
+#include "core/status.h"
 
 #include <algorithm>
 #include <cmath>
@@ -143,10 +144,7 @@ absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_and_expression()
 
 absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_not_expression() {
   if (match("NOT")) {
-    auto nesting = enter_nesting();
-    if (!nesting.ok()) {
-      return nesting;
-    }
+    RETURN_IF_ERROR(enter_nesting());
 
     auto expr = parse_not_expression();
     if (!expr.ok()) {
@@ -166,10 +164,7 @@ absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse_primary_expressi
   // Handle parenthesized expressions
   if (peek() == '(') {
     advance();  // consume '('
-    auto nesting = enter_nesting();
-    if (!nesting.ok()) {
-      return nesting;
-    }
+    RETURN_IF_ERROR(enter_nesting());
 
     auto expr = parse_expression();
     if (!expr.ok()) {

@@ -67,14 +67,14 @@ core::SearchResult MetalFlatIndex::TopK(const float* distances, size_t nb,
   return result;
 }
 
-core::Status MetalFlatIndex::Build(
+absl::Status MetalFlatIndex::Build(
     const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids) {
   if (vectors.empty()) {
-    return core::InvalidArgumentError("Cannot build index with empty vectors");
+    return absl::InvalidArgumentError("Cannot build index with empty vectors");
   }
   if (vectors.size() != ids.size()) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("Vector and ID count mismatch: ", vectors.size(), " vs ",
                      ids.size()));
   }
@@ -90,10 +90,10 @@ core::Status MetalFlatIndex::Build(
   }
 
   RebuildGpuBuffer();
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status MetalFlatIndex::Add(const core::Vector& vector,
+absl::Status MetalFlatIndex::Add(const core::Vector& vector,
                                   core::VectorId id) {
   std::unique_lock lock(mutex_);
 
@@ -104,15 +104,15 @@ core::Status MetalFlatIndex::Add(const core::Vector& vector,
   ids_.push_back(id);
 
   RebuildGpuBuffer();
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status MetalFlatIndex::AddBatch(
+absl::Status MetalFlatIndex::AddBatch(
     const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids) {
-  if (vectors.empty()) return core::OkStatus();
+  if (vectors.empty()) return absl::OkStatus();
   if (vectors.size() != ids.size()) {
-    return core::InvalidArgumentError("Vector and ID count mismatch");
+    return absl::InvalidArgumentError("Vector and ID count mismatch");
   }
 
   std::unique_lock lock(mutex_);
@@ -126,17 +126,17 @@ core::Status MetalFlatIndex::AddBatch(
   ids_.insert(ids_.end(), ids.begin(), ids.end());
 
   RebuildGpuBuffer();
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status MetalFlatIndex::Remove(core::VectorId /*id*/) {
-  return core::UnimplementedError("Remove not supported for MetalFlatIndex");
+absl::Status MetalFlatIndex::Remove(core::VectorId /*id*/) {
+  return absl::UnimplementedError("Remove not supported for MetalFlatIndex");
 }
 
-core::StatusOr<core::SearchResult> MetalFlatIndex::Search(
+absl::StatusOr<core::SearchResult> MetalFlatIndex::Search(
     const core::Vector& query, int k) {
   if (k <= 0) {
-    return core::InvalidArgumentError(
+    return absl::InvalidArgumentError(
         absl::StrCat("k must be positive, got ", k));
   }
 
@@ -144,7 +144,7 @@ core::StatusOr<core::SearchResult> MetalFlatIndex::Search(
 
   size_t nb = ids_.size();
   if (nb == 0) {
-    return core::FailedPreconditionError("Cannot search empty index");
+    return absl::FailedPreconditionError("Cannot search empty index");
   }
 
   k = std::min(k, static_cast<int>(nb));
@@ -158,13 +158,13 @@ core::StatusOr<core::SearchResult> MetalFlatIndex::Search(
   return TopK(distances.data(), nb, k);
 }
 
-core::StatusOr<core::SearchResult> MetalFlatIndex::SearchRange(
+absl::StatusOr<core::SearchResult> MetalFlatIndex::SearchRange(
     const core::Vector& query, float radius) {
   std::shared_lock lock(mutex_);
 
   size_t nb = ids_.size();
   if (nb == 0) {
-    return core::FailedPreconditionError("Cannot search empty index");
+    return absl::FailedPreconditionError("Cannot search empty index");
   }
 
   std::vector<float> distances(nb);
@@ -181,16 +181,16 @@ core::StatusOr<core::SearchResult> MetalFlatIndex::SearchRange(
   return result;
 }
 
-core::StatusOr<std::vector<core::SearchResult>> MetalFlatIndex::SearchBatch(
+absl::StatusOr<std::vector<core::SearchResult>> MetalFlatIndex::SearchBatch(
     const std::vector<core::Vector>& queries, int k) {
   if (queries.empty()) return std::vector<core::SearchResult>();
-  if (k <= 0) return core::InvalidArgumentError("k must be positive");
+  if (k <= 0) return absl::InvalidArgumentError("k must be positive");
 
   std::shared_lock lock(mutex_);
 
   size_t nb = ids_.size();
   if (nb == 0) {
-    return core::FailedPreconditionError("Cannot search empty index");
+    return absl::FailedPreconditionError("Cannot search empty index");
   }
 
   k = std::min(k, static_cast<int>(nb));
@@ -235,20 +235,20 @@ core::MetricType MetalFlatIndex::GetMetricType() const {
   return metric_type_;
 }
 
-core::Status MetalFlatIndex::Train(const std::vector<core::Vector>&) {
-  return core::OkStatus();  // FLAT doesn't need training
+absl::Status MetalFlatIndex::Train(const std::vector<core::Vector>&) {
+  return absl::OkStatus();  // FLAT doesn't need training
 }
 
 bool MetalFlatIndex::IsTrained() const {
   return true;  // Always trained
 }
 
-core::Status MetalFlatIndex::Serialize(const std::string& path) const {
+absl::Status MetalFlatIndex::Serialize(const std::string& path) const {
   std::shared_lock lock(mutex_);
 
   std::ofstream file(path, std::ios::binary);
   if (!file.is_open()) {
-    return core::InternalError(absl::StrCat("Cannot open file: ", path));
+    return absl::InternalError(absl::StrCat("Cannot open file: ", path));
   }
 
   // Header: dimension, metric, count
@@ -264,15 +264,15 @@ core::Status MetalFlatIndex::Serialize(const std::string& path) const {
   file.write(reinterpret_cast<const char*>(ids_.data()),
              ids_.size() * sizeof(core::VectorId));
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status MetalFlatIndex::Deserialize(const std::string& path) {
+absl::Status MetalFlatIndex::Deserialize(const std::string& path) {
   std::unique_lock lock(mutex_);
 
   std::ifstream file(path, std::ios::binary);
   if (!file.is_open()) {
-    return core::InternalError(absl::StrCat("Cannot open file: ", path));
+    return absl::InternalError(absl::StrCat("Cannot open file: ", path));
   }
 
   uint32_t dim, metric;
@@ -292,7 +292,7 @@ core::Status MetalFlatIndex::Deserialize(const std::string& path) {
   file.read(reinterpret_cast<char*>(ids_.data()),
             ids_.size() * sizeof(core::VectorId));
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 core::IndexType MetalFlatIndex::GetIndexType() const {

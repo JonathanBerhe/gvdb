@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "index/turboquant/turboquant_index.h"
+#include "core/status.h"
 
 #include <algorithm>
 #include <cstring>
@@ -61,11 +62,11 @@ TurboQuantIndex::TurboQuantIndex(core::Dimension dimension,
 // Building and modification
 // ============================================================================
 
-core::Status TurboQuantIndex::Build(
+absl::Status TurboQuantIndex::Build(
     const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids) {
   if (vectors.size() != ids.size()) {
-    return core::InvalidArgumentError("vectors and ids size mismatch");
+    return absl::InvalidArgumentError("vectors and ids size mismatch");
   }
 
   std::unique_lock lock(mutex_);
@@ -95,64 +96,62 @@ core::Status TurboQuantIndex::Build(
   // Encode each vector (Build replaces all data)
   for (size_t i = 0; i < n; i++) {
     if (vectors[i].dimension() != codec_.dimension()) {
-      return core::InvalidArgumentError(
+      return absl::InvalidArgumentError(
           absl::StrCat("vector ", i, " dimension mismatch: expected ",
                        codec_.dimension(), ", got ", vectors[i].dimension()));
     }
-    auto status = EncodeAndStore(vectors[i], ids[i]);
-    if (!status.ok()) return status;
+    RETURN_IF_ERROR(EncodeAndStore(vectors[i], ids[i]));
   }
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status TurboQuantIndex::Add(const core::Vector& vector,
+absl::Status TurboQuantIndex::Add(const core::Vector& vector,
                                     core::VectorId id) {
   if (vector.dimension() != codec_.dimension()) {
-    return core::InvalidArgumentError("dimension mismatch");
+    return absl::InvalidArgumentError("dimension mismatch");
   }
   return EncodeAndStore(vector, id);
 }
 
-core::Status TurboQuantIndex::AddBatch(
+absl::Status TurboQuantIndex::AddBatch(
     const std::vector<core::Vector>& vectors,
     const std::vector<core::VectorId>& ids) {
   if (vectors.size() != ids.size()) {
-    return core::InvalidArgumentError("vectors and ids size mismatch");
+    return absl::InvalidArgumentError("vectors and ids size mismatch");
   }
   for (size_t i = 0; i < vectors.size(); i++) {
     if (vectors[i].dimension() != codec_.dimension()) {
-      return core::InvalidArgumentError(
+      return absl::InvalidArgumentError(
           absl::StrCat("vector ", i, " dimension mismatch"));
     }
-    auto status = EncodeAndStore(vectors[i], ids[i]);
-    if (!status.ok()) return status;
+    RETURN_IF_ERROR(EncodeAndStore(vectors[i], ids[i]));
   }
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status TurboQuantIndex::Remove(core::VectorId id) {
+absl::Status TurboQuantIndex::Remove(core::VectorId id) {
   std::unique_lock lock(mutex_);
   for (size_t i = 0; i < num_vectors_; i++) {
     if (ids_[i] == id && !deleted_[i]) {
       deleted_[i] = true;
-      return core::OkStatus();
+      return absl::OkStatus();
     }
   }
-  return core::NotFoundError("vector id not found");
+  return absl::NotFoundError("vector id not found");
 }
 
 // ============================================================================
 // Search
 // ============================================================================
 
-core::StatusOr<core::SearchResult> TurboQuantIndex::Search(
+absl::StatusOr<core::SearchResult> TurboQuantIndex::Search(
     const core::Vector& query, int k) {
   if (query.dimension() != codec_.dimension()) {
-    return core::InvalidArgumentError("query dimension mismatch");
+    return absl::InvalidArgumentError("query dimension mismatch");
   }
   if (k <= 0) {
-    return core::InvalidArgumentError("k must be positive");
+    return absl::InvalidArgumentError("k must be positive");
   }
 
   std::shared_lock lock(mutex_);
@@ -207,10 +206,10 @@ core::StatusOr<core::SearchResult> TurboQuantIndex::Search(
   return result;
 }
 
-core::StatusOr<core::SearchResult> TurboQuantIndex::SearchRange(
+absl::StatusOr<core::SearchResult> TurboQuantIndex::SearchRange(
     const core::Vector& query, float radius) {
   if (query.dimension() != codec_.dimension()) {
-    return core::InvalidArgumentError("query dimension mismatch");
+    return absl::InvalidArgumentError("query dimension mismatch");
   }
 
   std::shared_lock lock(mutex_);
@@ -240,7 +239,7 @@ core::StatusOr<core::SearchResult> TurboQuantIndex::SearchRange(
   return result;
 }
 
-core::StatusOr<std::vector<core::SearchResult>> TurboQuantIndex::SearchBatch(
+absl::StatusOr<std::vector<core::SearchResult>> TurboQuantIndex::SearchBatch(
     const std::vector<core::Vector>& queries, int k) {
   std::vector<core::SearchResult> results;
   results.reserve(queries.size());
@@ -282,10 +281,10 @@ core::MetricType TurboQuantIndex::GetMetricType() const {
   return metric_type_;
 }
 
-core::Status TurboQuantIndex::Train(
+absl::Status TurboQuantIndex::Train(
     const std::vector<core::Vector>& /*training_data*/) {
   // TurboQuant is data-oblivious — no training required
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 bool TurboQuantIndex::IsTrained() const {
@@ -300,12 +299,12 @@ core::IndexType TurboQuantIndex::GetIndexType() const {
 // Serialization
 // ============================================================================
 
-core::Status TurboQuantIndex::Serialize(const std::string& path) const {
+absl::Status TurboQuantIndex::Serialize(const std::string& path) const {
   std::shared_lock lock(mutex_);
 
   std::ofstream out(path, std::ios::binary);
   if (!out.is_open()) {
-    return core::InternalError(absl::StrCat("cannot open file: ", path));
+    return absl::InternalError(absl::StrCat("cannot open file: ", path));
   }
 
   // Header
@@ -340,26 +339,26 @@ core::Status TurboQuantIndex::Serialize(const std::string& path) const {
   }
 
   if (!out.good()) {
-    return core::InternalError("write error during serialization");
+    return absl::InternalError("write error during serialization");
   }
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
-core::Status TurboQuantIndex::Deserialize(const std::string& path) {
+absl::Status TurboQuantIndex::Deserialize(const std::string& path) {
   std::unique_lock lock(mutex_);
 
   std::ifstream in(path, std::ios::binary);
   if (!in.is_open()) {
-    return core::NotFoundError(absl::StrCat("cannot open file: ", path));
+    return absl::NotFoundError(absl::StrCat("cannot open file: ", path));
   }
 
   // Read and validate header
   uint32_t magic, version;
   if (!ReadValue(in, magic) || magic != kMagic) {
-    return core::InvalidArgumentError("invalid TurboQuant file magic");
+    return absl::InvalidArgumentError("invalid TurboQuant file magic");
   }
   if (!ReadValue(in, version) || version != kVersion) {
-    return core::InvalidArgumentError("unsupported TurboQuant file version");
+    return absl::InvalidArgumentError("unsupported TurboQuant file version");
   }
 
   core::Dimension dim;
@@ -379,7 +378,7 @@ core::Status TurboQuantIndex::Deserialize(const std::string& path) {
   ReadValue(in, num_vecs);
 
   if (!in.good()) {
-    return core::InternalError("failed to read header");
+    return absl::InternalError("failed to read header");
   }
 
   // Reconstruct codec with saved parameters
@@ -389,21 +388,21 @@ core::Status TurboQuantIndex::Deserialize(const std::string& path) {
 
   // Read data arrays
   if (!ReadVector(in, norms_, num_vecs)) {
-    return core::InternalError("failed to read norms");
+    return absl::InternalError("failed to read norms");
   }
   if (!ReadVector(in, residual_norms_, num_vecs)) {
-    return core::InternalError("failed to read residual_norms");
+    return absl::InternalError("failed to read residual_norms");
   }
 
   size_t total_code_bytes = num_vecs * codec_.CodeBytesPerVector();
   if (!ReadVector(in, codes_, total_code_bytes)) {
-    return core::InternalError("failed to read codes");
+    return absl::InternalError("failed to read codes");
   }
 
   size_t total_qjl_bytes = num_vecs * codec_.QJLBytesPerVector();
   if (total_qjl_bytes > 0) {
     if (!ReadVector(in, qjl_bits_, total_qjl_bytes)) {
-      return core::InternalError("failed to read qjl_bits");
+      return absl::InternalError("failed to read qjl_bits");
     }
   } else {
     qjl_bits_.clear();
@@ -426,16 +425,16 @@ core::Status TurboQuantIndex::Deserialize(const std::string& path) {
   }
 
   if (!in.good()) {
-    return core::InternalError("read error during deserialization");
+    return absl::InternalError("read error during deserialization");
   }
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 // ============================================================================
 // Private helpers
 // ============================================================================
 
-core::Status TurboQuantIndex::EncodeAndStore(const core::Vector& vector,
+absl::Status TurboQuantIndex::EncodeAndStore(const core::Vector& vector,
                                                core::VectorId id) {
   std::vector<uint8_t> vec_codes;
   float norm = 0.0f;
@@ -457,7 +456,7 @@ core::Status TurboQuantIndex::EncodeAndStore(const core::Vector& vector,
   deleted_.push_back(false);
   num_vectors_++;
 
-  return core::OkStatus();
+  return absl::OkStatus();
 }
 
 float TurboQuantIndex::IPToDistance(float estimated_ip, float x_norm,
