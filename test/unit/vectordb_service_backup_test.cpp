@@ -508,7 +508,7 @@ TEST_CASE_FIXTURE(NoBackupStorageServiceTest,
   const std::string local_path = (test_dir_ / "backups").string();
 
   // Only the failure is checked, not the status code: the managers return
-  // FailedPrecondition, which toGrpcStatus does not map yet.
+  // FailedPrecondition, which ToGrpcStatus does not map yet.
   for (const auto& target : {S3Target(), LocalTarget(local_path)}) {
     CAPTURE(target.has_s3());
 

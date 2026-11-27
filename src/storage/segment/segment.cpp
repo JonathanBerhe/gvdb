@@ -298,7 +298,7 @@ absl::Status Segment::AddVectorsWithMetadata(
 
   // Validate all metadata
   for (size_t i = 0; i < metadata.size(); ++i) {
-    auto validation = core::validate_metadata(metadata[i]);
+    auto validation = core::ValidateMetadata(metadata[i]);
     if (!validation.ok()) {
       return absl::InvalidArgumentError(
           absl::StrCat("Invalid metadata at index ", i, ": ",

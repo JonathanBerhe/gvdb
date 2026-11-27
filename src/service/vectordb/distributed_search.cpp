@@ -30,7 +30,7 @@ grpc::Status VectorDBService::SearchDistributed(
   // Get shard targets from coordinator
   auto targets_result = resolver_->GetShardTargets(request->collection_name());
   if (!targets_result.ok()) {
-    return rpc::toGrpcStatus(targets_result.status());
+    return rpc::ToGrpcStatus(targets_result.status());
   }
 
   const auto& targets = *targets_result;
@@ -194,11 +194,11 @@ grpc::Status VectorDBService::SearchDistributed(
     }
   }
 
-  response->set_query_time_ms(timer.elapsed_millis());
+  response->set_query_time_ms(timer.ElapsedMillis());
 
   total_queries_.fetch_add(1, std::memory_order_relaxed);
   total_query_time_ms_.fetch_add(
-      static_cast<uint64_t>(timer.elapsed_millis()),
+      static_cast<uint64_t>(timer.ElapsedMillis()),
       std::memory_order_relaxed);
 
   return grpc::Status::OK;
@@ -212,7 +212,7 @@ grpc::Status VectorDBService::RangeSearchDistributed(
 
   auto targets_result = resolver_->GetShardTargets(request->collection_name());
   if (!targets_result.ok()) {
-    return rpc::toGrpcStatus(targets_result.status());
+    return rpc::ToGrpcStatus(targets_result.status());
   }
 
   const auto& targets = *targets_result;
@@ -322,7 +322,7 @@ grpc::Status VectorDBService::RangeSearchDistributed(
     *response->add_results() = std::move(entry);
   }
 
-  response->set_query_time_ms(static_cast<float>(timer.elapsed_millis()));
+  response->set_query_time_ms(static_cast<float>(timer.ElapsedMillis()));
   total_queries_++;
 
   return grpc::Status::OK;

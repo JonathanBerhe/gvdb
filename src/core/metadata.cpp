@@ -17,7 +17,7 @@ namespace core {
 // Metadata Value Comparison
 // ============================================================================
 
-bool compare_metadata_values(
+bool CompareMetadataValues(
     const MetadataValue& left,
     ComparisonOp op,
     const MetadataValue& right) {
@@ -77,7 +77,7 @@ bool compare_metadata_values(
     case ComparisonOp::LIKE:
       if (std::holds_alternative<std::string>(left) &&
           std::holds_alternative<std::string>(right)) {
-        return match_like_pattern(
+        return MatchLikePattern(
             std::get<std::string>(left),
             std::get<std::string>(right));
       }
@@ -86,7 +86,7 @@ bool compare_metadata_values(
     case ComparisonOp::NOT_LIKE:
       if (std::holds_alternative<std::string>(left) &&
           std::holds_alternative<std::string>(right)) {
-        return !match_like_pattern(
+        return !MatchLikePattern(
             std::get<std::string>(left),
             std::get<std::string>(right));
       }
@@ -97,7 +97,7 @@ bool compare_metadata_values(
   }
 }
 
-bool compare_metadata_value_in_list(
+bool CompareMetadataValueInList(
     const MetadataValue& value,
     bool negate,
     const std::vector<MetadataValue>& list) {
@@ -143,7 +143,7 @@ std::vector<LikeToken> TokenizeLikePattern(const std::string& pattern) {
 
 }  // namespace
 
-bool match_like_pattern(const std::string& value, const std::string& pattern) {
+bool MatchLikePattern(const std::string& value, const std::string& pattern) {
   // '%' matches any run of bytes (including none), '_' matches exactly one
   // byte, and a backslash makes the next pattern byte literal. Matching is
   // iterative: on a mismatch it backtracks only to the most recent '%', which
@@ -187,7 +187,7 @@ bool match_like_pattern(const std::string& value, const std::string& pattern) {
 // Validation
 // ============================================================================
 
-absl::Status validate_metadata_key(const std::string& key) {
+absl::Status ValidateMetadataKey(const std::string& key) {
   // Empty key
   if (key.empty()) {
     return absl::InvalidArgumentError("Metadata key cannot be empty");
@@ -216,7 +216,7 @@ absl::Status validate_metadata_key(const std::string& key) {
   return absl::OkStatus();
 }
 
-absl::Status validate_metadata_value(const MetadataValue& value) {
+absl::Status ValidateMetadataValue(const MetadataValue& value) {
   if (std::holds_alternative<std::string>(value)) {
     const auto& str = std::get<std::string>(value);
     // String length limit: 64KB
@@ -234,7 +234,7 @@ absl::Status validate_metadata_value(const MetadataValue& value) {
   return absl::OkStatus();
 }
 
-absl::Status validate_metadata(const Metadata& metadata) {
+absl::Status ValidateMetadata(const Metadata& metadata) {
   // Maximum metadata fields per vector
   constexpr size_t MAX_METADATA_FIELDS = 100;
 
@@ -246,9 +246,9 @@ absl::Status validate_metadata(const Metadata& metadata) {
 
   // Validate each key-value pair
   for (const auto& [key, value] : metadata) {
-    RETURN_IF_ERROR(validate_metadata_key(key));
+    RETURN_IF_ERROR(ValidateMetadataKey(key));
 
-    RETURN_IF_ERROR(validate_metadata_value(value));
+    RETURN_IF_ERROR(ValidateMetadataValue(value));
   }
 
   return absl::OkStatus();

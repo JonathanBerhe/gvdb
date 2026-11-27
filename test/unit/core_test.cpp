@@ -271,199 +271,199 @@ TEST_CASE("MetadataTest - MetadataValueTypes") {
 }
 
 TEST_CASE("MetadataTest - CompareEqual") {
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(int64_t(42)),
       ComparisonOp::EQUAL,
       MetadataValue(int64_t(42))));
 
-  CHECK_FALSE(compare_metadata_values(
+  CHECK_FALSE(CompareMetadataValues(
       MetadataValue(int64_t(42)),
       ComparisonOp::EQUAL,
       MetadataValue(int64_t(43))));
 
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(std::string("hello")),
       ComparisonOp::EQUAL,
       MetadataValue(std::string("hello"))));
 }
 
 TEST_CASE("MetadataTest - CompareNotEqual") {
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(int64_t(42)),
       ComparisonOp::NOT_EQUAL,
       MetadataValue(int64_t(43))));
 
-  CHECK_FALSE(compare_metadata_values(
+  CHECK_FALSE(CompareMetadataValues(
       MetadataValue(int64_t(42)),
       ComparisonOp::NOT_EQUAL,
       MetadataValue(int64_t(42))));
 
   // NOT_EQUAL works across types
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(int64_t(42)),
       ComparisonOp::NOT_EQUAL,
       MetadataValue(std::string("42"))));
 }
 
 TEST_CASE("MetadataTest - CompareLessThan") {
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(int64_t(10)),
       ComparisonOp::LESS_THAN,
       MetadataValue(int64_t(20))));
 
-  CHECK_FALSE(compare_metadata_values(
+  CHECK_FALSE(CompareMetadataValues(
       MetadataValue(int64_t(20)),
       ComparisonOp::LESS_THAN,
       MetadataValue(int64_t(10))));
 
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(1.5),
       ComparisonOp::LESS_THAN,
       MetadataValue(2.5)));
 
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(std::string("apple")),
       ComparisonOp::LESS_THAN,
       MetadataValue(std::string("banana"))));
 }
 
 TEST_CASE("MetadataTest - CompareLessEqual") {
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(int64_t(10)),
       ComparisonOp::LESS_EQUAL,
       MetadataValue(int64_t(10))));
 
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(int64_t(10)),
       ComparisonOp::LESS_EQUAL,
       MetadataValue(int64_t(20))));
 
-  CHECK_FALSE(compare_metadata_values(
+  CHECK_FALSE(CompareMetadataValues(
       MetadataValue(int64_t(20)),
       ComparisonOp::LESS_EQUAL,
       MetadataValue(int64_t(10))));
 }
 
 TEST_CASE("MetadataTest - CompareGreaterThan") {
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(int64_t(100)),
       ComparisonOp::GREATER_THAN,
       MetadataValue(int64_t(50))));
 
-  CHECK_FALSE(compare_metadata_values(
+  CHECK_FALSE(CompareMetadataValues(
       MetadataValue(int64_t(50)),
       ComparisonOp::GREATER_THAN,
       MetadataValue(int64_t(100))));
 }
 
 TEST_CASE("MetadataTest - CompareGreaterEqual") {
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(int64_t(100)),
       ComparisonOp::GREATER_EQUAL,
       MetadataValue(int64_t(100))));
 
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(int64_t(100)),
       ComparisonOp::GREATER_EQUAL,
       MetadataValue(int64_t(50))));
 
-  CHECK_FALSE(compare_metadata_values(
+  CHECK_FALSE(CompareMetadataValues(
       MetadataValue(int64_t(50)),
       ComparisonOp::GREATER_EQUAL,
       MetadataValue(int64_t(100))));
 }
 
 TEST_CASE("MetadataTest - LikePatternExactMatch") {
-  CHECK(match_like_pattern("hello", "hello"));
-  CHECK_FALSE(match_like_pattern("hello", "world"));
+  CHECK(MatchLikePattern("hello", "hello"));
+  CHECK_FALSE(MatchLikePattern("hello", "world"));
 }
 
 TEST_CASE("MetadataTest - LikePatternWildcard") {
   // % matches any sequence
-  CHECK(match_like_pattern("Nike Air Max", "Nike%"));
-  CHECK(match_like_pattern("Nike Pegasus", "Nike%"));
-  CHECK(match_like_pattern("best running shoes", "%running%"));
-  CHECK(match_like_pattern("running gear", "%running%"));
-  CHECK_FALSE(match_like_pattern("walking shoes", "%running%"));
+  CHECK(MatchLikePattern("Nike Air Max", "Nike%"));
+  CHECK(MatchLikePattern("Nike Pegasus", "Nike%"));
+  CHECK(MatchLikePattern("best running shoes", "%running%"));
+  CHECK(MatchLikePattern("running gear", "%running%"));
+  CHECK_FALSE(MatchLikePattern("walking shoes", "%running%"));
 }
 
 TEST_CASE("MetadataTest - LikePatternSingleChar") {
   // _ matches single character
-  CHECK(match_like_pattern("Air Max", "Air_Max"));
-  CHECK(match_like_pattern("Air-Max", "Air_Max"));
-  CHECK_FALSE(match_like_pattern("AirMax", "Air_Max"));
+  CHECK(MatchLikePattern("Air Max", "Air_Max"));
+  CHECK(MatchLikePattern("Air-Max", "Air_Max"));
+  CHECK_FALSE(MatchLikePattern("AirMax", "Air_Max"));
 }
 
 TEST_CASE("MetadataTest - LikePatternEscape") {
   // Escaped % should match literal %
-  CHECK(match_like_pattern("50%", "50\\%"));
-  CHECK_FALSE(match_like_pattern("50off", "50\\%"));
+  CHECK(MatchLikePattern("50%", "50\\%"));
+  CHECK_FALSE(MatchLikePattern("50off", "50\\%"));
 }
 
 TEST_CASE("MetadataTest - LikePatternEscapesAnyByte") {
-  CHECK(match_like_pattern("a_b", "a\\_b"));
-  CHECK_FALSE(match_like_pattern("axb", "a\\_b"));
+  CHECK(MatchLikePattern("a_b", "a\\_b"));
+  CHECK_FALSE(MatchLikePattern("axb", "a\\_b"));
   // A backslash before an ordinary byte makes it literal; it is not a regex
   // class, so "\d" matches the letter d and not a digit.
-  CHECK(match_like_pattern("ad", "a\\d"));
-  CHECK_FALSE(match_like_pattern("a5", "a\\d"));
+  CHECK(MatchLikePattern("ad", "a\\d"));
+  CHECK_FALSE(MatchLikePattern("a5", "a\\d"));
   // A trailing lone backslash matches itself.
-  CHECK(match_like_pattern("50\\", "50\\"));
+  CHECK(MatchLikePattern("50\\", "50\\"));
 }
 
 TEST_CASE("MetadataTest - LikePatternRegexMetacharactersAreLiteral") {
-  CHECK(match_like_pattern("a.b", "a.b"));
-  CHECK_FALSE(match_like_pattern("axb", "a.b"));
-  CHECK(match_like_pattern("(x)+[y]*{z}|^$?", "(x)+[y]*{z}|^$?"));
-  CHECK_FALSE(match_like_pattern("xx", "x+"));
+  CHECK(MatchLikePattern("a.b", "a.b"));
+  CHECK_FALSE(MatchLikePattern("axb", "a.b"));
+  CHECK(MatchLikePattern("(x)+[y]*{z}|^$?", "(x)+[y]*{z}|^$?"));
+  CHECK_FALSE(MatchLikePattern("xx", "x+"));
 }
 
 TEST_CASE("MetadataTest - LikePatternBacktracking") {
-  CHECK(match_like_pattern("abcabcabd", "%abd"));
-  CHECK(match_like_pattern("mississippi", "m%ss%pi"));
-  CHECK(match_like_pattern("mississippi", "%s_s%"));
-  CHECK_FALSE(match_like_pattern("mississippi", "m%ss%px"));
-  CHECK(match_like_pattern("", "%"));
-  CHECK(match_like_pattern("", "%%"));
-  CHECK_FALSE(match_like_pattern("", "_"));
-  CHECK_FALSE(match_like_pattern("abc", ""));
-  CHECK(match_like_pattern("a\nb", "a%b"));
-  CHECK(match_like_pattern("a\nb", "a_b"));
+  CHECK(MatchLikePattern("abcabcabd", "%abd"));
+  CHECK(MatchLikePattern("mississippi", "m%ss%pi"));
+  CHECK(MatchLikePattern("mississippi", "%s_s%"));
+  CHECK_FALSE(MatchLikePattern("mississippi", "m%ss%px"));
+  CHECK(MatchLikePattern("", "%"));
+  CHECK(MatchLikePattern("", "%%"));
+  CHECK_FALSE(MatchLikePattern("", "_"));
+  CHECK_FALSE(MatchLikePattern("abc", ""));
+  CHECK(MatchLikePattern("a\nb", "a%b"));
+  CHECK(MatchLikePattern("a\nb", "a_b"));
 }
 
 TEST_CASE("MetadataTest - LikePatternLongInputs") {
   const std::string long_a(100000, 'a');
-  CHECK(match_like_pattern(long_a, long_a));
-  CHECK(match_like_pattern(long_a, std::string(100000, '%')));
-  CHECK(match_like_pattern(long_a, std::string(100000, '_')));
-  CHECK_FALSE(match_like_pattern(long_a, std::string(100001, '_')));
+  CHECK(MatchLikePattern(long_a, long_a));
+  CHECK(MatchLikePattern(long_a, std::string(100000, '%')));
+  CHECK(MatchLikePattern(long_a, std::string(100000, '_')));
+  CHECK_FALSE(MatchLikePattern(long_a, std::string(100001, '_')));
 
   const std::string value = std::string(65536, 'x') + "a";
-  CHECK(match_like_pattern(value, "%a"));
-  CHECK(match_like_pattern(value, "%a%"));
-  CHECK_FALSE(match_like_pattern(value, "a%"));
-  CHECK_FALSE(match_like_pattern(value, "%b%"));
+  CHECK(MatchLikePattern(value, "%a"));
+  CHECK(MatchLikePattern(value, "%a%"));
+  CHECK_FALSE(MatchLikePattern(value, "a%"));
+  CHECK_FALSE(MatchLikePattern(value, "%b%"));
 }
 
 TEST_CASE("MetadataTest - CompareLike") {
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(std::string("Nike Air Max")),
       ComparisonOp::LIKE,
       MetadataValue(std::string("Nike%"))));
 
-  CHECK_FALSE(compare_metadata_values(
+  CHECK_FALSE(CompareMetadataValues(
       MetadataValue(std::string("Adidas Ultra")),
       ComparisonOp::LIKE,
       MetadataValue(std::string("Nike%"))));
 }
 
 TEST_CASE("MetadataTest - CompareNotLike") {
-  CHECK_FALSE(compare_metadata_values(
+  CHECK_FALSE(CompareMetadataValues(
       MetadataValue(std::string("Nike Air Max")),
       ComparisonOp::NOT_LIKE,
       MetadataValue(std::string("Nike%"))));
 
-  CHECK(compare_metadata_values(
+  CHECK(CompareMetadataValues(
       MetadataValue(std::string("Adidas Ultra")),
       ComparisonOp::NOT_LIKE,
       MetadataValue(std::string("Nike%"))));
@@ -476,12 +476,12 @@ TEST_CASE("MetadataTest - CompareInList") {
       MetadataValue(std::string("Puma"))
   };
 
-  CHECK(compare_metadata_value_in_list(
+  CHECK(CompareMetadataValueInList(
       MetadataValue(std::string("Nike")),
       false,  // not negated
       brands));
 
-  CHECK_FALSE(compare_metadata_value_in_list(
+  CHECK_FALSE(CompareMetadataValueInList(
       MetadataValue(std::string("Reebok")),
       false,
       brands));
@@ -494,76 +494,76 @@ TEST_CASE("MetadataTest - CompareNotInList") {
       MetadataValue(int64_t(3))
   };
 
-  CHECK_FALSE(compare_metadata_value_in_list(
+  CHECK_FALSE(CompareMetadataValueInList(
       MetadataValue(int64_t(2)),
       true,  // negated (NOT IN)
       numbers));
 
-  CHECK(compare_metadata_value_in_list(
+  CHECK(CompareMetadataValueInList(
       MetadataValue(int64_t(5)),
       true,  // negated (NOT IN)
       numbers));
 }
 
 TEST_CASE("MetadataTest - ValidateKeyValid") {
-  CHECK(validate_metadata_key("price").ok());
-  CHECK(validate_metadata_key("brand_name").ok());
-  CHECK(validate_metadata_key("_internal").ok());
-  CHECK(validate_metadata_key("field123").ok());
+  CHECK(ValidateMetadataKey("price").ok());
+  CHECK(ValidateMetadataKey("brand_name").ok());
+  CHECK(ValidateMetadataKey("_internal").ok());
+  CHECK(ValidateMetadataKey("field123").ok());
 }
 
 TEST_CASE("MetadataTest - ValidateKeyEmpty") {
-  auto status = validate_metadata_key("");
+  auto status = ValidateMetadataKey("");
   CHECK_FALSE(status.ok());
   CHECK(absl::IsInvalidArgument(status));
 }
 
 TEST_CASE("MetadataTest - ValidateKeyStartsWithDigit") {
-  auto status = validate_metadata_key("123field");
+  auto status = ValidateMetadataKey("123field");
   CHECK_FALSE(status.ok());
   CHECK(absl::IsInvalidArgument(status));
 }
 
 TEST_CASE("MetadataTest - ValidateKeyInvalidCharacters") {
-  CHECK_FALSE(validate_metadata_key("field-name").ok());
-  CHECK_FALSE(validate_metadata_key("field.name").ok());
-  CHECK_FALSE(validate_metadata_key("field name").ok());
-  CHECK_FALSE(validate_metadata_key("field@name").ok());
+  CHECK_FALSE(ValidateMetadataKey("field-name").ok());
+  CHECK_FALSE(ValidateMetadataKey("field.name").ok());
+  CHECK_FALSE(ValidateMetadataKey("field name").ok());
+  CHECK_FALSE(ValidateMetadataKey("field@name").ok());
 }
 
 TEST_CASE("MetadataTest - ValidateKeyTooLong") {
   std::string long_key(256, 'a');
-  auto status = validate_metadata_key(long_key);
+  auto status = ValidateMetadataKey(long_key);
   CHECK_FALSE(status.ok());
   CHECK(absl::IsInvalidArgument(status));
 }
 
 TEST_CASE("MetadataTest - ValidateValueInt64") {
-  CHECK(validate_metadata_value(MetadataValue(int64_t(42))).ok());
-  CHECK(validate_metadata_value(MetadataValue(int64_t(-100))).ok());
+  CHECK(ValidateMetadataValue(MetadataValue(int64_t(42))).ok());
+  CHECK(ValidateMetadataValue(MetadataValue(int64_t(-100))).ok());
 }
 
 TEST_CASE("MetadataTest - ValidateValueDouble") {
-  CHECK(validate_metadata_value(MetadataValue(3.14)).ok());
-  CHECK_FALSE(validate_metadata_value(
+  CHECK(ValidateMetadataValue(MetadataValue(3.14)).ok());
+  CHECK_FALSE(ValidateMetadataValue(
       MetadataValue(std::numeric_limits<double>::quiet_NaN())).ok());
-  CHECK_FALSE(validate_metadata_value(
+  CHECK_FALSE(ValidateMetadataValue(
       MetadataValue(std::numeric_limits<double>::infinity())).ok());
 }
 
 TEST_CASE("MetadataTest - ValidateValueString") {
-  CHECK(validate_metadata_value(MetadataValue(std::string("hello"))).ok());
+  CHECK(ValidateMetadataValue(MetadataValue(std::string("hello"))).ok());
 
   // String too long (>64KB)
   std::string long_string(65537, 'x');
-  auto status = validate_metadata_value(MetadataValue(long_string));
+  auto status = ValidateMetadataValue(MetadataValue(long_string));
   CHECK_FALSE(status.ok());
   CHECK(absl::IsInvalidArgument(status));
 }
 
 TEST_CASE("MetadataTest - ValidateValueBool") {
-  CHECK(validate_metadata_value(MetadataValue(true)).ok());
-  CHECK(validate_metadata_value(MetadataValue(false)).ok());
+  CHECK(ValidateMetadataValue(MetadataValue(true)).ok());
+  CHECK(ValidateMetadataValue(MetadataValue(false)).ok());
 }
 
 TEST_CASE("MetadataTest - ValidateMetadataValid") {
@@ -574,7 +574,7 @@ TEST_CASE("MetadataTest - ValidateMetadataValid") {
       {"rating", MetadataValue(4.5)}
   };
 
-  CHECK(validate_metadata(metadata).ok());
+  CHECK(ValidateMetadata(metadata).ok());
 }
 
 TEST_CASE("MetadataTest - ValidateMetadataTooManyFields") {
@@ -583,7 +583,7 @@ TEST_CASE("MetadataTest - ValidateMetadataTooManyFields") {
     metadata["field_" + std::to_string(i)] = MetadataValue(int64_t(i));
   }
 
-  auto status = validate_metadata(metadata);
+  auto status = ValidateMetadata(metadata);
   CHECK_FALSE(status.ok());
   CHECK(absl::IsInvalidArgument(status));
 }
@@ -593,7 +593,7 @@ TEST_CASE("MetadataTest - ValidateMetadataInvalidKey") {
       {"invalid-key", MetadataValue(int64_t(100))}
   };
 
-  auto status = validate_metadata(metadata);
+  auto status = ValidateMetadata(metadata);
   CHECK_FALSE(status.ok());
   CHECK(absl::IsInvalidArgument(status));
 }
@@ -603,7 +603,7 @@ TEST_CASE("MetadataTest - ValidateMetadataInvalidValue") {
       {"rating", MetadataValue(std::numeric_limits<double>::quiet_NaN())}
   };
 
-  auto status = validate_metadata(metadata);
+  auto status = ValidateMetadata(metadata);
   CHECK_FALSE(status.ok());
   CHECK(absl::IsInvalidArgument(status));
 }
@@ -617,10 +617,10 @@ TEST_CASE("FilterTest - ParseSimpleComparison") {
   REQUIRE(filter.ok());
 
   Metadata metadata = {{"price", MetadataValue(int64_t(50))}};
-  CHECK((*filter)->evaluate(metadata));
+  CHECK((*filter)->Evaluate(metadata));
 
   Metadata metadata2 = {{"price", MetadataValue(int64_t(150))}};
-  CHECK_FALSE((*filter)->evaluate(metadata2));
+  CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
 TEST_CASE("FilterTest - ParseEqualityComparison") {
@@ -628,10 +628,10 @@ TEST_CASE("FilterTest - ParseEqualityComparison") {
   REQUIRE(filter.ok());
 
   Metadata metadata = {{"brand", MetadataValue(std::string("Nike"))}};
-  CHECK((*filter)->evaluate(metadata));
+  CHECK((*filter)->Evaluate(metadata));
 
   Metadata metadata2 = {{"brand", MetadataValue(std::string("Adidas"))}};
-  CHECK_FALSE((*filter)->evaluate(metadata2));
+  CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
 TEST_CASE("FilterTest - ParseBooleanComparison") {
@@ -639,10 +639,10 @@ TEST_CASE("FilterTest - ParseBooleanComparison") {
   REQUIRE(filter.ok());
 
   Metadata metadata = {{"in_stock", MetadataValue(true)}};
-  CHECK((*filter)->evaluate(metadata));
+  CHECK((*filter)->Evaluate(metadata));
 
   Metadata metadata2 = {{"in_stock", MetadataValue(false)}};
-  CHECK_FALSE((*filter)->evaluate(metadata2));
+  CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
 TEST_CASE("FilterTest - ParseDoubleComparison") {
@@ -650,10 +650,10 @@ TEST_CASE("FilterTest - ParseDoubleComparison") {
   REQUIRE(filter.ok());
 
   Metadata metadata = {{"rating", MetadataValue(4.8)}};
-  CHECK((*filter)->evaluate(metadata));
+  CHECK((*filter)->Evaluate(metadata));
 
   Metadata metadata2 = {{"rating", MetadataValue(3.2)}};
-  CHECK_FALSE((*filter)->evaluate(metadata2));
+  CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
 TEST_CASE("FilterTest - ParseAndExpression") {
@@ -663,17 +663,17 @@ TEST_CASE("FilterTest - ParseAndExpression") {
   Metadata metadata = {
       {"price", MetadataValue(int64_t(50))},
       {"brand", MetadataValue(std::string("Nike"))}};
-  CHECK((*filter)->evaluate(metadata));
+  CHECK((*filter)->Evaluate(metadata));
 
   Metadata metadata2 = {
       {"price", MetadataValue(int64_t(150))},
       {"brand", MetadataValue(std::string("Nike"))}};
-  CHECK_FALSE((*filter)->evaluate(metadata2));
+  CHECK_FALSE((*filter)->Evaluate(metadata2));
 
   Metadata metadata3 = {
       {"price", MetadataValue(int64_t(50))},
       {"brand", MetadataValue(std::string("Adidas"))}};
-  CHECK_FALSE((*filter)->evaluate(metadata3));
+  CHECK_FALSE((*filter)->Evaluate(metadata3));
 }
 
 TEST_CASE("FilterTest - ParseOrExpression") {
@@ -681,15 +681,15 @@ TEST_CASE("FilterTest - ParseOrExpression") {
   REQUIRE(filter.ok());
 
   Metadata metadata1 = {{"price", MetadataValue(int64_t(30))}};
-  CHECK((*filter)->evaluate(metadata1));
+  CHECK((*filter)->Evaluate(metadata1));
 
   Metadata metadata2 = {{"discount", MetadataValue(int64_t(25))}};
-  CHECK((*filter)->evaluate(metadata2));
+  CHECK((*filter)->Evaluate(metadata2));
 
   Metadata metadata3 = {
       {"price", MetadataValue(int64_t(80))},
       {"discount", MetadataValue(int64_t(10))}};
-  CHECK_FALSE((*filter)->evaluate(metadata3));
+  CHECK_FALSE((*filter)->Evaluate(metadata3));
 }
 
 TEST_CASE("FilterTest - ParseNotExpression") {
@@ -697,10 +697,10 @@ TEST_CASE("FilterTest - ParseNotExpression") {
   REQUIRE(filter.ok());
 
   Metadata metadata1 = {{"price", MetadataValue(int64_t(50))}};
-  CHECK((*filter)->evaluate(metadata1));
+  CHECK((*filter)->Evaluate(metadata1));
 
   Metadata metadata2 = {{"price", MetadataValue(int64_t(150))}};
-  CHECK_FALSE((*filter)->evaluate(metadata2));
+  CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
 TEST_CASE("FilterTest - ParseParenthesizedExpression") {
@@ -710,17 +710,17 @@ TEST_CASE("FilterTest - ParseParenthesizedExpression") {
   Metadata metadata1 = {
       {"price", MetadataValue(int64_t(50))},
       {"in_stock", MetadataValue(true)}};
-  CHECK((*filter)->evaluate(metadata1));
+  CHECK((*filter)->Evaluate(metadata1));
 
   Metadata metadata2 = {
       {"discount", MetadataValue(int64_t(25))},
       {"in_stock", MetadataValue(true)}};
-  CHECK((*filter)->evaluate(metadata2));
+  CHECK((*filter)->Evaluate(metadata2));
 
   Metadata metadata3 = {
       {"price", MetadataValue(int64_t(50))},
       {"in_stock", MetadataValue(false)}};
-  CHECK_FALSE((*filter)->evaluate(metadata3));
+  CHECK_FALSE((*filter)->Evaluate(metadata3));
 }
 
 TEST_CASE("FilterTest - ParseLikeExpression") {
@@ -728,10 +728,10 @@ TEST_CASE("FilterTest - ParseLikeExpression") {
   REQUIRE(filter.ok());
 
   Metadata metadata1 = {{"brand", MetadataValue(std::string("Nike Air Max"))}};
-  CHECK((*filter)->evaluate(metadata1));
+  CHECK((*filter)->Evaluate(metadata1));
 
   Metadata metadata2 = {{"brand", MetadataValue(std::string("Adidas"))}};
-  CHECK_FALSE((*filter)->evaluate(metadata2));
+  CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
 TEST_CASE("FilterTest - ParseNotLikeExpression") {
@@ -739,10 +739,10 @@ TEST_CASE("FilterTest - ParseNotLikeExpression") {
   REQUIRE(filter.ok());
 
   Metadata metadata1 = {{"brand", MetadataValue(std::string("Nike"))}};
-  CHECK((*filter)->evaluate(metadata1));
+  CHECK((*filter)->Evaluate(metadata1));
 
   Metadata metadata2 = {{"brand", MetadataValue(std::string("test product"))}};
-  CHECK_FALSE((*filter)->evaluate(metadata2));
+  CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
 TEST_CASE("FilterTest - ParseInExpression") {
@@ -750,10 +750,10 @@ TEST_CASE("FilterTest - ParseInExpression") {
   REQUIRE(filter.ok());
 
   Metadata metadata1 = {{"category", MetadataValue(std::string("shoes"))}};
-  CHECK((*filter)->evaluate(metadata1));
+  CHECK((*filter)->Evaluate(metadata1));
 
   Metadata metadata2 = {{"category", MetadataValue(std::string("electronics"))}};
-  CHECK_FALSE((*filter)->evaluate(metadata2));
+  CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
 TEST_CASE("FilterTest - ParseNotInExpression") {
@@ -761,10 +761,10 @@ TEST_CASE("FilterTest - ParseNotInExpression") {
   REQUIRE(filter.ok());
 
   Metadata metadata1 = {{"status", MetadataValue(int64_t(5))}};
-  CHECK((*filter)->evaluate(metadata1));
+  CHECK((*filter)->Evaluate(metadata1));
 
   Metadata metadata2 = {{"status", MetadataValue(int64_t(1))}};
-  CHECK_FALSE((*filter)->evaluate(metadata2));
+  CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
 TEST_CASE("FilterTest - ParseInWithMixedTypes") {
@@ -772,16 +772,16 @@ TEST_CASE("FilterTest - ParseInWithMixedTypes") {
   REQUIRE(filter.ok());
 
   Metadata metadata1 = {{"value", MetadataValue(int64_t(1))}};
-  CHECK((*filter)->evaluate(metadata1));
+  CHECK((*filter)->Evaluate(metadata1));
 
   Metadata metadata2 = {{"value", MetadataValue(2.5)}};
-  CHECK((*filter)->evaluate(metadata2));
+  CHECK((*filter)->Evaluate(metadata2));
 
   Metadata metadata3 = {{"value", MetadataValue(std::string("text"))}};
-  CHECK((*filter)->evaluate(metadata3));
+  CHECK((*filter)->Evaluate(metadata3));
 
   Metadata metadata4 = {{"value", MetadataValue(int64_t(99))}};
-  CHECK_FALSE((*filter)->evaluate(metadata4));
+  CHECK_FALSE((*filter)->Evaluate(metadata4));
 }
 
 TEST_CASE("FilterTest - ComplexNestedExpression") {
@@ -792,18 +792,18 @@ TEST_CASE("FilterTest - ComplexNestedExpression") {
   Metadata metadata1 = {
       {"price", MetadataValue(int64_t(80))},
       {"brand", MetadataValue(std::string("Nike"))}};
-  CHECK((*filter)->evaluate(metadata1));
+  CHECK((*filter)->Evaluate(metadata1));
 
   Metadata metadata2 = {
       {"discount", MetadataValue(int64_t(60))},
       {"in_stock", MetadataValue(true)}};
-  CHECK((*filter)->evaluate(metadata2));
+  CHECK((*filter)->Evaluate(metadata2));
 
   Metadata metadata3 = {
       {"price", MetadataValue(int64_t(120))},
       {"brand", MetadataValue(std::string("Adidas"))},
       {"discount", MetadataValue(int64_t(20))}};
-  CHECK_FALSE((*filter)->evaluate(metadata3));
+  CHECK_FALSE((*filter)->Evaluate(metadata3));
 }
 
 TEST_CASE("FilterTest - ParseNegativeNumber") {
@@ -811,10 +811,10 @@ TEST_CASE("FilterTest - ParseNegativeNumber") {
   REQUIRE(filter.ok());
 
   Metadata metadata1 = {{"temperature", MetadataValue(int64_t(-5))}};
-  CHECK((*filter)->evaluate(metadata1));
+  CHECK((*filter)->Evaluate(metadata1));
 
   Metadata metadata2 = {{"temperature", MetadataValue(int64_t(-15))}};
-  CHECK_FALSE((*filter)->evaluate(metadata2));
+  CHECK_FALSE((*filter)->Evaluate(metadata2));
 }
 
 TEST_CASE("FilterTest - ParseStringWithEscapes") {
@@ -822,7 +822,7 @@ TEST_CASE("FilterTest - ParseStringWithEscapes") {
   REQUIRE(filter.ok());
 
   Metadata metadata1 = {{"name", MetadataValue(std::string("O'Brien"))}};
-  CHECK((*filter)->evaluate(metadata1));
+  CHECK((*filter)->Evaluate(metadata1));
 }
 
 TEST_CASE("FilterTest - MissingField") {
@@ -831,7 +831,7 @@ TEST_CASE("FilterTest - MissingField") {
 
   Metadata metadata = {{"brand", MetadataValue(std::string("Nike"))}};
   // Field not present -> false
-  CHECK_FALSE((*filter)->evaluate(metadata));
+  CHECK_FALSE((*filter)->Evaluate(metadata));
 }
 
 TEST_CASE("FilterTest - ParseErrorInvalidSyntax") {
@@ -881,11 +881,11 @@ TEST_CASE("FilterTest - RejectsTrailingInput") {
 TEST_CASE("FilterTest - IntegerLiteralBounds") {
   auto max = FilterParser::parse("i = 9223372036854775807");
   REQUIRE(max.ok());
-  CHECK((*max)->evaluate({{"i", MetadataValue(int64_t{INT64_MAX})}}));
+  CHECK((*max)->Evaluate({{"i", MetadataValue(int64_t{INT64_MAX})}}));
 
   auto min = FilterParser::parse("i = -9223372036854775808");
   REQUIRE(min.ok());
-  CHECK((*min)->evaluate({{"i", MetadataValue(int64_t{INT64_MIN})}}));
+  CHECK((*min)->Evaluate({{"i", MetadataValue(int64_t{INT64_MIN})}}));
 
   for (const char* expr : {
            "i < 9223372036854775808",
@@ -906,25 +906,25 @@ TEST_CASE("FilterTest - DoubleLiteralBounds") {
   const std::string tiny = "x > 0." + std::string(400, '0') + "1";
   auto filter = FilterParser::parse(tiny);
   REQUIRE(filter.ok());
-  CHECK((*filter)->evaluate({{"x", MetadataValue(0.5)}}));
+  CHECK((*filter)->Evaluate({{"x", MetadataValue(0.5)}}));
 }
 
 TEST_CASE("FilterTest - NumericLiteralForms") {
   auto plus = FilterParser::parse("i = +5");
   REQUIRE(plus.ok());
-  CHECK((*plus)->evaluate({{"i", MetadataValue(int64_t{5})}}));
+  CHECK((*plus)->Evaluate({{"i", MetadataValue(int64_t{5})}}));
 
   auto trailing_dot = FilterParser::parse("x = 1.");
   REQUIRE(trailing_dot.ok());
-  CHECK((*trailing_dot)->evaluate({{"x", MetadataValue(1.0)}}));
+  CHECK((*trailing_dot)->Evaluate({{"x", MetadataValue(1.0)}}));
 
   auto negative_fraction = FilterParser::parse("x = -.5");
   REQUIRE(negative_fraction.ok());
-  CHECK((*negative_fraction)->evaluate({{"x", MetadataValue(-0.5)}}));
+  CHECK((*negative_fraction)->Evaluate({{"x", MetadataValue(-0.5)}}));
 
   auto negative_zero = FilterParser::parse("i = -0");
   REQUIRE(negative_zero.ok());
-  CHECK((*negative_zero)->evaluate({{"i", MetadataValue(int64_t{0})}}));
+  CHECK((*negative_zero)->Evaluate({{"i", MetadataValue(int64_t{0})}}));
 
   for (const char* expr : {"x = .5", "x = -", "x = 1.2.3", "x = +"}) {
     INFO(expr);
@@ -935,7 +935,7 @@ TEST_CASE("FilterTest - NumericLiteralForms") {
 TEST_CASE("FilterTest - KeywordEdgeCases") {
   auto lower = FilterParser::parse("a = 1 and not b = 2 or c = 3");
   REQUIRE(lower.ok());
-  CHECK((*lower)->evaluate({{"a", MetadataValue(int64_t{1})},
+  CHECK((*lower)->Evaluate({{"a", MetadataValue(int64_t{1})},
                             {"b", MetadataValue(int64_t{5})}}));
 
   // Boolean literals are lowercase only.
@@ -944,7 +944,7 @@ TEST_CASE("FilterTest - KeywordEdgeCases") {
   // A keyword followed by an operator is still usable as a field name.
   auto field_named_and = FilterParser::parse("and = 1");
   REQUIRE(field_named_and.ok());
-  CHECK((*field_named_and)->evaluate({{"and", MetadataValue(int64_t{1})}}));
+  CHECK((*field_named_and)->Evaluate({{"and", MetadataValue(int64_t{1})}}));
 
   CHECK(absl::IsInvalidArgument(FilterParser::parse("not = 1").status()));
 }
@@ -952,7 +952,7 @@ TEST_CASE("FilterTest - KeywordEdgeCases") {
 TEST_CASE("FilterTest - NonAsciiInput") {
   auto quoted = FilterParser::parse("name = 'caf\xC3\xA9'");
   REQUIRE(quoted.ok());
-  CHECK((*quoted)->evaluate({{"name", MetadataValue(std::string("caf\xC3\xA9"))}}));
+  CHECK((*quoted)->Evaluate({{"name", MetadataValue(std::string("caf\xC3\xA9"))}}));
 
   CHECK(absl::IsInvalidArgument(
       FilterParser::parse("pr\xC3\xAF""ce = 1").status()));
@@ -964,13 +964,13 @@ TEST_CASE("FilterTest - LikeEscapesThroughParser") {
   // '50\\%' reaches LIKE as the pattern 50\% (a literal percent sign) ...
   auto literal = FilterParser::parse("k LIKE '50\\\\%'");
   REQUIRE(literal.ok());
-  CHECK((*literal)->evaluate({{"k", MetadataValue(std::string("50%"))}}));
-  CHECK_FALSE((*literal)->evaluate({{"k", MetadataValue(std::string("50x"))}}));
+  CHECK((*literal)->Evaluate({{"k", MetadataValue(std::string("50%"))}}));
+  CHECK_FALSE((*literal)->Evaluate({{"k", MetadataValue(std::string("50x"))}}));
 
   // ... while '50\%' reaches it as 50% (a wildcard).
   auto wildcard = FilterParser::parse("k LIKE '50\\%'");
   REQUIRE(wildcard.ok());
-  CHECK((*wildcard)->evaluate({{"k", MetadataValue(std::string("50x"))}}));
+  CHECK((*wildcard)->Evaluate({{"k", MetadataValue(std::string("50x"))}}));
 }
 
 namespace {
@@ -1016,7 +1016,7 @@ TEST_CASE("FilterTest - NestingDepthLimit") {
     auto nested = FilterParser::parse(parens(max));
     at_limit_ok = nested.ok();
     at_limit_matches =
-        nested.ok() && (*nested)->evaluate({{"a", MetadataValue(int64_t{1})}});
+        nested.ok() && (*nested)->Evaluate({{"a", MetadataValue(int64_t{1})}});
     // max NOTs is an even count, so it evaluates like the bare comparison.
     not_at_limit_ok = FilterParser::parse(Repeat("NOT ", max) + "a = 1").ok();
   });
@@ -1053,17 +1053,17 @@ TEST_CASE("FilterTest - LongChainsStayShallow") {
     auto ors = FilterParser::parse(or_chain);
     or_ok = ors.ok();
     if (or_ok) {
-      or_first = (*ors)->evaluate({{"id", MetadataValue(int64_t{0})}});
-      or_last = (*ors)->evaluate({{"id", MetadataValue(int64_t{terms - 1})}});
-      or_miss = (*ors)->evaluate({{"id", MetadataValue(int64_t{terms})}});
+      or_first = (*ors)->Evaluate({{"id", MetadataValue(int64_t{0})}});
+      or_last = (*ors)->Evaluate({{"id", MetadataValue(int64_t{terms - 1})}});
+      or_miss = (*ors)->Evaluate({{"id", MetadataValue(int64_t{terms})}});
     }
     auto ands = FilterParser::parse(and_chain);
     and_ok = ands.ok();
     if (and_ok) {
-      and_all = (*ands)->evaluate(all_ones);
+      and_all = (*ands)->Evaluate(all_ones);
       Metadata one_off = all_ones;
       one_off["a57"] = MetadataValue(int64_t{0});
-      and_one_off = (*ands)->evaluate(one_off);
+      and_one_off = (*ands)->Evaluate(one_off);
     }
     // Both ASTs are destroyed on this thread as well.
   });
@@ -1083,8 +1083,8 @@ TEST_CASE("FilterTest - LargeInListAccepted") {
 
   auto filter = FilterParser::parse(expr);
   REQUIRE(filter.ok());
-  CHECK((*filter)->evaluate({{"id", MetadataValue(int64_t{99999})}}));
-  CHECK_FALSE((*filter)->evaluate({{"id", MetadataValue(int64_t{100000})}}));
+  CHECK((*filter)->Evaluate({{"id", MetadataValue(int64_t{99999})}}));
+  CHECK_FALSE((*filter)->Evaluate({{"id", MetadataValue(int64_t{100000})}}));
 }
 
 // ============================================================================

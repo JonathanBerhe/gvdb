@@ -72,7 +72,7 @@ grpc::Status VectorDBService::Insert(
   // Get all segment IDs for this collection
   auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
   if (!segment_ids_result.ok()) {
-    return rpc::toGrpcStatus(segment_ids_result.status());
+    return rpc::ToGrpcStatus(segment_ids_result.status());
   }
   const auto& segment_ids = *segment_ids_result;
   size_t num_shards = segment_ids.size();
@@ -80,7 +80,7 @@ grpc::Status VectorDBService::Insert(
   // Get dimension from first segment
   auto* first_segment = segment_store_->GetSegment(segment_ids[0]);
   if (!first_segment) {
-    return rpc::toGrpcStatus(absl::NotFoundError("Segment not found"));
+    return rpc::ToGrpcStatus(absl::NotFoundError("Segment not found"));
   }
   uint32_t dimension = first_segment->GetDimension();
 
@@ -97,8 +97,8 @@ grpc::Status VectorDBService::Insert(
   std::vector<ShardBatch> shard_batches(num_shards);
 
   for (const auto& proto_vec : request->vectors()) {
-    auto vec_result = rpc::fromProto(proto_vec);
-    if (!vec_result.ok()) return rpc::toGrpcStatus(vec_result.status());
+    auto vec_result = rpc::FromProto(proto_vec);
+    if (!vec_result.ok()) return rpc::ToGrpcStatus(vec_result.status());
 
     core::VectorId vid = vec_result->first;
     uint32_t shard_idx = core::ShardIndexForVector(
@@ -110,16 +110,16 @@ grpc::Status VectorDBService::Insert(
 
     if (proto_vec.has_metadata()) {
       batch.has_metadata = true;
-      auto meta_result = rpc::fromProto(proto_vec.metadata());
-      if (!meta_result.ok()) return rpc::toGrpcStatus(meta_result.status());
+      auto meta_result = rpc::FromProto(proto_vec.metadata());
+      if (!meta_result.ok()) return rpc::ToGrpcStatus(meta_result.status());
       batch.metadata.push_back(std::move(*meta_result));
     } else if (batch.has_metadata) {
       batch.metadata.push_back(core::Metadata{});
     }
 
     if (proto_vec.has_sparse_vector() && proto_vec.sparse_vector().indices_size() > 0) {
-      auto sparse_result = rpc::fromProto(proto_vec.sparse_vector());
-      if (!sparse_result.ok()) return rpc::toGrpcStatus(sparse_result.status());
+      auto sparse_result = rpc::FromProto(proto_vec.sparse_vector());
+      if (!sparse_result.ok()) return rpc::ToGrpcStatus(sparse_result.status());
       batch.has_sparse = true;
       batch.sparse_map[core::ToUInt64(vid)] = std::move(*sparse_result);
     }
@@ -134,7 +134,7 @@ grpc::Status VectorDBService::Insert(
   for (const auto& batch : shard_batches) {
     for (const auto& vec : batch.vectors) {
       if (static_cast<uint32_t>(vec.dimension()) != dimension) {
-        return rpc::toGrpcStatus(absl::InvalidArgumentError(
+        return rpc::ToGrpcStatus(absl::InvalidArgumentError(
             absl::StrFormat("Vector dimension mismatch: expected %d, got %d",
                             dimension, vec.dimension())));
       }
@@ -167,7 +167,7 @@ grpc::Status VectorDBService::Insert(
     if (!ranges_or.ok()) {
       common::MetricsRegistry::Instance().RecordInsert(
           request->collection_name(), false, 0);
-      return rpc::toGrpcStatus(ranges_or.status());
+      return rpc::ToGrpcStatus(ranges_or.status());
     }
 
     const bool single_range = ranges_or->size() == 1;
@@ -249,7 +249,7 @@ grpc::Status VectorDBService::Insert(
       if (!status.ok()) {
         common::MetricsRegistry::Instance().RecordInsert(
             request->collection_name(), false, 0);
-        return rpc::toGrpcStatus(status);
+        return rpc::ToGrpcStatus(status);
       }
 
       total_inserted += range_ids.size();
@@ -301,14 +301,14 @@ grpc::Status VectorDBService::StreamInsert(
 
     auto segment_ids_result = resolver_->GetSegmentIds(chunk.collection_name());
     if (!segment_ids_result.ok()) {
-      return rpc::toGrpcStatus(segment_ids_result.status());
+      return rpc::ToGrpcStatus(segment_ids_result.status());
     }
     const auto& segment_ids = *segment_ids_result;
     size_t num_shards = segment_ids.size();
 
     auto* first_segment = segment_store_->GetSegment(segment_ids[0]);
     if (!first_segment) {
-      return rpc::toGrpcStatus(absl::NotFoundError("Segment not found"));
+      return rpc::ToGrpcStatus(absl::NotFoundError("Segment not found"));
     }
     uint32_t dimension = first_segment->GetDimension();
 
@@ -321,8 +321,8 @@ grpc::Status VectorDBService::StreamInsert(
     std::vector<ShardBatch> shard_batches(num_shards);
 
     for (const auto& proto_vec : chunk.vectors()) {
-      auto vec_result = rpc::fromProto(proto_vec);
-      if (!vec_result.ok()) return rpc::toGrpcStatus(vec_result.status());
+      auto vec_result = rpc::FromProto(proto_vec);
+      if (!vec_result.ok()) return rpc::ToGrpcStatus(vec_result.status());
 
       core::VectorId vid = vec_result->first;
       uint32_t shard_idx = core::ShardIndexForVector(
@@ -334,8 +334,8 @@ grpc::Status VectorDBService::StreamInsert(
 
       if (proto_vec.has_metadata()) {
         batch.has_metadata = true;
-        auto meta_result = rpc::fromProto(proto_vec.metadata());
-        if (!meta_result.ok()) return rpc::toGrpcStatus(meta_result.status());
+        auto meta_result = rpc::FromProto(proto_vec.metadata());
+        if (!meta_result.ok()) return rpc::ToGrpcStatus(meta_result.status());
         batch.metadata.push_back(std::move(*meta_result));
       } else if (batch.has_metadata) {
         batch.metadata.push_back(core::Metadata{});
@@ -345,7 +345,7 @@ grpc::Status VectorDBService::StreamInsert(
     for (const auto& batch : shard_batches) {
       for (const auto& vec : batch.vectors) {
         if (static_cast<uint32_t>(vec.dimension()) != dimension) {
-          return rpc::toGrpcStatus(absl::InvalidArgumentError(
+          return rpc::ToGrpcStatus(absl::InvalidArgumentError(
               absl::StrFormat("Vector dimension mismatch: expected %d, got %d",
                               dimension, vec.dimension())));
         }
@@ -368,7 +368,7 @@ grpc::Status VectorDBService::StreamInsert(
 
       if (!status.ok()) {
         common::MetricsRegistry::Instance().RecordInsert(collection_name, false, 0);
-        return rpc::toGrpcStatus(status);
+        return rpc::ToGrpcStatus(status);
       }
       total_inserted += batch.ids.size();
     }
@@ -423,7 +423,7 @@ grpc::Status VectorDBService::Upsert(
 
   auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
   if (!segment_ids_result.ok()) {
-    return rpc::toGrpcStatus(segment_ids_result.status());
+    return rpc::ToGrpcStatus(segment_ids_result.status());
   }
   const auto& segment_ids = *segment_ids_result;
 
@@ -450,17 +450,17 @@ grpc::Status VectorDBService::Upsert(
   metadata.reserve(request->vectors_size());
 
   for (const auto& proto_vec : request->vectors()) {
-    auto vec_result = rpc::fromProto(proto_vec);
+    auto vec_result = rpc::FromProto(proto_vec);
     if (!vec_result.ok()) {
-      return rpc::toGrpcStatus(vec_result.status());
+      return rpc::ToGrpcStatus(vec_result.status());
     }
     ids.push_back(vec_result->first);
     vectors.push_back(std::move(vec_result->second));
 
     if (proto_vec.has_metadata()) {
-      auto meta_result = rpc::fromProto(proto_vec.metadata());
+      auto meta_result = rpc::FromProto(proto_vec.metadata());
       if (!meta_result.ok()) {
-        return rpc::toGrpcStatus(meta_result.status());
+        return rpc::ToGrpcStatus(meta_result.status());
       }
       metadata.push_back(std::move(*meta_result));
     } else {
@@ -475,7 +475,7 @@ grpc::Status VectorDBService::Upsert(
 
   auto upsert_result = growing_segment->UpsertVectors(vectors, ids, metadata, expiry_entries);
   if (!upsert_result.ok()) {
-    return rpc::toGrpcStatus(upsert_result.status());
+    return rpc::ToGrpcStatus(upsert_result.status());
   }
 
   response->set_upserted_count(upsert_result->inserted_count + upsert_result->updated_count);
@@ -545,7 +545,7 @@ grpc::Status VectorDBService::Delete(
   if (!segments_result.ok()) {
     common::MetricsRegistry::Instance().RecordDelete(
         request->collection_name(), false);
-    return rpc::toGrpcStatus(segments_result.status());
+    return rpc::ToGrpcStatus(segments_result.status());
   }
   const auto& segments = *segments_result;
 
@@ -570,7 +570,7 @@ grpc::Status VectorDBService::Delete(
     if (!result.ok()) {
       common::MetricsRegistry::Instance().RecordDelete(
           request->collection_name(), false);
-      return rpc::toGrpcStatus(result.status());
+      return rpc::ToGrpcStatus(result.status());
     }
     deleted_count += result->deleted_count;
 
@@ -659,15 +659,15 @@ grpc::Status VectorDBService::UpdateMetadata(
   if (!segments_result.ok()) {
     common::MetricsRegistry::Instance().RecordUpdateMetadata(
         request->collection_name(), false);
-    return rpc::toGrpcStatus(segments_result.status());
+    return rpc::ToGrpcStatus(segments_result.status());
   }
   const auto& segments = *segments_result;
 
-  auto metadata_result = rpc::fromProto(request->metadata());
+  auto metadata_result = rpc::FromProto(request->metadata());
   if (!metadata_result.ok()) {
     common::MetricsRegistry::Instance().RecordUpdateMetadata(
         request->collection_name(), false);
-    return rpc::toGrpcStatus(metadata_result.status());
+    return rpc::ToGrpcStatus(metadata_result.status());
   }
 
   auto vector_id = core::MakeVectorId(request->id());
@@ -694,7 +694,7 @@ grpc::Status VectorDBService::UpdateMetadata(
         request->collection_name(), "'"));
     response->set_updated(false);
     response->set_message(std::string(not_found.message()));
-    return rpc::toGrpcStatus(not_found);
+    return rpc::ToGrpcStatus(not_found);
   }
 
   auto status = owner->UpdateMetadata(vector_id, *metadata_result, request->merge());
@@ -704,7 +704,7 @@ grpc::Status VectorDBService::UpdateMetadata(
         request->collection_name(), false);
     response->set_updated(false);
     response->set_message(std::string(status.message()));
-    return rpc::toGrpcStatus(status);
+    return rpc::ToGrpcStatus(status);
   }
 
   common::MetricsRegistry::Instance().RecordUpdateMetadata(

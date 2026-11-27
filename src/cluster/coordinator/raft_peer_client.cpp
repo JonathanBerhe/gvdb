@@ -29,7 +29,7 @@ absl::StatusOr<consensus::IRaftPeerClient::LeaderInfo> GrpcRaftPeerClient::GetLe
   ctx.set_deadline(std::chrono::system_clock::now() + timeout);
 
   auto status = stub->GetLeaderInfo(&ctx, req, &resp);
-  if (!status.ok()) return rpc::fromGrpcStatus(status);
+  if (!status.ok()) return rpc::FromGrpcStatus(status);
   return LeaderInfo{resp.leader_id(), resp.current_term()};
 }
 
@@ -45,7 +45,7 @@ absl::StatusOr<consensus::IRaftPeerClient::JoinReply> GrpcRaftPeerClient::JoinCl
   ctx.set_deadline(std::chrono::system_clock::now() + timeout);
 
   auto status = stub->JoinCluster(&ctx, req, &resp);
-  if (!status.ok()) return rpc::fromGrpcStatus(status);
+  if (!status.ok()) return rpc::FromGrpcStatus(status);
   return JoinReply{resp.success(), resp.message(), resp.current_leader_id()};
 }
 

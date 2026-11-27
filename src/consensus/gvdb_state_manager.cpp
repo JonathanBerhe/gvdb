@@ -27,14 +27,14 @@ GvdbStateManager::GvdbStateManager(int32_t server_id, const std::string& endpoin
   my_srv_config_ = nuraft::cs_new<srv_config>(server_id, endpoint);
 
   // Try to load existing state from disk
-  bool loaded_config = load_config_from_db();
-  load_state_from_db();
+  bool loaded_config = LoadConfigFromDb();
+  LoadStateFromDb();
 
   if (!loaded_config) {
     // First initialization - create single-server cluster
     cluster_config_ = nuraft::cs_new<cluster_config>();
     cluster_config_->get_servers().push_back(my_srv_config_);
-    save_config_to_db();  // Persist initial config
+    SaveConfigToDb();  // Persist initial config
     common::Logger::Instance().Info("Created initial cluster configuration");
   }
 
@@ -64,7 +64,7 @@ void GvdbStateManager::save_config(const cluster_config& config) {
   cluster_config_ = cluster_config::deserialize(*buf);
 
   // Persist to disk
-  if (!save_config_to_db()) {
+  if (!SaveConfigToDb()) {
     common::Logger::Instance().Error("Failed to persist cluster config to disk");
   }
 
@@ -82,7 +82,7 @@ void GvdbStateManager::save_state(const srv_state& state) {
   server_state_ = srv_state::deserialize(*buf);
 
   // Persist to disk
-  if (!save_state_to_db()) {
+  if (!SaveStateToDb()) {
     common::Logger::Instance().Error("Failed to persist server state to disk");
   }
 
@@ -125,7 +125,7 @@ void GvdbStateManager::system_exit(const int exit_code) {
 
 // Persistence helper methods
 
-bool GvdbStateManager::load_config_from_db() {
+bool GvdbStateManager::LoadConfigFromDb() {
   namespace fs = std::filesystem;
 
   // Ensure state directory exists
@@ -177,7 +177,7 @@ bool GvdbStateManager::load_config_from_db() {
   }
 }
 
-bool GvdbStateManager::save_config_to_db() {
+bool GvdbStateManager::SaveConfigToDb() {
   namespace fs = std::filesystem;
 
   // Ensure state directory exists
@@ -231,7 +231,7 @@ bool GvdbStateManager::save_config_to_db() {
   }
 }
 
-bool GvdbStateManager::load_state_from_db() {
+bool GvdbStateManager::LoadStateFromDb() {
   namespace fs = std::filesystem;
 
   fs::path state_dir(state_db_path_);
@@ -279,7 +279,7 @@ bool GvdbStateManager::load_state_from_db() {
   }
 }
 
-bool GvdbStateManager::save_state_to_db() {
+bool GvdbStateManager::SaveStateToDb() {
   namespace fs = std::filesystem;
 
   if (!server_state_) {

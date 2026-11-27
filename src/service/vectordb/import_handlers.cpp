@@ -77,7 +77,7 @@ grpc::Status VectorDBService::BulkImport(
       request->id_column().empty() ? "id" : request->id_column());
 
   if (!result.ok()) {
-    return rpc::toGrpcStatus(result.status());
+    return rpc::ToGrpcStatus(result.status());
   }
 
   response->set_import_id(*result);
@@ -101,7 +101,7 @@ grpc::Status VectorDBService::GetImportStatus(
 
   auto result = bulk_importer_->GetStatus(request->import_id());
   if (!result.ok()) {
-    return rpc::toGrpcStatus(result.status());
+    return rpc::ToGrpcStatus(result.status());
   }
 
   // RBAC: check read access on the import's collection
@@ -137,14 +137,14 @@ grpc::Status VectorDBService::CancelImport(
   // RBAC: look up import's collection, require INSERT (write) permission
   auto job_status = bulk_importer_->GetStatus(request->import_id());
   if (!job_status.ok()) {
-    return rpc::toGrpcStatus(job_status.status());
+    return rpc::ToGrpcStatus(job_status.status());
   }
   RETURN_IF_ERROR(CheckPermission(auth::Permission::INSERT,
                                job_status->collection_name));
 
   auto status = bulk_importer_->CancelImport(request->import_id());
   if (!status.ok()) {
-    return rpc::toGrpcStatus(status);
+    return rpc::ToGrpcStatus(status);
   }
 
   response->set_success(true);

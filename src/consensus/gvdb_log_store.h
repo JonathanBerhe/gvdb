@@ -156,15 +156,15 @@ class GvdbLogStore : public nuraft::log_store {
   std::atomic<nuraft::ulong> next_idx_{1};
 
   // Helpers
-  nuraft::ptr<nuraft::log_entry> get_entry_internal(nuraft::ulong index) const;
-  bool init_rocksdb();
-  void close_rocksdb();
+  nuraft::ptr<nuraft::log_entry> GetEntryInternal(nuraft::ulong index) const;
+  bool InitRocksDb();
+  void CloseRocksDb();
 
   // RocksDB-specific helpers
-  std::string make_log_key(nuraft::ulong index) const;
-  bool write_entry_to_db(nuraft::ulong index, nuraft::ptr<nuraft::log_entry>& entry);
-  nuraft::ptr<nuraft::log_entry> read_entry_from_db(nuraft::ulong index) const;
-  bool delete_range_from_db(nuraft::ulong start_index, nuraft::ulong end_index);
+  std::string MakeLogKey(nuraft::ulong index) const;
+  bool WriteEntryToDb(nuraft::ulong index, nuraft::ptr<nuraft::log_entry>& entry);
+  nuraft::ptr<nuraft::log_entry> ReadEntryFromDb(nuraft::ulong index) const;
+  bool DeleteRangeFromDb(nuraft::ulong start_index, nuraft::ulong end_index);
 };
 
 }  // namespace consensus

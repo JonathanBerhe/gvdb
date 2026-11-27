@@ -106,7 +106,7 @@ absl::Status TieredSegmentManager::FlushSegment(core::SegmentId id) {
     uploading_.insert(core::ToUInt32(seg_id));
   }
 
-  upload_pool_->enqueue([this, seg_id]() { RunUpload(seg_id, 0); });
+  upload_pool_->Enqueue([this, seg_id]() { RunUpload(seg_id, 0); });
 
   return absl::OkStatus();
 }

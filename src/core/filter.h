@@ -41,7 +41,7 @@ class FilterNode {
    * @param metadata The metadata to test
    * @return true if metadata matches the filter
    */
-  virtual bool evaluate(const Metadata& metadata) const = 0;
+  virtual bool Evaluate(const Metadata& metadata) const = 0;
 };
 
 /**
@@ -51,7 +51,7 @@ class ComparisonNode : public FilterNode {
  public:
   ComparisonNode(std::string field, ComparisonOp op, MetadataValue value);
 
-  bool evaluate(const Metadata& metadata) const override;
+  bool Evaluate(const Metadata& metadata) const override;
 
   const std::string& field() const { return field_; }
   ComparisonOp op() const { return op_; }
@@ -70,7 +70,7 @@ class InNode : public FilterNode {
  public:
   InNode(std::string field, bool negate, std::vector<MetadataValue> values);
 
-  bool evaluate(const Metadata& metadata) const override;
+  bool Evaluate(const Metadata& metadata) const override;
 
   const std::string& field() const { return field_; }
   bool is_negated() const { return negate_; }
@@ -90,7 +90,7 @@ class LogicalNode : public FilterNode {
   LogicalNode(LogicalOp op, std::unique_ptr<FilterNode> left,
               std::unique_ptr<FilterNode> right = nullptr);
 
-  bool evaluate(const Metadata& metadata) const override;
+  bool Evaluate(const Metadata& metadata) const override;
 
   LogicalOp op() const { return op_; }
   const FilterNode& left() const { return *left_; }
@@ -151,31 +151,31 @@ class FilterParser {
   FilterParser(const std::string& expression);
 
   // Parsing methods (recursive descent)
-  absl::StatusOr<std::unique_ptr<FilterNode>> parse_expression();
-  absl::StatusOr<std::unique_ptr<FilterNode>> parse_or_expression();
-  absl::StatusOr<std::unique_ptr<FilterNode>> parse_and_expression();
-  absl::StatusOr<std::unique_ptr<FilterNode>> parse_not_expression();
-  absl::StatusOr<std::unique_ptr<FilterNode>> parse_primary_expression();
-  absl::StatusOr<std::unique_ptr<FilterNode>> parse_comparison();
-  absl::StatusOr<std::unique_ptr<FilterNode>> parse_in_expression(
+  absl::StatusOr<std::unique_ptr<FilterNode>> ParseExpression();
+  absl::StatusOr<std::unique_ptr<FilterNode>> ParseOrExpression();
+  absl::StatusOr<std::unique_ptr<FilterNode>> ParseAndExpression();
+  absl::StatusOr<std::unique_ptr<FilterNode>> ParseNotExpression();
+  absl::StatusOr<std::unique_ptr<FilterNode>> ParsePrimaryExpression();
+  absl::StatusOr<std::unique_ptr<FilterNode>> ParseComparison();
+  absl::StatusOr<std::unique_ptr<FilterNode>> ParseInExpression(
       const std::string& field, bool negate);
 
   // Token management
-  void skip_whitespace();
-  bool match(const std::string& keyword);
-  bool match_operator(const std::string& op);
-  absl::StatusOr<std::string> parse_identifier();
-  absl::StatusOr<MetadataValue> parse_value();
-  absl::StatusOr<ComparisonOp> parse_comparison_operator();
+  void SkipWhitespace();
+  bool Match(const std::string& keyword);
+  bool MatchOperator(const std::string& op);
+  absl::StatusOr<std::string> ParseIdentifier();
+  absl::StatusOr<MetadataValue> ParseValue();
+  absl::StatusOr<ComparisonOp> ParseComparisonOperator();
 
   // Helper methods
-  char peek() const;
-  char advance();
-  bool is_at_end() const;
-  std::string current_context() const;
+  char Peek() const;
+  char Advance();
+  bool IsAtEnd() const;
+  std::string CurrentContext() const;
 
   // Enter one level of parenthesis / NOT nesting; fails past kMaxNestingDepth.
-  absl::Status enter_nesting();
+  absl::Status EnterNesting();
 
   std::string expression_;
   size_t pos_;

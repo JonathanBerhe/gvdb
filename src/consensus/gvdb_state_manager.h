@@ -137,10 +137,10 @@ class GvdbStateManager : public nuraft::state_mgr {
   nuraft::ptr<GvdbLogStore> log_store_;
 
   // Helper methods for persistence
-  bool load_config_from_db();
-  bool save_config_to_db();
-  bool load_state_from_db();
-  bool save_state_to_db();
+  bool LoadConfigFromDb();
+  bool SaveConfigToDb();
+  bool LoadStateFromDb();
+  bool SaveStateToDb();
 };
 
 }  // namespace consensus

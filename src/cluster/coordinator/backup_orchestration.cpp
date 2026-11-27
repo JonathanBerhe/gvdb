@@ -139,7 +139,7 @@ absl::StatusOr<std::string> Coordinator::StartBackupDistributed(
       req.set_backup_id(backup_id);
       req.set_collection_id(core::ToUInt32(collection_id));
       req.set_shard_id(core::ToUInt16(shard_id));
-      RETURN_IF_ERROR(rpc::toProto(target_inner, req.mutable_target()));
+      RETURN_IF_ERROR(rpc::ToProto(target_inner, req.mutable_target()));
       grpc::ClientContext ctx;
       backup_status = client->BackupShard(&ctx, req, &backup_resp);
     }
@@ -250,7 +250,7 @@ absl::StatusOr<std::string> Coordinator::StartRestoreDistributed(
     req.set_backup_id(bkp_id);
     req.set_target_collection_id(core::ToUInt32(target_id));
     req.set_shard_id(core::ToUInt16(shard_id));
-    RETURN_IF_ERROR(rpc::toProto(source_inner, req.mutable_source()));
+    RETURN_IF_ERROR(rpc::ToProto(source_inner, req.mutable_source()));
     proto::internal::RestoreShardResponse resp;
     grpc::ClientContext ctx;
     auto status = client->RestoreShard(&ctx, req, &resp);

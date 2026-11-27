@@ -250,7 +250,7 @@ absl::StatusOr<std::string> BackupManager::StartBackupSingleShard(
     jobs_[id] = job;
   }
 
-  (void)pool_->enqueue(
+  (void)pool_->Enqueue(
       [this, job, dimension, metric, index_type, num_shards,
        replication_factor, shard_id, primary_term, segment_store]() {
         ExecuteSingleShardJob(job, dimension, metric, index_type, num_shards,
@@ -421,7 +421,7 @@ absl::StatusOr<std::string> BackupManager::StartBackupDistributed(
     jobs_[id] = job;
   }
 
-  (void)pool_->enqueue(
+  (void)pool_->Enqueue(
       [this, job, dimension, metric, index_type, replication_factor,
        shard_ids, primary_terms, executor]() mutable {
         ExecuteDistributedJob(job, dimension, metric, index_type,
