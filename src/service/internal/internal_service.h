@@ -33,6 +33,32 @@ class RaftNode;
 
 namespace service {
 
+// The optional collaborators of an InternalService. A null member turns off
+// the handlers that need it. The caller owns the objects behind the raw
+// pointers, and they must outlive the service.
+struct InternalServiceOptions {
+  // Every member has a default member initializer. Clang then accepts a
+  // designated initializer that leaves the member out.
+
+  // Set on a coordinator. The coordinator RPCs use them: Heartbeat,
+  // RouteQuery, GetCollectionMetadata, GetClusterHealth and the Raft
+  // membership RPCs.
+  std::shared_ptr<cluster::NodeRegistry> node_registry = nullptr;
+  std::shared_ptr<cluster::Coordinator> coordinator = nullptr;
+  std::shared_ptr<consensus::RaftNode> raft_node = nullptr;
+  // Run BackupShard and RestoreShard. Null makes these RPCs return
+  // UNIMPLEMENTED.
+  std::shared_ptr<storage::BackupManager> backup_manager = nullptr;
+  std::shared_ptr<storage::RestoreManager> restore_manager = nullptr;
+  // The local view of the shard primaries, which PausePrimary and
+  // PreparePromote change. Null makes these RPCs return
+  // FAILED_PRECONDITION (coordinator, query node).
+  cluster::PrimaryTermTracker* primary_term_tracker = nullptr;
+  // The backup write fence of FreezeWrites and UnfreezeWrites. Null makes
+  // these RPCs return UNIMPLEMENTED.
+  cluster::ShardWriteGate* shard_write_gate = nullptr;
+};
+
 // Implementation of the InternalService gRPC service for node-to-node communication
 class InternalService final : public proto::internal::InternalService::Service {
  public:
@@ -40,9 +66,7 @@ class InternalService final : public proto::internal::InternalService::Service {
       std::shared_ptr<cluster::ShardManager> shard_manager,
       std::shared_ptr<storage::ISegmentStore> segment_store,
       std::shared_ptr<compute::QueryExecutor> query_executor,
-      std::shared_ptr<cluster::NodeRegistry> node_registry = nullptr,
-      std::shared_ptr<cluster::Coordinator> coordinator = nullptr,
-      std::shared_ptr<consensus::RaftNode> raft_node = nullptr);
+      InternalServiceOptions options = {});
 
   ~InternalService();
 
@@ -197,56 +221,18 @@ class InternalService final : public proto::internal::InternalService::Service {
       const proto::internal::UnfreezeWritesRequest* request,
       proto::internal::UnfreezeWritesResponse* response) override;
 
-  // Wire the data-node's local primary-term view so PausePrimary /
-  // PreparePromote can update it directly. Optional; null on a coordinator
-  // node, query-node, or test fixture (those instantiations don't host
-  // the swap RPCs as data-node handlers anyway). Owned by the caller
-  // (data_node_main); must outlive this service.
-  void SetPrimaryTermTracker(cluster::PrimaryTermTracker* tracker) {
-    primary_term_tracker_ = tracker;
-  }
-
-  // Wire the per-shard write fence used by FreezeWrites / UnfreezeWrites.
-  // Optional; if null, FreezeWrites returns UNIMPLEMENTED. Owned by the
-  // caller (data_node_main); must outlive this service.
-  void SetShardWriteGate(cluster::ShardWriteGate* gate) {
-    shard_write_gate_ = gate;
-  }
-
-  // Wire the storage-layer backup/restore engines. When non-null,
-  // BackupShard / RestoreShard dispatch into them; when null, those
-  // handlers return UNIMPLEMENTED.
-  void SetBackupManager(std::shared_ptr<storage::BackupManager> mgr) {
-    backup_manager_ = std::move(mgr);
-  }
-  void SetRestoreManager(std::shared_ptr<storage::RestoreManager> mgr) {
-    restore_manager_ = std::move(mgr);
-  }
-
  private:
   std::shared_ptr<cluster::ShardManager> shard_manager_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
+  // The optional collaborators. InternalServiceOptions describes each one.
   std::shared_ptr<cluster::NodeRegistry> node_registry_;
   std::shared_ptr<cluster::Coordinator> coordinator_;
   std::shared_ptr<consensus::RaftNode> raft_node_;
-
-  // Per-shard primary-term view this data-node is allowed to mutate from
-  // PausePrimary / PreparePromote handlers. Null when the service is
-  // hosted by a non-data-node binary (coordinator, query-node): those
-  // instances should never see these RPCs in production but we tolerate
-  // the call by returning FAILED_PRECONDITION rather than crashing.
-  cluster::PrimaryTermTracker* primary_term_tracker_ = nullptr;
-
-  // Per-shard pause-writes fence wired by FreezeWrites / UnfreezeWrites.
-  // Null on a binary that doesn't host backup orchestration.
-  cluster::ShardWriteGate* shard_write_gate_ = nullptr;
-
-  // Storage-layer engines that execute the per-shard backup/restore.
-  // Null on a binary that doesn't host them; the handlers return
-  // UNIMPLEMENTED in that case.
   std::shared_ptr<storage::BackupManager> backup_manager_;
   std::shared_ptr<storage::RestoreManager> restore_manager_;
+  cluster::PrimaryTermTracker* primary_term_tracker_;
+  cluster::ShardWriteGate* shard_write_gate_;
 };
 
 }  // namespace service

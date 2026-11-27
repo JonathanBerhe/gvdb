@@ -41,9 +41,9 @@ struct VectorDBServiceCoordinatorTest {
     node_registry_ = std::make_shared<cluster::NodeRegistry>(
         std::chrono::seconds(30));
 
-    // Create coordinator (use NullInternalServiceClientFactory for tests)
+    // Create coordinator without a client factory, so it makes no RPC.
     coordinator_ = std::make_shared<cluster::Coordinator>(
-        shard_manager_, node_registry_, nullptr);
+        shard_manager_, node_registry_);
 
     // Register a mock data node directly in node_registry (simulates heartbeat)
     proto::internal::NodeInfo proto_node_info;

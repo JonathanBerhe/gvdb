@@ -70,11 +70,12 @@ class ProxyIntegrationTest {
     // data node that step 3 registers.
     auto client_factory = std::make_shared<cluster::GrpcInternalServiceClientFactory>();
     coordinator_ = std::make_shared<cluster::Coordinator>(
-        shard_manager_, node_registry_, client_factory);
+        shard_manager_, node_registry_,
+        cluster::CoordinatorOptions{.client_factory = client_factory});
 
     coord_internal_service_ = std::make_unique<service::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
-        node_registry_, coordinator_);
+        service::InternalServiceOptions{.node_registry = node_registry_, .coordinator = coordinator_});
 
     auto coord_resolver = service::MakeCoordinatorResolver(coordinator_);
     coord_vectordb_service_ = std::make_unique<service::VectorDBService>(
@@ -117,7 +118,7 @@ class ProxyIntegrationTest {
     // happens to implement Search locally, which keeps this test
     // exercising the same code paths without spinning up a separate
     // query-node binary. Do NOT take this as "data-nodes serve Search in
-    // production" — they don't; a real deployment always has query-node
+    // production": they do not, because a real deployment always has query-node
     // pods.
     proxy_service_ = std::make_unique<service::ProxyService>(
         std::vector<std::string>{coord_address_},

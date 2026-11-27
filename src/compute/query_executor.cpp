@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <queue>
+#include <utility>
 #include <vector>
 
 #include "absl/strings/str_format.h"
@@ -16,8 +17,9 @@ namespace gvdb {
 namespace compute {
 
 QueryExecutor::QueryExecutor(storage::ISegmentStore& segment_store,
-                             common::ThreadPool* thread_pool)
-    : segment_store_(&segment_store), thread_pool_(thread_pool) {
+                             common::ThreadPool* thread_pool,
+                             std::shared_ptr<compute::QueryCache> cache)
+    : segment_store_(&segment_store), thread_pool_(thread_pool), cache_(std::move(cache)) {
   // Create thread pool if not provided
   if (thread_pool_ == nullptr) {
     owned_thread_pool_ = std::make_unique<common::ThreadPool>();

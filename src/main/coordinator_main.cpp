@@ -77,31 +77,6 @@ absl::Status Run(const Args& args) {
     server::WaitForLeaderElection(*raft_node, std::chrono::seconds(60));
   }
 
-  auto shard_manager = std::make_shared<cluster::ShardManager>(16, cluster::ShardingStrategy::HASH);
-  auto node_registry = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
-  auto coordinator = std::make_shared<cluster::Coordinator>(
-      shard_manager, node_registry, std::make_shared<cluster::GrpcInternalServiceClientFactory>());
-  // Restore the collection registry and the shard map before serving.
-  // Without it, a restart orphans every collection, although the data
-  // nodes keep the segments.
-  coordinator->SetRegistryDir(args.data_dir);
-  if (auto status = coordinator->LoadRegistry(); !status.ok()) {
-    return server::WithPrefix("Failed to load coordinator registry: ", status);
-  }
-
-  // The coordinator keeps no data, but its services need a segment store
-  // and a query executor.
-  auto index_factory = std::make_unique<index::IndexFactory>();
-  auto segment_manager =
-      std::make_shared<storage::SegmentManager>(args.data_dir + "/segments", index_factory.get());
-  auto query_executor = std::make_shared<compute::QueryExecutor>(*segment_manager);
-
-  // The service shares the Raft node without owning it. raft_node outlives
-  // the service.
-  std::shared_ptr<consensus::RaftNode> raft_ref(raft_node.get(), [](consensus::RaftNode*) {});
-  auto internal_service = std::make_unique<service::InternalService>(
-      shard_manager, segment_manager, query_executor, node_registry, coordinator, raft_ref);
-
   const config::GVDBConfig config = server::LoadConfigOrDefault(args.config_file);
 
   // The coordinator writes the top-level backup manifest into the bucket
@@ -121,20 +96,51 @@ absl::Status Run(const Args& args) {
                                                             .version = "coordinator",
                                                             .node_id = args.node_id,
                                                             .local_segments = false});
-  coordinator->SetBackupManager(backup.backup);
-  coordinator->SetRestoreManager(backup.restore);
+
+  // The registry folder makes the coordinator persist the collection
+  // registry and the shard map.
+  auto shard_manager = std::make_shared<cluster::ShardManager>(16, cluster::ShardingStrategy::HASH);
+  auto node_registry = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
+  auto coordinator = std::make_shared<cluster::Coordinator>(
+      shard_manager, node_registry,
+      cluster::CoordinatorOptions{
+          .client_factory = std::make_shared<cluster::GrpcInternalServiceClientFactory>(),
+          .backup_manager = backup.backup,
+          .restore_manager = backup.restore,
+          .registry_dir = args.data_dir});
+  // Restore the collection registry and the shard map before serving.
+  // Without it, a restart orphans every collection, although the data
+  // nodes keep the segments.
+  if (auto status = coordinator->LoadRegistry(); !status.ok()) {
+    return server::WithPrefix("Failed to load coordinator registry: ", status);
+  }
+
+  // The coordinator keeps no data, but its services need a segment store
+  // and a query executor.
+  auto index_factory = std::make_unique<index::IndexFactory>();
+  auto segment_manager =
+      std::make_shared<storage::SegmentManager>(args.data_dir + "/segments", index_factory.get());
+  auto query_executor = std::make_shared<compute::QueryExecutor>(*segment_manager);
+
+  // The service shares the Raft node without owning it. raft_node outlives
+  // the service.
+  std::shared_ptr<consensus::RaftNode> raft_ref(raft_node.get(), [](consensus::RaftNode*) {});
+  auto internal_service = std::make_unique<service::InternalService>(
+      shard_manager, segment_manager, query_executor,
+      service::InternalServiceOptions{
+          .node_registry = node_registry, .coordinator = coordinator, .raft_node = raft_ref});
 
   server::InterceptorFactories interceptors;
   ASSIGN_OR_RETURN(auto rbac_store, server::AddAuthInterceptor(config.server.auth, interceptors));
   server::AddAuditInterceptor(config.logging.audit, interceptors);
 
-  auto vectordb_service = std::make_unique<service::VectorDBService>(
-      segment_manager, query_executor, service::MakeCoordinatorResolver(coordinator), rbac_store);
   // Client backup and restore calls fan out to the shards through the
   // coordinator. Without it, they would back up the empty local store. The
   // service logs "Backup disabled" because it has no local backup manager,
   // so the next line says how backups run here.
-  vectordb_service->SetCoordinator(coordinator);
+  auto vectordb_service = std::make_unique<service::VectorDBService>(
+      segment_manager, query_executor, service::MakeCoordinatorResolver(coordinator),
+      service::VectorDBServiceOptions{.rbac_store = rbac_store, .coordinator = coordinator});
   common::Logger::Instance().Info(
       "Coordinator backup/restore served via distributed shard orchestration");
 

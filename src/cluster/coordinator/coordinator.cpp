@@ -16,15 +16,17 @@
 namespace gvdb {
 namespace cluster {
 
-Coordinator::Coordinator(
-    std::shared_ptr<ShardManager> shard_manager,
-    std::shared_ptr<NodeRegistry> node_registry,
-    std::shared_ptr<IInternalServiceClientFactory> client_factory,
-    AutoRebalanceConfig auto_rebalance)
+Coordinator::Coordinator(std::shared_ptr<ShardManager> shard_manager,
+                         std::shared_ptr<NodeRegistry> node_registry,
+                         CoordinatorOptions options)
     : shard_manager_(std::move(shard_manager)),
       node_registry_(std::move(node_registry)),
-      auto_rebalance_config_(auto_rebalance),
-      client_factory_(std::move(client_factory)) {
+      registry_path_(options.registry_dir.empty() ? std::string()
+                                                  : options.registry_dir + "/registry.json"),
+      auto_rebalance_config_(options.auto_rebalance),
+      client_factory_(std::move(options.client_factory)),
+      backup_manager_(std::move(options.backup_manager)),
+      restore_manager_(std::move(options.restore_manager)) {
   common::Logger::Instance().Info(
       "Coordinator initialized (using NodeRegistry, distributed_mode={}, "
       "auto_rebalance_debounce={}s)",

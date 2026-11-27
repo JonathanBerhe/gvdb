@@ -126,8 +126,8 @@ class BackupServiceFixtureBase {
     service_ = std::make_unique<service::VectorDBService>(
         segment_store_, query_executor_,
         service::MakeLocalResolver(segment_store_, data_dir_),
-        /*rbac_store=*/nullptr, /*bulk_importer=*/nullptr, backup_manager_,
-        restore_manager_);
+        service::VectorDBServiceOptions{.backup_manager = backup_manager_,
+                                        .restore_manager = restore_manager_});
   }
 
   ~BackupServiceFixtureBase() {

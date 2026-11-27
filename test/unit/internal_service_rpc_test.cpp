@@ -42,9 +42,18 @@ class InternalServiceRpcTest {
     node_registry_->UpdateNode(proto_node);
 
     // Create the service under test with all dependencies
+    UseTracker(nullptr);
+  }
+
+  // Replaces the service under test with one that changes `tracker`
+  // in PausePrimary and PreparePromote. Null leaves the service without a
+  // tracker.
+  void UseTracker(PrimaryTermTracker* tracker) {
     service_ = std::make_unique<InternalService>(
         shard_manager_, segment_store_, nullptr /* query_executor */,
-        node_registry_, coordinator_);
+        InternalServiceOptions{.node_registry = node_registry_,
+                               .coordinator = coordinator_,
+                               .primary_term_tracker = tracker});
   }
 
   ~InternalServiceRpcTest() {
@@ -404,7 +413,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_NoCoordinator") {
   // Create service without coordinator
   auto service_no_coord = std::make_unique<InternalService>(
       shard_manager_, segment_store_, nullptr,
-      node_registry_, nullptr /* no coordinator */);
+      InternalServiceOptions{.node_registry = node_registry_});
 
   grpc::ServerContext ctx;
   proto::internal::RouteQueryRequest request;
@@ -502,7 +511,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
 
 // If the primary is draining AND no routable replica exists, RouteQuery must
 // fall back to the primary rather than returning an empty address. Better to
-// have stale routing than broken routing — the caller will see a connection
+// have stale routing than broken routing, the caller will see a connection
 // error on the now-dead node and can retry.
 TEST_CASE_FIXTURE(InternalServiceRpcTest,
                   "RouteQuery_FallsBackToPrimaryWhenNoReplicaRoutable") {
@@ -591,7 +600,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
 
 // When the primary is draining and the caller opts into replica fallback,
 // options[0] must be a routable replica and the draining primary must be
-// the *last* fallback (not absent — see RouteQuery_FallsBackToPrimary…).
+// the *last* fallback (not absent, see RouteQuery_FallsBackToPrimary…).
 TEST_CASE_FIXTURE(InternalServiceRpcTest,
                   "RouteQuery_OptionsListPlacesDrainingPrimaryLast") {
   for (uint32_t id = 1; id <= 3; ++id) {
@@ -649,7 +658,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
 // Pathological case: prefer_routable_replica=true, primary is draining,
 // AND every replica is non-routable (heartbeat lost, never re-registered
 // in the node_registry). The contract is "always emit something so the
-// caller sees a deterministic failure, never an empty options list" —
+// caller sees a deterministic failure, never an empty options list":
 // the primary stays as a last-resort fallback even though it's draining.
 // The caller will dial it, see UNAVAILABLE, and surface that to the user.
 TEST_CASE_FIXTURE(InternalServiceRpcTest,
@@ -684,7 +693,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
   }
 
   // Step 2: replica goes DRAINING (i.e. not routable). Primary also
-  // goes DRAINING simultaneously — the pathological "everything is
+  // goes DRAINING simultaneously, the pathological "everything is
   // draining" state.
   primary.set_status(proto::internal::NodeStatus::NODE_STATUS_DRAINING);
   node_registry_->UpdateNode(primary);
@@ -700,7 +709,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
 
   REQUIRE(resp.per_shard_options_size() > 0);
   const auto& opts = resp.per_shard_options(0).options();
-  // No routable replica found — primary kept as last-resort fallback so
+  // No routable replica found, primary kept as last-resort fallback so
   // the options list is non-empty and the caller sees a deterministic
   // (non-empty) routing decision.
   REQUIRE(opts.size() == 1);
@@ -738,7 +747,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
   grpc::ServerContext ctx;
   proto::internal::RouteQueryRequest req;
   req.set_collection_name("write_options_test");
-  // prefer_routable_replica left default (false) — write semantics.
+  // prefer_routable_replica left default (false), write semantics.
   proto::internal::RouteQueryResponse resp;
   REQUIRE(service_->RouteQuery(&ctx, &req, &resp).ok());
 
@@ -895,7 +904,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_Degraded") {
   // Create a service with the short-timeout registry
   auto degraded_service = std::make_unique<InternalService>(
       shard_manager_, segment_store_, nullptr,
-      short_registry, coordinator_);
+      InternalServiceOptions{.node_registry = short_registry, .coordinator = coordinator_});
 
   grpc::ServerContext ctx;
   proto::internal::GetClusterHealthRequest request;
@@ -912,7 +921,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "GetClusterHealth_NoRegistry") {
   // Create service without node registry (single-node mode)
   auto service_no_registry = std::make_unique<InternalService>(
       shard_manager_, segment_store_, nullptr,
-      nullptr /* no registry */, coordinator_);
+      InternalServiceOptions{.coordinator = coordinator_});
 
   grpc::ServerContext ctx;
   proto::internal::GetClusterHealthRequest request;
@@ -1066,13 +1075,13 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "RouteQuery_WithShardAssignment") {
 // ============================================================================
 //
 // These cover the data-node-side PausePrimary / PreparePromote handlers
-// in isolation: the fixture's service_ doesn't normally have a
-// PrimaryTermTracker wired (it's optional), so each test wires its own
-// tracker and observes the resulting state transitions.
+// in isolation: the fixture's service_ has no PrimaryTermTracker (it is
+// optional), so each test gives the service its own tracker with
+// UseTracker and observes the resulting state transitions.
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "PreparePromote_RecordsPrimaryAtTerm") {
   PrimaryTermTracker tracker;
-  service_->SetPrimaryTermTracker(&tracker);
+  UseTracker(&tracker);
 
   grpc::ServerContext ctx;
   proto::internal::PreparePromoteRequest req;
@@ -1093,7 +1102,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "PreparePromote_RecordsPrimaryAtTerm")
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "PreparePromote_IdempotentReplay") {
   PrimaryTermTracker tracker;
-  service_->SetPrimaryTermTracker(&tracker);
+  UseTracker(&tracker);
 
   grpc::ServerContext ctx1, ctx2;
   proto::internal::PreparePromoteRequest req;
@@ -1115,7 +1124,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "PreparePromote_IdempotentReplay") {
 TEST_CASE_FIXTURE(InternalServiceRpcTest,
                   "PreparePromote_RejectsTermRegression") {
   PrimaryTermTracker tracker;
-  service_->SetPrimaryTermTracker(&tracker);
+  UseTracker(&tracker);
 
   // First, promote at term 5.
   {
@@ -1127,7 +1136,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
     CHECK(service_->PreparePromote(&ctx, &req, &resp).ok());
   }
 
-  // Now try to "promote" at a smaller term. The handler must reject —
+  // Now try to "promote" at a smaller term. The handler must reject:
   // term must be strictly greater than the recorded one to fire.
   grpc::ServerContext ctx;
   proto::internal::PreparePromoteRequest req;
@@ -1144,7 +1153,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "PreparePromote_NewTermZeroRejected") {
   PrimaryTermTracker tracker;
-  service_->SetPrimaryTermTracker(&tracker);
+  UseTracker(&tracker);
 
   grpc::ServerContext ctx;
   proto::internal::PreparePromoteRequest req;
@@ -1175,7 +1184,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest,
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "PausePrimary_DemoteToNotPrimary") {
   PrimaryTermTracker tracker;
-  service_->SetPrimaryTermTracker(&tracker);
+  UseTracker(&tracker);
 
   // Set up: this node is primary at term 4.
   CHECK(tracker.RecordPrimary(11, 4));
@@ -1203,7 +1212,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "PausePrimary_DemoteToNotPrimary") {
 
 TEST_CASE_FIXTURE(InternalServiceRpcTest, "PausePrimary_ReplaySafe") {
   PrimaryTermTracker tracker;
-  service_->SetPrimaryTermTracker(&tracker);
+  UseTracker(&tracker);
 
   CHECK(tracker.RecordPrimary(8, 2));
 
@@ -1228,7 +1237,7 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "PausePrimary_ReplaySafe") {
 TEST_CASE_FIXTURE(InternalServiceRpcTest,
                   "PausePrimary_NewTermZeroRejected") {
   PrimaryTermTracker tracker;
-  service_->SetPrimaryTermTracker(&tracker);
+  UseTracker(&tracker);
 
   grpc::ServerContext ctx;
   proto::internal::PausePrimaryRequest req;

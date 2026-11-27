@@ -29,21 +29,39 @@ namespace cluster {
 // Auto-rebalance configuration. `debounce` caps how often a
 // new-node event can trigger ExecuteRebalancePlan: a rolling restart of N
 // pods within the window only fires one rebalance. Tests pass a very small
-// value to drive the debounce path deterministically. Defined outside the
-// Coordinator class so the default-initialized default argument in the
-// constructor doesn't run into C++ parse-ordering issues.
+// value to drive the debounce path deterministically.
 struct AutoRebalanceConfig {
   std::chrono::seconds debounce{60};
+};
+
+// The optional collaborators and settings of a Coordinator. They are
+// defined outside the class, so that the constructor can use `= {}` as the
+// default argument.
+struct CoordinatorOptions {
+  // Every member has a default member initializer. Clang then accepts a
+  // designated initializer that leaves the member out.
+
+  // Dials the data nodes. Null turns off distributed mode: the coordinator
+  // then keeps only the registry and makes no RPC to a data node.
+  std::shared_ptr<IInternalServiceClientFactory> client_factory = nullptr;
+  AutoRebalanceConfig auto_rebalance{};
+  // Run the multi-shard backup and restore. Null makes
+  // StartBackupDistributed and StartRestoreDistributed return
+  // UNIMPLEMENTED.
+  std::shared_ptr<storage::BackupManager> backup_manager = nullptr;
+  std::shared_ptr<storage::RestoreManager> restore_manager = nullptr;
+  // The folder of the persisted registry. When it is set, every registry
+  // change rewrites <registry_dir>/registry.json, and LoadRegistry reads it.
+  // Empty keeps the registry in memory only.
+  std::string registry_dir{};
 };
 
 // Coordinator manages cluster metadata and operations
 class Coordinator {
  public:
-  explicit Coordinator(
-      std::shared_ptr<ShardManager> shard_manager,
-      std::shared_ptr<NodeRegistry> node_registry,
-      std::shared_ptr<IInternalServiceClientFactory> client_factory = nullptr,
-      AutoRebalanceConfig auto_rebalance = AutoRebalanceConfig{});
+  explicit Coordinator(std::shared_ptr<ShardManager> shard_manager,
+                       std::shared_ptr<NodeRegistry> node_registry,
+                       CoordinatorOptions options = {});
   ~Coordinator();
 
   // Cluster initialization
@@ -152,26 +170,17 @@ class Coordinator {
   // Backup / Restore orchestration
   // =========================================================================
   //
-  // Wire the storage-layer engines used to drive the multi-shard fan-out.
-  // Setters (rather than constructor params) keep the existing Coordinator
-  // constructor signature stable: main_*.cpp calls these after both
-  // objects are built. Either or both may stay unset on a coordinator
-  // binary not configured for backups; the public Start* methods then
-  // return UNIMPLEMENTED.
-  void SetBackupManager(std::shared_ptr<storage::BackupManager> mgr);
-  void SetRestoreManager(std::shared_ptr<storage::RestoreManager> mgr);
-
   // Registry persistence. The collection registry (metadata, name map, id
   // counter) and the cluster shard assignments (primary, replicas,
   // primary_term) live only in memory; without persistence a coordinator
   // restart orphans every collection even though the segment data is intact
   // on the data nodes and in object storage.
   //
-  // SetRegistryDir enables persistence: after every registry mutation the
-  // full state is atomically rewritten to <dir>/registry.json. LoadRegistry
-  // restores it on startup (a missing file is not an error: first boot).
-  // Call SetRegistryDir then LoadRegistry before serving traffic.
-  void SetRegistryDir(const std::string& dir);
+  // CoordinatorOptions::registry_dir enables persistence: after every
+  // registry mutation the full state is atomically rewritten to
+  // <dir>/registry.json. LoadRegistry restores it on startup (a missing
+  // file is not an error: first boot). Call LoadRegistry before serving
+  // traffic.
   absl::Status LoadRegistry();
 
   // Start a distributed backup of the collection. Returns the backup_id
@@ -221,7 +230,7 @@ class Coordinator {
   // requires collection_mutex_ held (shared or unique); PersistRegistry
   // takes the shared lock itself, for callers that mutate only shard
   // assignments.
-  std::string registry_path_;
+  const std::string registry_path_;
   void PersistRegistryLocked() const;
   void PersistRegistry() const;
 

@@ -14,12 +14,14 @@ HeartbeatSender::HeartbeatSender(const std::string& coordinator_address,
                                   int node_id,
                                   const std::string& grpc_address,
                                   proto::internal::NodeType node_type,
-                                  std::atomic<bool>& shutdown_flag)
+                                  std::atomic<bool>& shutdown_flag,
+                                  PrimaryTermTracker* primary_term_tracker)
     : coordinator_address_(coordinator_address),
       node_id_(node_id),
       grpc_address_(grpc_address),
       node_type_(node_type),
-      shutdown_flag_(shutdown_flag) {}
+      shutdown_flag_(shutdown_flag),
+      primary_term_tracker_(primary_term_tracker) {}
 
 HeartbeatSender::~HeartbeatSender() {
   Stop();

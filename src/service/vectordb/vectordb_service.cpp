@@ -29,17 +29,17 @@ VectorDBService::VectorDBService(
     std::shared_ptr<storage::ISegmentStore> segment_store,
     std::shared_ptr<compute::QueryExecutor> query_executor,
     std::unique_ptr<ICollectionResolver> resolver,
-    std::shared_ptr<auth::RbacStore> rbac_store,
-    std::shared_ptr<storage::BulkImporter> bulk_importer,
-    std::shared_ptr<storage::BackupManager> backup_manager,
-    std::shared_ptr<storage::RestoreManager> restore_manager)
+    VectorDBServiceOptions options)
     : segment_store_(std::move(segment_store)),
       query_executor_(std::move(query_executor)),
       resolver_(std::move(resolver)),
-      rbac_store_(std::move(rbac_store)),
-      bulk_importer_(std::move(bulk_importer)),
-      backup_manager_(std::move(backup_manager)),
-      restore_manager_(std::move(restore_manager)) {
+      rbac_store_(std::move(options.rbac_store)),
+      bulk_importer_(std::move(options.bulk_importer)),
+      backup_manager_(std::move(options.backup_manager)),
+      restore_manager_(std::move(options.restore_manager)),
+      coordinator_(std::move(options.coordinator)),
+      primary_term_tracker_(options.primary_term_tracker),
+      shard_write_gate_(options.shard_write_gate) {
   common::Logger::Instance().Info(
       "VectorDBService initialized (RBAC {}, BulkImport {}, Backup {}, Restore {})",
       rbac_store_ ? "enabled" : "disabled",

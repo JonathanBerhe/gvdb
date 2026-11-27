@@ -43,7 +43,7 @@ class InternalServiceMetadataTest {
     // Create InternalService with coordinator (node_registry_ is already created above)
     internal_service_ = std::make_unique<InternalService>(
         shard_manager_, segment_store_, query_executor_,
-        node_registry_, coordinator_);
+        InternalServiceOptions{.node_registry = node_registry_, .coordinator = coordinator_});
   }
 
   std::shared_ptr<ShardManager> shard_manager_;
@@ -167,7 +167,7 @@ TEST_CASE_FIXTURE(InternalServiceMetadataTest, "GetMetadataWithoutCoordinator") 
   // Create InternalService without coordinator
   auto service_without_coordinator = std::make_unique<InternalService>(
       shard_manager_, segment_store_, query_executor_,
-      node_registry_, nullptr);
+      InternalServiceOptions{.node_registry = node_registry_});
 
   grpc::ServerContext context;
   proto::internal::GetCollectionMetadataRequest request;
