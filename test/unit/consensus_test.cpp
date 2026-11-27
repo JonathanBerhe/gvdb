@@ -212,3 +212,18 @@ TEST_CASE_FIXTURE(RaftNodeTest, "TimestampOracleAccess") {
 
   CHECK_LT(ts1, ts2);
 }
+
+TEST_CASE("RaftNode Start fails when coordinator gRPC peers are set without a peer client") {
+  gvdb::test::ScopedTempDir dir("raft_no_peer_client");
+  RaftConfig config;
+  config.node_id = 1;
+  config.single_node_mode = false;
+  config.peers = {"1:127.0.0.1:1"};
+  config.coordinator_grpc_peers = {"127.0.0.1:1"};
+  config.data_dir = dir.str();
+
+  RaftNode node(config);
+  auto status = node.Start();
+  CHECK_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  CHECK_FALSE(node.IsRunning());
+}

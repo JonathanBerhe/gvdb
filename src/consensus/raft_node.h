@@ -4,12 +4,14 @@
 #pragma once
 
 #include "consensus/raft_config.h"
+#include "consensus/raft_peer_client.h"
 #include "consensus/timestamp_oracle.h"
 #include "core/status.h"
 #include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -55,7 +57,7 @@ struct PeerListPlan {
 //   * `self_id` is present as one of the entries (prevents a rogue member
 //     voting only for itself when the chart emits a wrong --node-id)
 //   * returns needs_seed=true when the current persisted cluster_config
-//     holds <= 1 server (fresh boot or single-member upgrade to HA) — the
+//     holds <= 1 server (fresh boot or single-member upgrade to HA): the
 //     caller should replace the config with these peers. Otherwise trust
 //     the persisted multi-member config and leave it alone so runtime
 //     add_srv / remove_srv changes aren't clobbered on restart.
@@ -70,7 +72,11 @@ core::StatusOr<PeerListPlan> PrepareRaftPeerList(
 // Thread-safe: All public methods are thread-safe
 class RaftNode {
  public:
-  explicit RaftNode(const RaftConfig& config);
+  // `peer_client` makes the startup peer probe and the join request. A
+  // multi-node config with coordinator_grpc_peers needs it: Start() fails
+  // without it. A single node needs none.
+  explicit RaftNode(const RaftConfig& config,
+                    std::shared_ptr<IRaftPeerClient> peer_client = nullptr);
   ~RaftNode();
 
   // Disable copy and move
@@ -125,7 +131,7 @@ class RaftNode {
 
   // Leader-only. Wraps NuRaft raft_server::yield_leadership with a
   // specific successor. Unlike add_srv/remove_srv, yield_leadership
-  // returns void — we synthesize a result by polling GetLeaderId()
+  // returns void: we synthesize a result by polling GetLeaderId()
   // every 100ms up to 3s. Returns Ok when the target_node_id is
   // observed as leader; DeadlineExceeded on timeout. NuRaft aborts the
   // transfer if quorum is lost mid-flight; the caller treats that as
@@ -137,6 +143,7 @@ class RaftNode {
 
  private:
   RaftConfig config_;
+  std::shared_ptr<IRaftPeerClient> peer_client_;
   std::atomic<bool> running_{false};
   std::atomic<bool> is_leader_{false};
 
@@ -158,8 +165,19 @@ class RaftNode {
   // up. Cleared once the join has been announced.
   std::string joining_peer_;
 
+  // Result of the startup peer probe, when a peer reported a live leader.
+  struct LeaderProbeResult {
+    int32_t leader_id = 0;
+    // The peer that answered: the leader itself, or a follower that knows
+    // the leader id. AnnounceJoinToCluster calls JoinCluster on it.
+    std::string responding_peer;
+  };
+
   // Helpers
   core::Status InitializeNuRaft();
+  // Asks each coordinator in coordinator_grpc_peers, in order, for the
+  // current leader. Returns the first answer with a leader, or nullopt.
+  std::optional<LeaderProbeResult> ProbePeersForLeader() const;
   // Announce our join to the Raft leader via JoinCluster RPC. Called from
   // Start() after InitializeNuRaft returns when joining_peer_ is set.
   // Retries on NOT_LEADER by following the current_leader_id. Bounded
