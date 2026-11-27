@@ -1,8 +1,8 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "cluster/heartbeat_sender.h"
-#include "cluster/primary_term_tracker.h"
+#include "cluster/datanode/heartbeat_sender.h"
+#include "cluster/datanode/primary_term_tracker.h"
 #include "common/logger.h"
 #include <grpcpp/grpcpp.h>
 #include <chrono>
@@ -74,7 +74,7 @@ bool HeartbeatSender::DrainAndStop() {
 
   if (SendDrainHeartbeatOnce()) return true;
 
-  // One fast retry — drain is best-effort but worth a second try if the
+  // One fast retry: drain is best-effort but worth a second try if the
   // first RPC raced a transient coordinator hiccup.
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
   return SendDrainHeartbeatOnce();
@@ -123,7 +123,7 @@ void HeartbeatSender::SendLoop() {
                                                            sp.term())
                     : primary_term_tracker_->RecordNotPrimary(sp.shard_id(),
                                                               sp.term());
-            // A false return means a term regression — the heartbeat
+            // A false return means a term regression: the heartbeat
             // tried to walk the term backwards, which is contractually
             // impossible (terms are monotonic per shard). Likely cause:
             // a stale gRPC response landing after a fresher one. Logged

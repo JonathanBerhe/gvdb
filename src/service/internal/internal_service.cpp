@@ -7,8 +7,8 @@
 // data_node_handlers.cpp hold the two groups of RPCs.
 
 #include "service/internal/internal_service.h"
-#include "cluster/node_registry.h"
-#include "cluster/coordinator.h"
+#include "cluster/coordinator/node_registry.h"
+#include "cluster/coordinator/coordinator.h"
 #include "consensus/raft_node.h"
 #include "common/logger.h"
 

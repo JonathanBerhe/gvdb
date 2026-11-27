@@ -7,7 +7,7 @@
 #include "rpc/proto_conversions.h"
 #include "service/vectordb/collection_resolver.h"
 #include "auth/audit_context.h"
-#include "cluster/coordinator.h"
+#include "cluster/coordinator/coordinator.h"
 #include "storage/backup/backup_manager.h"
 #include <grpcpp/grpcpp.h>
 

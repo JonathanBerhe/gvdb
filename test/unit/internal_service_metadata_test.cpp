@@ -1,7 +1,7 @@
 #include "service/internal/internal_service.h"
-#include "cluster/coordinator.h"
+#include "cluster/coordinator/coordinator.h"
 #include "cluster/shard_manager.h"
-#include "cluster/node_registry.h"
+#include "cluster/coordinator/node_registry.h"
 #include "internal.grpc.pb.h"
 #include "support/grpc_server.h"
 #include <doctest/doctest.h>

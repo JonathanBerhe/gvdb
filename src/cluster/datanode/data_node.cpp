@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "cluster/data_node.h"
+#include "cluster/datanode/data_node.h"
 #include "core/config.h"
 #include "common/logger.h"
 #include "absl/strings/str_cat.h"

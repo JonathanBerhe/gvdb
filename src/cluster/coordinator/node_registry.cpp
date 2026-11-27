@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "cluster/node_registry.h"
+#include "cluster/coordinator/node_registry.h"
 #include "common/logger.h"
 
 #include <utility>
@@ -178,7 +178,7 @@ std::vector<RegisteredNode> NodeRegistry::GetDrainingNodes() const {
   for (const auto& [id, node] : nodes_) {
     // Only include nodes that are *actively* draining: status = DRAINING
     // AND last heartbeat is still within the timeout. A draining node whose
-    // heartbeat has expired is stale — the failure-detection path handles it.
+    // heartbeat has expired is stale: the failure-detection path handles it.
     if (node.IsDraining() && node.IsHealthy(heartbeat_timeout_, now)) {
       result.push_back(node);
     }

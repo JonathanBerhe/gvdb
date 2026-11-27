@@ -6,8 +6,8 @@
 
 #include "service/internal/internal_service.h"
 #include "core/type_names.h"
-#include "cluster/node_registry.h"
-#include "cluster/coordinator.h"
+#include "cluster/coordinator/node_registry.h"
+#include "cluster/coordinator/coordinator.h"
 #include "consensus/raft_node.h"
 #include "common/logger.h"
 #include "core/types.h"

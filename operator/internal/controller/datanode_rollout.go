@@ -93,7 +93,7 @@ const DataNodeRolloutObservedRebalanceAnnotation = "gvdb.io/datanode-rollout-obs
 
 // RebalanceQuiescenceWindow is the minimum time since the last rebalance
 // before advancing the partition. 15s = 2× coordinator health-check cycle
-// (5s in src/cluster/coordinator.cpp:20) + margin — HandleDrainingNode runs
+// (5s in src/cluster/coordinator/health_checks.cpp) + margin. HandleDrainingNode runs
 // once per cycle and replacement-replica scheduling happens on the next.
 const RebalanceQuiescenceWindow = 15 * time.Second
 
@@ -106,10 +106,10 @@ const RebalanceQuiescenceWindow = 15 * time.Second
 //
 //	A) cluster health (cluster_status == "healthy" AND healthy_shards == total_shards)
 //	B) rebalance quiescence (now - max(clusterLast, observedRebalance) >= 15s)
-//	C) replica safety — dropping the drain target still leaves every shard
-//	   with at least one Ready replica elsewhere (coordinator.cpp:903 only
+//	C) replica safety: dropping the drain target still leaves every shard
+//	   with at least one Ready replica elsewhere (coordinator/health_checks.cpp only
 //	   promotes routable/READY replicas, so set-membership alone isn't
-//	   enough — cross-reference per-node status).
+//	   enough, cross-reference per-node status).
 //
 // The coordinator-rollout guard sits between the mechanical state (1–5) and
 // the gates (A–C): we can park/clamp/wait-for-pod without coordinator data,

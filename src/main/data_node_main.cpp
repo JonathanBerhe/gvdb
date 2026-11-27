@@ -11,10 +11,10 @@
 #include <utility>
 #include <vector>
 
-#include "cluster/data_node.h"
-#include "cluster/primary_term_tracker.h"
+#include "cluster/datanode/data_node.h"
+#include "cluster/datanode/primary_term_tracker.h"
 #include "cluster/shard_manager.h"
-#include "cluster/shard_write_gate.h"
+#include "cluster/datanode/shard_write_gate.h"
 #include "common/logger.h"
 #include "compute/query_cache.h"
 #include "compute/query_executor.h"

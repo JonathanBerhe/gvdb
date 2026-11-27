@@ -1,7 +1,7 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "cluster/shard_write_gate.h"
+#include "cluster/datanode/shard_write_gate.h"
 
 namespace gvdb {
 namespace cluster {

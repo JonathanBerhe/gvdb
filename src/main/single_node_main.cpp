@@ -11,10 +11,10 @@
 #include <utility>
 
 #include "absl/strings/str_cat.h"
-#include "cluster/coordinator.h"
-#include "cluster/node_registry.h"
+#include "cluster/coordinator/coordinator.h"
+#include "cluster/coordinator/node_registry.h"
 #include "cluster/shard_manager.h"
-#include "cluster/shard_write_gate.h"
+#include "cluster/datanode/shard_write_gate.h"
 #include "common/logger.h"
 #include "compute/query_cache.h"
 #include "compute/query_executor.h"

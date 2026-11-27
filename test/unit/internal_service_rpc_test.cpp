@@ -2,10 +2,10 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "service/internal/internal_service.h"
-#include "cluster/coordinator.h"
-#include "cluster/primary_term_tracker.h"
+#include "cluster/coordinator/coordinator.h"
+#include "cluster/datanode/primary_term_tracker.h"
 #include "cluster/shard_manager.h"
-#include "cluster/node_registry.h"
+#include "cluster/coordinator/node_registry.h"
 #include "index/index_factory.h"
 #include "storage/segment/segment_manager.h"
 #include "internal.grpc.pb.h"

@@ -41,7 +41,7 @@ class ShardWriteGate {
 
   // Freeze writes to `shard_id` for the next `lease_ms` milliseconds.
   // Returns true on success. Returns false (without touching state) if
-  // a freeze is already active under a different token — the caller
+  // a freeze is already active under a different token: the caller
   // should treat that as "another backup is running on this shard".
   // A repeat freeze with the same token refreshes the lease.
   bool Freeze(core::ShardId shard_id, const std::string& token,
@@ -50,7 +50,7 @@ class ShardWriteGate {
   // Unfreeze writes to `shard_id`. Returns true if a freeze was
   // present and the token matched. Returns false if no freeze was
   // present (idempotent on stale unfreezes) OR if the token didn't
-  // match the active freeze (rejected — caller's freeze has been
+  // match the active freeze (rejected, caller's freeze has been
   // superseded by a newer one).
   bool Unfreeze(core::ShardId shard_id, const std::string& token);
 
