@@ -370,22 +370,33 @@ TEST_CASE_TEMPLATE_DEFINE(
 
 // Runs every contract case above against each fixture type in the argument
 // list. Use it once per test binary, inside namespace gvdb::storage::contract.
-#define GVDB_OBJECT_STORE_CONTRACT(...)                              \
-  TEST_CASE_TEMPLATE_INVOKE(put_then_get, __VA_ARGS__);              \
-  TEST_CASE_TEMPLATE_INVOKE(get_missing, __VA_ARGS__);               \
-  TEST_CASE_TEMPLATE_INVOKE(delete_removes, __VA_ARGS__);            \
-  TEST_CASE_TEMPLATE_INVOKE(delete_missing, __VA_ARGS__);            \
-  TEST_CASE_TEMPLATE_INVOKE(overwrite, __VA_ARGS__);                 \
-  TEST_CASE_TEMPLATE_INVOKE(empty_payload, __VA_ARGS__);             \
-  TEST_CASE_TEMPLATE_INVOKE(list_by_prefix, __VA_ARGS__);            \
-  TEST_CASE_TEMPLATE_INVOKE(list_no_match, __VA_ARGS__);             \
-  TEST_CASE_TEMPLATE_INVOKE(object_exists, __VA_ARGS__);             \
-  TEST_CASE_TEMPLATE_INVOKE(put_from_file, __VA_ARGS__);             \
-  TEST_CASE_TEMPLATE_INVOKE(put_from_missing_file, __VA_ARGS__);     \
-  TEST_CASE_TEMPLATE_INVOKE(get_to_file, __VA_ARGS__);               \
-  TEST_CASE_TEMPLATE_INVOKE(get_missing_to_file, __VA_ARGS__);       \
-  TEST_CASE_TEMPLATE_INVOKE(large_object, __VA_ARGS__);              \
-  TEST_CASE_TEMPLATE_INVOKE(concurrent_puts, __VA_ARGS__);           \
-  TEST_CASE_TEMPLATE_INVOKE(concurrent_overwrites, __VA_ARGS__)
+//
+// The macro expands on one source line, and doctest names the variables
+// that register a case after __LINE__ (on Clang 22 and later). So every
+// case is invoked in a namespace of its own, and the names cannot collide.
+// The static_assert at the end takes the semicolon after the macro call.
+#define GVDB_OBJECT_STORE_CONTRACT_INVOKE(id, ...) \
+  namespace invoke_##id {                          \
+  TEST_CASE_TEMPLATE_INVOKE(id, __VA_ARGS__);      \
+  }
+
+#define GVDB_OBJECT_STORE_CONTRACT(...)                                     \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(put_then_get, __VA_ARGS__)              \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(get_missing, __VA_ARGS__)               \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(delete_removes, __VA_ARGS__)            \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(delete_missing, __VA_ARGS__)            \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(overwrite, __VA_ARGS__)                 \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(empty_payload, __VA_ARGS__)             \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(list_by_prefix, __VA_ARGS__)            \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(list_no_match, __VA_ARGS__)             \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(object_exists, __VA_ARGS__)             \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(put_from_file, __VA_ARGS__)             \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(put_from_missing_file, __VA_ARGS__)     \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(get_to_file, __VA_ARGS__)               \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(get_missing_to_file, __VA_ARGS__)       \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(large_object, __VA_ARGS__)              \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(concurrent_puts, __VA_ARGS__)           \
+  GVDB_OBJECT_STORE_CONTRACT_INVOKE(concurrent_overwrites, __VA_ARGS__)     \
+  static_assert(true, "object store contract")
 
 #endif  // GVDB_TEST_UNIT_OBJECT_STORE_CONTRACT_H_
