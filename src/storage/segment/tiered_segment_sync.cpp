@@ -15,8 +15,7 @@
 #include "core/status.h"
 #include "storage/segment/tiered_segment_manager.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 namespace {
 
@@ -35,7 +34,7 @@ constexpr uint32_t kUploadErrorThreshold = 5;
 // ============================================================================
 
 std::vector<core::SegmentId> TieredSegmentManager::GetFailedUploads() const {
-  std::lock_guard lock(upload_mutex_);
+  std::scoped_lock lock(upload_mutex_);
   std::vector<core::SegmentId> result;
   result.reserve(failed_uploads_.size());
   for (const auto& [key, _] : failed_uploads_) {
@@ -104,7 +103,7 @@ void TieredSegmentManager::RunUpload(core::SegmentId id, uint32_t prior_failures
   auto upload_status = UploadSegmentToS3(id);
   auto seg_key = core::ToUInt32(id);
 
-  std::lock_guard lock(upload_mutex_);
+  std::scoped_lock lock(upload_mutex_);
   uploading_.erase(seg_key);
 
   if (upload_status.ok()) {
@@ -218,7 +217,7 @@ void TieredSegmentManager::RedriveUnuploadedSegments() {
   for (auto id : to_upload) {
     auto seg_key = core::ToUInt32(id);
     {
-      std::lock_guard lock(upload_mutex_);
+      std::scoped_lock lock(upload_mutex_);
       // Skip if already tracked to avoid enqueuing a segment twice.
       if (uploading_.count(seg_key) > 0 || failed_uploads_.count(seg_key) > 0) {
         continue;
@@ -305,7 +304,7 @@ absl::Status TieredSegmentManager::DiscoverSegmentsFromS3() {
                               e.size_bytes};
       }
 
-      std::lock_guard mlock(manifest_mutex_);
+      std::scoped_lock mlock(manifest_mutex_);
       manifest_json_ = *manifest_result;
 
       // Manifest loaded successfully
@@ -326,7 +325,7 @@ absl::Status TieredSegmentManager::DiscoverSegmentsFromS3() {
 }
 
 absl::Status TieredSegmentManager::UpdateManifest(const ManifestEntry& entry, bool remove) {
-  std::lock_guard lock(manifest_mutex_);
+  std::scoped_lock lock(manifest_mutex_);
 
   if (remove) {
     manifest_json_ = SegmentManifest::RemoveEntry(manifest_json_, entry.segment_id);
@@ -370,5 +369,4 @@ std::string TieredSegmentManager::MakeS3Key(uint32_t collection_id, uint32_t seg
                       filename);
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

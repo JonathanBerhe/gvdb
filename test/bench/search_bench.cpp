@@ -162,7 +162,7 @@ RowResult BenchRow(core::IndexType type, core::Dimension dim,
     auto end = std::chrono::steady_clock::now();
     times.push_back(std::chrono::duration<double, std::milli>(end - start).count());
   }
-  std::sort(times.begin(), times.end());
+  std::ranges::sort(times);
 
   RowResult row;
   row.build_s = std::chrono::duration<double>(build_end - build_start).count();

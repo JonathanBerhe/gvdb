@@ -12,8 +12,7 @@
 #include "core/status.h"
 #include "storage/segment/segment.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 float Segment::ComputeDistance(const core::Vector& a, const core::Vector& b) const {
   switch (metric_) {
@@ -41,7 +40,7 @@ absl::StatusOr<core::SearchResult> Segment::BruteForceSearchUnlocked(const core:
   for (size_t i = 0; i < vectors_.size(); ++i) {
     if (IsExpired(core::ToUInt64(vector_ids_[i]), now)) continue;
     float distance = ComputeDistance(query, vectors_[i]);
-    results.push_back({vector_ids_[i], distance});
+    results.emplace_back(vector_ids_[i], distance);
   }
 
   int actual_k = std::min(k, static_cast<int>(results.size()));
@@ -82,10 +81,11 @@ absl::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query, in
 
   int64_t now = NowEpochSeconds();
   auto& entries = result->entries;
-  entries.erase(std::remove_if(entries.begin(), entries.end(),
-                               [this, now](const core::SearchResultEntry& e) {
-                                 return IsExpired(core::ToUInt64(e.id), now);
-                               }),
+  entries.erase(std::ranges::remove_if(entries,
+                                       [this, now](const core::SearchResultEntry& e) {
+                                         return IsExpired(core::ToUInt64(e.id), now);
+                                       })
+                    .begin(),
                 entries.end());
 
   // Truncate to requested k
@@ -160,8 +160,8 @@ absl::StatusOr<core::SearchResult> Segment::SearchRange(const core::Vector& quer
   }
 
   // Sort by distance
-  std::sort(result.entries.begin(), result.entries.end(),
-            [](const auto& a, const auto& b) { return a.distance < b.distance; });
+  std::ranges::sort(result.entries,
+                    [](const auto& a, const auto& b) { return a.distance < b.distance; });
 
   return result;
 }
@@ -252,12 +252,12 @@ absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(const core::Vector&
       results.emplace_back(vector_ids_[i], distance);
     }
 
-    std::partial_sort(results.begin(), results.begin() + std::min(k, (int)results.size()),
-                      results.end(),
-                      [](const auto& a, const auto& b) { return a.distance < b.distance; });
+    std::partial_sort(
+        results.begin(), results.begin() + std::min(k, static_cast<int>(results.size())),
+        results.end(), [](const auto& a, const auto& b) { return a.distance < b.distance; });
 
     core::SearchResult result(k);
-    for (int i = 0; i < std::min(k, (int)results.size()); ++i) {
+    for (int i = 0; i < std::min(k, static_cast<int>(results.size())); ++i) {
       result.AddEntry(results[i].id, results[i].distance);
     }
     return result;
@@ -358,7 +358,7 @@ absl::StatusOr<core::SearchResult> Segment::SearchHybrid(const core::Vector& que
   }
 
   // 3. Reciprocal Rank Fusion (RRF)
-  constexpr float k_rrf = 60.0f;
+  constexpr float kRrf = 60.0f;
 
   // Build rank maps
   std::unordered_map<uint64_t, int> vector_ranks;
@@ -379,19 +379,18 @@ absl::StatusOr<core::SearchResult> Segment::SearchHybrid(const core::Vector& que
   // Collect all candidate IDs
   std::unordered_map<uint64_t, float> fused_scores;
   for (const auto& [id_val, rank] : vector_ranks) {
-    fused_scores[id_val] += vector_weight / (k_rrf + rank);
+    fused_scores[id_val] += vector_weight / (kRrf + rank);
   }
   for (const auto& [id_val, rank] : text_ranks) {
-    fused_scores[id_val] += text_weight / (k_rrf + rank);
+    fused_scores[id_val] += text_weight / (kRrf + rank);
   }
   for (const auto& [id_val, rank] : sparse_ranks) {
-    fused_scores[id_val] += sparse_weight / (k_rrf + rank);
+    fused_scores[id_val] += sparse_weight / (kRrf + rank);
   }
 
   // 4. Sort by fused score and take top-k
   std::vector<std::pair<uint64_t, float>> scored_ids(fused_scores.begin(), fused_scores.end());
-  std::sort(scored_ids.begin(), scored_ids.end(),
-            [](const auto& a, const auto& b) { return a.second > b.second; });
+  std::ranges::sort(scored_ids, [](const auto& a, const auto& b) { return a.second > b.second; });
 
   core::SearchResult result;
   int count = std::min(k, static_cast<int>(scored_ids.size()));
@@ -432,5 +431,4 @@ absl::Status Segment::BuildTextIndex(std::unique_ptr<index::ITextIndex> text_ind
   return absl::OkStatus();
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

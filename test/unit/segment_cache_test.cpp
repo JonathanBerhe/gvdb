@@ -12,8 +12,7 @@
 
 #include "support/temp_dir.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 namespace {
 
 struct CacheTest {
@@ -54,7 +53,7 @@ TEST_CASE_FIXTURE(CacheTest, "LRUEviction") {
   REQUIRE(cache.RegisterSegment(MakeId(3), 100).ok());
   CHECK_EQ(cache.GetCachedSize(), 300);
 
-  // Evict 150 bytes — should remove segment 1 (oldest), then 2
+  // Evict 150 bytes: should remove segment 1 (oldest), then 2
   auto evicted = cache.Evict(150);
   REQUIRE(evicted.ok());
   CHECK_EQ(evicted->size(), 2);
@@ -73,7 +72,7 @@ TEST_CASE_FIXTURE(CacheTest, "TouchUpdatesLRU") {
   // Touch segment 1 (oldest) to make it most recent
   cache.Touch(MakeId(1));
 
-  // Evict 100 bytes — should remove segment 2 (now oldest)
+  // Evict 100 bytes: should remove segment 2 (now oldest)
   auto evicted = cache.Evict(100);
   REQUIRE(evicted.ok());
   CHECK_EQ(evicted->size(), 1);
@@ -124,6 +123,7 @@ TEST_CASE_FIXTURE(CacheTest, "ConcurrentAccess") {
   constexpr int kOpsPerThread = 50;
 
   std::vector<std::thread> threads;
+  threads.reserve(kThreads);
   for (int t = 0; t < kThreads; ++t) {
     threads.emplace_back([&, t]() {
       for (int i = 0; i < kOpsPerThread; ++i) {
@@ -156,5 +156,4 @@ TEST_CASE_FIXTURE(CacheTest, "EvictDeletesFiles") {
 }
 
 }  // namespace
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

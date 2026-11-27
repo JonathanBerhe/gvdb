@@ -22,8 +22,7 @@
 #include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 
-namespace gvdb {
-namespace test {
+namespace gvdb::test {
 
 class SegmentReplicationIntegrationTest {
  public:
@@ -137,7 +136,7 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "DataNodePullsSegmentOnSear
     for (int j = 0; j < 128; j++) {
       data[j] = static_cast<float>(i * 128 + j);
     }
-    vectors.push_back(core::Vector(std::move(data)));
+    vectors.emplace_back(data);
     ids.push_back(core::MakeVectorId(i + 1));
   }
 
@@ -207,7 +206,7 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest, "MultipleSearchesReuseCache
   std::vector<core::VectorId> ids;
   for (int i = 0; i < 5; i++) {
     std::vector<float> data(64, static_cast<float>(i));
-    vectors.push_back(core::Vector(std::move(data)));
+    vectors.emplace_back(data);
     ids.push_back(core::MakeVectorId(i + 1));
   }
   REQUIRE(coord_segment_store_->WriteVectors(segment_id, vectors, ids).ok());
@@ -481,7 +480,7 @@ TEST_CASE_FIXTURE(ReadRepairIntegrationTest, "ReadRepairFixesDivergentReplica") 
   std::vector<core::VectorId> ids;
   for (int i = 0; i < 20; i++) {
     std::vector<float> data(64, static_cast<float>(i));
-    vectors.push_back(core::Vector(std::move(data)));
+    vectors.emplace_back(data);
     ids.push_back(core::MakeVectorId(i + 1));
   }
   REQUIRE(primary_seg->AddVectors(vectors, ids).ok());
@@ -503,5 +502,4 @@ TEST_CASE_FIXTURE(ReadRepairIntegrationTest, "ReadRepairFixesDivergentReplica") 
   CHECK_EQ(replica_total, 20);
 }
 
-}  // namespace test
-}  // namespace gvdb
+}  // namespace gvdb::test

@@ -350,6 +350,7 @@ TEST_CASE_FIXTURE(InternalClientTest, "ConcurrentRPCCalls") {
   std::vector<std::thread> threads;
   std::atomic<int> success_count{0};
 
+  threads.reserve(10);
   for (int i = 0; i < 10; ++i) {
     threads.emplace_back([&, i]() {
       grpc::ClientContext context;

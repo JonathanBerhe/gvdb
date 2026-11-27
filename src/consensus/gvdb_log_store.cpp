@@ -14,16 +14,16 @@
 
 #include <cassert>
 #include <filesystem>
+#include <utility>
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 using nuraft::buffer;
 using nuraft::log_entry;
 using nuraft::ptr;
 using nuraft::ulong;
 
-GvdbLogStore::GvdbLogStore(const std::string& db_path) : db_path_(db_path) {}
+GvdbLogStore::GvdbLogStore(std::string db_path) : db_path_(std::move(db_path)) {}
 
 absl::StatusOr<std::shared_ptr<GvdbLogStore>> GvdbLogStore::Create(const std::string& db_path) {
   std::shared_ptr<GvdbLogStore> store(new GvdbLogStore(db_path));
@@ -37,14 +37,14 @@ absl::StatusOr<std::shared_ptr<GvdbLogStore>> GvdbLogStore::Create(const std::st
 GvdbLogStore::~GvdbLogStore() { CloseRocksDb(); }
 
 ulong GvdbLogStore::next_slot() const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   return next_idx_.load(std::memory_order_acquire);
 }
 
 ulong GvdbLogStore::start_index() const { return start_idx_.load(std::memory_order_acquire); }
 
 ptr<log_entry> GvdbLogStore::last_entry() const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   ulong next = next_idx_.load(std::memory_order_acquire);
   ulong start = start_idx_.load(std::memory_order_acquire);
@@ -64,7 +64,7 @@ ptr<log_entry> GvdbLogStore::last_entry() const {
 }
 
 ulong GvdbLogStore::append(ptr<log_entry>& entry) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   // Use atomic counter for next index
   ulong index = next_idx_.fetch_add(1, std::memory_order_acq_rel);
@@ -79,7 +79,7 @@ ulong GvdbLogStore::append(ptr<log_entry>& entry) {
 }
 
 void GvdbLogStore::write_at(ulong index, ptr<log_entry>& entry) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   // Delete entries from index+1 to infinity (truncate)
   // RocksDB doesn't have "infinity", so we delete up to a large number
@@ -102,7 +102,7 @@ void GvdbLogStore::end_of_append_batch(ulong start, ulong cnt) {
 }
 
 ptr<std::vector<ptr<log_entry>>> GvdbLogStore::log_entries(ulong start, ulong end) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   auto result = nuraft::cs_new<std::vector<ptr<log_entry>>>();
   result->reserve(end - start);
@@ -122,12 +122,12 @@ ptr<std::vector<ptr<log_entry>>> GvdbLogStore::log_entries(ulong start, ulong en
 }
 
 ptr<log_entry> GvdbLogStore::entry_at(ulong index) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   return GetEntryInternal(index);
 }
 
 ulong GvdbLogStore::term_at(ulong index) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   ulong start = start_idx_.load(std::memory_order_acquire);
   if (index < start) {
@@ -145,7 +145,7 @@ ulong GvdbLogStore::term_at(ulong index) {
 }
 
 ptr<buffer> GvdbLogStore::pack(ulong index, nuraft::int32 cnt) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   // Calculate total size needed
   size_t total_size = 0;
@@ -169,7 +169,7 @@ ptr<buffer> GvdbLogStore::pack(ulong index, nuraft::int32 cnt) {
   auto packed = buffer::alloc(total_size + cnt * sizeof(nuraft::int32));
 
   for (const auto& entry_buf : entry_buffers) {
-    nuraft::int32 size = static_cast<nuraft::int32>(entry_buf->size());
+    auto size = static_cast<nuraft::int32>(entry_buf->size());
     packed->put(size);
     packed->put(*entry_buf);
   }
@@ -179,7 +179,7 @@ ptr<buffer> GvdbLogStore::pack(ulong index, nuraft::int32 cnt) {
 }
 
 void GvdbLogStore::apply_pack(ulong index, buffer& pack) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   pack.pos(0);  // Reset position
 
@@ -213,7 +213,7 @@ void GvdbLogStore::apply_pack(ulong index, buffer& pack) {
 }
 
 bool GvdbLogStore::compact(ulong last_log_index) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   // Delete entries from start_idx to last_log_index (inclusive)
   ulong start = start_idx_.load(std::memory_order_acquire);
@@ -461,5 +461,4 @@ bool GvdbLogStore::DeleteRangeFromDb(ulong start_index, ulong end_index) {
   return true;
 }
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

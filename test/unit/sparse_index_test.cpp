@@ -106,7 +106,7 @@ TEST_CASE("SparseIndex_NoMatchingDimensions") {
   index::SparseIndex idx;
   REQUIRE(idx.AddVector(core::MakeVectorId(1), MakeSparse({{0, 1.0f}})).ok());
 
-  // Query on dimension 99 — no postings
+  // Query on dimension 99: no postings
   core::SparseVector query({{99, 1.0f}});
   auto result = idx.Search(query, 10);
   REQUIRE(result.ok());

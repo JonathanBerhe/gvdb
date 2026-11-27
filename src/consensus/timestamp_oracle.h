@@ -8,8 +8,7 @@
 #include "core/status.h"
 #include "core/types.h"
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 // Timestamp Oracle (TSO) - Provides globally unique, monotonically increasing timestamps
 // for total ordering of operations in a distributed system.
@@ -32,5 +31,4 @@ class TimestampOracle {
   std::atomic<core::Timestamp> timestamp_{0};
 };
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

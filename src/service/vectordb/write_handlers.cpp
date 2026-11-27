@@ -16,8 +16,7 @@
 #include "service/vectordb/vectordb_service.h"
 #include "storage/segment/batch_splitter.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 // ============================================================================
 // Vector Operations
@@ -38,11 +37,11 @@ grpc::Status VectorDBService::Insert(grpc::ServerContext* context,
                              common::MetricsTimer::OperationType::INSERT,
                              request->collection_name());
 
-  constexpr size_t MAX_BATCH_SIZE = 50000;
+  constexpr size_t kMaxBatchSize = 50000;
 
-  if (static_cast<size_t>(request->vectors().size()) > MAX_BATCH_SIZE) {
+  if (static_cast<size_t>(request->vectors().size()) > kMaxBatchSize) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                        absl::StrCat("Batch size exceeds maximum (", MAX_BATCH_SIZE,
+                        absl::StrCat("Batch size exceeds maximum (", kMaxBatchSize,
                                      " vectors). Current batch: ", request->vectors().size()));
   }
 
@@ -110,7 +109,7 @@ grpc::Status VectorDBService::Insert(grpc::ServerContext* context,
       if (!meta_result.ok()) return rpc::ToGrpcStatus(meta_result.status());
       batch.metadata.push_back(std::move(*meta_result));
     } else if (batch.has_metadata) {
-      batch.metadata.push_back(core::Metadata{});
+      batch.metadata.emplace_back();
     }
 
     if (proto_vec.has_sparse_vector() && proto_vec.sparse_vector().indices_size() > 0) {
@@ -318,7 +317,7 @@ grpc::Status VectorDBService::StreamInsert(grpc::ServerContext* /*context*/,
         if (!meta_result.ok()) return rpc::ToGrpcStatus(meta_result.status());
         batch.metadata.push_back(std::move(*meta_result));
       } else if (batch.has_metadata) {
-        batch.metadata.push_back(core::Metadata{});
+        batch.metadata.emplace_back();
       }
     }
 
@@ -441,7 +440,7 @@ grpc::Status VectorDBService::Upsert(grpc::ServerContext* context,
       }
       metadata.push_back(std::move(*meta_result));
     } else {
-      metadata.push_back(core::Metadata{});
+      metadata.emplace_back();
     }
 
     if (proto_vec.ttl_seconds() > 0) {
@@ -485,12 +484,12 @@ grpc::Status VectorDBService::Delete(grpc::ServerContext* context,
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "IDs list cannot be empty");
   }
 
-  constexpr size_t MAX_DELETE_BATCH_SIZE = 10000;
-  if (static_cast<size_t>(request->ids().size()) > MAX_DELETE_BATCH_SIZE) {
+  constexpr size_t kMaxDeleteBatchSize = 10000;
+  if (static_cast<size_t>(request->ids().size()) > kMaxDeleteBatchSize) {
     common::MetricsRegistry::Instance().RecordDelete(request->collection_name(), false);
     return grpc::Status(
         grpc::StatusCode::INVALID_ARGUMENT,
-        absl::StrCat("Cannot delete more than ", MAX_DELETE_BATCH_SIZE,
+        absl::StrCat("Cannot delete more than ", kMaxDeleteBatchSize,
                      " vectors in one request. Requested: ", request->ids().size()));
   }
 
@@ -670,5 +669,4 @@ grpc::Status VectorDBService::UpdateMetadata(grpc::ServerContext* context,
   return grpc::Status::OK;
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

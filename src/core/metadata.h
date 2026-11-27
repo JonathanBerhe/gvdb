@@ -11,8 +11,7 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 /**
  * @brief Metadata value types supported by GVDB
@@ -156,5 +155,4 @@ class MetadataSerializer {
   static TypeTag GetTypeTag(const MetadataValue& value);
 };
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

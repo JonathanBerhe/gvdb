@@ -5,8 +5,7 @@
 
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 absl::StatusOr<std::vector<std::pair<size_t, size_t>>> SplitBatchBySize(
     const std::vector<size_t>& item_costs, size_t max_bytes) {
@@ -36,5 +35,4 @@ absl::StatusOr<std::vector<std::pair<size_t, size_t>>> SplitBatchBySize(
   return ranges;
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

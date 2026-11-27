@@ -9,14 +9,14 @@
 #include <ctime>
 #include <filesystem>
 #include <system_error>
+#include <utility>
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 #include "storage/backup/backup_util.h"
 #include "storage/backup/segment_export.h"
 #include "storage/objstore/filesystem_object_store.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // ============================================================================
 // RestoreManager
@@ -92,7 +92,7 @@ absl::Status RestoreManager::RunShardRestore(const BackupTarget& source,
                                              const std::string& backup_id,
                                              core::CollectionId target_collection_id,
                                              core::ShardId shard_id,
-                                             std::shared_ptr<ISegmentStore> segment_store) {
+                                             const std::shared_ptr<ISegmentStore>& segment_store) {
   if (backup_id.empty()) {
     return absl::InvalidArgumentError("backup_id is required");
   }
@@ -218,7 +218,7 @@ absl::Status RestoreManager::RunShardRestore(const BackupTarget& source,
 absl::StatusOr<std::string> RestoreManager::StartRestoreSingleShard(
     const BackupTarget& source, const std::string& backup_id,
     core::CollectionId target_collection_id, core::ShardId shard_id,
-    std::shared_ptr<ISegmentStore> segment_store) {
+    const std::shared_ptr<ISegmentStore>& segment_store) {
   if (backup_id.empty()) {
     return absl::InvalidArgumentError("backup_id is required");
   }
@@ -239,7 +239,7 @@ absl::StatusOr<std::string> RestoreManager::StartRestoreSingleShard(
   job->start_time = std::chrono::steady_clock::now();
 
   {
-    std::lock_guard<std::mutex> lk(jobs_mutex_);
+    std::scoped_lock lk(jobs_mutex_);
     jobs_[id] = job;
   }
 
@@ -250,8 +250,9 @@ absl::StatusOr<std::string> RestoreManager::StartRestoreSingleShard(
   return id;
 }
 
-void RestoreManager::ExecuteSingleShardJob(std::shared_ptr<RestoreJob> job, core::ShardId shard_id,
-                                           std::shared_ptr<ISegmentStore> segment_store) {
+void RestoreManager::ExecuteSingleShardJob(const std::shared_ptr<RestoreJob>& job,
+                                           core::ShardId shard_id,
+                                           const std::shared_ptr<ISegmentStore>& segment_store) {
   job->state.store(BackupState::RUNNING);
 
   if (job->cancelled.load()) {
@@ -296,22 +297,22 @@ absl::StatusOr<std::string> RestoreManager::StartRestoreDistributed(
   job->start_time = std::chrono::steady_clock::now();
 
   {
-    std::lock_guard<std::mutex> lk(jobs_mutex_);
+    std::scoped_lock lk(jobs_mutex_);
     jobs_[id] = job;
   }
 
   std::vector<core::ShardId> shards_copy = shard_ids;
   (void)pool_->Enqueue(
       [this, job, shards_copy = std::move(shards_copy), executor = std::move(executor)]() mutable {
-        ExecuteDistributedJob(job, std::move(shards_copy), std::move(executor));
+        ExecuteDistributedJob(job, shards_copy, executor);
       });
 
   return id;
 }
 
-void RestoreManager::ExecuteDistributedJob(std::shared_ptr<RestoreJob> job,
-                                           std::vector<core::ShardId> shard_ids,
-                                           ShardRestoreExecutor executor) {
+void RestoreManager::ExecuteDistributedJob(const std::shared_ptr<RestoreJob>& job,
+                                           const std::vector<core::ShardId>& shard_ids,
+                                           const ShardRestoreExecutor& executor) {
   job->state.store(BackupState::RUNNING);
   if (job->cancelled.load()) {
     job->state.store(BackupState::CANCELLED);
@@ -333,7 +334,7 @@ void RestoreManager::ExecuteDistributedJob(std::shared_ptr<RestoreJob> job,
 absl::StatusOr<RestoreJobStatus> RestoreManager::GetStatus(const std::string& restore_id) const {
   std::shared_ptr<RestoreJob> job;
   {
-    std::lock_guard<std::mutex> lk(jobs_mutex_);
+    std::scoped_lock lk(jobs_mutex_);
     auto it = jobs_.find(restore_id);
     if (it == jobs_.end()) {
       return absl::NotFoundError(absl::StrCat("Restore not found: ", restore_id));
@@ -351,5 +352,4 @@ absl::StatusOr<RestoreJobStatus> RestoreManager::GetStatus(const std::string& re
   return s;
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

@@ -13,8 +13,7 @@
 #include "core/vector.h"
 #include "storage/segment/segment_store.h"
 
-namespace gvdb {
-namespace compute {
+namespace gvdb::compute {
 
 // ============================================================================
 // QueryExecutor - Executes vector search queries across segments
@@ -58,5 +57,4 @@ class QueryExecutor {
   compute::QueryCache* GetCache() const { return cache_.get(); }
 };
 
-}  // namespace compute
-}  // namespace gvdb
+}  // namespace gvdb::compute

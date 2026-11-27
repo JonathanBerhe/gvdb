@@ -13,8 +13,7 @@
 #include "core/vector.h"
 #include "storage/segment/segment_store.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // Query node serves read requests with cached segments
 class QueryNode {
@@ -44,7 +43,7 @@ class QueryNode {
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   size_t memory_limit_bytes_;
-  size_t memory_used_bytes_;
+  size_t memory_used_bytes_{0};
 
   mutable std::shared_mutex segment_mutex_;
   std::map<core::SegmentId, std::shared_ptr<storage::Segment>> loaded_segments_;
@@ -53,5 +52,4 @@ class QueryNode {
   absl::Status EvictSegmentsIfNeeded(size_t required_bytes);
 };
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

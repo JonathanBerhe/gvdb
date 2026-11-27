@@ -26,8 +26,7 @@
 #include "support/temp_dir.h"
 #include "vectordb.grpc.pb.h"
 
-namespace gvdb {
-namespace test {
+namespace gvdb::test {
 
 namespace {
 
@@ -588,5 +587,4 @@ TEST_CASE_FIXTURE(DistributedDataNodeTest, "FailoverPromotion") {
   CHECK_EQ(*primary_after, replica);
 }
 
-}  // namespace test
-}  // namespace gvdb
+}  // namespace gvdb::test

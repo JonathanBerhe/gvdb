@@ -7,20 +7,20 @@
 #include <filesystem>
 #include <functional>
 #include <random>
+#include <utility>
 
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 #include "storage/import/npy_reader.h"
 #include "storage/segment/batch_splitter.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 BulkImporter::BulkImporter(std::shared_ptr<ISegmentStore> segment_store, IObjectStore* object_store,
-                           const std::string& temp_dir, int max_concurrent)
+                           std::string temp_dir, int max_concurrent)
     : segment_store_(std::move(segment_store)),
       object_store_(object_store),
-      temp_dir_(temp_dir),
+      temp_dir_(std::move(temp_dir)),
       max_concurrent_(max_concurrent),
       active_imports_(0) {
   import_pool_ = std::make_unique<common::ThreadPool>(static_cast<size_t>(max_concurrent));
@@ -48,7 +48,7 @@ absl::StatusOr<std::string> BulkImporter::StartImport(
   // Check idempotency
   auto fingerprint = ComputeFingerprint(source_uri, collection_name);
   {
-    std::lock_guard lock(jobs_mutex_);
+    std::scoped_lock lock(jobs_mutex_);
     auto fp_it = fingerprint_to_job_.find(fingerprint);
     if (fp_it != fingerprint_to_job_.end()) {
       auto job_it = jobs_.find(fp_it->second);
@@ -59,7 +59,7 @@ absl::StatusOr<std::string> BulkImporter::StartImport(
           // Return existing job
           return fp_it->second;
         }
-        // FAILED or CANCELLED — allow re-import: remove old entries
+        // FAILED or CANCELLED, so allow re-import: remove old entries
         jobs_.erase(job_it);
         fingerprint_to_job_.erase(fp_it);
       }
@@ -89,7 +89,7 @@ absl::StatusOr<std::string> BulkImporter::StartImport(
   job->start_time = std::chrono::steady_clock::now();
 
   {
-    std::lock_guard lock(jobs_mutex_);
+    std::scoped_lock lock(jobs_mutex_);
     jobs_[job->id] = job;
     fingerprint_to_job_[fingerprint] = job->id;
   }
@@ -109,7 +109,7 @@ absl::StatusOr<std::string> BulkImporter::StartImport(
 }
 
 absl::StatusOr<ImportJobStatus> BulkImporter::GetStatus(const std::string& import_id) const {
-  std::lock_guard lock(jobs_mutex_);
+  std::scoped_lock lock(jobs_mutex_);
   auto it = jobs_.find(import_id);
   if (it == jobs_.end()) {
     return absl::NotFoundError(absl::StrCat("Import job not found: ", import_id));
@@ -138,7 +138,7 @@ absl::StatusOr<ImportJobStatus> BulkImporter::GetStatus(const std::string& impor
 }
 
 absl::Status BulkImporter::CancelImport(const std::string& import_id) {
-  std::lock_guard lock(jobs_mutex_);
+  std::scoped_lock lock(jobs_mutex_);
   auto it = jobs_.find(import_id);
   if (it == jobs_.end()) {
     return absl::NotFoundError(absl::StrCat("Import job not found: ", import_id));
@@ -160,10 +160,10 @@ absl::Status BulkImporter::CancelImport(const std::string& import_id) {
 // Internal execution
 // ============================================================================
 
-void BulkImporter::ExecuteImport(std::shared_ptr<ImportJob> job, core::CollectionId collection_id,
-                                 core::Dimension dimension, core::MetricType /*metric*/,
-                                 core::IndexType /*index_type*/, ImportFormat format,
-                                 const std::string& /*vector_column*/,
+void BulkImporter::ExecuteImport(const std::shared_ptr<ImportJob>& job,
+                                 core::CollectionId collection_id, core::Dimension dimension,
+                                 core::MetricType /*metric*/, core::IndexType /*index_type*/,
+                                 ImportFormat format, const std::string& /*vector_column*/,
                                  const std::string& /*id_column*/) {
   // active_imports_ already incremented in StartImport
   job->state.store(ImportState::RUNNING);
@@ -228,7 +228,8 @@ void BulkImporter::ExecuteImport(std::shared_ptr<ImportJob> job, core::Collectio
   active_imports_.fetch_sub(1);
 }
 
-absl::Status BulkImporter::ImportNpy(std::shared_ptr<ImportJob> job, const std::string& local_path,
+absl::Status BulkImporter::ImportNpy(const std::shared_ptr<ImportJob>& job,
+                                     const std::string& local_path,
                                      core::CollectionId collection_id,
                                      core::Dimension expected_dim) {
   // Parse header
@@ -347,12 +348,12 @@ absl::Status BulkImporter::ImportNpy(std::shared_ptr<ImportJob> job, const std::
 
 absl::StatusOr<std::string> BulkImporter::ParseS3Uri(const std::string& uri) {
   // Expected format: s3://bucket/key or s3://bucket/path/to/file
-  if (uri.size() < 6 || uri.substr(0, 5) != "s3://") {
+  if (uri.size() < 6 || !uri.starts_with("s3://")) {
     return absl::InvalidArgumentError(
         absl::StrCat("Invalid S3 URI (must start with s3://): ", uri));
   }
 
-  // Return the part after s3:// — the IObjectStore key
+  // Return the part after s3://, which is the IObjectStore key
   // The bucket is configured at the object store level, so we strip just
   // the bucket name and return the key path.
   auto path = uri.substr(5);  // Remove "s3://"
@@ -407,7 +408,8 @@ std::string BulkImporter::ComputeFingerprint(const std::string& source_uri,
   return std::to_string(hash);
 }
 
-void BulkImporter::CleanupOnFailure(std::shared_ptr<ImportJob> job, const std::string& temp_path) {
+void BulkImporter::CleanupOnFailure(const std::shared_ptr<ImportJob>& job,
+                                    const std::string& temp_path) {
   // Remove temp file
   if (!temp_path.empty()) {
     std::error_code ec;
@@ -417,7 +419,7 @@ void BulkImporter::CleanupOnFailure(std::shared_ptr<ImportJob> job, const std::s
   // Drop partially-created segments
   std::vector<core::SegmentId> segments;
   {
-    std::lock_guard lock(job->segments_mutex);
+    std::scoped_lock lock(job->segments_mutex);
     segments = job->created_segment_ids;
   }
 
@@ -435,5 +437,4 @@ void BulkImporter::CleanupOnFailure(std::shared_ptr<ImportJob> job, const std::s
   }
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

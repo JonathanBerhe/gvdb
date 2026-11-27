@@ -10,8 +10,7 @@
 
 #include "core/types.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // ============================================================================
 // ShardWriteGate - per-shard pause-writes fence for backup snapshots
@@ -75,5 +74,4 @@ class ShardWriteGate {
   mutable std::unordered_map<uint16_t, Entry> frozen_;
 };
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

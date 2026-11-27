@@ -9,14 +9,14 @@
 #include <ctime>
 #include <filesystem>
 #include <system_error>
+#include <utility>
 #include "absl/strings/str_cat.h"
 #include "core/status.h"
 #include "storage/backup/backup_util.h"
 #include "storage/backup/segment_export.h"
 #include "storage/objstore/filesystem_object_store.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 namespace {
 
@@ -91,7 +91,7 @@ absl::StatusOr<BackupManager::ResolvedTarget> BackupManager::ResolveTarget(
 absl::StatusOr<ShardBackupResult> BackupManager::RunShardBackup(
     const std::string& backup_id, core::CollectionId collection_id, core::ShardId shard_id,
     uint64_t primary_term, const BackupTarget& target,
-    std::shared_ptr<ISegmentStore> segment_store) {
+    const std::shared_ptr<ISegmentStore>& segment_store) {
   if (backup_id.empty()) {
     return absl::InvalidArgumentError("backup_id is required");
   }
@@ -119,7 +119,7 @@ absl::StatusOr<ShardBackupResult> BackupManager::RunShardBackup(
 
   auto segment_ids = segment_store->GetCollectionSegments(collection_id);
   // Sort for deterministic manifest ordering: tests rely on it.
-  std::sort(segment_ids.begin(), segment_ids.end(), [](core::SegmentId a, core::SegmentId b) {
+  std::ranges::sort(segment_ids, [](core::SegmentId a, core::SegmentId b) {
     return core::ToUInt32(a) < core::ToUInt32(b);
   });
 
@@ -188,7 +188,7 @@ absl::StatusOr<std::string> BackupManager::StartBackupSingleShard(
     const std::string& collection_name, core::CollectionId collection_id, core::Dimension dimension,
     core::MetricType metric, core::IndexType index_type, uint32_t num_shards,
     uint32_t replication_factor, core::ShardId shard_id, uint64_t primary_term,
-    const BackupTarget& target, std::shared_ptr<ISegmentStore> segment_store,
+    const BackupTarget& target, const std::shared_ptr<ISegmentStore>& segment_store,
     const std::string& requested_backup_id) {
   if (collection_name.empty()) {
     return absl::InvalidArgumentError("collection_name is required");
@@ -204,7 +204,7 @@ absl::StatusOr<std::string> BackupManager::StartBackupSingleShard(
   std::string id = requested_backup_id.empty() ? AllocateBackupId() : requested_backup_id;
 
   {
-    std::lock_guard<std::mutex> lk(jobs_mutex_);
+    std::scoped_lock lk(jobs_mutex_);
     auto it = jobs_.find(id);
     if (it != jobs_.end()) {
       auto s = it->second->state.load();
@@ -225,7 +225,7 @@ absl::StatusOr<std::string> BackupManager::StartBackupSingleShard(
   job->start_time = std::chrono::steady_clock::now();
 
   {
-    std::lock_guard<std::mutex> lk(jobs_mutex_);
+    std::scoped_lock lk(jobs_mutex_);
     jobs_[id] = job;
   }
 
@@ -238,11 +238,12 @@ absl::StatusOr<std::string> BackupManager::StartBackupSingleShard(
   return id;
 }
 
-void BackupManager::ExecuteSingleShardJob(std::shared_ptr<BackupJob> job, core::Dimension dimension,
-                                          core::MetricType metric, core::IndexType index_type,
-                                          uint32_t num_shards, uint32_t replication_factor,
-                                          core::ShardId shard_id, uint64_t primary_term,
-                                          std::shared_ptr<ISegmentStore> segment_store) {
+void BackupManager::ExecuteSingleShardJob(const std::shared_ptr<BackupJob>& job,
+                                          core::Dimension dimension, core::MetricType metric,
+                                          core::IndexType index_type, uint32_t num_shards,
+                                          uint32_t replication_factor, core::ShardId shard_id,
+                                          uint64_t primary_term,
+                                          const std::shared_ptr<ISegmentStore>& segment_store) {
   job->state.store(BackupState::RUNNING);
 
   if (job->cancelled.load()) {
@@ -285,7 +286,7 @@ void BackupManager::ExecuteSingleShardJob(std::shared_ptr<BackupJob> job, core::
   job->state.store(BackupState::COMPLETED);
 }
 
-absl::Status BackupManager::FinalizeTopManifest(std::shared_ptr<BackupJob> job,
+absl::Status BackupManager::FinalizeTopManifest(const std::shared_ptr<BackupJob>& job,
                                                 const ResolvedTarget& rt, core::Dimension dimension,
                                                 core::MetricType metric, core::IndexType index_type,
                                                 uint32_t num_shards, uint32_t replication_factor,
@@ -333,7 +334,7 @@ absl::StatusOr<std::string> BackupManager::StartBackupDistributed(
     const std::string& collection_name, core::CollectionId collection_id, core::Dimension dimension,
     core::MetricType metric, core::IndexType index_type, uint32_t replication_factor,
     const std::vector<core::ShardId>& shard_ids, const std::vector<uint64_t>& primary_terms,
-    const BackupTarget& target, ShardBackupExecutor executor,
+    const BackupTarget& target, const ShardBackupExecutor& executor,
     const std::string& requested_backup_id) {
   if (collection_name.empty()) {
     return absl::InvalidArgumentError("collection_name is required");
@@ -352,7 +353,7 @@ absl::StatusOr<std::string> BackupManager::StartBackupDistributed(
 
   std::string id = requested_backup_id.empty() ? AllocateBackupId() : requested_backup_id;
   {
-    std::lock_guard<std::mutex> lk(jobs_mutex_);
+    std::scoped_lock lk(jobs_mutex_);
     auto it = jobs_.find(id);
     if (it != jobs_.end()) {
       auto s = it->second->state.load();
@@ -372,25 +373,25 @@ absl::StatusOr<std::string> BackupManager::StartBackupDistributed(
   job->start_time = std::chrono::steady_clock::now();
 
   {
-    std::lock_guard<std::mutex> lk(jobs_mutex_);
+    std::scoped_lock lk(jobs_mutex_);
     jobs_[id] = job;
   }
 
   (void)pool_->Enqueue([this, job, dimension, metric, index_type, replication_factor, shard_ids,
                         primary_terms, executor]() mutable {
-    ExecuteDistributedJob(job, dimension, metric, index_type, replication_factor,
-                          std::move(shard_ids), std::move(primary_terms), std::move(executor));
+    ExecuteDistributedJob(job, dimension, metric, index_type, replication_factor, shard_ids,
+                          primary_terms, executor);
   });
 
   return id;
 }
 
-void BackupManager::ExecuteDistributedJob(std::shared_ptr<BackupJob> job, core::Dimension dimension,
-                                          core::MetricType metric, core::IndexType index_type,
-                                          uint32_t replication_factor,
+void BackupManager::ExecuteDistributedJob(const std::shared_ptr<BackupJob>& job,
+                                          core::Dimension dimension, core::MetricType metric,
+                                          core::IndexType index_type, uint32_t replication_factor,
                                           std::vector<core::ShardId> shard_ids,
                                           std::vector<uint64_t> primary_terms,
-                                          ShardBackupExecutor executor) {
+                                          const ShardBackupExecutor& executor) {
   job->state.store(BackupState::RUNNING);
   if (job->cancelled.load()) {
     job->state.store(BackupState::CANCELLED);
@@ -459,7 +460,7 @@ void BackupManager::CleanupOnFailure(const ResolvedTarget& rt, const std::string
 absl::StatusOr<BackupJobStatus> BackupManager::GetStatus(const std::string& backup_id) const {
   std::shared_ptr<BackupJob> job;
   {
-    std::lock_guard<std::mutex> lk(jobs_mutex_);
+    std::scoped_lock lk(jobs_mutex_);
     auto it = jobs_.find(backup_id);
     if (it == jobs_.end()) {
       return absl::NotFoundError(absl::StrCat("Backup not found: ", backup_id));
@@ -480,7 +481,7 @@ absl::StatusOr<BackupJobStatus> BackupManager::GetStatus(const std::string& back
 }
 
 absl::Status BackupManager::Cancel(const std::string& backup_id) {
-  std::lock_guard<std::mutex> lk(jobs_mutex_);
+  std::scoped_lock lk(jobs_mutex_);
   auto it = jobs_.find(backup_id);
   if (it == jobs_.end()) {
     return absl::NotFoundError(absl::StrCat("Backup not found: ", backup_id));
@@ -491,12 +492,11 @@ absl::Status BackupManager::Cancel(const std::string& backup_id) {
 
 std::vector<std::string> BackupManager::JobIds() const {
   std::vector<std::string> ids;
-  std::lock_guard<std::mutex> lk(jobs_mutex_);
+  std::scoped_lock lk(jobs_mutex_);
   ids.reserve(jobs_.size());
   for (const auto& [id, _] : jobs_) ids.push_back(id);
-  std::sort(ids.begin(), ids.end());
+  std::ranges::sort(ids);
   return ids;
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

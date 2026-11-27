@@ -14,13 +14,12 @@
 #include "index/index_factory.h"
 #include "support/vectors.h"
 
-// Internal headers — test target adds src/index to its include path so we can
+// Internal headers: test target adds src/index to its include path so we can
 // verify adaptive parameters propagate into the underlying Faiss structures.
 #include "index/faiss/faiss_hnsw.h"
 #include "index/faiss/faiss_ivf.h"
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 namespace {
 
 // Seed for vectors that are not in the index at build time (queries and
@@ -124,7 +123,7 @@ TEST_CASE("FlatIndexTest - BuildAndSearch") {
   auto search_result = index->Search(query, 2);
   REQUIRE(search_result.ok());
 
-  auto result = search_result.value();
+  const auto& result = search_result.value();
   CHECK_EQ(result.Size(), 2);
 
   // First result should be vector 0 (closest)
@@ -162,6 +161,7 @@ TEST_CASE("FlatIndexTest - BatchAdd") {
   // Batch add
   auto vectors2 = CreateTestVectors(5, 8);
   std::vector<core::VectorId> ids2;
+  ids2.reserve(5);
   for (int i = 0; i < 5; ++i) {
     ids2.push_back(core::MakeVectorId(100 + i));
   }
@@ -214,7 +214,7 @@ TEST_CASE("HNSWIndexTest - BuildAndSearch") {
   auto search_result = index->Search(vectors[0], 10);
   REQUIRE(search_result.ok());
 
-  auto result = search_result.value();
+  const auto& result = search_result.value();
   CHECK_GT(result.Size(), 0);
   CHECK_LE(result.Size(), 10);
 }
@@ -277,7 +277,7 @@ TEST_CASE("IVFIndexTest - SearchAfterTraining") {
   auto search_result = index->Search(vectors[0], 5);
   REQUIRE(search_result.ok());
 
-  auto result = search_result.value();
+  const auto& result = search_result.value();
   CHECK_GT(result.Size(), 0);
 }
 
@@ -317,7 +317,7 @@ TEST_CASE("IVFSQIndexTest - BuildAndSearch") {
   auto search_result = index->Search(vectors[0], 5);
   REQUIRE(search_result.ok());
 
-  auto result = search_result.value();
+  const auto& result = search_result.value();
   CHECK_GT(result.Size(), 0);
   CHECK_LE(result.Size(), 5);
 }
@@ -363,7 +363,7 @@ TEST_CASE("IVFPQIndexTest - BuildAndSearch") {
   auto search_result = index->Search(vectors[0], 5);
   REQUIRE(search_result.ok());
 
-  auto result = search_result.value();
+  const auto& result = search_result.value();
   CHECK_GT(result.Size(), 0);
   CHECK_LE(result.Size(), 5);
 }
@@ -384,7 +384,7 @@ TEST_CASE("BM25Index: AddAndSearch") {
   REQUIRE(result.ok());
   REQUIRE(result->entries.size() >= 2);
 
-  // IDs 1 and 2 contain both "quick" and "fox" — they must be in top 2
+  // IDs 1 and 2 contain both "quick" and "fox", so they must be in top 2
   uint64_t id0 = core::ToUInt64(result->entries[0].id);
   uint64_t id1 = core::ToUInt64(result->entries[1].id);
   CHECK(((id0 == 1 && id1 == 2) || (id0 == 2 && id1 == 1)));
@@ -478,7 +478,7 @@ TEST_CASE("ResolveAutoIndexType - passes through explicit types unchanged") {
 }
 
 // ============================================================================
-// ResolveAutoIndexConfig Tests — Adaptive Parameters
+// ResolveAutoIndexConfig Tests: Adaptive Parameters
 // ============================================================================
 
 TEST_CASE("ResolveAutoIndexConfig - FLAT tier uses default params") {
@@ -576,7 +576,7 @@ TEST_CASE("ResolveAutoIndexConfig - IVF_TURBOQUANT 2-bit for 100M+") {
 }
 
 TEST_CASE("ResolveAutoIndexConfig - explicit type keeps defaults, adaptive applies only to AUTO") {
-  // Callers passing an explicit type receive struct defaults — any pre-tuned
+  // Callers passing an explicit type receive struct defaults, any pre-tuned
   // sub-params must be set by constructing IndexConfig directly.
   auto config =
       core::ResolveAutoIndexConfig(core::IndexType::HNSW, 5'000'000, 128, core::MetricType::L2);
@@ -719,5 +719,4 @@ TEST_CASE("IndexFactory - rejects AUTO index type") {
 }
 
 }  // namespace
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

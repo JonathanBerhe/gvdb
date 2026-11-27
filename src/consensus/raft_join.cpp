@@ -15,15 +15,14 @@
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 absl::StatusOr<RaftPeerSpec> ParseRaftPeerSpec(const std::string& spec) {
   // Be tolerant of whitespace introduced by hand-edited YAML / env vars:
   // strip leading/trailing whitespace on the whole spec, the id, and the
   // endpoint. Reject any embedded whitespace in the id or inside the
   // endpoint's host/port to keep errors unambiguous.
-  auto strip = [](std::string s) {
+  auto strip = [](const std::string& s) {
     auto begin = s.find_first_not_of(" \t\r\n");
     if (begin == std::string::npos) return std::string();
     auto end = s.find_last_not_of(" \t\r\n");
@@ -151,7 +150,7 @@ absl::Status RaftNode::AnnounceJoinToCluster() {
   // at coordinator startup (ValidatePeerListLengths in raft_node.cpp).
   // Index by (node_id - 1) since node_ids start at 1.
   auto resolve_leader_target = [&](int32_t leader_id) -> std::string {
-    size_t idx = static_cast<size_t>(leader_id - 1);
+    auto idx = static_cast<size_t>(leader_id - 1);
     if (idx < config_.coordinator_grpc_peers.size()) {
       return config_.coordinator_grpc_peers[idx];
     }
@@ -218,5 +217,4 @@ absl::Status RaftNode::AnnounceJoinToCluster() {
                    " attempts within ", kTotalBudget.count(), "s"));
 }
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

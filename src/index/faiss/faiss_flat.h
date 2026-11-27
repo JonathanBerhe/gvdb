@@ -5,8 +5,7 @@
 
 #include "index/faiss/faiss_base.h"
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 // FLAT index: brute-force exact search
 // Best for small datasets (< 10,000 vectors)
@@ -23,5 +22,4 @@ class FaissFlatIndex : public FaissIndexBase {
                                                        core::MetricType metric);
 };
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

@@ -10,9 +10,9 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <utility>
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 using nuraft::cluster_config;
 using nuraft::log_store;
@@ -32,8 +32,8 @@ absl::StatusOr<std::shared_ptr<GvdbStateManager>> GvdbStateManager::Create(
 }
 
 GvdbStateManager::GvdbStateManager(int32_t server_id, const std::string& endpoint,
-                                   const std::string& state_path)
-    : state_db_path_(state_path), server_id_(server_id), endpoint_(endpoint) {
+                                   std::string state_path)
+    : state_db_path_(std::move(state_path)), server_id_(server_id), endpoint_(endpoint) {
   // Create this server's configuration
   my_srv_config_ = nuraft::cs_new<srv_config>(server_id, endpoint);
 
@@ -51,7 +51,7 @@ GvdbStateManager::GvdbStateManager(int32_t server_id, const std::string& endpoin
 }
 
 ptr<cluster_config> GvdbStateManager::load_config() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   // Return current cluster configuration
   // In production, this would read from disk
@@ -59,7 +59,7 @@ ptr<cluster_config> GvdbStateManager::load_config() {
 }
 
 void GvdbStateManager::save_config(const cluster_config& config) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   // Serialize and save the config
   ptr<nuraft::buffer> buf = config.serialize();
@@ -77,7 +77,7 @@ void GvdbStateManager::save_config(const cluster_config& config) {
 }
 
 void GvdbStateManager::save_state(const srv_state& state) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   // Serialize and save the server state
   ptr<nuraft::buffer> buf = state.serialize();
@@ -94,7 +94,7 @@ void GvdbStateManager::save_state(const srv_state& state) {
 }
 
 ptr<srv_state> GvdbStateManager::read_state() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   // Return saved server state
   // Returns nullptr on first initialization
@@ -102,7 +102,7 @@ ptr<srv_state> GvdbStateManager::read_state() {
 }
 
 ptr<log_store> GvdbStateManager::load_log_store() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
 
   // Return the log store instance
   return log_store_;
@@ -207,7 +207,7 @@ bool GvdbStateManager::SaveConfigToDb() {
       }
 
       // Write size
-      uint32_t size = static_cast<uint32_t>(buf->size());
+      auto size = static_cast<uint32_t>(buf->size());
       ofs.write(reinterpret_cast<const char*>(&size), sizeof(size));
 
       // Write data
@@ -310,7 +310,7 @@ bool GvdbStateManager::SaveStateToDb() {
         return false;
       }
 
-      uint32_t size = static_cast<uint32_t>(buf->size());
+      auto size = static_cast<uint32_t>(buf->size());
       ofs.write(reinterpret_cast<const char*>(&size), sizeof(size));
       ofs.write(reinterpret_cast<const char*>(buf->data_begin()), buf->size());
 
@@ -331,5 +331,4 @@ bool GvdbStateManager::SaveStateToDb() {
   }
 }
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

@@ -9,8 +9,7 @@
 #include "core/types.h"
 #include "internal.grpc.pb.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 // Abstract interface for calling InternalService RPCs
 // This enables mocking in tests and dependency injection
@@ -158,5 +157,4 @@ class NullInternalServiceClientFactory : public IInternalServiceClientFactory {
   }
 };
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

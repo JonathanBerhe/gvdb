@@ -20,8 +20,8 @@
 
 // The startup and shutdown steps that every server program shares: signal
 // handlers, logger, metrics endpoint, gRPC server and the exit code.
-namespace gvdb {
-namespace server {
+
+namespace gvdb::server {
 
 using InterceptorFactories =
     std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>>;
@@ -74,5 +74,4 @@ absl::Status WithPrefix(std::string_view prefix, const absl::Status& status);
 // stderr and returns 1.
 int RunMain(const std::function<absl::Status()>& body);
 
-}  // namespace server
-}  // namespace gvdb
+}  // namespace gvdb::server

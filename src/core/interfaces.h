@@ -11,8 +11,7 @@
 #include "core/types.h"
 #include "core/vector.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 // Forward declarations
 struct IndexConfig;
@@ -97,5 +96,4 @@ class IIndexFactory {
       const IndexConfig& config) = 0;
 };
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

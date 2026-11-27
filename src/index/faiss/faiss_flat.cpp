@@ -6,8 +6,7 @@
 #include <faiss/IndexFlat.h>
 #include <faiss/IndexIDMap.h>
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 FaissFlatIndex::FaissFlatIndex(core::Dimension dimension, core::MetricType metric)
     : FaissIndexBase(CreateFlatIndex(dimension, metric), metric) {}
@@ -26,5 +25,4 @@ std::unique_ptr<faiss::Index> FaissFlatIndex::CreateFlatIndex(core::Dimension di
 
 core::IndexType FaissFlatIndex::GetIndexType() const { return core::IndexType::FLAT; }
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

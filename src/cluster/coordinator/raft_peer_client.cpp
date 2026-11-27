@@ -8,8 +8,7 @@
 #include "internal.grpc.pb.h"
 #include "rpc/proto_conversions.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 namespace {
 
@@ -49,5 +48,4 @@ absl::StatusOr<consensus::IRaftPeerClient::JoinReply> GrpcRaftPeerClient::JoinCl
   return JoinReply{resp.success(), resp.message(), resp.current_leader_id()};
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

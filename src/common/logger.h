@@ -11,8 +11,7 @@
 // Include spdlog for template implementations
 #include "spdlog/spdlog.h"
 
-namespace gvdb {
-namespace common {
+namespace gvdb::common {
 
 // ============================================================================
 // LogLevel - Log severity levels
@@ -39,7 +38,7 @@ struct LogConfig {
   // File logging
   bool file_enabled = true;
   std::string file_path = "./logs/gvdb.log";
-  size_t max_file_size = 100 * 1024 * 1024;  // 100 MB
+  size_t max_file_size = size_t{100} * 1024 * 1024;  // 100 MB
   size_t max_files = 10;
 
   // Async logging
@@ -114,5 +113,4 @@ class Logger {
   static std::unique_ptr<Logger> instance_;
 };
 
-}  // namespace common
-}  // namespace gvdb
+}  // namespace gvdb::common

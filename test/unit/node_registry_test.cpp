@@ -365,7 +365,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "UpdateNodeTransitionsToDraining") {
   CHECK_EQ(node.info.status(), proto::internal::NODE_STATUS_READY);
   CHECK_FALSE(node.IsDraining());
 
-  // Second heartbeat with DRAINING status — node should be marked as draining.
+  // Second heartbeat with DRAINING status: node should be marked as draining.
   registry_.UpdateNode(MakeDrainingNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
 
   REQUIRE(registry_.GetNode(1, &node));
@@ -413,7 +413,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetRoutableNodesByTypeCombinesFilters") {
 }
 
 // 19. A draining node whose heartbeat eventually times out is no longer
-//     routable AND no longer healthy — belt and braces.
+//     routable AND no longer healthy, belt and braces.
 TEST_CASE_FIXTURE(NodeRegistryTest, "DrainingNodeBecomesFailedAfterTimeout") {
   registry_.UpdateNode(MakeDrainingNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE));
 
@@ -442,7 +442,7 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetDrainingNodesExcludesStaleDraining") {
   // be excluded (stale draining → failure-path territory).
   registry_.UpdateNode(MakeDrainingNodeInfo(3, proto::internal::NODE_TYPE_DATA_NODE));
 
-  // Fresh — all three present.
+  // Fresh: all three present.
   auto fresh = registry_.GetDrainingNodes();
   REQUIRE_EQ(fresh.size(), 2);
   std::set<uint32_t> fresh_ids;

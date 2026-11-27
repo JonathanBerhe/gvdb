@@ -20,8 +20,8 @@
 
 // Builders that turn the YAML configuration into the parts of a server
 // program: segment store, backup engines and gRPC interceptors.
-namespace gvdb {
-namespace server {
+
+namespace gvdb::server {
 
 // Loads the YAML configuration at `path`, or the defaults when `path` is
 // empty. The error message starts with "Failed to load config: ".
@@ -94,5 +94,4 @@ absl::StatusOr<std::shared_ptr<auth::RbacStore>> AddAuthInterceptor(
 // is on.
 void AddAuditInterceptor(const auth::AuditLogConfig& audit, InterceptorFactories& interceptors);
 
-}  // namespace server
-}  // namespace gvdb
+}  // namespace gvdb::server

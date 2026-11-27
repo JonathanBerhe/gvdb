@@ -19,8 +19,7 @@
 #include "index/text_index.h"
 #include "storage/segment/scalar_index.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // Forward declarations
 class Segment;
@@ -204,7 +203,7 @@ class Segment {
   [[nodiscard]] bool CanFit(size_t additional_bytes) const;
 
   // Get maximum segment size (512 MB default)
-  static constexpr size_t kMaxSegmentSize = 512 * 1024 * 1024;  // 512 MB
+  static constexpr size_t kMaxSegmentSize = size_t{512} * 1024 * 1024;  // 512 MB
 
   // Per-vector metadata cost charged against the segment size cap. The
   // capacity checks in AddVectorsWithMetadata/AddVectorsWithSparse and any
@@ -231,12 +230,12 @@ class Segment {
 
   // State management
   mutable std::shared_mutex mutex_;
-  core::SegmentState state_;
+  core::SegmentState state_{core::SegmentState::GROWING};
 
   // Vector storage (for GROWING state)
   std::vector<core::Vector> vectors_;
   std::vector<core::VectorId> vector_ids_;
-  size_t memory_usage_;
+  size_t memory_usage_{0};
   size_t max_segment_size_;
 
   // Metadata storage (maps VectorId to Metadata)
@@ -281,5 +280,4 @@ class Segment {
       const core::Vector& query, int k) const;
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

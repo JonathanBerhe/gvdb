@@ -12,8 +12,7 @@
 
 #include "support/temp_dir.h"
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 namespace {
 
 using nuraft::buffer;
@@ -22,7 +21,7 @@ using nuraft::log_val_type;
 using nuraft::ptr;
 using nuraft::ulong;
 
-ptr<log_entry> create_log_entry(ulong term, const std::string& data) {
+ptr<log_entry> CreateLogEntry(ulong term, const std::string& data) {
   auto buf = buffer::alloc(data.size());
   std::memcpy(buf->data_begin(), data.data(), data.size());
   buf->pos(0);
@@ -45,9 +44,9 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "BasicPersistence") {
     REQUIRE(log_store_created.ok());
     GvdbLogStore& log_store = **log_store_created;
 
-    auto entry1 = create_log_entry(1, "data1");
-    auto entry2 = create_log_entry(2, "data2");
-    auto entry3 = create_log_entry(3, "data3");
+    auto entry1 = CreateLogEntry(1, "data1");
+    auto entry2 = CreateLogEntry(2, "data2");
+    auto entry3 = CreateLogEntry(3, "data3");
 
     ulong idx1 = log_store.append(entry1);
     ulong idx2 = log_store.append(entry2);
@@ -114,7 +113,7 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "AppendAfterReopen") {
     REQUIRE(log_store_created.ok());
     GvdbLogStore& log_store = **log_store_created;
     for (ulong i = 1; i <= kBefore; ++i) {
-      auto entry = create_log_entry(1, "before_" + std::to_string(i));
+      auto entry = CreateLogEntry(1, "before_" + std::to_string(i));
       log_store.append(entry);
     }
   }
@@ -125,7 +124,7 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "AppendAfterReopen") {
   REQUIRE_EQ(log_store.next_slot(), kBefore + 1);
 
   for (ulong i = 1; i <= kAfter; ++i) {
-    auto entry = create_log_entry(2, "after_" + std::to_string(i));
+    auto entry = CreateLogEntry(2, "after_" + std::to_string(i));
     ulong idx = log_store.append(entry);
     CHECK_EQ(idx, kBefore + i);
   }
@@ -155,10 +154,10 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "TruncationPersistence") {
     REQUIRE(log_store_created.ok());
     GvdbLogStore& log_store = **log_store_created;
 
-    auto entry1 = create_log_entry(1, "data1");
-    auto entry2 = create_log_entry(2, "data2");
-    auto entry3 = create_log_entry(3, "data3");
-    auto entry4 = create_log_entry(4, "data4");
+    auto entry1 = CreateLogEntry(1, "data1");
+    auto entry2 = CreateLogEntry(2, "data2");
+    auto entry3 = CreateLogEntry(3, "data3");
+    auto entry4 = CreateLogEntry(4, "data4");
 
     log_store.append(entry1);
     log_store.append(entry2);
@@ -166,7 +165,7 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "TruncationPersistence") {
     log_store.append(entry4);
 
     // Truncate from index 3
-    auto new_entry = create_log_entry(5, "new_data_at_3");
+    auto new_entry = CreateLogEntry(5, "new_data_at_3");
     log_store.write_at(3, new_entry);
 
     // Verify truncation worked
@@ -202,7 +201,7 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "CompactionPersistence") {
     GvdbLogStore& log_store = **log_store_created;
 
     for (int i = 1; i <= 10; ++i) {
-      auto entry = create_log_entry(i, "data" + std::to_string(i));
+      auto entry = CreateLogEntry(i, "data" + std::to_string(i));
       log_store.append(entry);
     }
 
@@ -244,13 +243,13 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "LargeEntries") {
   std::string log_path = (test_dir_ / "logs").string();
 
   // Create a large entry (1MB)
-  std::string large_data(1024 * 1024, 'X');
+  std::string large_data(size_t{1024} * 1024, 'X');
 
   {
     auto log_store_created = GvdbLogStore::Create(log_path);
     REQUIRE(log_store_created.ok());
     GvdbLogStore& log_store = **log_store_created;
-    auto entry = create_log_entry(1, large_data);
+    auto entry = CreateLogEntry(1, large_data);
     log_store.append(entry);
   }
 
@@ -276,7 +275,7 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "SequentialWrites") {
 
   // Write 1000 entries
   for (int i = 1; i <= 1000; ++i) {
-    auto entry = create_log_entry(i, std::to_string(i));
+    auto entry = CreateLogEntry(i, std::to_string(i));
     ulong idx = log_store.append(entry);
     CHECK_EQ(idx, static_cast<ulong>(i));
   }
@@ -304,11 +303,11 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "LastEntryPersistent") {
   REQUIRE_NE(empty, nullptr);
   CHECK_EQ(empty->get_term(), 0);
 
-  // After append, last_entry must match the last appended entry —
+  // After append, last_entry must match the last appended entry,
   // the pre-fix bug returned the sentinel here because the method
   // only consulted the in-memory `logs_` map.
-  auto e1 = create_log_entry(7, "first");
-  auto e2 = create_log_entry(8, "last");
+  auto e1 = CreateLogEntry(7, "first");
+  auto e2 = CreateLogEntry(8, "last");
   log_store.append(e1);
   log_store.append(e2);
 
@@ -325,11 +324,11 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "LogEntriesPersistent") {
   GvdbLogStore& log_store = **log_store_created;
 
   for (int i = 1; i <= 5; ++i) {
-    auto e = create_log_entry(i, "v" + std::to_string(i));
+    auto e = CreateLogEntry(i, "v" + std::to_string(i));
     log_store.append(e);
   }
 
-  // Range read spanning multiple entries must pull from RocksDB —
+  // Range read spanning multiple entries must pull from RocksDB,
   // the pre-fix bug returned nullptr because it consulted `logs_`.
   auto entries = log_store.log_entries(2, 5);
   REQUIRE_NE(entries, nullptr);
@@ -353,7 +352,7 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "ApplyPackPersistent") {
     REQUIRE(src_created.ok());
     GvdbLogStore& src = **src_created;
     for (int i = 1; i <= 3; ++i) {
-      auto e = create_log_entry(10 + i, "pkt" + std::to_string(i));
+      auto e = CreateLogEntry(10 + i, "pkt" + std::to_string(i));
       src.append(e);
     }
     packed = src.pack(1, 3);
@@ -366,7 +365,7 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "ApplyPackPersistent") {
   GvdbLogStore& dst = **dst_created;
   dst.apply_pack(1, *packed);
 
-  // next_slot must advance to one past the highest applied index —
+  // next_slot must advance to one past the highest applied index,
   // the pre-fix bug wrote into `logs_` (which is unused in persistent
   // mode) and left next_idx_ untouched.
   CHECK_EQ(dst.next_slot(), 4);
@@ -491,7 +490,7 @@ TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "StartOnExistingEmptyDirs") {
     REQUIRE_NE(log_store, nullptr);
     CHECK_EQ(log_store->next_slot(), 1);
     for (int i = 1; i <= kNumEntries; ++i) {
-      auto entry = create_log_entry(1, "entry_" + std::to_string(i));
+      auto entry = CreateLogEntry(1, "entry_" + std::to_string(i));
       log_store->append(entry);
     }
   }
@@ -562,5 +561,4 @@ TEST_CASE_FIXTURE(GvdbStateManagerPersistenceTest, "FullCrashRecovery") {
 }
 
 }  // namespace
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

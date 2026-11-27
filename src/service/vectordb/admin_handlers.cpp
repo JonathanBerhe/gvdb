@@ -13,8 +13,7 @@
 #include "service/vectordb/collection_resolver.h"
 #include "service/vectordb/vectordb_service.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 // ============================================================================
 // Collection Management
@@ -28,13 +27,13 @@ grpc::Status VectorDBService::CreateCollection(grpc::ServerContext* /*context*/,
 
   common::Logger::Instance().Info("CreateCollection: {}", request->collection_name());
 
-  constexpr uint32_t MAX_DIMENSION = 8192;  // TODO: remove this fixed value.
-  constexpr uint32_t MIN_DIMENSION = 1;
+  constexpr uint32_t kMaxDimension = 8192;  // TODO: remove this fixed value.
+  constexpr uint32_t kMinDimension = 1;
 
-  if (request->dimension() < MIN_DIMENSION || request->dimension() > MAX_DIMENSION) {
+  if (request->dimension() < kMinDimension || request->dimension() > kMaxDimension) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
-                        absl::StrCat("Dimension must be between ", MIN_DIMENSION, " and ",
-                                     MAX_DIMENSION, ". Requested: ", request->dimension()));
+                        absl::StrCat("Dimension must be between ", kMinDimension, " and ",
+                                     kMaxDimension, ". Requested: ", request->dimension()));
   }
 
   if (request->collection_name().empty()) {
@@ -141,5 +140,4 @@ grpc::Status VectorDBService::GetStats(grpc::ServerContext* /*context*/,
   return grpc::Status::OK;
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

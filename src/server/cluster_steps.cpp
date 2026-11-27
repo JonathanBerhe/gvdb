@@ -13,8 +13,7 @@
 #include "internal.grpc.pb.h"
 #include "server/bootstrap.h"
 
-namespace gvdb {
-namespace server {
+namespace gvdb::server {
 
 absl::StatusOr<std::unique_ptr<consensus::RaftNode>> StartRaft(
     const consensus::RaftConfig& config) {
@@ -153,5 +152,4 @@ void WaitForDrainCompletion(const std::string& coordinator_address, int node_id,
       node_id);
 }
 
-}  // namespace server
-}  // namespace gvdb
+}  // namespace gvdb::server

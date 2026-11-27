@@ -6,8 +6,7 @@
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexIDMap.h>
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 FaissHNSWIndex::FaissHNSWIndex(core::Dimension dimension, core::MetricType metric, int M,
                                int ef_construction, int ef_search)
@@ -56,5 +55,4 @@ int FaissHNSWIndex::GetEfSearch() const {
 
 core::IndexType FaissHNSWIndex::GetIndexType() const { return core::IndexType::HNSW; }
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

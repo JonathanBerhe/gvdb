@@ -39,7 +39,7 @@ std::string WriteTestNpy(const std::string& dir, size_t num_vectors, size_t dime
   header_dict += std::string(padding, ' ');
   header_dict += '\n';
 
-  uint16_t header_len = static_cast<uint16_t>(header_dict.size());
+  auto header_len = static_cast<uint16_t>(header_dict.size());
 
   std::ofstream file(path, std::ios::binary);
   // Magic
@@ -190,7 +190,7 @@ TEST_SUITE("NpyReader") {
     std::string header_dict = "{'descr': '<f4', 'fortran_order': False, 'shape': (10,), }";
     size_t padding = (64 - ((10 + header_dict.size() + 1) % 64)) % 64;
     header_dict += std::string(padding, ' ') + '\n';
-    uint16_t header_len = static_cast<uint16_t>(header_dict.size());
+    auto header_len = static_cast<uint16_t>(header_dict.size());
 
     std::ofstream file(path, std::ios::binary);
     uint8_t magic[] = {0x93, 'N', 'U', 'M', 'P', 'Y', 1, 0};
@@ -269,7 +269,7 @@ TEST_SUITE("BulkImporter") {
         "s3://bucket/test/vectors.npy", gvdb::storage::ImportFormat::NUMPY);
     REQUIRE(job_result.ok());
 
-    auto import_id = *job_result;
+    const auto& import_id = *job_result;
     CHECK(!import_id.empty());
 
     // Wait for completion
@@ -308,7 +308,7 @@ TEST_SUITE("BulkImporter") {
 
   TEST_CASE_FIXTURE(BulkImportFixture, "Import fails on S3 download error") {
     auto cid = SetupCollection(4);
-    // Don't upload — file doesn't exist in object store
+    // Don't upload: file doesn't exist in object store
 
     gvdb::storage::BulkImporter importer(segment_store, object_store.get(), temp_dir, 2);
 

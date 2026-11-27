@@ -10,8 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace gvdb {
-namespace server {
+namespace gvdb::server {
 
 // Splits a comma-separated list: "a,b" gives {"a", "b"}. Every comma starts
 // a new item, so "" gives {""} and "a," gives {"a", ""}.
@@ -62,5 +61,4 @@ class FlagSet {
   std::vector<Flag> flags_;
 };
 
-}  // namespace server
-}  // namespace gvdb
+}  // namespace gvdb::server

@@ -8,8 +8,7 @@
 
 #include <filesystem>
 
-namespace gvdb {
-namespace auth {
+namespace gvdb::auth {
 
 std::shared_ptr<spdlog::logger> AuditLogger::logger_;
 std::atomic<bool> AuditLogger::enabled_{false};
@@ -32,12 +31,12 @@ void AuditLogger::Initialize(const AuditLogConfig& config) {
   auto sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
       config.file_path, config.max_file_size_mb * 1024 * 1024, config.max_files);
 
-  // Raw message only — timestamp is inside the JSON
+  // Raw message only: timestamp is inside the JSON
   sink->set_pattern("%v");
 
   logger_ = std::make_shared<spdlog::logger>("audit", sink);
   logger_->set_level(spdlog::level::info);
-  logger_->flush_on(spdlog::level::info);  // Flush every entry — audit must not be lost
+  logger_->flush_on(spdlog::level::info);  // Flush every entry: audit must not be lost
 
   spdlog::register_logger(logger_);
   enabled_.store(true);
@@ -60,5 +59,4 @@ void AuditLogger::Shutdown() {
   enabled_.store(false);
 }
 
-}  // namespace auth
-}  // namespace gvdb
+}  // namespace gvdb::auth

@@ -10,8 +10,7 @@
 
 #include "core/filter.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // ============================================================================
 // ScalarIndex
@@ -134,7 +133,7 @@ VectorIdSet ScalarIndex::LookupPrefix(const std::string& prefix) const {
   VectorIdSet result;
   std::string search_prefix = "s:" + prefix;
   for (auto it = sorted_index_.lower_bound(search_prefix); it != sorted_index_.end(); ++it) {
-    if (it->first.compare(0, search_prefix.size(), search_prefix) != 0) {
+    if (!it->first.starts_with(search_prefix)) {
       break;  // Past the prefix range
     }
     result.insert(it->second.begin(), it->second.end());
@@ -192,12 +191,13 @@ std::optional<VectorIdSet> ScalarIndexSet::Evaluate(const core::FilterNode& filt
         // Fallback to scan for NOT_EQUAL (expensive to compute from index)
         return std::nullopt;
       }
+      // LookupRange includes its bounds. The search evaluates the full filter
+      // on every candidate, so the strict comparisons can use the same
+      // range as the inclusive ones.
       case core::ComparisonOp::LESS_THAN:
-        return idx.LookupRange(nullptr, &comp->value());
       case core::ComparisonOp::LESS_EQUAL:
         return idx.LookupRange(nullptr, &comp->value());
       case core::ComparisonOp::GREATER_THAN:
-        return idx.LookupRange(&comp->value(), nullptr);
       case core::ComparisonOp::GREATER_EQUAL:
         return idx.LookupRange(&comp->value(), nullptr);
       case core::ComparisonOp::LIKE: {
@@ -274,5 +274,4 @@ std::optional<VectorIdSet> ScalarIndexSet::Evaluate(const core::FilterNode& filt
   return std::nullopt;
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

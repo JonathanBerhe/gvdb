@@ -13,8 +13,7 @@
 #include "absl/strings/str_split.h"
 #include "absl/strings/strip.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 namespace {
 
@@ -153,5 +152,4 @@ std::string SegmentManifest::RemoveEntry(const std::string& existing_json, uint3
   return Serialize(filtered);
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

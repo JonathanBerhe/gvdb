@@ -11,8 +11,7 @@
 #include "core/status.h"
 #include "storage/objstore/object_store.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // ============================================================================
 // FilesystemObjectStore - IObjectStore backed by the local filesystem
@@ -21,7 +20,7 @@ namespace storage {
 // Stores each object as a file under a root directory. Keys are treated as
 // slash-delimited relative paths beneath the root. This exists so that
 // backup/restore and any other IObjectStore consumer can work without an
-// S3/MinIO dependency — useful for single-node deployments, local tests,
+// S3/MinIO dependency, useful for single-node deployments, local tests,
 // and initial bring-up.
 //
 // Semantics (matches the IObjectStore contract):
@@ -88,5 +87,4 @@ class FilesystemObjectStore : public IObjectStore {
   std::filesystem::path root_;
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

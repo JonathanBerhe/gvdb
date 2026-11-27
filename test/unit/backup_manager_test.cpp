@@ -243,7 +243,7 @@ TEST_SUITE("RestoreManager") {
     // 2. Construct a *separate* SegmentManager rooted at a different
     //    flushed dir to play the role of the restore target. We share the
     //    InMemoryObjectStore so the restore can fetch what the backup
-    //    wrote — same instance, different consumers.
+    //    wrote, same instance, different consumers.
     auto restore_factory = std::make_unique<index::IndexFactory>();
     auto restore_dir = test_dir + "/restored";
     fs::create_directories(restore_dir);

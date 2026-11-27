@@ -66,7 +66,7 @@ class VectorDBService final : public proto::VectorDBService::Service {
                   std::unique_ptr<ICollectionResolver> resolver,
                   VectorDBServiceOptions options = {});
 
-  ~VectorDBService();
+  ~VectorDBService() override;
 
   // Collection management
   grpc::Status CreateCollection(grpc::ServerContext* context,

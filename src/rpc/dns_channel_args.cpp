@@ -3,8 +3,7 @@
 
 #include "rpc/dns_channel_args.h"
 
-namespace gvdb {
-namespace rpc {
+namespace gvdb::rpc {
 
 grpc::ChannelArguments BuildDnsChannelArgs() {
   grpc::ChannelArguments args;
@@ -17,7 +16,6 @@ grpc::ChannelArguments BuildDnsChannelArgs() {
   return args;
 }
 
-bool IsDnsUri(const std::string& target) { return target.rfind("dns:///", 0) == 0; }
+bool IsDnsUri(const std::string& target) { return target.starts_with("dns:///"); }
 
-}  // namespace rpc
-}  // namespace gvdb
+}  // namespace gvdb::rpc

@@ -17,8 +17,7 @@
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_store.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // ============================================================================
 // SegmentManager - Manages lifecycle of multiple segments
@@ -28,7 +27,7 @@ namespace storage {
 class SegmentManager : public ISegmentStore {
  public:
   // Constructor
-  explicit SegmentManager(const std::string& base_path, core::IIndexFactory* index_factory,
+  explicit SegmentManager(std::string base_path, core::IIndexFactory* index_factory,
                           size_t max_segment_size = Segment::kMaxSegmentSize);
 
   // Disable copy and move (contains mutex and unique_ptr)
@@ -123,7 +122,7 @@ class SegmentManager : public ISegmentStore {
   mutable std::shared_mutex mutex_;
 
   // Segment ID counter
-  uint32_t next_segment_id_;
+  uint32_t next_segment_id_{1};
 
   // Maximum segment size (passed to new segments)
   size_t max_segment_size_;
@@ -136,5 +135,4 @@ class SegmentManager : public ISegmentStore {
   [[nodiscard]] std::string GetSegmentPath(core::SegmentId id) const;
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

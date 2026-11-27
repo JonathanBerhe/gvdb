@@ -1,0 +1,64 @@
+# clang-tidy checks for the C++ code in src/ and test/. CI runs them with
+# clang-tidy 22 (make tidy), and every hit fails the job.
+#
+# Disabled checks and the reasons:
+# - bugprone-easily-swappable-parameters: it flags most functions with two
+#   parameters of the same type, which is a design question, not a defect.
+# - bugprone-narrowing-conversions: the index and search code converts
+#   between float, integer and size types on purpose.
+# - bugprone-exception-escape: most hits are destructors and mains that log
+#   or join threads. A fix turns a crash into a silent continue, which
+#   changes behavior, so each case needs its own change.
+# - performance-enum-size: a smaller enum type saves no memory that matters
+#   here.
+# - performance-avoid-endl: std::endl also flushes. The programs print the
+#   startup banner with it and then block, so without the flush the banner
+#   can stay in the buffer when stdout is a pipe.
+# - modernize-use-trailing-return-type, modernize-use-nodiscard,
+#   modernize-use-designated-initializers, modernize-return-braced-init-list,
+#   modernize-avoid-c-arrays: style preferences that GVDB does not follow.
+# - modernize-use-std-format, modernize-use-std-print: logging uses spdlog,
+#   and CLI output uses streams.
+# - modernize-raw-string-literal: the JSON writers would mix raw and
+#   escaped literals in one statement.
+# - modernize-use-integer-sign-comparison: std::cmp_* gives other results
+#   for negative values, so each case needs its own change.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-exception-escape,
+  performance-*,
+  -performance-enum-size,
+  -performance-avoid-endl,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard,
+  -modernize-use-designated-initializers,
+  -modernize-return-braced-init-list,
+  -modernize-avoid-c-arrays,
+  -modernize-use-std-format,
+  -modernize-use-std-print,
+  -modernize-raw-string-literal,
+  -modernize-use-integer-sign-comparison,
+  readability-identifier-naming
+WarningsAsErrors: '*'
+# Project headers only: not the fetched dependencies and not the generated
+# protobuf headers in the build folder.
+HeaderFilterRegex: '/(src|test)/'
+ExcludeHeaderFilterRegex: '/(_deps|deps|build)/'
+CheckOptions:
+  readability-identifier-naming.NamespaceCase: lower_case
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.FunctionCase: CamelCase
+  readability-identifier-naming.MethodCase: CamelCase
+  # Accessors that only return a member keep snake_case (dimension(),
+  # byte_size()), so a method name is either UpperCamel or snake_case.
+  readability-identifier-naming.MethodIgnoredRegexp: '^[a-z][a-z0-9_]*$'
+  readability-identifier-naming.ConstexprVariableCase: CamelCase
+  readability-identifier-naming.ConstexprVariablePrefix: k
+  readability-identifier-naming.PrivateMemberSuffix: _
+  readability-identifier-naming.ProtectedMemberSuffix: _

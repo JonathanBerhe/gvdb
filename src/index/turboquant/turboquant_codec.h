@@ -9,9 +9,7 @@
 
 #include "core/types.h"
 
-namespace gvdb {
-namespace index {
-namespace turboquant {
+namespace gvdb::index::turboquant {
 
 // Precomputed Lloyd-Max quantizer table for Gaussian N(0,1)
 struct LloydMaxTable {
@@ -94,6 +92,4 @@ class TurboQuantCodec {
   std::vector<int8_t> qjl_wht_signs_;  // Random signs for QJL WHT
 };
 
-}  // namespace turboquant
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index::turboquant

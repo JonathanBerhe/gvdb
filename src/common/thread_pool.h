@@ -12,8 +12,7 @@
 #include <thread>
 #include <vector>
 
-namespace gvdb {
-namespace common {
+namespace gvdb::common {
 
 // ============================================================================
 // ThreadPool - Fixed-size thread pool for parallel task execution
@@ -36,7 +35,7 @@ class ThreadPool {
   // Enqueue a task for execution
   // Returns a future that will contain the result
   template <typename F, typename... Args>
-  auto Enqueue(F&& f, Args&&... args) -> std::future<typename std::invoke_result<F, Args...>::type>;
+  auto Enqueue(F&& f, Args&&... args) -> std::future<std::invoke_result_t<F, Args...>>;
 
   // Get number of worker threads
   [[nodiscard]] size_t size() const noexcept { return workers_.size(); }
@@ -59,13 +58,14 @@ class ThreadPool {
 // ============================================================================
 
 template <typename F, typename... Args>
-auto ThreadPool::Enqueue(F&& f, Args&&... args)
-    -> std::future<typename std::invoke_result<F, Args...>::type> {
-  using return_type = typename std::invoke_result<F, Args...>::type;
+auto ThreadPool::Enqueue(F&& f, Args&&... args) -> std::future<std::invoke_result_t<F, Args...>> {
+  using return_type = std::invoke_result_t<F, Args...>;
 
   // Create packaged task
   auto task = std::make_shared<std::packaged_task<return_type()>>(
-      std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+      [func = std::forward<F>(f), ... bound = std::forward<Args>(args)]() mutable {
+        return std::invoke(func, bound...);
+      });
 
   std::future<return_type> result = task->get_future();
 
@@ -84,5 +84,4 @@ auto ThreadPool::Enqueue(F&& f, Args&&... args)
   return result;
 }
 
-}  // namespace common
-}  // namespace gvdb
+}  // namespace gvdb::common

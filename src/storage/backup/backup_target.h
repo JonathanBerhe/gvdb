@@ -6,8 +6,7 @@
 #include <string>
 #include <variant>
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // C++ mirror of the backup proto enums and the BackupTarget oneof. The
 // backup and the restore manager share these types.
@@ -32,5 +31,4 @@ struct LocalBackupTarget {
 // Mirrors proto BackupTarget oneof; std::monostate represents "unset".
 using BackupTarget = std::variant<std::monostate, S3BackupTarget, LocalBackupTarget>;
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

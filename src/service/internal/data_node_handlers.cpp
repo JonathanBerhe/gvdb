@@ -15,8 +15,7 @@
 #include "storage/backup/backup_manager.h"
 #include "storage/backup/restore_manager.h"
 
-namespace gvdb {
-namespace service {
+namespace gvdb::service {
 
 // =============================================================================
 // Segment Replication
@@ -99,7 +98,7 @@ grpc::Status InternalService::GetSegment(grpc::ServerContext* /*context*/,
     }
 
     // Try to get segment from SegmentManager
-    core::SegmentId seg_id = static_cast<core::SegmentId>(segment_id);
+    auto seg_id = static_cast<core::SegmentId>(segment_id);
     auto segment = segment_store_->GetSegment(seg_id);
     if (!segment) {
       common::Logger::Instance().Debug("GetSegment: segment={} not found", segment_id);
@@ -198,7 +197,7 @@ grpc::Status InternalService::DeleteSegment(grpc::ServerContext* /*context*/,
     }
 
     // Check if segment exists
-    core::SegmentId seg_id = static_cast<core::SegmentId>(segment_id);
+    auto seg_id = static_cast<core::SegmentId>(segment_id);
     auto segment = segment_store_->GetSegment(seg_id);
     if (!segment) {
       response->set_success(false);
@@ -285,9 +284,9 @@ grpc::Status InternalService::CreateSegment(grpc::ServerContext* /*context*/,
     }
 
     // Create segment
-    core::SegmentId seg_id = static_cast<core::SegmentId>(segment_id);
+    auto seg_id = static_cast<core::SegmentId>(segment_id);
     core::CollectionId coll_id = core::MakeCollectionId(collection_id);
-    core::Dimension dim = static_cast<core::Dimension>(dimension);
+    auto dim = static_cast<core::Dimension>(dimension);
 
     auto create_status =
         segment_store_->CreateSegmentWithId(seg_id, coll_id, dim, *metric_result, *index_result);
@@ -337,7 +336,7 @@ grpc::Status InternalService::ExecuteShardQuery(
     }
 
     std::vector<float> query_data(request->query_vector().begin(), request->query_vector().end());
-    core::Vector query(std::move(query_data));
+    core::Vector query(query_data);
 
     // Validate dimension
     if (query.dimension() != segment->GetDimension()) {
@@ -616,5 +615,4 @@ grpc::Status InternalService::UnfreezeWrites(grpc::ServerContext* /*context*/,
   return grpc::Status::OK;
 }
 
-}  // namespace service
-}  // namespace gvdb
+}  // namespace gvdb::service

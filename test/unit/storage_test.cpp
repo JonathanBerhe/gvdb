@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <numbers>
 #include <thread>
 
 #include "core/types.h"
@@ -493,7 +494,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentAddVectorsWithInvalidMetadata") {
     core::Metadata meta;
     // Add too many fields (> 100)
     for (int j = 0; j < 101; ++j) {
-      meta["field_" + std::to_string(j)] = core::MetadataValue(int64_t(j));
+      meta["field_" + std::to_string(j)] = core::MetadataValue(static_cast<int64_t>(j));
     }
     metadata.push_back(meta);
   }
@@ -512,7 +513,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterNoMatches") {
 
   std::vector<core::Metadata> metadata;
   for (size_t i = 0; i < 10; ++i) {
-    core::Metadata meta = {{"price", core::MetadataValue(int64_t(100))}};
+    core::Metadata meta = {{"price", core::MetadataValue(static_cast<int64_t>(100))}};
     metadata.push_back(meta);
   }
 
@@ -1173,7 +1174,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSerializeDeserializeLargeSegment") {
 
   // Should have reasonable size
   const auto& bytes = serialize_result.value();
-  size_t expected_min_size = 100 * dimension_ * sizeof(float);  // Just vectors
+  size_t expected_min_size = size_t{100} * dimension_ * sizeof(float);  // Just vectors
   CHECK_GT(bytes.size(), expected_min_size);
 
   // Deserialize
@@ -1251,7 +1252,7 @@ TEST_CASE_FIXTURE(StorageTest, "FlushAndLoadSegmentWithVectors") {
   std::vector<core::VectorId> ids;
   for (int i = 1; i <= 5; ++i) {
     std::vector<float> data = {static_cast<float>(i), 0.0f, 0.0f, 0.0f};
-    vectors.push_back(core::Vector(std::move(data)));
+    vectors.emplace_back(data);
     ids.push_back(core::MakeVectorId(i));
   }
   REQUIRE(sm->WriteVectors(seg_id, vectors, ids).ok());
@@ -1291,7 +1292,7 @@ TEST_CASE_FIXTURE(StorageTest, "LoadAllSegmentsRecovery") {
   std::vector<core::VectorId> ids;
   for (int i = 1; i <= 3; ++i) {
     std::vector<float> data = {static_cast<float>(i), 1.0f, 2.0f, 3.0f};
-    vectors.push_back(core::Vector(std::move(data)));
+    vectors.emplace_back(data);
     ids.push_back(core::MakeVectorId(i));
   }
   REQUIRE(sm1->WriteVectors(seg_id, vectors, ids).ok());
@@ -1325,7 +1326,7 @@ TEST_CASE_FIXTURE(StorageTest, "LoadAllSegmentsRecovery") {
 
   // Verify search works after recovery (index was rebuilt)
   std::vector<float> query_data = {1.0f, 1.0f, 2.0f, 3.0f};
-  core::Vector query(std::move(query_data));
+  core::Vector query(query_data);
   auto search_result = segment->Search(query, 2);
   INFO(search_result.status().message());
   REQUIRE(search_result.ok());
@@ -1469,6 +1470,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentRangeSearchMaxResults") {
 
   // Add 10 vectors all very close to origin
   std::vector<core::Vector> vectors;
+  vectors.reserve(10);
   for (int i = 0; i < 10; ++i) {
     vectors.push_back(core::Vector({0.01f * (i + 1), 0.0f, 0.0f, 0.0f}));
   }
@@ -1535,7 +1537,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentGrowingSearchCosine") {
   REQUIRE_EQ(segment.GetState(), core::SegmentState::GROWING);
 
   const core::Vector query({1.0f, 0.0f, 0.0f, 0.0f});
-  const float diagonal_distance = 1.0f - 1.0f / std::sqrt(2.0f);
+  const float diagonal_distance = 1.0f - 1.0f / std::numbers::sqrt2_v<float>;
 
   SUBCASE("top_k below the vector count returns the closest vectors") {
     auto result = segment.Search(query, 3);
@@ -1621,12 +1623,12 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexBasicLookup") {
 TEST_CASE_FIXTURE(StorageTest, "ScalarIndexRangeLookup") {
   storage::ScalarIndex idx;
 
-  idx.Add(1, core::MetadataValue(int64_t(10)));
-  idx.Add(2, core::MetadataValue(int64_t(50)));
-  idx.Add(3, core::MetadataValue(int64_t(100)));
-  idx.Add(4, core::MetadataValue(int64_t(200)));
+  idx.Add(1, core::MetadataValue(static_cast<int64_t>(10)));
+  idx.Add(2, core::MetadataValue(static_cast<int64_t>(50)));
+  idx.Add(3, core::MetadataValue(static_cast<int64_t>(100)));
+  idx.Add(4, core::MetadataValue(static_cast<int64_t>(200)));
 
-  core::MetadataValue max_val(int64_t(100));
+  core::MetadataValue max_val(static_cast<int64_t>(100));
   auto result = idx.LookupRange(nullptr, &max_val);
   CHECK_GE(result.size(), 3);  // IDs 1,2,3 (value <= 100)
   CHECK(result.count(1));
@@ -1666,11 +1668,11 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexSetBuildAndEvaluate") {
 
   std::unordered_map<uint64_t, core::Metadata> metadata_map;
   metadata_map[1] = {{"brand", core::MetadataValue(std::string("Nike"))},
-                     {"price", core::MetadataValue(int64_t(100))}};
+                     {"price", core::MetadataValue(static_cast<int64_t>(100))}};
   metadata_map[2] = {{"brand", core::MetadataValue(std::string("Adidas"))},
-                     {"price", core::MetadataValue(int64_t(150))}};
+                     {"price", core::MetadataValue(static_cast<int64_t>(150))}};
   metadata_map[3] = {{"brand", core::MetadataValue(std::string("Nike"))},
-                     {"price", core::MetadataValue(int64_t(200))}};
+                     {"price", core::MetadataValue(static_cast<int64_t>(200))}};
 
   idx_set.BuildFromMetadata(metadata_map);
   CHECK(idx_set.HasIndexes());
@@ -1701,7 +1703,7 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexSearchWithFilterAcceleration") {
     core::Metadata md;
     md["category"] = (i < 10) ? core::MetadataValue(std::string("shoes"))
                               : core::MetadataValue(std::string("electronics"));
-    md["price"] = core::MetadataValue(int64_t(50 + i * 10));
+    md["price"] = core::MetadataValue(static_cast<int64_t>(50 + i * 10));
     metadata.push_back(md);
   }
 
@@ -1709,7 +1711,7 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexSearchWithFilterAcceleration") {
 
   core::Vector query({0.0f, 0.0f, 0.0f, 0.0f});
 
-  // Search with filter: category = 'shoes' — scalar index narrows to 10 vectors
+  // Search with filter: category = 'shoes', scalar index narrows to 10 vectors
   auto result = segment.SearchWithFilter(query, 5, "category = 'shoes'");
   REQUIRE(result.ok());
   CHECK_EQ(result->entries.size(), 5);
@@ -1735,7 +1737,7 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexAndFilter") {
     core::Metadata md;
     md["brand"] = (i % 2 == 0) ? core::MetadataValue(std::string("Nike"))
                                : core::MetadataValue(std::string("Adidas"));
-    md["price"] = core::MetadataValue(int64_t(100 + i * 50));
+    md["price"] = core::MetadataValue(static_cast<int64_t>(100 + i * 50));
     metadata.push_back(md);
   }
 
@@ -1759,7 +1761,7 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexAndFilter") {
 // Fixture with tiny segment size for fast rotation testing
 class RotationTest {
  public:
-  // 1KB max segment size — each 4D float32 vector is 16 bytes, so ~64 vectors to fill
+  // 1KB max segment size: each 4D float32 vector is 16 bytes, so ~64 vectors to fill
   static constexpr size_t kTinyMaxSize = 1024;
 
   RotationTest() {
@@ -1858,7 +1860,7 @@ TEST_CASE_FIXTURE(RotationTest, "GetWritableSegment_RotatesOnExhaustion") {
   CHECK(seg->CanAcceptWrites());
 
   // But it can't fit a batch of 10 vectors (160 bytes → 960 + 160 > 1024)
-  size_t batch_bytes = 10 * dimension_ * sizeof(float);  // 160 bytes
+  size_t batch_bytes = size_t{10} * dimension_ * sizeof(float);  // 160 bytes
 
   // GetWritableSegment with required_bytes should trigger rotation
   auto* new_seg = manager_->GetWritableSegment(collection_id_, batch_bytes);
@@ -1921,7 +1923,7 @@ TEST_CASE_FIXTURE(RotationTest, "RotationPreservesCollectionMapping") {
   auto* s1 = manager_->GetSegment(*seg1);
   REQUIRE(s1->AddVectors(vecs, ids).ok());
 
-  // Rotate collection 1 — should not affect collection 2
+  // Rotate collection 1: should not affect collection 2
   auto* new_seg = manager_->GetWritableSegment(cid1);
   REQUIRE(new_seg != nullptr);
   CHECK_EQ(new_seg->GetCollectionId(), cid1);

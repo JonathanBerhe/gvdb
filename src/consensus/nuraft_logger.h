@@ -10,8 +10,7 @@
 #include <cstddef>
 #include <string>
 
-namespace gvdb {
-namespace consensus {
+namespace gvdb::consensus {
 
 // NuRaft logger adapter to use our logging system
 class NuRaftLoggerAdapter : public nuraft::logger {
@@ -27,5 +26,4 @@ class NuRaftLoggerAdapter : public nuraft::logger {
   int level_ = 4;  // INFO by default
 };
 
-}  // namespace consensus
-}  // namespace gvdb
+}  // namespace gvdb::consensus

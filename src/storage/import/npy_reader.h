@@ -10,8 +10,7 @@
 #include "core/types.h"
 #include "core/vector.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // Parsed header from a NumPy .npy file.
 struct NpyHeader {
@@ -44,5 +43,4 @@ class NpyReader {
             uint64_t start_id);
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

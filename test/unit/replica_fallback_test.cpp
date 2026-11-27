@@ -105,7 +105,7 @@ TEST_CASE("CallWithReplicaFallback walks past multiple unhealthy candidates") {
 }
 
 TEST_CASE("CallWithReplicaFallback returns immediately on a non-transient error") {
-  // INTERNAL is a server-side problem — every replica would return the same
+  // INTERNAL is a server-side problem: every replica would return the same
   // error, so don't waste round-trips. The helper short-circuits.
   auto options = MakeOptions({
       {101, "addr-101", true},

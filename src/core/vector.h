@@ -9,8 +9,7 @@
 #include "core/status.h"
 #include "core/types.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 // Custom allocator for SIMD-aligned memory
 // Ensures vector data is aligned to 32-byte boundaries for AVX operations
@@ -26,7 +25,7 @@ class AlignedAllocator {
   using difference_type = std::ptrdiff_t;
 
   template <typename U>
-  struct rebind {
+  struct rebind {  // NOLINT(readability-identifier-naming): standard allocator name.
     using other = AlignedAllocator<U, Alignment>;
   };
 
@@ -104,5 +103,4 @@ class Vector {
 // Create a random vector (useful for testing)
 [[nodiscard]] Vector RandomVector(Dimension dim);
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

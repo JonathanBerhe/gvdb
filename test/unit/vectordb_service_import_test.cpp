@@ -74,8 +74,8 @@ std::string BuildNpy(size_t num_vectors, size_t dimension) {
 }
 
 std::string ToLower(std::string s) {
-  std::transform(s.begin(), s.end(), s.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  std::ranges::transform(s, s.begin(),
+                         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return s;
 }
 
@@ -90,13 +90,13 @@ bool IsTerminal(proto::ImportState state) {
 class GatedObjectStore : public storage::IObjectStore {
  public:
   void Hold() {
-    std::lock_guard lock(mutex_);
+    std::scoped_lock lock(mutex_);
     held_ = true;
   }
 
   void Release() {
     {
-      std::lock_guard lock(mutex_);
+      std::scoped_lock lock(mutex_);
       held_ = false;
     }
     cv_.notify_all();
@@ -477,7 +477,7 @@ TEST_CASE_FIXTURE(ImportServiceTest, "BulkImportSameSourceReturnsExistingJob") {
 
 TEST_CASE_FIXTURE(ImportServiceTest, "NpyImportWithWrongDimensionFails") {
   CreateCollection("coll", kDim);
-  PutNpy("data/wide.npy", 5, kDim * 2);
+  PutNpy("data/wide.npy", 5, size_t{kDim} * 2);
 
   proto::BulkImportResponse start;
   REQUIRE(StartImport("coll", "s3://bucket/data/wide.npy", &start).ok());

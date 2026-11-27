@@ -6,8 +6,7 @@
 #include "index/faiss/faiss_base.h"
 #include "index/index_factory.h"
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 // IVF (Inverted File) index: partitions vectors into clusters
 // Best for large datasets where memory is a concern
@@ -39,5 +38,4 @@ class FaissIVFIndex : public FaissIndexBase {
   IVFQuantizationType quantization_;
 };
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

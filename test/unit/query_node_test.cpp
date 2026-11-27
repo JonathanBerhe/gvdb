@@ -26,11 +26,7 @@ using namespace gvdb::cluster;
 
 class QueryNodeTest {
  public:
-  QueryNodeTest()
-      : collection_id_(core::MakeCollectionId(1)),
-        dimension_(32),
-        metric_(core::MetricType::L2),
-        memory_limit_(64 * 1024 * 1024) {  // 64 MB
+  QueryNodeTest() : collection_id_(core::MakeCollectionId(1)) {  // 64 MB
 
     index_factory_ = std::make_unique<index::IndexFactory>();
 
@@ -83,9 +79,9 @@ class QueryNodeTest {
   // other member is gone.
   gvdb::test::ScopedTempDir test_dir_{"gvdb_query_node_test"};
   core::CollectionId collection_id_;
-  int32_t dimension_;
-  core::MetricType metric_;
-  size_t memory_limit_;
+  int32_t dimension_{32};
+  core::MetricType metric_{core::MetricType::L2};
+  size_t memory_limit_{size_t{64} * 1024 * 1024};
   size_t next_vector_id_offset_ = 0;
 
   std::unique_ptr<index::IndexFactory> index_factory_;
@@ -172,16 +168,16 @@ TEST_CASE_FIXTURE(QueryNodeTest, "GetLoadedSegments reflects loaded set") {
   CHECK_EQ(loaded.size(), 3);
 
   // Verify all segment IDs are present
-  CHECK(std::find(loaded.begin(), loaded.end(), seg1) != loaded.end());
-  CHECK(std::find(loaded.begin(), loaded.end(), seg2) != loaded.end());
-  CHECK(std::find(loaded.begin(), loaded.end(), seg3) != loaded.end());
+  CHECK(std::ranges::find(loaded, seg1) != loaded.end());
+  CHECK(std::ranges::find(loaded, seg2) != loaded.end());
+  CHECK(std::ranges::find(loaded, seg3) != loaded.end());
 
   // Unload one and verify
   REQUIRE(query_node_->UnloadSegment(seg2).ok());
 
   loaded = query_node_->GetLoadedSegments();
   CHECK_EQ(loaded.size(), 2);
-  CHECK(std::find(loaded.begin(), loaded.end(), seg2) == loaded.end());
+  CHECK(std::ranges::find(loaded, seg2) == loaded.end());
 }
 
 TEST_CASE_FIXTURE(QueryNodeTest, "Memory tracking increases on load") {

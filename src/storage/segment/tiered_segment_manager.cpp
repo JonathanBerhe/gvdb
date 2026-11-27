@@ -9,22 +9,22 @@
 #include <algorithm>
 #include <array>
 #include <mutex>
+#include <utility>
 #include <vector>
 #include "absl/container/flat_hash_set.h"
 #include "core/status.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 TieredSegmentManager::TieredSegmentManager(std::unique_ptr<SegmentManager> local,
                                            std::unique_ptr<IObjectStore> object_store,
-                                           std::unique_ptr<SegmentCache> cache,
-                                           const std::string& prefix, int upload_threads,
+                                           std::unique_ptr<SegmentCache> cache, std::string prefix,
+                                           int upload_threads,
                                            std::chrono::milliseconds retry_base_delay)
     : local_(std::move(local)),
       object_store_(std::move(object_store)),
       cache_(std::move(cache)),
-      prefix_(prefix),
+      prefix_(std::move(prefix)),
       upload_pool_(std::make_unique<common::ThreadPool>(std::max(1, upload_threads))),
       retry_base_delay_(retry_base_delay) {
   retry_thread_ = std::thread([this]() { RetryLoop(); });
@@ -35,7 +35,7 @@ TieredSegmentManager::~TieredSegmentManager() {
   // has exited no new upload tasks can be enqueued, so the pool can drain any
   // in-flight upload cleanly (ThreadPool destructor waits for pending tasks).
   {
-    std::lock_guard lock(upload_mutex_);
+    std::scoped_lock lock(upload_mutex_);
     retry_stop_ = true;
   }
   retry_cv_.notify_all();
@@ -95,7 +95,7 @@ absl::Status TieredSegmentManager::FlushSegment(core::SegmentId id) {
   //    records it in failed_uploads_ and the retry thread re-drives it.
   auto seg_id = id;
   {
-    std::lock_guard lock(upload_mutex_);
+    std::scoped_lock lock(upload_mutex_);
     uploading_.insert(core::ToUInt32(seg_id));
   }
 
@@ -257,5 +257,4 @@ void TieredSegmentManager::Clear() {
   remote_segments_.clear();
 }
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

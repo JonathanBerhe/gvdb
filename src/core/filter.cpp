@@ -7,13 +7,13 @@
 #include <algorithm>
 #include <cmath>
 #include <string_view>
+#include <utility>
 
 #include "absl/strings/ascii.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 namespace {
 
@@ -90,8 +90,7 @@ bool LogicalNode::Evaluate(const Metadata& metadata) const {
 // FilterParser Implementation
 // ============================================================================
 
-FilterParser::FilterParser(const std::string& expression)
-    : expression_(expression), pos_(0), depth_(0) {}
+FilterParser::FilterParser(std::string expression) : expression_(std::move(expression)) {}
 
 absl::StatusOr<std::unique_ptr<FilterNode>> FilterParser::parse(const std::string& expression) {
   FilterParser parser(expression);
@@ -488,5 +487,4 @@ absl::Status FilterParser::EnterNesting() {
   return absl::OkStatus();
 }
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core

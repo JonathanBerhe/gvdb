@@ -15,13 +15,12 @@
 #include "core/metadata.h"
 #include "core/types.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // A bitmap of vector IDs for fast set intersection
 using VectorIdSet = std::unordered_set<uint64_t>;
 
-// ScalarIndex — inverted index on a single metadata field
+// ScalarIndex: inverted index on a single metadata field
 //
 // For equality/IN lookups: hash map from value -> set of vector IDs
 // For range queries on numeric fields: sorted map for ordered iteration
@@ -67,7 +66,7 @@ class ScalarIndex {
   static std::string ValueToSortKey(const core::MetadataValue& value);
 };
 
-// ScalarIndexSet — manages scalar indexes for all indexed fields in a segment
+// ScalarIndexSet: manages scalar indexes for all indexed fields in a segment
 class ScalarIndexSet {
  public:
   ScalarIndexSet() = default;
@@ -97,5 +96,4 @@ class ScalarIndexSet {
   ScalarIndex& GetOrCreateIndex(const std::string& field);
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

@@ -13,8 +13,7 @@
 #include "cluster/coordinator/internal_client.h"
 #include "common/logger.h"
 
-namespace gvdb {
-namespace cluster {
+namespace gvdb::cluster {
 
 Coordinator::Coordinator(std::shared_ptr<ShardManager> shard_manager,
                          std::shared_ptr<NodeRegistry> node_registry, CoordinatorOptions options)
@@ -46,7 +45,7 @@ absl::Status Coordinator::Start(const std::string& bind_address) {
   {
     auto data_nodes =
         node_registry_->GetHealthyNodesByType(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
-    std::lock_guard lock(known_nodes_mutex_);
+    std::scoped_lock lock(known_nodes_mutex_);
     known_data_nodes_.clear();
     for (const auto& n : data_nodes) {
       if (n.IsDraining()) continue;
@@ -76,7 +75,7 @@ absl::Status Coordinator::Shutdown() {
   // Tests construct a Coordinator and call DetectNewDataNodes directly
   // without Start(); the worker thread is still live.
   {
-    std::lock_guard lock(rebalance_worker_mutex_);
+    std::scoped_lock lock(rebalance_worker_mutex_);
     if (rebalance_worker_ && rebalance_worker_->joinable()) {
       if (was_running) {
         common::Logger::Instance().Info(
@@ -99,5 +98,4 @@ core::Timestamp Coordinator::GetCurrentTimestamp() const {
   return std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 }
 
-}  // namespace cluster
-}  // namespace gvdb
+}  // namespace gvdb::cluster

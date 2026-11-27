@@ -10,8 +10,7 @@
 
 #include "core/status.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // ============================================================================
 // IObjectStore - Abstract interface for object storage backends
@@ -29,7 +28,7 @@ class IObjectStore {
   // Get an object into a memory buffer
   [[nodiscard]] virtual absl::StatusOr<std::string> GetObject(const std::string& key) = 0;
 
-  // Delete an object (idempotent — deleting a missing key is OK)
+  // Delete an object (idempotent: deleting a missing key is OK)
   [[nodiscard]] virtual absl::Status DeleteObject(const std::string& key) = 0;
 
   // List objects matching a key prefix
@@ -80,5 +79,4 @@ class InMemoryObjectStore : public IObjectStore {
   std::unordered_map<std::string, std::string> objects_;
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

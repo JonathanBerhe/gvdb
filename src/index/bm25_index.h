@@ -11,8 +11,7 @@
 
 #include "index/text_index.h"
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 // BM25 (Okapi BM25) full-text search index.
 // Implements the standard BM25 scoring formula with inverted index.
@@ -55,5 +54,4 @@ class BM25Index : public ITextIndex {
   float b_;
 };
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

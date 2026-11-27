@@ -9,8 +9,7 @@
 #include "core/status.h"
 #include "core/types.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // Entry describing a segment stored in object storage
 struct ManifestEntry {
@@ -47,5 +46,4 @@ class SegmentManifest {
                                                uint32_t segment_id);
 };
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

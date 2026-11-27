@@ -13,8 +13,7 @@
 #include <memory>
 #include <string>
 
-namespace gvdb {
-namespace test {
+namespace gvdb::test {
 
 class TestGrpcServer {
  public:
@@ -59,5 +58,4 @@ class TestGrpcServer {
   std::unique_ptr<grpc::Server> server_;
 };
 
-}  // namespace test
-}  // namespace gvdb
+}  // namespace gvdb::test

@@ -6,8 +6,7 @@
 
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace auth {
+namespace gvdb::auth {
 
 bool HasPermission(Role role, Permission permission) {
   switch (role) {
@@ -95,7 +94,7 @@ absl::StatusOr<std::shared_ptr<RbacStore>> RbacStore::Create(const auth::AuthCon
     }
 
     if (store->keys_.contains(r.key)) {
-      common::Logger::Instance().Warn("Duplicate auth key '{}' in config — later entry wins",
+      common::Logger::Instance().Warn("Duplicate auth key '{}' in config, the later entry wins",
                                       r.key);
     }
 
@@ -138,5 +137,4 @@ size_t RbacStore::Size() const {
   return keys_.size();
 }
 
-}  // namespace auth
-}  // namespace gvdb
+}  // namespace gvdb::auth

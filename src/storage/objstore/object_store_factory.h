@@ -9,8 +9,7 @@
 #include "core/status.h"
 #include "storage/objstore/object_store.h"
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 
 // Settings of the object store that holds sealed segments.
 //   type == "gcs"            -> Google Cloud Storage (auth via ADC /
@@ -47,7 +46,7 @@ struct ObjectStoreConfig {
 //
 // Returns:
 //   ok + non-null : the configured backend, ready to use.
-//   ok + null     : object storage is disabled — either not configured, or
+//   ok + null     : object storage is disabled, either not configured, or
 //                   configured for a backend this binary was not compiled with
 //                   (a warning is logged in the latter case so the fall back to
 //                   local-only storage is visible rather than silent).
@@ -56,5 +55,4 @@ struct ObjectStoreConfig {
 [[nodiscard]] absl::StatusOr<std::unique_ptr<IObjectStore>> CreateObjectStore(
     const ObjectStoreConfig& config);
 
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

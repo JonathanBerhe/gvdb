@@ -5,8 +5,7 @@
 
 #include <doctest/doctest.h>
 
-namespace gvdb {
-namespace storage {
+namespace gvdb::storage {
 namespace {
 
 ManifestEntry MakeEntry(uint32_t seg_id, uint32_t col_id, uint64_t count) {
@@ -115,5 +114,4 @@ TEST_CASE("RemoveNonexistent") {
 }
 
 }  // namespace
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage

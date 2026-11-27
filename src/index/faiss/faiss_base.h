@@ -23,8 +23,7 @@ class StandardGpuResources;
 #include "core/types.h"
 #include "core/vector.h"
 
-namespace gvdb {
-namespace index {
+namespace gvdb::index {
 
 // Helper function to execute Faiss operations with exception handling
 template <typename F>
@@ -55,7 +54,7 @@ class FaissIndexBase : public core::IVectorIndex {
   // Out-of-line so unique_ptr<StandardGpuResources>'s deleter sees the
   // complete type only in faiss_base.cpp (which includes the faiss-gpu
   // header under GVDB_HAS_CUDA).
-  virtual ~FaissIndexBase();
+  ~FaissIndexBase() override;
 
   // IVectorIndex implementation
 
@@ -118,7 +117,7 @@ class FaissIndexBase : public core::IVectorIndex {
 
 #ifdef GVDB_HAS_CUDA
   // Owns the CUDA scratch resources backing index_ when gpu_resident_.
-  // Declared before index_ so it destructs last — the GPU index references
+  // Declared before index_ so it destructs last, because the GPU index references
   // these resources during its own destruction.
   std::unique_ptr<faiss::gpu::StandardGpuResources> gpu_res_;
   bool gpu_resident_ = false;
@@ -135,8 +134,7 @@ class FaissIndexBase : public core::IVectorIndex {
   mutable std::shared_mutex mutex_;
 
   // Track if index is trained (for IVF indexes)
-  bool is_trained_;
+  bool is_trained_{false};
 };
 
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index

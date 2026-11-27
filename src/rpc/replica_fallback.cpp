@@ -9,8 +9,7 @@
 #include "common/metrics.h"
 #include "rpc/primary_term_header.h"
 
-namespace gvdb {
-namespace rpc {
+namespace gvdb::rpc {
 
 bool IsTransientReplicaError(grpc::StatusCode code) {
   // UNAVAILABLE: the target's gRPC channel reported it was unreachable
@@ -305,5 +304,4 @@ grpc::Status RouteWriteAndCallWithFallback(proto::internal::InternalService::Stu
   return last_status;
 }
 
-}  // namespace rpc
-}  // namespace gvdb
+}  // namespace gvdb::rpc

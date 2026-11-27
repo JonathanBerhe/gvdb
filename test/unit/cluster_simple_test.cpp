@@ -84,12 +84,11 @@ TEST_CASE_FIXTURE(ShardManagerTest, "ShardToNodeMapping") {
 TEST_CASE_FIXTURE(ShardManagerTest, "UpdateShardMetrics") {
   core::ShardId shard = core::MakeShardId(0);
 
-  auto status = shard_manager_->UpdateShardMetrics(shard, 1024 * 1024, 1000, 5000);
+  auto status = shard_manager_->UpdateShardMetrics(shard, size_t{1024} * 1024, 1000, 5000);
   CHECK(status.ok());
 
   auto shards = shard_manager_->GetAllShards();
-  auto info = std::find_if(shards.begin(), shards.end(),
-                           [&](const ShardInfo& s) { return s.shard_id == shard; });
+  auto info = std::ranges::find_if(shards, [&](const ShardInfo& s) { return s.shard_id == shard; });
   REQUIRE(info != shards.end());
   CHECK_EQ(info->data_size_bytes, 1024 * 1024);
   CHECK_EQ(info->vector_count, 1000);
@@ -935,7 +934,7 @@ class MockClient : public IInternalServiceClient {
     }
     if (!segment_missing) {
       auto* info = resp->add_segments();
-      info->set_segment_id(req.collection_id() * 65536);
+      info->set_segment_id(uint64_t{req.collection_id()} * 65536);
       info->set_collection_id(req.collection_id());
       info->set_vector_count(vector_count);
     }

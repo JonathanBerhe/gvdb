@@ -14,8 +14,7 @@
 #include "storage/segment/segment_manager.h"
 #include "storage/segment/tiered_segment_manager.h"
 
-namespace gvdb {
-namespace server {
+namespace gvdb::server {
 
 absl::StatusOr<config::GVDBConfig> LoadConfig(const std::string& path) {
   if (path.empty()) return config::Config::GetDefault();
@@ -142,5 +141,4 @@ void AddAuditInterceptor(const auth::AuditLogConfig& audit, InterceptorFactories
   interceptors.push_back(std::make_unique<rpc::AuditInterceptorFactory>());
 }
 
-}  // namespace server
-}  // namespace gvdb
+}  // namespace gvdb::server

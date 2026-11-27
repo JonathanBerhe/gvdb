@@ -16,8 +16,7 @@
 #include "vectordb.grpc.pb.h"
 #include "vectordb.pb.h"
 
-namespace gvdb {
-namespace rpc {
+namespace gvdb::rpc {
 
 // ============================================================================
 // Proto to Core Conversions
@@ -95,5 +94,4 @@ grpc::Status ToGrpcStatus(const absl::Status& status);
 // Convert grpc::Status to absl::Status
 absl::Status FromGrpcStatus(const grpc::Status& grpc_status);
 
-}  // namespace rpc
-}  // namespace gvdb
+}  // namespace gvdb::rpc

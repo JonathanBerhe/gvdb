@@ -4,11 +4,11 @@
 #include "common/metrics.h"
 
 #include <chrono>
+#include <utility>
 
 #include "common/logger.h"
 
-namespace gvdb {
-namespace common {
+namespace gvdb::common {
 
 // ============================================================================
 // MetricsRegistry Implementation
@@ -356,10 +356,10 @@ void MetricsRegistry::RecordReadAttempts(const std::string& operation, uint32_t 
 // ============================================================================
 
 MetricsTimer::MetricsTimer(MetricsRegistry& registry, OperationType type,
-                           const std::string& collection_name)
+                           std::string collection_name)
     : registry_(registry),
       type_(type),
-      collection_name_(collection_name),
+      collection_name_(std::move(collection_name)),
       start_(std::chrono::steady_clock::now()) {}
 
 MetricsTimer::~MetricsTimer() {
@@ -386,5 +386,4 @@ MetricsTimer::~MetricsTimer() {
   }
 }
 
-}  // namespace common
-}  // namespace gvdb
+}  // namespace gvdb::common

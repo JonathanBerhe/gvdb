@@ -19,7 +19,7 @@ namespace storage {
 // Authentication is Application Default Credentials (ADC): on GKE this is
 // Workload Identity (no key file); locally the GOOGLE_APPLICATION_CREDENTIALS
 // env var points ADC at a service-account JSON. There are intentionally no
-// static access/secret keys and no region — a GCS bucket's location is a
+// static access/secret keys and no region, a GCS bucket's location is a
 // property of the bucket, not the client.
 struct GcsConfig {
   std::string bucket;
@@ -28,7 +28,7 @@ struct GcsConfig {
   std::string project_id;
   // Optional path to a service-account JSON key. When set (and no emulator
   // endpoint is used), the key is loaded and used directly for this store's
-  // client — no process-global env mutation. Empty on GKE Workload Identity
+  // client, no process-global env mutation. Empty on GKE Workload Identity
   // (no key file); when empty, auth falls back to Application Default
   // Credentials, which honor the GOOGLE_APPLICATION_CREDENTIALS env var.
   std::string credentials_path;
@@ -44,13 +44,13 @@ struct GcsConfig {
 // ============================================================================
 // Uses google-cloud-cpp (storage component only). The underlying
 // google::cloud::storage::Client is held in a PIMPL so the SDK never leaks
-// into includers, and — because a single Client instance is not safe for
-// concurrent use — each call operates on a cheap copy of it (copies share
+// into includers, and, because a single Client instance is not safe for
+// concurrent use, each call operates on a cheap copy of it (copies share
 // one connection pool, which is the pattern the library documents).
 // Thread-safe for concurrent calls.
 class GcsObjectStore : public IObjectStore {
  public:
-  // Factory method — constructs the GCS client from config. Returns an error
+  // Factory method: constructs the GCS client from config. Returns an error
   // only for clearly-invalid config (e.g. empty bucket); connection/auth
   // problems surface on the first request, mirroring S3ObjectStore::Create.
   [[nodiscard]] static absl::StatusOr<std::unique_ptr<GcsObjectStore>> Create(

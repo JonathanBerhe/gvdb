@@ -12,9 +12,7 @@
 
 #include "absl/strings/str_cat.h"
 
-namespace gvdb {
-namespace index {
-namespace turboquant {
+namespace gvdb::index::turboquant {
 
 namespace {
 
@@ -155,7 +153,7 @@ absl::StatusOr<core::SearchResult> TurboQuantIndex::Search(const core::Vector& q
   // Preprocess query once
   auto pq = codec_.PreprocessQuery(query.data(), query.dimension());
 
-  // Max-heap: (distance, index) — largest distance on top for eviction
+  // Max-heap of (distance, index), with the largest distance on top for eviction
   using Entry = std::pair<float, size_t>;
   std::priority_queue<Entry> heap;
 
@@ -172,10 +170,10 @@ absl::StatusOr<core::SearchResult> TurboQuantIndex::Search(const core::Vector& q
     float dist = IPToDistance(ip, norms_[i], pq);
 
     if (static_cast<int>(heap.size()) < k) {
-      heap.push({dist, i});
+      heap.emplace(dist, i);
     } else if (dist < heap.top().first) {
       heap.pop();
-      heap.push({dist, i});
+      heap.emplace(dist, i);
     }
   }
 
@@ -187,7 +185,7 @@ absl::StatusOr<core::SearchResult> TurboQuantIndex::Search(const core::Vector& q
     sorted.push_back(heap.top());
     heap.pop();
   }
-  std::reverse(sorted.begin(), sorted.end());
+  std::ranges::reverse(sorted);
 
   for (auto& [dist, idx] : sorted) {
     result.AddEntry(ids_[idx], dist);
@@ -264,7 +262,7 @@ core::Dimension TurboQuantIndex::GetDimension() const { return codec_.dimension(
 core::MetricType TurboQuantIndex::GetMetricType() const { return metric_type_; }
 
 absl::Status TurboQuantIndex::Train(const std::vector<core::Vector>& /*training_data*/) {
-  // TurboQuant is data-oblivious — no training required
+  // TurboQuant is data-oblivious: no training required
   return absl::OkStatus();
 }
 
@@ -457,6 +455,4 @@ float TurboQuantIndex::IPToDistance(float estimated_ip, float x_norm,
   return -estimated_ip;  // fallback
 }
 
-}  // namespace turboquant
-}  // namespace index
-}  // namespace gvdb
+}  // namespace gvdb::index::turboquant

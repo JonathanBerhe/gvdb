@@ -57,7 +57,7 @@ struct MockState {
   std::atomic<bool> fail_prepare_promote{false};
 
   void Record(RecordedCall c) {
-    std::lock_guard<std::mutex> lk(mu);
+    std::scoped_lock lk(mu);
     calls.push_back(std::move(c));
   }
 };
@@ -268,7 +268,7 @@ TEST_SUITE("CoordinatorBackup") {
     // PreparePromote per shard, which is asserted by its own tests below.
     std::map<uint32_t, std::vector<std::string>> per_shard_methods;
     {
-      std::lock_guard<std::mutex> lk(mock_state->mu);
+      std::scoped_lock lk(mock_state->mu);
       for (const auto& c : mock_state->calls) {
         if (c.method == "FreezeWrites" || c.method == "BackupShard" ||
             c.method == "UnfreezeWrites") {
@@ -288,7 +288,7 @@ TEST_SUITE("CoordinatorBackup") {
     // collection_id (regression guard: an earlier draft hardcoded 0).
     bool saw_nonzero_collection = false;
     {
-      std::lock_guard<std::mutex> lk(mock_state->mu);
+      std::scoped_lock lk(mock_state->mu);
       for (const auto& c : mock_state->calls) {
         if (c.method == "BackupShard") {
           CHECK_EQ(c.backup_id, "bk-fixed");
@@ -360,7 +360,7 @@ TEST_SUITE("CoordinatorBackup") {
 
     std::map<uint32_t, uint64_t> promoted;  // shard_id -> pushed term
     {
-      std::lock_guard<std::mutex> lk(mock_state->mu);
+      std::scoped_lock lk(mock_state->mu);
       for (const auto& c : mock_state->calls) {
         if (c.method == "PreparePromote") {
           // Each shard must be promoted exactly once.
@@ -393,7 +393,7 @@ TEST_SUITE("CoordinatorBackup") {
     // The push was attempted for both shards even though it failed.
     int attempts = 0;
     {
-      std::lock_guard<std::mutex> lk(mock_state->mu);
+      std::scoped_lock lk(mock_state->mu);
       for (const auto& c : mock_state->calls) {
         if (c.method == "PreparePromote") ++attempts;
       }

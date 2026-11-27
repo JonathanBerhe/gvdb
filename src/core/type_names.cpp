@@ -5,8 +5,7 @@
 
 #include "absl/strings/str_format.h"
 
-namespace gvdb {
-namespace core {
+namespace gvdb::core {
 
 std::string ToString(core::MetricType metric) {
   switch (metric) {
@@ -78,5 +77,4 @@ absl::StatusOr<core::IndexType> IndexTypeFromString(const std::string& index_str
   }
 }
 
-}  // namespace core
-}  // namespace gvdb
+}  // namespace gvdb::core
