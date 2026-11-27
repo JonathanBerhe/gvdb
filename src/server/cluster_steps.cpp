@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <thread>
 
+#include "cluster/coordinator/raft_peer_client.h"
 #include "common/logger.h"
 #include "internal.grpc.pb.h"
 #include "server/bootstrap.h"
@@ -16,7 +17,8 @@ namespace gvdb {
 namespace server {
 
 absl::StatusOr<std::unique_ptr<consensus::RaftNode>> StartRaft(const consensus::RaftConfig& config) {
-  auto raft = std::make_unique<consensus::RaftNode>(config);
+  auto raft = std::make_unique<consensus::RaftNode>(
+      config, std::make_shared<cluster::GrpcRaftPeerClient>());
   if (auto status = raft->Start(); !status.ok()) {
     return WithPrefix("Failed to start Raft: ", status);
   }
