@@ -19,7 +19,7 @@ namespace {
 
 // Convert RegisteredNode to meta::NodeInfo
 meta::NodeInfo ConvertRegisteredNode(const RegisteredNode& reg_node) {
-  return rpc::fromProto(reg_node.info);
+  return rpc::FromProto(reg_node.info);
 }
 
 }  // namespace
@@ -37,7 +37,7 @@ absl::Status Coordinator::RegisterNode(const meta::NodeInfo& node_info) {
 
   // Register with NodeRegistry (updates heartbeat timestamp automatically)
   proto::internal::NodeInfo proto_info;
-  rpc::toProto(node_info, &proto_info);
+  rpc::ToProto(node_info, &proto_info);
   node_registry_->UpdateNode(proto_info);
 
   common::Logger::Instance().Info("Registered node {} (type: {}, address: {})",

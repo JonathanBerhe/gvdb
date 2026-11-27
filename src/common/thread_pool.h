@@ -36,7 +36,7 @@ class ThreadPool {
   // Enqueue a task for execution
   // Returns a future that will contain the result
   template <typename F, typename... Args>
-  auto enqueue(F&& f, Args&&... args)
+  auto Enqueue(F&& f, Args&&... args)
       -> std::future<typename std::invoke_result<F, Args...>::type>;
 
   // Get number of worker threads
@@ -60,7 +60,7 @@ class ThreadPool {
 // ============================================================================
 
 template <typename F, typename... Args>
-auto ThreadPool::enqueue(F&& f, Args&&... args)
+auto ThreadPool::Enqueue(F&& f, Args&&... args)
     -> std::future<typename std::invoke_result<F, Args...>::type> {
   using return_type = typename std::invoke_result<F, Args...>::type;
 

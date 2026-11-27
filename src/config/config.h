@@ -141,27 +141,27 @@ class Config {
    * @param config_path Path to YAML configuration file
    * @return GVDBConfig structure or error status
    */
-  static absl::StatusOr<GVDBConfig> load_from_file(const std::string& config_path);
+  static absl::StatusOr<GVDBConfig> LoadFromFile(const std::string& config_path);
 
   /**
    * @brief Get default configuration
    * @return Default GVDBConfig with sensible defaults
    */
-  static GVDBConfig get_default();
+  static GVDBConfig GetDefault();
 
   /**
    * @brief Validate configuration values
    * @param config Configuration to validate
    * @return OK status if valid, error otherwise
    */
-  static absl::Status validate(const GVDBConfig& config);
+  static absl::Status Validate(const GVDBConfig& config);
 
  private:
-  static ServerConfig parse_server_config(const YAML::Node& node);
-  static StorageConfig parse_storage_config(const YAML::Node& node);
-  static IndexConfig parse_index_config(const YAML::Node& node);
-  static LoggingConfig parse_logging_config(const YAML::Node& node);
-  static ConsensusConfig parse_consensus_config(const YAML::Node& node);
+  static ServerConfig ParseServerConfig(const YAML::Node& node);
+  static StorageConfig ParseStorageConfig(const YAML::Node& node);
+  static IndexConfig ParseIndexConfig(const YAML::Node& node);
+  static LoggingConfig ParseLoggingConfig(const YAML::Node& node);
+  static ConsensusConfig ParseConsensusConfig(const YAML::Node& node);
 };
 
 }  // namespace config

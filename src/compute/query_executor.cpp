@@ -92,7 +92,7 @@ absl::StatusOr<core::SearchResult> QueryExecutor::Search(
   if (result.ok()) {
     common::Logger::Instance().Debug(
         "Search completed in {} us for collection {} (top_k={}, results={})",
-        timer.elapsed_micros(),
+        timer.ElapsedMicros(),
         core::ToUInt32(collection_id),
         top_k,
         result->entries.size());

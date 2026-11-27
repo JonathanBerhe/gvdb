@@ -15,17 +15,17 @@ namespace gvdb {
 namespace core {
 
 // "L2", "INNER_PRODUCT" or "COSINE"; "UNKNOWN" for any other value.
-std::string toString(MetricType metric);
+std::string ToString(MetricType metric);
 
 // "FLAT", "HNSW", "IVF_FLAT", "IVF_PQ", "IVF_SQ", "TURBOQUANT",
 // "IVF_TURBOQUANT" or "AUTO"; "UNKNOWN" for any other value.
-std::string toString(IndexType index);
+std::string ToString(IndexType index);
 
-// The inverse of toString(MetricType). InvalidArgument for an unknown name.
-absl::StatusOr<MetricType> metricTypeFromString(const std::string& metric_str);
+// The inverse of ToString(MetricType). InvalidArgument for an unknown name.
+absl::StatusOr<MetricType> MetricTypeFromString(const std::string& metric_str);
 
-// The inverse of toString(IndexType). InvalidArgument for an unknown name.
-absl::StatusOr<IndexType> indexTypeFromString(const std::string& index_str);
+// The inverse of ToString(IndexType). InvalidArgument for an unknown name.
+absl::StatusOr<IndexType> IndexTypeFromString(const std::string& index_str);
 
 }  // namespace core
 }  // namespace gvdb

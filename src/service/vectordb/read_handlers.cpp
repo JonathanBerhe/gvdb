@@ -108,15 +108,15 @@ grpc::Status VectorDBService::RangeSearch(
       return RangeSearchDistributed(request, response);
     }
     if (!segment_ids_result.ok()) {
-      return rpc::toGrpcStatus(segment_ids_result.status());
+      return rpc::ToGrpcStatus(segment_ids_result.status());
     }
   }
 
   const auto& segment_ids = *segment_ids_result;
 
-  auto query_result = rpc::fromProto(request->query_vector());
+  auto query_result = rpc::FromProto(request->query_vector());
   if (!query_result.ok()) {
-    return rpc::toGrpcStatus(query_result.status());
+    return rpc::ToGrpcStatus(query_result.status());
   }
 
   int max_results = request->max_results() > 0 ? request->max_results() : 1000;
@@ -151,16 +151,16 @@ grpc::Status VectorDBService::RangeSearch(
   // Build response
   for (const auto& entry : all_results) {
     auto* proto_entry = response->add_results();
-    rpc::toProto(entry, proto_entry);
+    rpc::ToProto(entry, proto_entry);
 
     if (request->return_metadata()) {
       if (auto meta = FindMetadata(entry.id, segment_ids)) {
-        rpc::toProto(*meta, proto_entry->mutable_metadata());
+        rpc::ToProto(*meta, proto_entry->mutable_metadata());
       }
     }
   }
 
-  response->set_query_time_ms(static_cast<float>(timer.elapsed_millis()));
+  response->set_query_time_ms(static_cast<float>(timer.ElapsedMillis()));
   total_queries_++;
 
   return grpc::Status::OK;
@@ -184,15 +184,15 @@ grpc::Status VectorDBService::Search(
   if (!collection_id_result.ok()) {
     common::MetricsRegistry::Instance().RecordSearch(
         request->collection_name(), false);
-    return rpc::toGrpcStatus(collection_id_result.status());
+    return rpc::ToGrpcStatus(collection_id_result.status());
   }
 
   // Convert query vector
-  auto query_result = rpc::fromProto(request->query_vector());
+  auto query_result = rpc::FromProto(request->query_vector());
   if (!query_result.ok()) {
     common::MetricsRegistry::Instance().RecordSearch(
         request->collection_name(), false);
-    return rpc::toGrpcStatus(query_result.status());
+    return rpc::ToGrpcStatus(query_result.status());
   }
 
   // Get all segments for this collection
@@ -207,7 +207,7 @@ grpc::Status VectorDBService::Search(
     }
     common::MetricsRegistry::Instance().RecordSearch(
         request->collection_name(), false);
-    return rpc::toGrpcStatus(segment_ids_result.status());
+    return rpc::ToGrpcStatus(segment_ids_result.status());
   }
 
   const auto& segment_ids = *segment_ids_result;
@@ -228,7 +228,7 @@ grpc::Status VectorDBService::Search(
     }
     common::MetricsRegistry::Instance().RecordSearch(
         request->collection_name(), false);
-    return rpc::toGrpcStatus(absl::NotFoundError("No segments found"));
+    return rpc::ToGrpcStatus(absl::NotFoundError("No segments found"));
   }
 
   // Delegate search to QueryExecutor (handles caching, filtering, multi-segment merge)
@@ -239,7 +239,7 @@ grpc::Status VectorDBService::Search(
   if (!search_result.ok()) {
     common::MetricsRegistry::Instance().RecordSearch(
         request->collection_name(), false);
-    return rpc::toGrpcStatus(search_result.status());
+    return rpc::ToGrpcStatus(search_result.status());
   }
 
   common::MetricsRegistry::Instance().RecordSearch(
@@ -248,20 +248,20 @@ grpc::Status VectorDBService::Search(
   // Build response with optional metadata enrichment
   for (const auto& entry : search_result->entries) {
     auto* proto_entry = response->add_results();
-    rpc::toProto(entry, proto_entry);
+    rpc::ToProto(entry, proto_entry);
 
     if (request->return_metadata()) {
       if (auto meta = FindMetadata(entry.id, segment_ids)) {
-        rpc::toProto(*meta, proto_entry->mutable_metadata());
+        rpc::ToProto(*meta, proto_entry->mutable_metadata());
       }
     }
   }
 
-  response->set_query_time_ms(search_timer.elapsed_millis());
+  response->set_query_time_ms(search_timer.ElapsedMillis());
 
   total_queries_.fetch_add(1, std::memory_order_relaxed);
   total_query_time_ms_.fetch_add(
-      static_cast<uint64_t>(search_timer.elapsed_millis()),
+      static_cast<uint64_t>(search_timer.ElapsedMillis()),
       std::memory_order_relaxed);
 
   return grpc::Status::OK;
@@ -294,22 +294,22 @@ grpc::Status VectorDBService::HybridSearch(
   // Resolve collection
   auto collection_id_result = resolver_->GetCollectionId(request->collection_name());
   if (!collection_id_result.ok()) {
-    return rpc::toGrpcStatus(collection_id_result.status());
+    return rpc::ToGrpcStatus(collection_id_result.status());
   }
 
   // Convert query vector (optional, may be text-only)
   std::optional<core::Vector> query_vector;
   if (has_vector) {
-    auto qr = rpc::fromProto(request->query_vector());
-    if (!qr.ok()) return rpc::toGrpcStatus(qr.status());
+    auto qr = rpc::FromProto(request->query_vector());
+    if (!qr.ok()) return rpc::ToGrpcStatus(qr.status());
     query_vector = std::move(*qr);
   }
 
   // Convert sparse query (optional)
   std::optional<core::SparseVector> sparse_query;
   if (has_sparse) {
-    auto sq = rpc::fromProto(request->sparse_query());
-    if (!sq.ok()) return rpc::toGrpcStatus(sq.status());
+    auto sq = rpc::FromProto(request->sparse_query());
+    if (!sq.ok()) return rpc::ToGrpcStatus(sq.status());
     sparse_query = std::move(*sq);
   }
   float sparse_weight = request->sparse_weight() > 0 ? request->sparse_weight() : 0.0f;
@@ -317,7 +317,7 @@ grpc::Status VectorDBService::HybridSearch(
   // Get segments
   auto segment_ids_result = resolver_->GetSegmentIds(request->collection_name());
   if (!segment_ids_result.ok()) {
-    return rpc::toGrpcStatus(segment_ids_result.status());
+    return rpc::ToGrpcStatus(segment_ids_result.status());
   }
 
   // Determine weights
@@ -381,16 +381,16 @@ grpc::Status VectorDBService::HybridSearch(
 
   for (int i = 0; i < top_k; ++i) {
     auto* proto_entry = response->add_results();
-    rpc::toProto(all_entries[i], proto_entry);
+    rpc::ToProto(all_entries[i], proto_entry);
 
     if (request->return_metadata()) {
       if (auto meta = FindMetadata(all_entries[i].id, *segment_ids_result)) {
-        rpc::toProto(*meta, proto_entry->mutable_metadata());
+        rpc::ToProto(*meta, proto_entry->mutable_metadata());
       }
     }
   }
 
-  response->set_query_time_ms(search_timer.elapsed_millis());
+  response->set_query_time_ms(search_timer.ElapsedMillis());
   return grpc::Status::OK;
 }
 
@@ -440,7 +440,7 @@ grpc::Status VectorDBService::Get(
   if (!segments_result.ok()) {
     common::MetricsRegistry::Instance().RecordGet(
         request->collection_name(), false);
-    return rpc::toGrpcStatus(segments_result.status());
+    return rpc::ToGrpcStatus(segments_result.status());
   }
 
   std::vector<core::VectorId> ids;
@@ -462,9 +462,9 @@ grpc::Status VectorDBService::Get(
     }
     auto* proto_vec = response->add_vectors();
     proto_vec->set_id(core::ToUInt64(id));
-    rpc::toProto(it->second.vector, proto_vec->mutable_vector());
+    rpc::ToProto(it->second.vector, proto_vec->mutable_vector());
     if (request->return_metadata() && it->second.has_metadata) {
-      rpc::toProto(it->second.metadata, proto_vec->mutable_metadata());
+      rpc::ToProto(it->second.metadata, proto_vec->mutable_metadata());
     }
   }
 
@@ -489,7 +489,7 @@ grpc::Status VectorDBService::ListVectors(
   // included; a single-segment listing would miss everything past the first.
   auto segments_result = CollectCollectionSegments(request->collection_name());
   if (!segments_result.ok()) {
-    return rpc::toGrpcStatus(segments_result.status());
+    return rpc::ToGrpcStatus(segments_result.status());
   }
   const auto& segments = *segments_result;
 
@@ -520,9 +520,9 @@ grpc::Status VectorDBService::ListVectors(
     if (it == found.end()) continue;
     auto* proto_vec = response->add_vectors();
     proto_vec->set_id(core::ToUInt64(id));
-    rpc::toProto(it->second.vector, proto_vec->mutable_vector());
+    rpc::ToProto(it->second.vector, proto_vec->mutable_vector());
     if (request->include_metadata() && it->second.has_metadata) {
-      rpc::toProto(it->second.metadata, proto_vec->mutable_metadata());
+      rpc::ToProto(it->second.metadata, proto_vec->mutable_metadata());
     }
   }
 

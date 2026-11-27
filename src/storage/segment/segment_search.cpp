@@ -202,7 +202,7 @@ absl::StatusOr<core::SearchResult> Segment::SearchRangeWithFilter(
   core::SearchResult filtered;
   for (const auto& entry : range_result->entries) {
     auto it = metadata_map_.find(core::ToUInt64(entry.id));
-    if (it != metadata_map_.end() && (*filter)->evaluate(it->second)) {
+    if (it != metadata_map_.end() && (*filter)->Evaluate(it->second)) {
       filtered.entries.push_back(entry);
       if (max_results > 0 &&
           static_cast<int>(filtered.entries.size()) >= max_results) {
@@ -253,13 +253,13 @@ absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(
         }
         // Still need to evaluate full filter for partial index coverage
         auto it = metadata_map_.find(id_uint);
-        if (it != metadata_map_.end() && !(*filter)->evaluate(it->second)) {
+        if (it != metadata_map_.end() && !(*filter)->Evaluate(it->second)) {
           continue;
         }
       } else {
         // Slow path: full scan with filter evaluation
         auto it = metadata_map_.find(id_uint);
-        if (it == metadata_map_.end() || !(*filter)->evaluate(it->second)) {
+        if (it == metadata_map_.end() || !(*filter)->Evaluate(it->second)) {
           continue;
         }
       }
@@ -327,7 +327,7 @@ absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(
 
     // Full filter evaluation (for partial index coverage or unindexed predicates)
     auto it = metadata_map_.find(id_uint);
-    if (it != metadata_map_.end() && (*filter)->evaluate(it->second)) {
+    if (it != metadata_map_.end() && (*filter)->Evaluate(it->second)) {
       filtered_result.AddEntry(entry.id, entry.distance);
     }
   }

@@ -129,8 +129,8 @@ grpc::Status InternalService::GetCollectionMetadata(
     proto_metadata->set_collection_name(metadata.collection_name);
     proto_metadata->set_dimension(metadata.dimension);
 
-    proto_metadata->set_metric_type(core::toString(metadata.metric_type));
-    proto_metadata->set_index_type(core::toString(metadata.index_type));
+    proto_metadata->set_metric_type(core::ToString(metadata.metric_type));
+    proto_metadata->set_index_type(core::ToString(metadata.index_type));
 
     proto_metadata->set_shard_count(metadata.shard_ids.size());
 

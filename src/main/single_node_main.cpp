@@ -48,7 +48,7 @@ absl::Status Run(const Args& args) {
   if (args.port != -1) config.server.grpc_port = args.port;
   if (!args.data_dir.empty()) config.storage.data_dir = args.data_dir;
   if (args.node_id != -1) config.consensus.node_id = args.node_id;
-  if (auto status = config::Config::validate(config); !status.ok()) {
+  if (auto status = config::Config::Validate(config); !status.ok()) {
     return server::WithPrefix("Invalid configuration: ", status);
   }
   const std::string data_dir = config.storage.data_dir;

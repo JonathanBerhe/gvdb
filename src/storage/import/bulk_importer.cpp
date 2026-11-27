@@ -110,7 +110,7 @@ absl::StatusOr<std::string> BulkImporter::StartImport(
       job->id, collection_name, source_uri, static_cast<int>(format));
 
   // Submit to thread pool
-  import_pool_->enqueue([this, job, collection_id, dimension, metric,
+  import_pool_->Enqueue([this, job, collection_id, dimension, metric,
                          index_type, format, vector_column, id_column]() {
     ExecuteImport(job, collection_id, dimension, metric, index_type,
                   format, vector_column, id_column);

@@ -259,7 +259,7 @@ absl::StatusOr<std::string> RestoreManager::StartRestoreSingleShard(
     jobs_[id] = job;
   }
 
-  (void)pool_->enqueue([this, job, shard_id, segment_store]() {
+  (void)pool_->Enqueue([this, job, shard_id, segment_store]() {
     ExecuteSingleShardJob(job, shard_id, segment_store);
   });
 
@@ -321,7 +321,7 @@ absl::StatusOr<std::string> RestoreManager::StartRestoreDistributed(
   }
 
   std::vector<core::ShardId> shards_copy = shard_ids;
-  (void)pool_->enqueue(
+  (void)pool_->Enqueue(
       [this, job, shards_copy = std::move(shards_copy),
        executor = std::move(executor)]() mutable {
         ExecuteDistributedJob(job, std::move(shards_copy),

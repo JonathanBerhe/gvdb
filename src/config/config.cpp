@@ -26,7 +26,7 @@ T get_or_default(const YAML::Node& node, const std::string& key, const T& defaul
 // Config Parsing
 // ============================================================================
 
-ServerConfig Config::parse_server_config(const YAML::Node& node) {
+ServerConfig Config::ParseServerConfig(const YAML::Node& node) {
   ServerConfig config;
 
   if (!node) {
@@ -78,7 +78,7 @@ ServerConfig Config::parse_server_config(const YAML::Node& node) {
   return config;
 }
 
-StorageConfig Config::parse_storage_config(const YAML::Node& node) {
+StorageConfig Config::ParseStorageConfig(const YAML::Node& node) {
   StorageConfig config;
 
   if (!node) {
@@ -114,7 +114,7 @@ StorageConfig Config::parse_storage_config(const YAML::Node& node) {
   return config;
 }
 
-IndexConfig Config::parse_index_config(const YAML::Node& node) {
+IndexConfig Config::ParseIndexConfig(const YAML::Node& node) {
   IndexConfig config;
 
   if (!node) {
@@ -131,7 +131,7 @@ IndexConfig Config::parse_index_config(const YAML::Node& node) {
   return config;
 }
 
-LoggingConfig Config::parse_logging_config(const YAML::Node& node) {
+LoggingConfig Config::ParseLoggingConfig(const YAML::Node& node) {
   LoggingConfig config;
 
   if (!node) {
@@ -156,7 +156,7 @@ LoggingConfig Config::parse_logging_config(const YAML::Node& node) {
   return config;
 }
 
-ConsensusConfig Config::parse_consensus_config(const YAML::Node& node) {
+ConsensusConfig Config::ParseConsensusConfig(const YAML::Node& node) {
   ConsensusConfig config;
 
   if (!node) {
@@ -182,20 +182,20 @@ ConsensusConfig Config::parse_consensus_config(const YAML::Node& node) {
 // Public API
 // ============================================================================
 
-absl::StatusOr<GVDBConfig> Config::load_from_file(const std::string& config_path) {
+absl::StatusOr<GVDBConfig> Config::LoadFromFile(const std::string& config_path) {
   try {
     // Load YAML file
     YAML::Node root = YAML::LoadFile(config_path);
 
     GVDBConfig config;
-    config.server = parse_server_config(root["server"]);
-    config.storage = parse_storage_config(root["storage"]);
-    config.index = parse_index_config(root["index"]);
-    config.logging = parse_logging_config(root["logging"]);
-    config.consensus = parse_consensus_config(root["consensus"]);
+    config.server = ParseServerConfig(root["server"]);
+    config.storage = ParseStorageConfig(root["storage"]);
+    config.index = ParseIndexConfig(root["index"]);
+    config.logging = ParseLoggingConfig(root["logging"]);
+    config.consensus = ParseConsensusConfig(root["consensus"]);
 
     // Validate configuration
-    RETURN_IF_ERROR(validate(config));
+    RETURN_IF_ERROR(Validate(config));
 
     return config;
 
@@ -208,13 +208,13 @@ absl::StatusOr<GVDBConfig> Config::load_from_file(const std::string& config_path
   }
 }
 
-GVDBConfig Config::get_default() {
+GVDBConfig Config::GetDefault() {
   GVDBConfig config;
   // All struct members already have default values
   return config;
 }
 
-absl::Status Config::validate(const GVDBConfig& config) {
+absl::Status Config::Validate(const GVDBConfig& config) {
   // Validate server config
   if (config.server.grpc_port <= 0 || config.server.grpc_port > 65535) {
     return absl::InvalidArgumentError("Invalid gRPC port");
