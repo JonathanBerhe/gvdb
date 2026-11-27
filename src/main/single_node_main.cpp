@@ -68,8 +68,8 @@ absl::Status Run(const Args& args) {
   ASSIGN_OR_RETURN(server::SegmentStoreParts storage,
                    server::BuildSegmentStore(config.storage, data_dir, server::ObjectStoreFailure::kStop));
   auto segment_store = storage.segment_store;
-  auto query_executor = std::make_shared<compute::QueryExecutor>(*segment_store);
-  query_executor->SetCache(std::make_shared<compute::QueryCache>(10000));
+  auto query_executor = std::make_shared<compute::QueryExecutor>(
+      *segment_store, nullptr, std::make_shared<compute::QueryCache>(10000));
   server::SealFullSegmentsInline(segment_store);
 
   // The coordinator restores the collection registry from the data folder.
@@ -77,8 +77,8 @@ absl::Status Run(const Args& args) {
   // load.
   auto coordinator = std::make_unique<cluster::Coordinator>(
       std::make_shared<cluster::ShardManager>(16, cluster::ShardingStrategy::HASH),
-      std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30)));
-  coordinator->SetRegistryDir(data_dir);
+      std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30)),
+      cluster::CoordinatorOptions{.registry_dir = data_dir});
   if (auto status = coordinator->LoadRegistry(); !status.ok()) {
     return server::WithPrefix("Failed to load coordinator registry: ", status);
   }
@@ -99,8 +99,11 @@ absl::Status Run(const Args& args) {
 
   auto vectordb_service = std::make_unique<service::VectorDBService>(
       segment_store, query_executor, service::MakeLocalResolver(segment_store, data_dir),
-      rbac_store, server::MakeBulkImporter(storage, data_dir), backup.backup, backup.restore);
-  vectordb_service->SetShardWriteGate(&shard_write_gate);
+      service::VectorDBServiceOptions{.rbac_store = rbac_store,
+                                      .bulk_importer = server::MakeBulkImporter(storage, data_dir),
+                                      .backup_manager = backup.backup,
+                                      .restore_manager = backup.restore,
+                                      .shard_write_gate = &shard_write_gate});
 
   const std::string address = absl::StrCat("0.0.0.0:", config.server.grpc_port);
   ASSIGN_OR_RETURN(auto grpc_server,

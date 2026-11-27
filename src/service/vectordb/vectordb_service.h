@@ -28,6 +28,34 @@ class RestoreManager;
 
 namespace service {
 
+// The optional collaborators of a VectorDBService. A null member turns off
+// the feature that needs it. The caller owns the objects behind the raw
+// pointers, and they must outlive the service.
+struct VectorDBServiceOptions {
+  // Every member has a default member initializer. Clang then accepts a
+  // designated initializer that leaves the member out.
+
+  // Checks the permission of each request. Null turns off RBAC.
+  std::shared_ptr<auth::RbacStore> rbac_store = nullptr;
+  // Runs BulkImport. Null makes the import RPCs return UNIMPLEMENTED.
+  std::shared_ptr<storage::BulkImporter> bulk_importer = nullptr;
+  // Run the single-shard backup and restore. Null makes these RPCs return
+  // UNIMPLEMENTED, unless a coordinator is set.
+  std::shared_ptr<storage::BackupManager> backup_manager = nullptr;
+  std::shared_ptr<storage::RestoreManager> restore_manager = nullptr;
+  // Set on a coordinator. Backup and restore then fan out to the shards
+  // through Coordinator::StartBackupDistributed and
+  // StartRestoreDistributed instead of the local managers.
+  std::shared_ptr<cluster::Coordinator> coordinator = nullptr;
+  // The local view of the shard primaries. The write path rejects a write
+  // when this node is not the primary of the shard at the term of the
+  // request. Null skips the check (single node, query node, tests).
+  cluster::PrimaryTermTracker* primary_term_tracker = nullptr;
+  // The backup write fence. The write path returns ABORTED while a backup
+  // freezes the shard. Null skips the check.
+  cluster::ShardWriteGate* shard_write_gate = nullptr;
+};
+
 // Implementation of the VectorDBService gRPC service.
 // Collection management is delegated to an ICollectionResolver,
 // which encapsulates the mode-specific behavior (single-node, distributed, coordinator).
@@ -37,39 +65,9 @@ class VectorDBService final : public proto::VectorDBService::Service {
       std::shared_ptr<storage::ISegmentStore> segment_store,
       std::shared_ptr<compute::QueryExecutor> query_executor,
       std::unique_ptr<ICollectionResolver> resolver,
-      std::shared_ptr<auth::RbacStore> rbac_store = nullptr,
-      std::shared_ptr<storage::BulkImporter> bulk_importer = nullptr,
-      std::shared_ptr<storage::BackupManager> backup_manager = nullptr,
-      std::shared_ptr<storage::RestoreManager> restore_manager = nullptr);
+      VectorDBServiceOptions options = {});
 
   ~VectorDBService();
-
-  // Wire the data-node's local primary-term view so writes can be gated
-  // against "am I primary for this shard at this term?". Optional;
-  // when null (single-node, tests, query-nodes) the gate is skipped
-  // and writes accept any term silently. Owned by the caller (typically
-  // data_node_main); must outlive this service.
-  void SetPrimaryTermTracker(cluster::PrimaryTermTracker* tracker) {
-    primary_term_tracker_ = tracker;
-  }
-
-  // Wire the per-shard backup write fence. When set, EvaluateWriteGate
-  // additionally returns ABORTED while a shard is frozen by an in-flight
-  // backup. Optional; null on a single-node binary or a node not
-  // participating in backups. Owned by the caller; must outlive this
-  // service.
-  void SetShardWriteGate(cluster::ShardWriteGate* gate) {
-    shard_write_gate_ = gate;
-  }
-
-  // Wire the coordinator so backup/restore RPCs dispatch through it for
-  // multi-shard fan-out. Optional; on a coordinator binary this is set
-  // and routes via Coordinator::Start*Distributed. On a single-node or
-  // data-node binary this stays null and the RPCs fall back to the
-  // local single-shard BackupManager / RestoreManager path.
-  void SetCoordinator(std::shared_ptr<cluster::Coordinator> coordinator) {
-    coordinator_ = std::move(coordinator);
-  }
 
   // Collection management
   grpc::Status CreateCollection(
@@ -259,25 +257,14 @@ class VectorDBService final : public proto::VectorDBService::Service {
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::unique_ptr<ICollectionResolver> resolver_;
+  // The optional collaborators. VectorDBServiceOptions describes each one.
   std::shared_ptr<auth::RbacStore> rbac_store_;
   std::shared_ptr<storage::BulkImporter> bulk_importer_;
-  // Optional storage-layer engines. Null on a binary that doesn't host
-  // backup orchestration; the handlers return UNIMPLEMENTED in that case.
   std::shared_ptr<storage::BackupManager> backup_manager_;
   std::shared_ptr<storage::RestoreManager> restore_manager_;
-
-  // Optional write-path primary-term gate. Null on single-node / query-
-  // nodes / tests; non-null on a real distributed data-node, populated
-  // via SetPrimaryTermTracker before serving begins.
-  cluster::PrimaryTermTracker* primary_term_tracker_ = nullptr;
-
-  // Optional per-shard backup-freeze fence. When non-null,
-  // EvaluateWriteGate returns ABORTED while the shard is frozen.
-  cluster::ShardWriteGate* shard_write_gate_ = nullptr;
-
-  // Optional coordinator pointer for multi-shard backup orchestration.
-  // When non-null, the backup/restore handlers dispatch through it.
   std::shared_ptr<cluster::Coordinator> coordinator_;
+  cluster::PrimaryTermTracker* primary_term_tracker_;
+  cluster::ShardWriteGate* shard_write_gate_;
 
   // Statistics
   std::atomic<uint64_t> total_queries_{0};

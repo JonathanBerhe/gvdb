@@ -56,7 +56,8 @@ class AuthIntegrationTest {
 
     auto resolver = service::MakeLocalResolver(segment_store_);
     service_ = std::make_unique<service::VectorDBService>(
-        segment_store_, query_executor_, std::move(resolver), rbac_store_);
+        segment_store_, query_executor_, std::move(resolver),
+        service::VectorDBServiceOptions{.rbac_store = rbac_store_});
 
     std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> creators;
     creators.push_back(

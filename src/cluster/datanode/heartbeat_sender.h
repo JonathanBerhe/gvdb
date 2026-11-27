@@ -18,22 +18,18 @@ class PrimaryTermTracker;
 // Used by data nodes and query nodes to register their presence.
 class HeartbeatSender {
  public:
+  // When primary_term_tracker is set, every successful heartbeat response
+  // feeds its shard_primaries field into the tracker, keeping the data
+  // node's local "am I primary for shard X at term Y?" view in sync with
+  // the coordinator. The caller owns the tracker, and it must outlive this
+  // HeartbeatSender. Null skips the update (query nodes, tests).
   HeartbeatSender(const std::string& coordinator_address,
                   int node_id,
                   const std::string& grpc_address,
                   proto::internal::NodeType node_type,
-                  std::atomic<bool>& shutdown_flag);
+                  std::atomic<bool>& shutdown_flag,
+                  PrimaryTermTracker* primary_term_tracker = nullptr);
   ~HeartbeatSender();
-
-  // Optional: when set, every successful heartbeat response feeds its
-  // shard_primaries field into the tracker, keeping the data-node's
-  // local "am I primary for shard X at term Y?" view in sync with the
-  // coordinator. Owned by the caller (typically data_node_main); must
-  // outlive this HeartbeatSender. No-op when null (e.g. query-nodes,
-  // tests).
-  void SetPrimaryTermTracker(PrimaryTermTracker* tracker) {
-    primary_term_tracker_ = tracker;
-  }
 
   // Start sending heartbeats in a background thread
   void Start();
@@ -66,7 +62,7 @@ class HeartbeatSender {
   proto::internal::NodeType node_type_;
   std::atomic<bool>& shutdown_flag_;
   std::unique_ptr<std::thread> thread_;
-  PrimaryTermTracker* primary_term_tracker_ = nullptr;
+  PrimaryTermTracker* const primary_term_tracker_;
 };
 
 }  // namespace cluster

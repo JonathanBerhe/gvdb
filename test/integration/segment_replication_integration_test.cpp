@@ -60,8 +60,7 @@ class SegmentReplicationIntegrationTest {
         shard_manager_,
         coord_segment_store_,
         coord_query_executor_,
-        nullptr,  // node_registry not needed
-        coordinator_);
+        service::InternalServiceOptions{.coordinator = coordinator_});
 
     // Start gRPC server for InternalService
     grpc::ServerBuilder builder;
@@ -309,9 +308,9 @@ TEST_CASE_FIXTURE(SegmentReplicationIntegrationTest,
   //
   // The exact gRPC error code is intentionally not pinned: which layer
   // reports the dial-failure first depends on the gRPC build (we have
-  // observed both UNAVAILABLE — transport-level "connection refused" —
-  // and UNKNOWN — channel-creation surfaces the failure as a generic
-  // status). Pinning a code here would couple the test to gRPC's
+  // observed both UNAVAILABLE (transport-level "connection refused")
+  // and UNKNOWN (channel-creation surfaces the failure as a generic
+  // status)). Pinning a code here would couple the test to gRPC's
   // internal error reporting and break across vendored gRPC bumps.
   // The CONTRACT under test is "an unreachable shard surfaces a
   // visible non-OK with the shard id named", not which integer code
@@ -366,14 +365,14 @@ class ReadRepairIntegrationTest {
     coordinator_ = std::make_shared<cluster::Coordinator>(
         shard_manager_, node_registry_);
 
-    // Start gRPC servers for each "data node" — each runs InternalService
+    // Start gRPC servers for each "data node", each runs InternalService
     // with its own segment manager
     primary_internal_ = std::make_unique<service::InternalService>(
         shard_manager_, primary_segment_store_, primary_qe,
-        nullptr, coordinator_);
+        service::InternalServiceOptions{.coordinator = coordinator_});
     replica_internal_ = std::make_unique<service::InternalService>(
         shard_manager_, replica_segment_store_, replica_qe,
-        nullptr, coordinator_);
+        service::InternalServiceOptions{.coordinator = coordinator_});
 
     grpc::ServerBuilder builder1;
     builder1.AddListeningPort("localhost:0", grpc::InsecureServerCredentials(), &primary_port_);
@@ -412,7 +411,8 @@ class ReadRepairIntegrationTest {
     // Now create a new coordinator WITH the client factory so it can make RPCs
     auto client_factory = std::make_shared<cluster::GrpcInternalServiceClientFactory>();
     coordinator_ = std::make_shared<cluster::Coordinator>(
-        shard_manager_, node_registry_, client_factory);
+        shard_manager_, node_registry_,
+        cluster::CoordinatorOptions{.client_factory = client_factory});
   }
 
   ~ReadRepairIntegrationTest() {
@@ -484,7 +484,7 @@ TEST_CASE_FIXTURE(ReadRepairIntegrationTest, "ReadRepairFixesDivergentReplica") 
   auto* primary_seg = primary_sm->GetSegment(seg_id);
   REQUIRE_NE(primary_seg, nullptr);
 
-  // Replica does NOT have the segment — simulates a node that crashed before
+  // Replica does NOT have the segment, simulates a node that crashed before
   // initial replication completed, or a new node joining.
   CHECK(replica_sm->GetSegment(seg_id) == nullptr);
 
@@ -499,7 +499,7 @@ TEST_CASE_FIXTURE(ReadRepairIntegrationTest, "ReadRepairFixesDivergentReplica") 
   REQUIRE(primary_seg->AddVectors(vectors, ids).ok());
   CHECK_EQ(primary_seg->GetVectorCount(), 20);
 
-  // 4. Run consistency check — coordinator detects divergence and repairs
+  // 4. Run consistency check, coordinator detects divergence and repairs
   coordinator_->RunConsistencyCheck();
 
   // 5. After repair, the replica should have received the full segment via RPC.

@@ -19,15 +19,17 @@ InternalService::InternalService(
     std::shared_ptr<cluster::ShardManager> shard_manager,
     std::shared_ptr<storage::ISegmentStore> segment_store,
     std::shared_ptr<compute::QueryExecutor> query_executor,
-    std::shared_ptr<cluster::NodeRegistry> node_registry,
-    std::shared_ptr<cluster::Coordinator> coordinator,
-    std::shared_ptr<consensus::RaftNode> raft_node)
-    : shard_manager_(shard_manager),
-      segment_store_(segment_store),
-      query_executor_(query_executor),
-      node_registry_(node_registry),
-      coordinator_(coordinator),
-      raft_node_(raft_node) {
+    InternalServiceOptions options)
+    : shard_manager_(std::move(shard_manager)),
+      segment_store_(std::move(segment_store)),
+      query_executor_(std::move(query_executor)),
+      node_registry_(std::move(options.node_registry)),
+      coordinator_(std::move(options.coordinator)),
+      raft_node_(std::move(options.raft_node)),
+      backup_manager_(std::move(options.backup_manager)),
+      restore_manager_(std::move(options.restore_manager)),
+      primary_term_tracker_(options.primary_term_tracker),
+      shard_write_gate_(options.shard_write_gate) {
   common::Logger::Instance().Info(
       "InternalService initialized (node_registry={}, coordinator={}, raft_node={})",
       node_registry_ != nullptr ? "yes" : "no",

@@ -27,16 +27,6 @@ namespace cluster {
 // per-shard executor lambda that turns "do this shard" into a sequence
 // of gRPC calls.
 
-void Coordinator::SetBackupManager(
-    std::shared_ptr<storage::BackupManager> mgr) {
-  backup_manager_ = std::move(mgr);
-}
-
-void Coordinator::SetRestoreManager(
-    std::shared_ptr<storage::RestoreManager> mgr) {
-  restore_manager_ = std::move(mgr);
-}
-
 namespace {
 
 // Convert a BackupShardResponse from a data-node back into the

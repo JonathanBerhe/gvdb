@@ -90,7 +90,8 @@ class AuditIntegrationTest {
 
     auto resolver = service::MakeLocalResolver(segment_store_);
     service_ = std::make_unique<service::VectorDBService>(
-        segment_store_, query_executor_, std::move(resolver), rbac_store_);
+        segment_store_, query_executor_, std::move(resolver),
+        service::VectorDBServiceOptions{.rbac_store = rbac_store_});
 
     // Auth interceptor first, audit second
     std::vector<std::unique_ptr<
@@ -278,7 +279,7 @@ TEST_CASE_FIXTURE(AuditIntegrationTest,
       CHECK_FALSE(JsonContains(line, "status", "OK"));
     }
   }
-  // Either no entry (cancelled before hook fires) or a non-OK entry — both valid
+  // Either no entry (cancelled before hook fires) or a non-OK entry, both valid
   (void)found;
 }
 

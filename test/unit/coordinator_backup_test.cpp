@@ -130,7 +130,7 @@ class MockClient : public IInternalServiceClient {
     r->set_success(true);
     // Return a synthetic shard manifest key the coordinator will record
     // in the top-level manifest. The body of that manifest is never
-    // physically uploaded by the mock — the test only inspects the
+    // physically uploaded by the mock, the test only inspects the
     // top-level manifest the coordinator writes.
     r->set_shard_manifest_key(
         "backups/" + req.backup_id() + "/shards/" +
@@ -200,27 +200,6 @@ struct CoordinatorBackupFixture {
     shard_manager = std::make_shared<ShardManager>(2, ShardingStrategy::HASH);
     node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
 
-    coordinator = std::make_unique<Coordinator>(
-        shard_manager, node_registry, factory);
-
-    // Register through the coordinator so ShardManager's hash ring is
-    // populated — otherwise AssignShard falls back to a degenerate
-    // HashKey that collides for small num_shards and produces a single
-    // shard_id for multi-shard collections.
-    meta::NodeInfo info1;
-    info1.node_id = core::MakeNodeId(1);
-    info1.type = meta::NodeType::DATA_NODE;
-    info1.status = meta::NodeStatus::HEALTHY;
-    info1.address = "node1:50051";
-    REQUIRE(coordinator->RegisterNode(info1).ok());
-
-    meta::NodeInfo info2;
-    info2.node_id = core::MakeNodeId(2);
-    info2.type = meta::NodeType::DATA_NODE;
-    info2.status = meta::NodeStatus::HEALTHY;
-    info2.address = "node2:50051";
-    REQUIRE(coordinator->RegisterNode(info2).ok());
-
     object_store = std::make_unique<storage::InMemoryObjectStore>();
     storage::BackupManagerOptions opts;
     opts.default_object_store = object_store.get();
@@ -239,8 +218,29 @@ struct CoordinatorBackupFixture {
     restore_manager = std::make_shared<storage::RestoreManager>(
         std::move(ropts));
 
-    coordinator->SetBackupManager(backup_manager);
-    coordinator->SetRestoreManager(restore_manager);
+    coordinator = std::make_unique<Coordinator>(
+        shard_manager, node_registry,
+        CoordinatorOptions{.client_factory = factory,
+                           .backup_manager = backup_manager,
+                           .restore_manager = restore_manager});
+
+    // Register through the coordinator so ShardManager's hash ring is
+    // populated, otherwise AssignShard falls back to a degenerate
+    // HashKey that collides for small num_shards and produces a single
+    // shard_id for multi-shard collections.
+    meta::NodeInfo info1;
+    info1.node_id = core::MakeNodeId(1);
+    info1.type = meta::NodeType::DATA_NODE;
+    info1.status = meta::NodeStatus::HEALTHY;
+    info1.address = "node1:50051";
+    REQUIRE(coordinator->RegisterNode(info1).ok());
+
+    meta::NodeInfo info2;
+    info2.node_id = core::MakeNodeId(2);
+    info2.type = meta::NodeType::DATA_NODE;
+    info2.status = meta::NodeStatus::HEALTHY;
+    info2.address = "node2:50051";
+    REQUIRE(coordinator->RegisterNode(info2).ok());
   }
 };
 
@@ -266,7 +266,7 @@ TEST_SUITE("CoordinatorBackup") {
 
 TEST_CASE_FIXTURE(CoordinatorBackupFixture,
                   "two-shard backup issues Freeze → Backup → Unfreeze per shard") {
-  // 2 shards, single-replica — primaries land on node1 and node2 by
+  // 2 shards, single-replica, primaries land on node1 and node2 by
   // round-robin in AssignShardsToCollection.
   auto coll_or = coordinator->CreateCollection(
       "products", 128, core::MetricType::L2, core::IndexType::FLAT,
@@ -333,11 +333,11 @@ TEST_CASE_FIXTURE(CoordinatorBackupFixture,
 
 TEST_CASE_FIXTURE(CoordinatorBackupFixture,
                   "StartBackupDistributed without manager returns UNIMPLEMENTED") {
-  // Detach the backup manager — simulates a coordinator binary not
-  // configured for backups.
-  coordinator->SetBackupManager(nullptr);
+  // A coordinator binary not configured for backups has no backup manager.
+  Coordinator without_backup(shard_manager, node_registry,
+                             CoordinatorOptions{.client_factory = factory});
   storage::BackupTarget target{storage::S3BackupTarget{"test-bucket", "bk"}};
-  auto r = coordinator->StartBackupDistributed("products", target);
+  auto r = without_backup.StartBackupDistributed("products", target);
   CHECK_FALSE(r.ok());
   CHECK_EQ(r.status().code(), absl::StatusCode::kUnimplemented);
 }
@@ -352,7 +352,7 @@ TEST_CASE_FIXTURE(CoordinatorBackupFixture,
 TEST_CASE_FIXTURE(CoordinatorBackupFixture,
                   "StartRestoreDistributed rejects existing target without overwrite") {
   // Create the target collection so a restore without overwrite hits
-  // ALREADY_EXISTS — exercises the overwrite gate.
+  // ALREADY_EXISTS, exercises the overwrite gate.
   auto coll_or = coordinator->CreateCollection(
       "existing", 64, core::MetricType::L2, core::IndexType::FLAT, 1, 1);
   REQUIRE(coll_or.ok());

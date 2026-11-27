@@ -104,18 +104,14 @@ class BackupRestoreIntegrationTest {
         8, cluster::ShardingStrategy::HASH);
     node_registry_ = std::make_shared<cluster::NodeRegistry>(
         std::chrono::seconds(30));
-    auto client_factory =
-        std::make_shared<cluster::GrpcInternalServiceClientFactory>();
-    coordinator_ = std::make_shared<cluster::Coordinator>(
-        shard_manager_, node_registry_, client_factory);
 
     coord_segment_store_ = std::make_shared<storage::SegmentManager>(
         (dir_ / "coordinator" / "segments").string(), index_factory_.get());
     coord_query_executor_ = std::make_shared<compute::QueryExecutor>(
         *coord_segment_store_);
 
-    // Wire BackupManager + RestoreManager on the coordinator. The
-    // coordinator writes the top manifest into the shared object store.
+    // BackupManager + RestoreManager of the coordinator. The coordinator
+    // writes the top manifest into the shared object store.
     {
       storage::BackupManagerOptions opts;
       opts.default_object_store = shared_object_store_.get();
@@ -134,17 +130,23 @@ class BackupRestoreIntegrationTest {
       coord_restore_mgr_ =
           std::make_shared<storage::RestoreManager>(std::move(opts));
     }
-    coordinator_->SetBackupManager(coord_backup_mgr_);
-    coordinator_->SetRestoreManager(coord_restore_mgr_);
+    coordinator_ = std::make_shared<cluster::Coordinator>(
+        shard_manager_, node_registry_,
+        cluster::CoordinatorOptions{
+            .client_factory =
+                std::make_shared<cluster::GrpcInternalServiceClientFactory>(),
+            .backup_manager = coord_backup_mgr_,
+            .restore_manager = coord_restore_mgr_});
 
     coord_internal_service_ = std::make_unique<service::InternalService>(
         shard_manager_, coord_segment_store_, coord_query_executor_,
-        node_registry_, coordinator_);
+        service::InternalServiceOptions{.node_registry = node_registry_,
+                                        .coordinator = coordinator_});
     auto coord_resolver = service::MakeCoordinatorResolver(coordinator_);
     coord_vectordb_service_ = std::make_unique<service::VectorDBService>(
         coord_segment_store_, coord_query_executor_,
-        std::move(coord_resolver));
-    coord_vectordb_service_->SetCoordinator(coordinator_);
+        std::move(coord_resolver),
+        service::VectorDBServiceOptions{.coordinator = coordinator_});
 
     {
       grpc::ServerBuilder builder;
@@ -165,10 +167,8 @@ class BackupRestoreIntegrationTest {
         *dn_segment_store_);
     auto dn_shard_manager = std::make_shared<cluster::ShardManager>(
         8, cluster::ShardingStrategy::HASH);
-    dn_internal_service_ = std::make_unique<service::InternalService>(
-        dn_shard_manager, dn_segment_store_, dn_query_executor_);
 
-    // Backup/restore engines on the data-node — same object store so
+    // Backup/restore engines on the data-node, same object store so
     // the per-shard uploads end up where the coordinator's top
     // manifest references.
     {
@@ -191,14 +191,18 @@ class BackupRestoreIntegrationTest {
           std::make_shared<storage::RestoreManager>(std::move(opts));
     }
     shard_write_gate_ = std::make_unique<cluster::ShardWriteGate>();
-    dn_internal_service_->SetShardWriteGate(shard_write_gate_.get());
-    dn_internal_service_->SetBackupManager(dn_backup_mgr_);
-    dn_internal_service_->SetRestoreManager(dn_restore_mgr_);
+    dn_internal_service_ = std::make_unique<service::InternalService>(
+        dn_shard_manager, dn_segment_store_, dn_query_executor_,
+        service::InternalServiceOptions{
+            .backup_manager = dn_backup_mgr_,
+            .restore_manager = dn_restore_mgr_,
+            .shard_write_gate = shard_write_gate_.get()});
 
     auto dn_resolver = service::MakeCachedCoordinatorResolver(coord_address_);
     dn_vectordb_service_ = std::make_unique<service::VectorDBService>(
-        dn_segment_store_, dn_query_executor_, std::move(dn_resolver));
-    dn_vectordb_service_->SetShardWriteGate(shard_write_gate_.get());
+        dn_segment_store_, dn_query_executor_, std::move(dn_resolver),
+        service::VectorDBServiceOptions{.shard_write_gate =
+                                            shard_write_gate_.get()});
 
     {
       grpc::ServerBuilder builder;

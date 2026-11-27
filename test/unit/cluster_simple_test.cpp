@@ -465,7 +465,7 @@ TEST_CASE_FIXTURE(CoordinatorTest, "HandleDrainingNodePromotesReplica") {
 }
 
 // A draining REPLICA (primary is healthy): the replica entry is simply
-// dropped — no data movement needed.
+// dropped, no data movement needed.
 TEST_CASE_FIXTURE(CoordinatorTest, "HandleDrainingNodeDropsReplicaEntry") {
   auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
   auto node_registry = std::make_shared<NodeRegistry>(std::chrono::seconds(30));
@@ -581,7 +581,7 @@ TEST_CASE_FIXTURE(CoordinatorTest,
   CHECK(known.count(core::MakeNodeId(101)) == 1);
 }
 
-// Calling DetectNewDataNodes twice with no changes is idempotent — no new
+// Calling DetectNewDataNodes twice with no changes is idempotent, no new
 // entries.
 TEST_CASE_FIXTURE(CoordinatorTest,
                   "DetectNewDataNodesIsIdempotentWithoutNewJoin") {
@@ -602,7 +602,7 @@ TEST_CASE_FIXTURE(CoordinatorTest,
   CHECK_EQ(coord->KnownDataNodesForTesting().size(), 1);
 }
 
-// A DRAINING node is not counted as "newly joined" — it's leaving, not
+// A DRAINING node is not counted as "newly joined", it's leaving, not
 // arriving.
 TEST_CASE_FIXTURE(CoordinatorTest, "DetectNewDataNodesSkipsDrainingNodes") {
   auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
@@ -643,7 +643,8 @@ TEST_CASE_FIXTURE(CoordinatorTest,
   AutoRebalanceConfig cfg;
   cfg.debounce = std::chrono::seconds(0);  // tests disable debounce
   auto coord = std::make_unique<Coordinator>(
-      shard_manager, node_registry, client_factory, cfg);
+      shard_manager, node_registry,
+      CoordinatorOptions{.client_factory = client_factory, .auto_rebalance = cfg});
 
   proto::internal::NodeInfo n;
   n.set_node_id(101);
@@ -667,7 +668,7 @@ TEST_CASE_FIXTURE(CoordinatorTest,
 }
 
 // Debounce: with the debounce window set to a large value, a second call
-// immediately after the first is suppressed — no new worker spawns.
+// immediately after the first is suppressed, no new worker spawns.
 TEST_CASE_FIXTURE(CoordinatorTest,
                   "DetectNewDataNodesDebouncesSecondCall") {
   auto shard_manager = std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
@@ -676,7 +677,8 @@ TEST_CASE_FIXTURE(CoordinatorTest,
   AutoRebalanceConfig cfg;
   cfg.debounce = std::chrono::hours(1);  // effectively suppress follow-ups
   auto coord = std::make_unique<Coordinator>(
-      shard_manager, node_registry, client_factory, cfg);
+      shard_manager, node_registry,
+      CoordinatorOptions{.client_factory = client_factory, .auto_rebalance = cfg});
 
   proto::internal::NodeInfo a;
   a.set_node_id(101);
@@ -702,7 +704,7 @@ TEST_CASE_FIXTURE(CoordinatorTest,
 
   coord->DetectNewDataNodes();
 
-  // The GetLastAutoRebalance snapshot must not have advanced — the second
+  // The GetLastAutoRebalance snapshot must not have advanced, the second
   // call was debounced, so no new worker completed.
   auto after_second = coord->GetLastAutoRebalance();
   REQUIRE(after_second.has_value());
@@ -845,6 +847,10 @@ TEST_CASE_FIXTURE(CoordinatorTest, "CreateCollectionReplicationFactorExceedsNode
 TEST_CASE_FIXTURE(CoordinatorTest, "RegistryPersistsAcrossRestart") {
   gvdb::test::ScopedTempDir tmp("gvdb_coordinator_registry_test");
   const std::string reg_dir = tmp.str();
+  // A coordinator that persists its registry in reg_dir.
+  coordinator_ = std::make_unique<Coordinator>(
+      std::make_shared<ShardManager>(16, ShardingStrategy::HASH), node_registry_,
+      CoordinatorOptions{.registry_dir = reg_dir});
 
   meta::NodeInfo node_info;
   node_info.node_id = core::MakeNodeId(1);
@@ -853,7 +859,6 @@ TEST_CASE_FIXTURE(CoordinatorTest, "RegistryPersistsAcrossRestart") {
   node_info.address = "localhost:50051";
   REQUIRE(coordinator_->RegisterNode(node_info).ok());
 
-  coordinator_->SetRegistryDir(reg_dir);
   // First boot: no file yet is not an error.
   REQUIRE(coordinator_->LoadRegistry().ok());
 
@@ -871,8 +876,8 @@ TEST_CASE_FIXTURE(CoordinatorTest, "RegistryPersistsAcrossRestart") {
       std::make_shared<ShardManager>(16, ShardingStrategy::HASH);
   auto node_registry2 =
       std::make_shared<NodeRegistry>(std::chrono::seconds(30));
-  Coordinator restarted(shard_manager2, node_registry2);
-  restarted.SetRegistryDir(reg_dir);
+  Coordinator restarted(shard_manager2, node_registry2,
+                        CoordinatorOptions{.registry_dir = reg_dir});
   REQUIRE(restarted.LoadRegistry().ok());
 
   // The surviving collection is fully restored.
@@ -1039,7 +1044,8 @@ class ReadRepairTest {
     factory_->client_map["node1:50051"] = &primary_mock_;
     factory_->client_map["node2:50051"] = &replica_mock_;
 
-    coordinator_ = std::make_unique<Coordinator>(shard_manager, node_registry_, factory_);
+    coordinator_ = std::make_unique<Coordinator>(shard_manager, node_registry_,
+        CoordinatorOptions{.client_factory = factory_});
   }
 
   core::CollectionId CreateReplicatedCollection(const std::string& name) {
@@ -1183,7 +1189,7 @@ TEST_CASE_FIXTURE(ShardManagerTest, "CalculateRebalancePlan_SkipsMigratingShards
   REQUIRE(shard_manager_->RegisterNode(n1).ok());
   REQUIRE(shard_manager_->RegisterNode(n2).ok());
 
-  // All shards on node 1 — heavily imbalanced
+  // All shards on node 1, heavily imbalanced
   for (int i = 0; i < 4; ++i) {
     auto sid = core::MakeShardId(i);
     REQUIRE(shard_manager_->SetPrimaryNode(sid, n1).ok());
