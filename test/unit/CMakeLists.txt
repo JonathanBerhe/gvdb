@@ -255,3 +255,9 @@ gvdb_add_test(audit_interceptor_tests
   SOURCES audit_interceptor_test.cpp
   DEPS gvdb::service gvdb::rpc gvdb::config gvdb::auth gvdb::compute gvdb::storage gvdb::index gvdb::common gvdb::core gvdb::proto
   TIMEOUT 60 LABELS unit)
+
+# server
+gvdb_add_test(server_flags_tests
+  SOURCES server_flags_test.cpp
+  DEPS gvdb::server
+  TIMEOUT 30 LABELS unit)

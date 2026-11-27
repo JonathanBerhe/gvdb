@@ -1,22 +1,29 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
+//
+// gvdb-query-node: serves reads from a segment cache in its data folder.
 
-#include <iostream>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cluster/query_node.h"
-#include "cluster/heartbeat_sender.h"
-#include "storage/segment/segment_manager.h"
+#include "common/logger.h"
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
-#include "service/vectordb_service.h"
-#include "service/collection_resolver.h"
+#include "internal.pb.h"
 #include "server/bootstrap.h"
-#include "common/env_flags.h"
+#include "server/cluster_steps.h"
+#include "server/flags.h"
+#include "service/collection_resolver.h"
+#include "service/vectordb_service.h"
+#include "storage/segment/segment_manager.h"
 
-struct QueryNodeArgs {
+namespace gvdb {
+namespace {
+
+struct Args {
   int node_id = 201;
   std::string bind_address = "0.0.0.0:50070";
   std::string advertise_address;
@@ -25,146 +32,74 @@ struct QueryNodeArgs {
   size_t memory_limit_gb = 16;
 };
 
-void PrintUsage(const char* program_name) {
-  std::cout << "Usage: " << program_name << " [options]\n"
-            << "Options:\n"
-            << "  --node-id ID                Query node ID (default: 201)\n"
-            << "  --bind-address ADDR         gRPC bind address (default: 0.0.0.0:50070)\n"
-            << "  --advertise-address ADDR    Address advertised to coordinator (default: bind-address)\n"
-            << "  --data-dir PATH             Data directory for cache (default: /tmp/gvdb/query_node)\n"
-            << "  --coordinator ADDR          Coordinator addresses (comma-separated)\n"
-            << "  --memory-limit-gb SIZE      Memory limit for caching in GB (default: 16)\n"
-            << "  --help                      Show this help message\n";
+absl::Status Run(const Args& args) {
+  server::InstallSignalHandlers();
+  server::StartLogging(args.data_dir, "query_node.log");
+  common::Logger::Instance().Info("Starting GVDB Query Node (ID: {})", args.node_id);
+  const int metrics_port = 9200 + (args.node_id - 200);
+  server::StartMetricsServer(metrics_port);
+
+  auto index_factory = std::make_unique<index::IndexFactory>();
+  auto segment_manager =
+      std::make_shared<storage::SegmentManager>(args.data_dir + "/cache", index_factory.get());
+  auto query_executor = std::make_shared<compute::QueryExecutor>(segment_manager.get());
+  // The service does not use the query node yet. Only it and the banner
+  // read the memory limit.
+  auto query_node = std::make_unique<cluster::QueryNode>(
+      segment_manager, query_executor, args.memory_limit_gb * 1024ULL * 1024ULL * 1024ULL);
+
+  auto resolver = args.coordinator_addresses.empty()
+                      ? service::MakeLocalResolver(segment_manager)
+                      : service::MakeCachedCoordinatorResolver(args.coordinator_addresses[0]);
+  auto vectordb_service = std::make_unique<service::VectorDBService>(
+      segment_manager, query_executor, std::move(resolver));
+
+  auto grpc_server = server::StartGrpcServer(args.bind_address, {vectordb_service.get()},
+                                             grpc::InsecureServerCredentials());
+  if (!grpc_server.ok()) return grpc_server.status();
+
+  server::PrintBanner(
+      "GVDB Query Node",
+      {
+          "Node ID: " + std::to_string(args.node_id),
+          "gRPC Service: " + args.bind_address,
+          "Metrics: http://0.0.0.0:" + std::to_string(metrics_port) + "/metrics",
+          "Cache Directory: " + args.data_dir,
+          "Cache Memory Limit: " + std::to_string(args.memory_limit_gb) + " GB",
+      });
+
+  auto heartbeat =
+      server::StartHeartbeat(args.coordinator_addresses, args.node_id, args.bind_address,
+                             args.advertise_address, proto::internal::NodeType::NODE_TYPE_QUERY_NODE);
+  server::WaitForShutdown();
+
+  // Tell the coordinator that this node drains, so it stops routing new
+  // work at once. DrainAndStop joins the heartbeat loop first, so no READY
+  // heartbeat can overwrite the DRAINING one.
+  if (heartbeat) heartbeat->DrainAndStop();
+  heartbeat.reset();
+  server::StopServing(**grpc_server);
+  return absl::OkStatus();
 }
 
-bool ParseArgs(int argc, char** argv, QueryNodeArgs& args) {
-  for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
-    if (arg == "--help" || arg == "-h") {
-      PrintUsage(argv[0]);
-      return false;
-    } else if (arg == "--node-id" && i + 1 < argc) {
-      args.node_id = std::stoi(argv[++i]);
-    } else if (arg == "--bind-address" && i + 1 < argc) {
-      args.bind_address = argv[++i];
-    } else if (arg == "--advertise-address" && i + 1 < argc) {
-      args.advertise_address = argv[++i];
-    } else if (arg == "--data-dir" && i + 1 < argc) {
-      args.data_dir = argv[++i];
-    } else if (arg == "--coordinator" && i + 1 < argc) {
-      std::string coords_str = argv[++i];
-      size_t start = 0;
-      size_t end = coords_str.find(',');
-      while (end != std::string::npos) {
-        args.coordinator_addresses.push_back(coords_str.substr(start, end - start));
-        start = end + 1;
-        end = coords_str.find(',', start);
-      }
-      args.coordinator_addresses.push_back(coords_str.substr(start));
-    } else if (arg == "--memory-limit-gb" && i + 1 < argc) {
-      args.memory_limit_gb = std::stoull(argv[++i]);
-    } else {
-      std::cerr << "Unknown argument: " << arg << std::endl;
-      PrintUsage(argv[0]);
-      return false;
-    }
-  }
-  return true;
-}
+}  // namespace
+}  // namespace gvdb
 
 int main(int argc, char** argv) {
-  QueryNodeArgs args;
-  if (!ParseArgs(argc, argv, args)) return 1;
-
-  using namespace gvdb;
-
-  // Env vars override CLI flags
-  args.bind_address = common::ResolveFlag("GVDB_BIND_ADDRESS", args.bind_address);
-  args.advertise_address = common::ResolveFlag("GVDB_ADVERTISE_ADDRESS", args.advertise_address);
-  args.data_dir = common::ResolveFlag("GVDB_DATA_DIR", args.data_dir);
-  server::ServerBootstrap::InstallSignalHandlers();
-
-  auto log_status = server::ServerBootstrap::InitializeLogger(
-      args.data_dir, "query_node.log");
-  if (!log_status.ok()) {
-    std::cerr << "Warning: Failed to initialize logger: " << log_status.message() << std::endl;
-  }
-
-  common::Logger::Instance().Info("Starting GVDB Query Node (ID: {})", args.node_id);
-
-  int metrics_port = 9200 + (args.node_id - 200);
-  server::ServerBootstrap::StartMetricsServer(metrics_port);
-
-  try {
-    // 1. Storage (for caching) + compute
-    auto index_factory = std::make_unique<index::IndexFactory>();
-    auto segment_manager = std::make_shared<storage::SegmentManager>(
-        args.data_dir + "/cache", index_factory.get());
-    auto query_executor = std::make_shared<compute::QueryExecutor>(
-        segment_manager.get());
-
-    // 2. QueryNode (segment loading/eviction)
-    size_t memory_limit_bytes = args.memory_limit_gb * 1024ULL * 1024ULL * 1024ULL;
-    auto query_node = std::make_unique<cluster::QueryNode>(
-        segment_manager, query_executor, memory_limit_bytes);
-
-    // 3. VectorDBService
-    std::unique_ptr<service::ICollectionResolver> resolver;
-    if (!args.coordinator_addresses.empty()) {
-      resolver = service::MakeCachedCoordinatorResolver(args.coordinator_addresses[0]);
-    } else {
-      resolver = service::MakeLocalResolver(segment_manager);
-    }
-    auto service = std::make_unique<service::VectorDBService>(
-        segment_manager, query_executor, std::move(resolver));
-
-    // 4. Start server
-    auto server = server::ServerBootstrap::StartGrpcServer(
-        args.bind_address, {service.get()});
-    if (!server) {
-      std::cerr << "Failed to start gRPC server on " << args.bind_address << std::endl;
-      return 1;
-    }
-
-    server::ServerBootstrap::PrintBanner("GVDB Query Node", {
-        "Node ID: " + std::to_string(args.node_id),
-        "gRPC Service: " + args.bind_address,
-        "Metrics: http://0.0.0.0:" + std::to_string(metrics_port) + "/metrics",
-        "Cache Directory: " + args.data_dir,
-        "Cache Memory Limit: " + std::to_string(args.memory_limit_gb) + " GB",
-    });
-
-    // 5. Heartbeat sender
-    std::unique_ptr<cluster::HeartbeatSender> heartbeat;
-    if (!args.coordinator_addresses.empty()) {
-      std::string heartbeat_addr = args.advertise_address.empty()
-          ? args.bind_address : args.advertise_address;
-      heartbeat = std::make_unique<cluster::HeartbeatSender>(
-          args.coordinator_addresses[0], args.node_id, heartbeat_addr,
-          proto::internal::NodeType::NODE_TYPE_QUERY_NODE,
-          server::ServerBootstrap::ShutdownFlag());
-      heartbeat->Start();
-    }
-
-    server::ServerBootstrap::WaitForShutdown();
-
-    // Graceful shutdown
-    std::cout << "\nShutting down gracefully..." << std::endl;
-
-    // Notify coordinator that we're draining so it stops routing new work
-    // immediately instead of waiting for heartbeat timeout. DrainAndStop()
-    // joins the heartbeat loop first so no racing READY heartbeat can
-    // overwrite the DRAINING signal at the coordinator.
-    if (heartbeat) heartbeat->DrainAndStop();
-
-    heartbeat.reset();  // no-op join (already stopped above)
-    server->Shutdown();
-    server::ServerBootstrap::StopMetricsServer();
-    std::cout << "Shutdown complete. Goodbye!" << std::endl;
-    return 0;
-
-  } catch (const std::exception& e) {
-    std::cerr << "Fatal error: " << e.what() << std::endl;
-    return 1;
-  }
+  gvdb::Args args;
+  gvdb::server::FlagSet flags;
+  flags.AddInt("--node-id", "ID", "Query node ID (default: 201)", &args.node_id);
+  flags.AddString("--bind-address", "ADDR", "gRPC bind address (default: 0.0.0.0:50070)",
+                  &args.bind_address, "GVDB_BIND_ADDRESS");
+  flags.AddString("--advertise-address", "ADDR",
+                  "Address advertised to coordinator (default: bind-address)",
+                  &args.advertise_address, "GVDB_ADVERTISE_ADDRESS");
+  flags.AddString("--data-dir", "PATH", "Data directory for cache (default: /tmp/gvdb/query_node)",
+                  &args.data_dir, "GVDB_DATA_DIR");
+  flags.AddList("--coordinator", "ADDR", "Coordinator addresses (comma-separated)",
+                &args.coordinator_addresses);
+  flags.AddSize("--memory-limit-gb", "SIZE", "Memory limit for caching in GB (default: 16)",
+                &args.memory_limit_gb);
+  if (auto exit_code = flags.Parse(argc, argv)) return *exit_code;
+  return gvdb::server::RunMain([&] { return gvdb::Run(args); });
 }

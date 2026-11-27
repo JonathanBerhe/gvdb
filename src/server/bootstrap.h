@@ -3,65 +3,76 @@
 
 #pragma once
 
-#include "common/logger.h"
-#include "common/metrics.h"
-#include "config/config.h"
-#include "core/status.h"
 #include <grpcpp/grpcpp.h>
 #include <grpcpp/support/server_interceptor.h>
+
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "common/logger.h"
+#include "config/config.h"
+
+// The startup and shutdown steps that every server program shares: signal
+// handlers, logger, metrics endpoint, gRPC server and the exit code.
 namespace gvdb {
 namespace server {
 
-// Shared infrastructure for all GVDB server binaries.
-// Encapsulates signal handling, logger init, metrics, gRPC server setup,
-// and the shutdown wait loop.
-class ServerBootstrap {
- public:
-  // Global shutdown flag (shared across all binaries)
-  static std::atomic<bool>& ShutdownFlag();
+using InterceptorFactories =
+    std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>>;
 
-  // Install SIGINT/SIGTERM handlers that set ShutdownFlag
-  static void InstallSignalHandlers();
+// The flag that SIGINT and SIGTERM set. Background loops stop when it is true.
+std::atomic<bool>& ShutdownFlag();
 
-  // Initialize logger with standard settings
-  static absl::Status InitializeLogger(const std::string& data_dir,
-                                        const std::string& log_file_name,
-                                        common::LogLevel level = common::LogLevel::INFO);
+// Makes SIGINT and SIGTERM set ShutdownFlag().
+void InstallSignalHandlers();
 
-  // Start Prometheus metrics server
-  static bool StartMetricsServer(int port);
+// The log level for a level name from the configuration: "debug", "warn",
+// "warning" or "error", in any case. Any other name gives INFO.
+common::LogLevel ParseLogLevel(const std::string& name);
 
-  // Build and start a gRPC server with 256MB message limits
-  static std::unique_ptr<grpc::Server> StartGrpcServer(
-      const std::string& bind_address,
-      const std::vector<grpc::Service*>& services);
+// Starts the logger. It writes to the console and to
+// <data_dir>/logs/<file_name>. When the logger does not start, the function
+// prints a warning to stderr and the program continues.
+void StartLogging(const std::string& data_dir, const std::string& file_name,
+                  common::LogLevel level = common::LogLevel::INFO);
 
-  // Build and start a gRPC server with credentials + interceptors
-  static std::unique_ptr<grpc::Server> StartGrpcServer(
-      const std::string& bind_address,
-      const std::vector<grpc::Service*>& services,
-      std::shared_ptr<grpc::ServerCredentials> credentials,
-      std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> interceptors);
+// Starts the Prometheus endpoint on all interfaces. When the port is in
+// use, the error goes to the log and the program continues.
+void StartMetricsServer(int port);
 
-  // Create server credentials from TLS config (insecure if TLS disabled)
-  static std::shared_ptr<grpc::ServerCredentials> MakeServerCredentials(
-      const config::TlsConfig& tls_config);
+// TLS credentials when the configuration turns TLS on. Insecure credentials
+// when TLS is off, or when the certificate or the key cannot be read.
+std::shared_ptr<grpc::ServerCredentials> MakeServerCredentials(const config::TlsConfig& tls);
 
-  // Block until ShutdownFlag is set
-  static void WaitForShutdown();
+// Starts a gRPC server with 256 MB message limits for large vector batches.
+absl::StatusOr<std::unique_ptr<grpc::Server>> StartGrpcServer(
+    const std::string& bind_address, const std::vector<grpc::Service*>& services,
+    std::shared_ptr<grpc::ServerCredentials> credentials, InterceptorFactories interceptors = {});
 
-  // Print startup banner to stdout
-  static void PrintBanner(const std::string& node_name,
-                           const std::vector<std::string>& info_lines);
+// Prints the startup banner to stdout.
+void PrintBanner(const std::string& node_name, const std::vector<std::string>& info_lines);
 
-  // Shutdown metrics server
-  static void StopMetricsServer();
-};
+// Blocks until ShutdownFlag() is set. `every_second`, when set, runs once a
+// second while the program waits. Prints the shutdown notice at the end.
+void WaitForShutdown(const std::function<void()>& every_second = {});
+
+// Stops the gRPC server, then the metrics endpoint.
+void StopServing(grpc::Server& server);
+
+// The same status with `prefix` before its message.
+absl::Status WithPrefix(std::string_view prefix, const absl::Status& status);
+
+// Runs the body of a server program and returns the exit code. When `body`
+// returns OK, the function prints the goodbye line and returns 0. When
+// `body` returns an error or throws, the function prints the error to
+// stderr and returns 1.
+int RunMain(const std::function<absl::Status()>& body);
 
 }  // namespace server
 }  // namespace gvdb
