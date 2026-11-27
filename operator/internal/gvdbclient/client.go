@@ -244,8 +244,8 @@ func (c *CoordinatorClient) FetchLeaderInfo(ctx context.Context) (LeaderInfo, er
 
 // NodeHealth is the reconciler-relevant subset of NodeInfo. The data-node
 // rollout state machine cross-references this against ShardAssignment.node_ids
-// to decide whether a remaining replica is actually a safe failover target —
-// coordinator.cpp:903 only promotes replicas that are NODE_STATUS_READY.
+// to decide whether a remaining replica is actually a safe failover target:
+// src/cluster/coordinator/health_checks.cpp only promotes replicas that are NODE_STATUS_READY.
 type NodeHealth struct {
 	NodeID uint32
 	// Ready is true when the coordinator last heartbeat-observed this node as
@@ -421,7 +421,7 @@ func (c *CoordinatorClient) RemovePeer(ctx context.Context, nodeID uint32) (int3
 // of shards the coordinator enqueued for migration (via
 // ExecuteRebalancePlan); actual moves run asynchronously on the
 // coordinator and complete later (bounded concurrency, see
-// src/cluster/coordinator.cpp kMaxMovesPerCycle).
+// src/cluster/coordinator/coordinator.h kMaxMovesPerCycle).
 //
 // collectionID=0 means "all collections" per proto/internal.proto.
 // Used by the data-node scale reconciler (roadmap 1.8.c) to drain

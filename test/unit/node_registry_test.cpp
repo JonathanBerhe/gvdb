@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include <doctest/doctest.h>
-#include "cluster/node_registry.h"
+#include "cluster/coordinator/node_registry.h"
 #include "internal.pb.h"
 #include <chrono>
 #include <set>

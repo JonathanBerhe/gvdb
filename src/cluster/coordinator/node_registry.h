@@ -88,7 +88,7 @@ class NodeRegistry {
   bool IsNodeRoutable(uint32_t node_id) const;
 
   // Get nodes that are actively draining AND still within heartbeat timeout.
-  // Stale draining nodes (heartbeat expired) are intentionally excluded —
+  // Stale draining nodes (heartbeat expired) are intentionally excluded:
   // they are handled by the failure path rather than the graceful drain
   // path.
   std::vector<RegisteredNode> GetDrainingNodes() const;

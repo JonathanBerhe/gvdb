@@ -1,9 +1,9 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 
-#include "cluster/primary_term_tracker.h"
+#include "cluster/datanode/primary_term_tracker.h"
 
-#include <mutex>  // std::unique_lock — header pulls in only <shared_mutex>
+#include <mutex>  // std::unique_lock: header pulls in only <shared_mutex>
 
 namespace gvdb {
 namespace cluster {
@@ -22,7 +22,7 @@ bool PrimaryTermTracker::RecordPrimary(uint32_t shard_id, uint64_t term) {
   //     (idempotent re-record). Same-term role flip is contradictory
   //     because each primary swap bumps the term, so two different
   //     roles at the same term would mean two primaries existed
-  //     simultaneously — never true at the coordinator. Reject.
+  //     simultaneously: never true at the coordinator. Reject.
   //   - term > known: forward step, update.
   if (term < entry.term) return false;
   if (term == entry.term && !entry.is_primary) return false;
@@ -56,7 +56,7 @@ PrimaryTermTracker::AcceptDecision PrimaryTermTracker::EvaluateWrite(
     // anything about this shard. Two real cases: (1) data-node just
     // started and the heartbeat hasn't completed a round-trip; (2)
     // proxy has stale/wrong routing pointing at this node for a
-    // shard we don't own. Either way, decline — the proxy must
+    // shard we don't own. Either way, decline: the proxy must
     // re-route via a fresh RouteQuery.
     return AcceptDecision::UnknownShard;
   }

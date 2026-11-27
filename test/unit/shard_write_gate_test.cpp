@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <thread>
 
-#include "cluster/shard_write_gate.h"
+#include "cluster/datanode/shard_write_gate.h"
 
 using namespace gvdb;
 using namespace gvdb::cluster;

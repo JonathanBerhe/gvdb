@@ -5,7 +5,7 @@
 
 #include <filesystem>
 
-#include "cluster/data_node.h"
+#include "cluster/datanode/data_node.h"
 #include "index/index_factory.h"
 #include "storage/objstore/object_store.h"
 #include "storage/segment/segment_cache.h"

@@ -4,7 +4,7 @@
 #pragma once
 
 #include "internal.grpc.pb.h"
-#include "cluster/coordinator.h"
+#include "cluster/coordinator/coordinator.h"
 #include "cluster/shard_manager.h"
 #include "storage/segment/segment_store.h"
 #include "compute/query_executor.h"

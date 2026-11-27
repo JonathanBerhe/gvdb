@@ -1,16 +1,29 @@
-# Cluster module: coordinator, shard placement, node registry and the data
-# and query node roles.
+# Cluster module: the cluster roles.
+#   coordinator/  the Coordinator (one source per responsibility), the node
+#                 registry and the client that calls the data nodes
+#   datanode/     the index build queue, the heartbeat, the primary-term
+#                 tracker and the backup write fence of a data node
+#   shard_manager the shard map that both roles use
+#   query_node    segment loading for a query node
 gvdb_add_library(cluster
   SOURCES
+    coordinator/coordinator.cpp
+    coordinator/nodes.cpp
+    coordinator/collections.cpp
+    coordinator/health_checks.cpp
+    coordinator/replication.cpp
+    coordinator/rebalance.cpp
+    coordinator/primary_swap.cpp
+    coordinator/backup_orchestration.cpp
+    coordinator/registry_persistence.cpp
+    coordinator/node_registry.cpp
+    coordinator/internal_client.cpp
+    datanode/data_node.cpp
+    datanode/heartbeat_sender.cpp
+    datanode/primary_term_tracker.cpp
+    datanode/shard_write_gate.cpp
     shard_manager.cpp
-    coordinator.cpp
     query_node.cpp
-    data_node.cpp
-    node_registry.cpp
-    internal_client.cpp
-    heartbeat_sender.cpp
-    primary_term_tracker.cpp
-    shard_write_gate.cpp
   PUBLIC_DEPS
     gvdb::core
     gvdb::index
