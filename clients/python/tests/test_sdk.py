@@ -100,7 +100,10 @@ class TestSDK:
     def test_11_get(self, client):
         fetched = client.get(COLLECTION, [1, 2, 3])
         assert len(fetched) == 3
-        assert all("id" in v and "vector" in v for v in fetched)
+        assert all("id" in v and "vector" in v and "metadata" in v for v in fetched)
+        fetched_no_meta = client.get(COLLECTION, [1], return_metadata=False)
+        assert len(fetched_no_meta) == 1
+        assert "metadata" not in fetched_no_meta[0]
 
     def test_12_upsert(self, client):
         result = client.upsert(

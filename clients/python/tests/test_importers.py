@@ -222,7 +222,9 @@ class TestBatchImport:
 
 
 class TestImportNumpy:
-    np = pytest.importorskip("numpy")
+    @pytest.fixture(autouse=True)
+    def _require_numpy(self):
+        pytest.importorskip("numpy")
 
     def test_basic_array(self):
         import numpy as np
@@ -322,8 +324,10 @@ class TestImportNumpy:
 
 
 class TestImportParquet:
-    pa = pytest.importorskip("pyarrow")
-    pq = pytest.importorskip("pyarrow.parquet")
+    @pytest.fixture(autouse=True)
+    def _require_pyarrow(self):
+        pytest.importorskip("pyarrow")
+        pytest.importorskip("pyarrow.parquet")
 
     def _write_parquet(self, tmp_path, n=20, dim=4):
         import pyarrow as pa
@@ -400,7 +404,9 @@ class TestImportParquet:
 
 
 class TestImportCSV:
-    pd = pytest.importorskip("pandas")
+    @pytest.fixture(autouse=True)
+    def _require_pandas(self):
+        pytest.importorskip("pandas")
 
     def test_json_encoded_vectors(self, tmp_path):
         from gvdb.importers import import_csv
@@ -476,6 +482,54 @@ class TestImportCSV:
         assert result.total_count == 3
         assert result.dimension == 2  # vector_0, vector_1 only
 
+    def test_mixed_int_and_float_metadata_preserves_int_type(self, tmp_path):
+        from gvdb.client import _to_proto_metadata
+        from gvdb.importers import import_csv
+
+        path = tmp_path / "mixed.csv"
+        path.write_text(
+            'id,vector,count,score,active\n1,"[0.1, 0.2]",42,1.5,true\n2,"[0.3, 0.4]",7,2.25,false\n'
+        )
+        client = _mock_client()
+        client.upsert.return_value = {
+            "upserted_count": 2,
+            "inserted_count": 2,
+            "updated_count": 0,
+        }
+
+        import_csv(client, path, "test", show_progress=False)
+        meta = client.upsert.call_args.kwargs["metadata"]
+        assert type(meta[0]["count"]) is int
+        assert meta[0]["count"] == 42
+        assert type(meta[0]["score"]) is float
+        assert meta[0]["score"] == 1.5
+        assert type(meta[0]["active"]) is bool
+        assert meta[0]["active"] is True
+
+        proto_meta = _to_proto_metadata(meta[0])
+        assert proto_meta.fields["count"].WhichOneof("value") == "int_value"
+        assert proto_meta.fields["score"].WhichOneof("value") == "double_value"
+        assert proto_meta.fields["active"].WhichOneof("value") == "bool_value"
+
+    def test_closes_reader_on_early_failure(self, tmp_path):
+        import warnings
+
+        from gvdb.importers import import_csv
+
+        path = tmp_path / "mismatch.csv"
+        rows = "\n".join(f'{i},"[0.1, 0.2]"' for i in range(10))
+        path.write_text("id,vector\n" + rows + "\n")
+
+        client = _mock_client([_make_collection_info("test", 99)])
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ResourceWarning)
+            with pytest.raises(ValueError, match="dimension 99.*dimension 2"):
+                import_csv(client, path, "test", batch_size=2, show_progress=False)
+        resource_warnings = [
+            w for w in caught if issubclass(w.category, ResourceWarning)
+        ]
+        assert resource_warnings == []
+
 
 # ---------------------------------------------------------------------------
 # import_dataframe
@@ -484,8 +538,10 @@ class TestImportCSV:
 
 class TestImportDataframe:
     def test_pandas_df(self):
-        import pandas
+        pandas = pytest.importorskip("pandas")
+        np = pytest.importorskip("numpy")
 
+        from gvdb.client import _to_proto_metadata
         from gvdb.importers import import_dataframe
 
         df = pandas.DataFrame(
@@ -493,6 +549,9 @@ class TestImportDataframe:
                 "id": [1, 2, 3],
                 "vector": [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]],
                 "label": ["a", "b", "c"],
+                "count": np.array([10, 20, 30], dtype=np.int64),
+                "score": np.array([1.5, 2.5, 3.5], dtype=np.float32),
+                "active": np.array([True, False, True], dtype=np.bool_),
             }
         )
         client = _mock_client()
@@ -505,6 +564,15 @@ class TestImportDataframe:
         result = import_dataframe(client, df, "test", show_progress=False)
         assert result.total_count == 3
         assert result.dimension == 2
+        meta = client.upsert.call_args.kwargs["metadata"]
+        assert type(meta[0]["count"]) is int
+        assert type(meta[0]["score"]) is float
+        assert type(meta[0]["active"]) is bool
+        proto_meta = _to_proto_metadata(meta[0])
+        assert proto_meta.fields["count"].int_value == 10
+        assert proto_meta.fields["active"].bool_value is True
+        assert proto_meta.fields["score"].double_value == pytest.approx(1.5)
+        assert proto_meta.fields["label"].string_value == "a"
 
     def test_wrong_type_raises(self):
         from gvdb.importers import import_dataframe
@@ -516,7 +584,7 @@ class TestImportDataframe:
             )
 
     def test_missing_column_raises(self):
-        import pandas
+        pandas = pytest.importorskip("pandas")
 
         from gvdb.importers import import_dataframe
 
