@@ -11,6 +11,9 @@ gvdb_add_library(service
     vectordb/segment_locator.cpp
     vectordb/write_path.cpp
     vectordb/read_path.cpp
+    vectordb/collection_admin.cpp
+    vectordb/backup_ops.cpp
+    vectordb/import_ops.cpp
     vectordb/admin_handlers.cpp
     vectordb/write_handlers.cpp
     vectordb/read_handlers.cpp

@@ -9,7 +9,10 @@
 #include "auth/rbac.h"
 #include "compute/query_executor.h"
 #include "internal.grpc.pb.h"
+#include "service/vectordb/backup_ops.h"
+#include "service/vectordb/collection_admin.h"
 #include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/import_ops.h"
 #include "service/vectordb/read_path.h"
 #include "service/vectordb/request_guard.h"
 #include "service/vectordb/segment_locator.h"
@@ -158,8 +161,9 @@ class VectorDBService final : public proto::VectorDBService::Service {
                         proto::GetStatsResponse* response) override;
 
  private:
-  // The members are initialized in this order: locator_, write_path_ and
-  // read_path_ keep references to resolver_, and the paths to locator_.
+  // The members are initialized in this order: the parts below resolver_
+  // keep references to it, the paths to locator_, and backup_ and import_ to
+  // guard_.
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::unique_ptr<ICollectionResolver> resolver_;
@@ -167,11 +171,9 @@ class VectorDBService final : public proto::VectorDBService::Service {
   SegmentLocator locator_;
   WritePath write_path_;
   ReadPath read_path_;
-  // The optional collaborators. VectorDBServiceOptions describes each one.
-  std::shared_ptr<storage::BulkImporter> bulk_importer_;
-  std::shared_ptr<storage::BackupManager> backup_manager_;
-  std::shared_ptr<storage::RestoreManager> restore_manager_;
-  std::shared_ptr<cluster::Coordinator> coordinator_;
+  CollectionAdmin admin_;
+  BackupOps backup_;
+  ImportOps import_;
 };
 
 }  // namespace service
