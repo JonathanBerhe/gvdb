@@ -12,6 +12,7 @@
 #include <thread>
 #include <unordered_map>
 
+#include "core/filter.h"
 #include "core/types.h"
 #include "core/vector.h"
 #include "index/index_factory.h"
@@ -25,6 +26,14 @@
 namespace {
 
 using namespace gvdb;
+
+// Parses a filter that the test knows to be valid. The caller of a
+// filtered segment search parses the filter once.
+std::unique_ptr<core::FilterNode> Filter(const std::string& expression) {
+  auto parsed = core::FilterParser::parse(expression);
+  REQUIRE(parsed.ok());
+  return std::move(*parsed);
+}
 
 // Test fixture for storage tests
 class StorageTest {
@@ -280,7 +289,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterGrowing") {
 
   // Search with filter: price < 150
   auto query = CreateTestVector();
-  auto search_result = segment.SearchWithFilter(query, 5, "price < 150");
+  auto search_result = segment.SearchWithFilter(query, 5, *Filter("price < 150"));
   INFO("SearchWithFilter failed: " << search_result.status().message());
   REQUIRE(search_result.ok());
 
@@ -318,7 +327,8 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterSealed") {
 
   // Search with filter after sealing
   auto query = CreateTestVector();
-  auto search_result = segment.SearchWithFilter(query, 10, "category = 'shoes' AND rating >= 4.0");
+  auto search_result =
+      segment.SearchWithFilter(query, 10, *Filter("category = 'shoes' AND rating >= 4.0"));
   INFO("SearchWithFilter on sealed segment failed: " << search_result.status().message());
   REQUIRE(search_result.ok());
 
@@ -346,8 +356,8 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterComplex") {
 
   // Complex filter: (price < 300 OR brand = 'Nike') AND in_stock = true
   auto query = CreateTestVector();
-  auto search_result =
-      segment.SearchWithFilter(query, 10, "(price < 300 OR brand = 'Nike') AND in_stock = true");
+  auto search_result = segment.SearchWithFilter(
+      query, 10, *Filter("(price < 300 OR brand = 'Nike') AND in_stock = true"));
   INFO("Complex filter failed: " << search_result.status().message());
   REQUIRE(search_result.ok());
 
@@ -373,7 +383,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterLike") {
 
   // Filter with LIKE pattern
   auto query = CreateTestVector();
-  auto search_result = segment.SearchWithFilter(query, 10, "name LIKE 'Nike%'");
+  auto search_result = segment.SearchWithFilter(query, 10, *Filter("name LIKE 'Nike%'"));
   INFO("LIKE filter failed: " << search_result.status().message());
   REQUIRE(search_result.ok());
 
@@ -402,28 +412,11 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterIn") {
 
   // Filter with IN operator
   auto query = CreateTestVector();
-  auto search_result = segment.SearchWithFilter(query, 10, "brand IN ('Nike', 'Adidas')");
+  auto search_result = segment.SearchWithFilter(query, 10, *Filter("brand IN ('Nike', 'Adidas')"));
   INFO("IN filter failed: " << search_result.status().message());
   REQUIRE(search_result.ok());
 
   CHECK_GT(search_result.value().Size(), 0);
-}
-
-TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithInvalidFilter") {
-  auto segment_id = core::MakeSegmentId(1);
-  storage::Segment segment(segment_id, collection_id_, dimension_, metric_);
-
-  auto vectors = CreateTestVectors(10);
-  auto ids = CreateTestVectorIds(10);
-  std::vector<core::Metadata> metadata(10);
-
-  REQUIRE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
-
-  // Invalid filter syntax
-  auto query = CreateTestVector();
-  auto search_result = segment.SearchWithFilter(query, 10, "price <");
-  CHECK_FALSE(search_result.ok());
-  CHECK(absl::IsInvalidArgument(search_result.status()));
 }
 
 TEST_CASE_FIXTURE(StorageTest, "SegmentAddVectorsWithMetadataSizeMismatch") {
@@ -478,7 +471,7 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterNoMatches") {
 
   // Filter that matches nothing
   auto query = CreateTestVector();
-  auto search_result = segment.SearchWithFilter(query, 10, "price > 1000");
+  auto search_result = segment.SearchWithFilter(query, 10, *Filter("price > 1000"));
   REQUIRE(search_result.ok());
 
   // Should return empty result
@@ -1561,7 +1554,7 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexSearchWithFilterAcceleration") {
   core::Vector query({0.0f, 0.0f, 0.0f, 0.0f});
 
   // Search with filter: category = 'shoes', scalar index narrows to 10 vectors
-  auto result = segment.SearchWithFilter(query, 5, "category = 'shoes'");
+  auto result = segment.SearchWithFilter(query, 5, *Filter("category = 'shoes'"));
   REQUIRE(result.ok());
   CHECK_EQ(result->entries.size(), 5);
 
@@ -1595,7 +1588,7 @@ TEST_CASE_FIXTURE(StorageTest, "ScalarIndexAndFilter") {
   core::Vector query({0.0f, 0.0f, 0.0f, 0.0f});
 
   // AND filter: brand = 'Nike' AND price < 300
-  auto result = segment.SearchWithFilter(query, 10, "brand = 'Nike' AND price < 300");
+  auto result = segment.SearchWithFilter(query, 10, *Filter("brand = 'Nike' AND price < 300"));
   REQUIRE(result.ok());
   // Nike: IDs 1,3,5,7,9 (even indices 0,2,4,6,8)
   // Price < 300: IDs with price 100,150,200,250 (indices 0,1,2,3)

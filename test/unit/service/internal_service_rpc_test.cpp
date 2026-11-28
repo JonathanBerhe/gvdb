@@ -668,6 +668,28 @@ TEST_CASE_FIXTURE(InternalServiceRpcTest, "ExecuteShardQuery_NonexistentSegment"
   CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
 }
 
+// A bad filter is an INVALID_ARGUMENT error, not an INTERNAL one.
+TEST_CASE_FIXTURE(InternalServiceRpcTest, "ExecuteShardQuery_BadFilterIsInvalidArgument") {
+  const auto collection = core::MakeCollectionId(77);
+  REQUIRE(segment_store_
+              ->CreateSegmentWithId(core::ShardSegmentId(collection, 0), collection, 2,
+                                    core::MetricType::L2, core::IndexType::FLAT)
+              .ok());
+
+  grpc::ServerContext ctx;
+  proto::internal::ExecuteShardQueryRequest request;
+  request.set_collection_id(77);
+  request.set_shard_id(0);
+  request.add_query_vector(1.0F);
+  request.add_query_vector(2.0F);
+  request.set_top_k(5);
+  request.set_filter("price <");
+  proto::internal::ExecuteShardQueryResponse response;
+
+  auto status = service_->ExecuteShardQuery(&ctx, &request, &response);
+  CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+}
+
 // ============================================================================
 // 4. Health Monitoring Tests
 // ============================================================================

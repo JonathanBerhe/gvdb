@@ -168,7 +168,7 @@ absl::StatusOr<core::SearchResult> Segment::SearchRange(const core::Vector& quer
 
 absl::StatusOr<core::SearchResult> Segment::SearchRangeWithFilter(const core::Vector& query,
                                                                   float radius,
-                                                                  const std::string& filter_expr,
+                                                                  const core::FilterNode& filter,
                                                                   int max_results) const {
   // Get range results first
   auto range_result = SearchRange(query, radius, 0);  // No limit for pre-filter
@@ -176,18 +176,12 @@ absl::StatusOr<core::SearchResult> Segment::SearchRangeWithFilter(const core::Ve
     return range_result.status();
   }
 
-  // Parse filter
-  auto filter = core::FilterParser::parse(filter_expr);
-  if (!filter.ok()) {
-    return filter.status();
-  }
-
   // Post-filter
   std::shared_lock lock(mutex_);
   core::SearchResult filtered;
   for (const auto& entry : range_result->entries) {
     auto it = metadata_map_.find(core::ToUInt64(entry.id));
-    if (it != metadata_map_.end() && (*filter)->Evaluate(it->second)) {
+    if (it != metadata_map_.end() && filter.Evaluate(it->second)) {
       filtered.entries.push_back(entry);
       if (max_results > 0 && static_cast<int>(filtered.entries.size()) >= max_results) {
         break;
@@ -199,19 +193,13 @@ absl::StatusOr<core::SearchResult> Segment::SearchRangeWithFilter(const core::Ve
 }
 
 absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(const core::Vector& query, int k,
-                                                             const std::string& filter_expr) const {
+                                                             const core::FilterNode& filter) const {
   std::shared_lock lock(mutex_);
-
-  // Parse filter
-  auto filter = core::FilterParser::parse(filter_expr);
-  if (!filter.ok()) {
-    return filter.status();
-  }
 
   // Try to use scalar indexes to narrow the candidate set
   std::optional<VectorIdSet> indexed_candidates;
   if (scalar_indexes_.HasIndexes()) {
-    indexed_candidates = scalar_indexes_.Evaluate(**filter);
+    indexed_candidates = scalar_indexes_.Evaluate(filter);
   }
 
   int64_t now = NowEpochSeconds();
@@ -237,13 +225,13 @@ absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(const core::Vector&
         }
         // Still need to evaluate full filter for partial index coverage
         auto it = metadata_map_.find(id_uint);
-        if (it != metadata_map_.end() && !(*filter)->Evaluate(it->second)) {
+        if (it != metadata_map_.end() && !filter.Evaluate(it->second)) {
           continue;
         }
       } else {
         // Slow path: full scan with filter evaluation
         auto it = metadata_map_.find(id_uint);
-        if (it == metadata_map_.end() || !(*filter)->Evaluate(it->second)) {
+        if (it == metadata_map_.end() || !filter.Evaluate(it->second)) {
           continue;
         }
       }
@@ -306,7 +294,7 @@ absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(const core::Vector&
 
     // Full filter evaluation (for partial index coverage or unindexed predicates)
     auto it = metadata_map_.find(id_uint);
-    if (it != metadata_map_.end() && (*filter)->Evaluate(it->second)) {
+    if (it != metadata_map_.end() && filter.Evaluate(it->second)) {
       filtered_result.AddEntry(entry.id, entry.distance);
     }
   }

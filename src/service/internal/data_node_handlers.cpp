@@ -10,6 +10,7 @@
 #include <utility>
 #include "cluster/datanode/shard_write_gate.h"
 #include "common/logger.h"
+#include "core/filter.h"
 #include "core/type_names.h"
 #include "core/types.h"
 #include "rpc/proto_conversions.h"
@@ -347,11 +348,15 @@ grpc::Status InternalService::ExecuteShardQuery(
                                        segment->GetDimension(), ", got ", query.dimension()));
     }
 
-    // Execute search
+    // Execute search. A bad filter is an INVALID_ARGUMENT error.
     absl::StatusOr<core::SearchResult> search_result;
 
     if (!request->filter().empty()) {
-      search_result = segment->SearchWithFilter(query, top_k, request->filter());
+      auto filter = core::FilterParser::parse(request->filter());
+      if (!filter.ok()) {
+        return rpc::ToGrpcStatus(filter.status());
+      }
+      search_result = segment->SearchWithFilter(query, top_k, **filter);
     } else {
       search_result = segment->Search(query, top_k);
     }
