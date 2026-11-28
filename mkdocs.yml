@@ -117,6 +117,11 @@ nav:
       - Client API: python-sdk/client.md
       - Bulk Import: python-sdk/bulk-import.md
       - Examples: python-sdk/examples.md
+  - Rust SDK:
+      - Overview: rust-sdk/index.md
+      - Client API: rust-sdk/client.md
+      - Bulk Import: rust-sdk/bulk-import.md
+      - Examples: rust-sdk/examples.md
   - Operations:
       - Deploy with Helm: operations/deploy-helm.md
       - Deploy with the Operator: operations/deploy-operator.md

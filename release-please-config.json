@@ -32,6 +32,10 @@
         },
         {
           "type": "generic",
+          "path": "clients/rust/Cargo.toml"
+        },
+        {
+          "type": "generic",
           "path": "deploy/helm/gvdb-operator/Chart.yaml"
         }
       ]
