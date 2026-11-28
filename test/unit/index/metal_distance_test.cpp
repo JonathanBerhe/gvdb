@@ -14,6 +14,7 @@
 #include "core/types.h"
 #include "core/vector.h"
 #include "index/index_factory.h"
+#include "support/temp_dir.h"
 #include "support/vectors.h"
 
 // FaissFlatIndex is in a private header, so the CPU baseline includes it directly.
@@ -288,6 +289,34 @@ TEST_CASE("Metal: AddBatch then search") {
   auto res = idx.Search(query, 10);
   REQUIRE(res.ok());
   CHECK(res.value().entries.size() == 10);
+#endif
+}
+
+TEST_CASE("Metal: an index loaded from disk searches like the saved one") {
+  if (!MetalAvailable()) return;
+
+#ifdef GVDB_HAS_METAL
+  const core::Dimension DIM = 16;
+  test::ScopedTempDir dir("gvdb_metal_load");
+  const std::string path = dir.str() + "/flat.index";
+  const auto query = RandomVectors(1, DIM, 9)[0];
+
+  index::metal::MetalFlatIndex saved(DIM, core::MetricType::L2);
+  REQUIRE(saved.Build(RandomVectors(100, DIM, 8), SequentialIds(100)).ok());
+  REQUIRE(saved.Serialize(path).ok());
+  auto expected = saved.Search(query, 5);
+  REQUIRE(expected.ok());
+
+  index::metal::MetalFlatIndex loaded(DIM, core::MetricType::L2);
+  REQUIRE(loaded.Deserialize(path).ok());
+  CHECK(loaded.GetVectorCount() == 100);
+  auto got = loaded.Search(query, 5);
+  REQUIRE(got.ok());
+  REQUIRE(got->entries.size() == expected->entries.size());
+  for (size_t i = 0; i < got->entries.size(); ++i) {
+    CHECK(got->entries[i].id == expected->entries[i].id);
+    CHECK(got->entries[i].distance == doctest::Approx(expected->entries[i].distance));
+  }
 #endif
 }
 
