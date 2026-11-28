@@ -103,6 +103,13 @@ jobs:
           cmake --preset ci
           ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}
 
+      # Git history is over 90% of the compressed sources (3 GB for the AWS
+      # SDK alone) and fills the 10 GB cache store, which then evicts the
+      # ccache entries. A disconnected configure does not read it.
+      - name: Drop git history from FetchContent sources
+        if: steps.filter.outputs.cpp == 'true' && github.event_name == 'push' && steps.fc-cache.outputs.cache-hit != 'true'
+        run: find build/ci/_deps -name .git -prune -exec rm -rf {} +
+
       - name: Save FetchContent sources
         if: steps.filter.outputs.cpp == 'true' && github.event_name == 'push' && steps.fc-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
@@ -208,6 +215,12 @@ jobs:
           cmake --preset metal
           -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}
+
+      # Git history is over 90% of the compressed sources. A disconnected
+      # configure does not read it.
+      - name: Drop git history from FetchContent sources
+        if: steps.filter.outputs.cpp == 'true' && github.event_name == 'push' && steps.fc-cache.outputs.cache-hit != 'true'
+        run: find build/metal/_deps -name .git -prune -exec rm -rf {} +
 
       - name: Save FetchContent sources
         if: steps.filter.outputs.cpp == 'true' && github.event_name == 'push' && steps.fc-cache.outputs.cache-hit != 'true'
@@ -411,6 +424,12 @@ jobs:
         run: >
           cmake --preset gcs
           ${{ steps.fc-cache.outputs.cache-hit == 'true' && '-DFETCHCONTENT_FULLY_DISCONNECTED=ON' || '' }}
+
+      # Git history is over 90% of the compressed sources. A disconnected
+      # configure does not read it.
+      - name: Drop git history from FetchContent sources
+        if: steps.filter.outputs.gcs == 'true' && github.event_name == 'push' && steps.fc-cache.outputs.cache-hit != 'true'
+        run: find build/gcs/_deps -name .git -prune -exec rm -rf {} +
 
       - name: Save FetchContent sources
         if: steps.filter.outputs.gcs == 'true' && github.event_name == 'push' && steps.fc-cache.outputs.cache-hit != 'true'
