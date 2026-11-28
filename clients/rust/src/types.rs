@@ -139,22 +139,38 @@ impl SparseVector {
                 self.values.len()
             )));
         }
-        if self.indices.windows(2).all(|w| w[0] <= w[1]) {
-            return Ok(pb::SparseVector {
-                indices: self.indices.clone(),
-                values: self.values.clone(),
-            });
+        if self.values.iter().any(|v| !v.is_finite()) {
+            return Err(Error::InvalidArgument(
+                "Sparse vector values must be finite numbers.".to_owned(),
+            ));
         }
-        let sorted = Self::from_pairs(
-            self.indices
-                .iter()
-                .copied()
-                .zip(self.values.iter().copied()),
-        );
-        Ok(pb::SparseVector {
-            indices: sorted.indices,
-            values: sorted.values,
-        })
+
+        let (indices, values) = if self
+            .indices
+            .windows(2)
+            .all(|w| matches!((w.first(), w.get(1)), (Some(a), Some(b)) if a < b))
+        {
+            (self.indices.clone(), self.values.clone())
+        } else {
+            let sorted = Self::from_pairs(
+                self.indices
+                    .iter()
+                    .copied()
+                    .zip(self.values.iter().copied()),
+            );
+            if sorted
+                .indices
+                .windows(2)
+                .any(|w| matches!((w.first(), w.get(1)), (Some(a), Some(b)) if a == b))
+            {
+                return Err(Error::InvalidArgument(
+                    "Sparse vector contains duplicate dimension indices.".to_owned(),
+                ));
+            }
+            (sorted.indices, sorted.values)
+        };
+
+        Ok(pb::SparseVector { indices, values })
     }
 }
 

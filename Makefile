@@ -145,7 +145,7 @@ test-sdk-kind:
 	@cd $(PYTHON_SDK_DIR) && GVDB_SERVER_ADDR=localhost:50050 uv run python3 -m pytest tests/test_sdk.py -v
 
 lint-rust-sdk:
-	@cd $(RUST_SDK_DIR) && cargo fmt -- --check && cargo clippy --all-targets --all-features -- -D warnings
+	@cd $(RUST_SDK_DIR) && cargo fmt -- --check && cargo clippy --all-targets --no-default-features -- -D warnings && cargo clippy --all-targets --all-features -- -D warnings
 
 # The Rust SDK integration tests start the gvdb-single-node built by $(PRESET).
 test-rust-sdk: lint-rust-sdk

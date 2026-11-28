@@ -1,5 +1,6 @@
 //! Async gRPC client for GVDB.
 
+use std::fmt;
 use std::time::{Duration, Instant};
 
 use tonic::Request;
@@ -26,15 +27,32 @@ use std::path::Path;
 
 const MAX_MESSAGE_BYTES: usize = 256 * 1024 * 1024;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+// Tonic formats gRPC timeouts up to 99,999,999 hours and panics above that limit.
+const MAX_GRPC_TIMEOUT: Duration = Duration::from_secs(99_999_999 * 3600);
 
 /// Connection configuration for [`GvdbClient`].
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ClientConfig {
     address: String,
     api_key: Option<String>,
     timeout: Duration,
-    tls: bool,
+    tls: Option<bool>,
     tls_config: Option<ClientTlsConfig>,
+}
+
+impl fmt::Debug for ClientConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientConfig")
+            .field("address", &self.address)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("timeout", &self.timeout)
+            .field("tls", &self.tls)
+            .field(
+                "tls_config",
+                &self.tls_config.as_ref().map(|_| "<configured>"),
+            )
+            .finish()
+    }
 }
 
 impl ClientConfig {
@@ -46,7 +64,7 @@ impl ClientConfig {
             address: address.into(),
             api_key: None,
             timeout: DEFAULT_TIMEOUT,
-            tls: false,
+            tls: None,
             tls_config: None,
         }
     }
@@ -63,15 +81,21 @@ impl ClientConfig {
         self
     }
 
-    /// Enable TLS with the root certificates of the operating system.
+    /// Enable or disable TLS.
+    ///
+    /// Enabling TLS uses the root certificates of the operating system unless
+    /// `tls_config` is also set. Disabling TLS clears any previously set `tls_config`.
     pub fn tls(mut self, enabled: bool) -> Self {
-        self.tls = enabled;
+        self.tls = Some(enabled);
+        if !enabled {
+            self.tls_config = None;
+        }
         self
     }
 
     /// Set a custom TLS configuration and enable TLS.
     pub fn tls_config(mut self, tls_config: ClientTlsConfig) -> Self {
-        self.tls = true;
+        self.tls = Some(true);
         self.tls_config = Some(tls_config);
         self
     }
@@ -85,11 +109,23 @@ impl ClientConfig {
 /// Async client for the GVDB distributed vector database.
 ///
 /// Cloning `GvdbClient` is cheap because the underlying gRPC channel is shared.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GvdbClient {
     stub: VectorDbServiceClient<Channel>,
     auth_header: Option<MetadataValue<Ascii>>,
     timeout: Duration,
+}
+
+impl fmt::Debug for GvdbClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GvdbClient")
+            .field(
+                "auth_header",
+                &self.auth_header.as_ref().map(|_| "<redacted>"),
+            )
+            .field("timeout", &self.timeout)
+            .finish()
+    }
 }
 
 impl GvdbClient {
@@ -102,9 +138,14 @@ impl GvdbClient {
 
     /// Connect to a GVDB server with explicit [`ClientConfig`] settings.
     pub async fn connect_with_config(config: ClientConfig) -> Result<Self> {
-        let use_tls = config.tls || config.tls_config.is_some();
-        let uri = normalize_endpoint_uri(&config.address, use_tls)?;
-        let effective_tls = use_tls || uri.starts_with("https://");
+        validate_rpc_timeout(config.timeout)?;
+        let effective_tls_override = if config.tls_config.is_some() {
+            Some(true)
+        } else {
+            config.tls
+        };
+        let uri = normalize_endpoint_uri(&config.address, effective_tls_override)?;
+        let effective_tls = effective_tls_override == Some(true) || uri.starts_with("https://");
 
         let mut endpoint = Endpoint::from_shared(uri)
             .map_err(|err| Error::InvalidArgument(format!("Invalid server address: {err}")))?;
@@ -114,13 +155,27 @@ impl GvdbClient {
         }
 
         if effective_tls {
-            let tls_cfg = config
+            let mut tls_cfg = config
                 .tls_config
                 .unwrap_or_else(|| ClientTlsConfig::new().with_native_roots());
+            if !config.timeout.is_zero() {
+                tls_cfg = tls_cfg.timeout(config.timeout);
+            }
             endpoint = endpoint.tls_config(tls_cfg)?;
         }
 
-        let channel = endpoint.connect().await?;
+        let channel = if config.timeout.is_zero() {
+            endpoint.connect().await?
+        } else {
+            tokio::time::timeout(config.timeout, endpoint.connect())
+                .await
+                .map_err(|_| {
+                    Error::Timeout(format!(
+                        "Connecting to server did not complete within {}s.",
+                        config.timeout.as_secs_f64()
+                    ))
+                })??
+        };
         Self::from_channel(channel, config.api_key.as_deref(), config.timeout)
     }
 
@@ -130,18 +185,25 @@ impl GvdbClient {
         api_key: Option<&str>,
         timeout: Duration,
     ) -> Result<Self> {
+        validate_rpc_timeout(timeout)?;
         let auth_header = match api_key {
-            Some(key) if !key.is_empty() => {
+            Some(key) => {
+                if key.is_empty() || key.bytes().any(|b| b.is_ascii_whitespace()) {
+                    return Err(Error::InvalidArgument(
+                        "API key cannot be empty or contain whitespace.".to_owned(),
+                    ));
+                }
                 let header = format!("Bearer {key}");
-                let value = MetadataValue::try_from(header).map_err(|_| {
+                let mut value = MetadataValue::try_from(header).map_err(|_| {
                     Error::InvalidArgument(
                         "API key contains characters that are not valid in an HTTP header."
                             .to_owned(),
                     )
                 })?;
+                value.set_sensitive(true);
                 Some(value)
             }
-            _ => None,
+            None => None,
         };
 
         let stub = VectorDbServiceClient::new(channel)
@@ -287,6 +349,11 @@ impl GvdbClient {
         if batch_size == 0 {
             return Err(Error::InvalidArgument(
                 "batch_size must be greater than zero.".to_owned(),
+            ));
+        }
+        if vectors.is_empty() {
+            return Err(Error::InvalidArgument(
+                "vectors cannot be empty.".to_owned(),
             ));
         }
         let collection_name = collection.into();
@@ -633,21 +700,20 @@ impl GvdbClient {
         poll: PollOptions,
     ) -> Result<ImportStatus> {
         let import_id = import_id.into();
-        let deadline = Instant::now() + poll.timeout;
+        let deadline = validate_poll_options(poll)?;
         loop {
-            let status = self.get_import_status(&import_id).await?;
+            let status = run_with_deadline(
+                deadline,
+                poll.timeout,
+                "Import",
+                &import_id,
+                self.get_import_status(&import_id),
+            )
+            .await?;
             if status.state.is_terminal() {
                 return Ok(status);
             }
-            let now = Instant::now();
-            if now >= deadline {
-                return Err(Error::Timeout(format!(
-                    "Import {import_id} did not complete within {}s.",
-                    poll.timeout.as_secs_f64()
-                )));
-            }
-            let sleep_for = poll.poll_interval.min(deadline - now);
-            tokio::time::sleep(sleep_for).await;
+            sleep_before_deadline(deadline, poll, "Import", &import_id).await?;
         }
     }
 
@@ -749,9 +815,16 @@ impl GvdbClient {
         poll: PollOptions,
     ) -> Result<BackupStatus> {
         let backup_id = backup_id.into();
-        let deadline = Instant::now() + poll.timeout;
+        let deadline = validate_poll_options(poll)?;
         loop {
-            let status = self.get_backup_status(&backup_id).await?;
+            let status = run_with_deadline(
+                deadline,
+                poll.timeout,
+                "Backup",
+                &backup_id,
+                self.get_backup_status(&backup_id),
+            )
+            .await?;
             match status.state {
                 BackupState::Completed => return Ok(status),
                 BackupState::Failed | BackupState::Cancelled => {
@@ -764,15 +837,7 @@ impl GvdbClient {
                 }
                 BackupState::Pending | BackupState::Running => {}
             }
-            let now = Instant::now();
-            if now >= deadline {
-                return Err(Error::Timeout(format!(
-                    "Backup {backup_id} did not complete within {}s.",
-                    poll.timeout.as_secs_f64()
-                )));
-            }
-            let sleep_for = poll.poll_interval.min(deadline - now);
-            tokio::time::sleep(sleep_for).await;
+            sleep_before_deadline(deadline, poll, "Backup", &backup_id).await?;
         }
     }
 
@@ -785,9 +850,16 @@ impl GvdbClient {
         poll: PollOptions,
     ) -> Result<RestoreStatus> {
         let restore_id = restore_id.into();
-        let deadline = Instant::now() + poll.timeout;
+        let deadline = validate_poll_options(poll)?;
         loop {
-            let status = self.get_restore_status(&restore_id).await?;
+            let status = run_with_deadline(
+                deadline,
+                poll.timeout,
+                "Restore",
+                &restore_id,
+                self.get_restore_status(&restore_id),
+            )
+            .await?;
             match status.state {
                 BackupState::Completed => return Ok(status),
                 BackupState::Failed | BackupState::Cancelled => {
@@ -800,15 +872,7 @@ impl GvdbClient {
                 }
                 BackupState::Pending | BackupState::Running => {}
             }
-            let now = Instant::now();
-            if now >= deadline {
-                return Err(Error::Timeout(format!(
-                    "Restore {restore_id} did not complete within {}s.",
-                    poll.timeout.as_secs_f64()
-                )));
-            }
-            let sleep_for = poll.poll_interval.min(deadline - now);
-            tokio::time::sleep(sleep_for).await;
+            sleep_before_deadline(deadline, poll, "Restore", &restore_id).await?;
         }
     }
 
@@ -862,31 +926,112 @@ fn map_search_results(results: Vec<pb::SearchResultEntry>) -> Vec<SearchResult> 
         .collect()
 }
 
-fn normalize_endpoint_uri(address: &str, tls_enabled: bool) -> Result<String> {
+fn validate_rpc_timeout(timeout: Duration) -> Result<()> {
+    if timeout > MAX_GRPC_TIMEOUT {
+        return Err(Error::InvalidArgument(format!(
+            "Timeout {}s exceeds the maximum gRPC timeout of {}s.",
+            timeout.as_secs(),
+            MAX_GRPC_TIMEOUT.as_secs()
+        )));
+    }
+    Ok(())
+}
+
+fn validate_poll_options(poll: PollOptions) -> Result<Option<Instant>> {
+    if poll.poll_interval.is_zero() {
+        return Err(Error::InvalidArgument(
+            "poll_interval must be greater than zero.".to_owned(),
+        ));
+    }
+    Ok(Instant::now().checked_add(poll.timeout))
+}
+
+async fn run_with_deadline<F, T>(
+    deadline: Option<Instant>,
+    timeout: Duration,
+    kind: &str,
+    id: &str,
+    fut: F,
+) -> Result<T>
+where
+    F: std::future::Future<Output = Result<T>>,
+{
+    let Some(deadline) = deadline else {
+        return fut.await;
+    };
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(Error::Timeout(format!(
+            "{kind} {id} did not complete within {}s.",
+            timeout.as_secs_f64()
+        )));
+    }
+    tokio::time::timeout(remaining, fut).await.map_err(|_| {
+        Error::Timeout(format!(
+            "{kind} {id} did not complete within {}s.",
+            timeout.as_secs_f64()
+        ))
+    })?
+}
+
+async fn sleep_before_deadline(
+    deadline: Option<Instant>,
+    poll: PollOptions,
+    kind: &str,
+    id: &str,
+) -> Result<()> {
+    let sleep_for = match deadline {
+        Some(deadline) => {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(Error::Timeout(format!(
+                    "{kind} {id} did not complete within {}s.",
+                    poll.timeout.as_secs_f64()
+                )));
+            }
+            poll.poll_interval.min(remaining)
+        }
+        None => poll.poll_interval,
+    };
+    tokio::time::sleep(sleep_for).await;
+    Ok(())
+}
+
+fn normalize_endpoint_uri(address: &str, tls_override: Option<bool>) -> Result<String> {
     let trimmed = address.trim();
     if trimmed.is_empty() {
         return Err(Error::InvalidArgument(
             "Server address cannot be empty.".to_owned(),
         ));
     }
-    if trimmed.starts_with("http://") {
-        if tls_enabled {
-            return Err(Error::InvalidArgument(
-                "You cannot use an http:// address with TLS enabled. Use https:// or omit the scheme."
-                    .to_owned(),
-            ));
+    if let Some((scheme, rest)) = trimmed.split_once("://") {
+        if scheme.eq_ignore_ascii_case("http") {
+            if tls_override == Some(true) {
+                return Err(Error::InvalidArgument(
+                    "You cannot use an http:// address with TLS enabled. Use https:// or omit the scheme."
+                        .to_owned(),
+                ));
+            }
+            return Ok(format!("http://{rest}"));
         }
-        return Ok(trimmed.to_owned());
-    }
-    if trimmed.starts_with("https://") {
-        return Ok(trimmed.to_owned());
-    }
-    if trimmed.contains("://") {
+        if scheme.eq_ignore_ascii_case("https") {
+            if tls_override == Some(false) {
+                return Err(Error::InvalidArgument(
+                    "You cannot use an https:// address with TLS disabled. Use http:// or omit the scheme."
+                        .to_owned(),
+                ));
+            }
+            return Ok(format!("https://{rest}"));
+        }
         return Err(Error::InvalidArgument(format!(
             "Unsupported URI scheme in '{trimmed}'. Use http://, https://, or host:port."
         )));
     }
-    let scheme = if tls_enabled { "https" } else { "http" };
+    let scheme = if tls_override == Some(true) {
+        "https"
+    } else {
+        "http"
+    };
     Ok(format!("{scheme}://{trimmed}"))
 }
 
@@ -895,25 +1040,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn normalize_uri_adds_default_scheme() {
+    fn normalize_uri_adds_default_scheme() -> Result<()> {
         assert_eq!(
-            normalize_endpoint_uri("localhost:50051", false).unwrap(),
+            normalize_endpoint_uri("localhost:50051", None)?,
             "http://localhost:50051"
         );
         assert_eq!(
-            normalize_endpoint_uri("localhost:50051", true).unwrap(),
+            normalize_endpoint_uri("localhost:50051", Some(true))?,
             "https://localhost:50051"
         );
         assert_eq!(
-            normalize_endpoint_uri("https://db.example.com:50051", false).unwrap(),
+            normalize_endpoint_uri("https://db.example.com:50051", None)?,
             "https://db.example.com:50051"
         );
+        assert_eq!(
+            normalize_endpoint_uri("HTTPS://db.example.com:50051", None)?,
+            "https://db.example.com:50051"
+        );
+        assert_eq!(
+            normalize_endpoint_uri("HTTP://db.example.com:50051", Some(false))?,
+            "http://db.example.com:50051"
+        );
+        Ok(())
     }
 
     #[test]
     fn normalize_uri_rejects_conflicting_scheme() {
-        assert!(normalize_endpoint_uri("http://localhost:50051", true).is_err());
-        assert!(normalize_endpoint_uri("ftp://localhost:50051", false).is_err());
-        assert!(normalize_endpoint_uri("   ", false).is_err());
+        assert!(normalize_endpoint_uri("http://localhost:50051", Some(true)).is_err());
+        assert!(normalize_endpoint_uri("https://localhost:50051", Some(false)).is_err());
+        assert!(normalize_endpoint_uri("ftp://localhost:50051", None).is_err());
+        assert!(normalize_endpoint_uri("   ", None).is_err());
+    }
+
+    #[test]
+    fn client_config_debug_redacts_secrets() {
+        let cfg = ClientConfig::new("localhost:50051")
+            .api_key("super-secret-token")
+            .tls_config(ClientTlsConfig::new());
+        let formatted = format!("{cfg:?}");
+        assert!(!formatted.contains("super-secret-token"));
+        assert!(formatted.contains("<redacted>"));
+        assert!(formatted.contains("<configured>"));
+    }
+
+    #[test]
+    fn tls_false_clears_tls_config() {
+        let cfg = ClientConfig::new("localhost:50051")
+            .tls_config(ClientTlsConfig::new())
+            .tls(false);
+        assert_eq!(cfg.tls, Some(false));
+        assert!(cfg.tls_config.is_none());
     }
 }
