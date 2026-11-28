@@ -36,121 +36,76 @@ TEST_CASE_FIXTURE(TimestampOracleTest, "MonotonicIncrease") {
 // Raft Peer Parsing Tests
 // ============================================================================
 
-TEST_CASE("ParseRaftPeerSpec accepts valid id:host:port") {
-  auto p = ParseRaftPeerSpec("2:gvdb-coordinator-1.svc.cluster.local:8300");
-  REQUIRE(p.ok());
-  CHECK_EQ(p->id, 2);
-  CHECK_EQ(p->endpoint, "gvdb-coordinator-1.svc.cluster.local:8300");
+TEST_CASE("ParseRaftPeerSpec") {
+  struct Row {
+    const char* spec;
+    bool ok;
+    int id;
+    const char* endpoint;
+  };
+  const std::vector<Row> rows = {
+      {"2:gvdb-coordinator-1.svc.cluster.local:8300", true, 2,
+       "gvdb-coordinator-1.svc.cluster.local:8300"},
+      {"3:localhost:9002", true, 3, "localhost:9002"},
+      {"  2:host:8300  ", true, 2, "host:8300"},  // surrounding whitespace is trimmed
+      {":localhost:9000", false, 0, ""},          // missing id
+      {"abc:localhost:9000", false, 0, ""},       // non-integer id
+      {"0:localhost:9000", false, 0, ""},         // zero id
+      {"-1:localhost:9000", false, 0, ""},        // negative id
+      {"1:localhost", false, 0, ""},              // endpoint without port
+      {"1:", false, 0, ""},                       // empty endpoint
+      {"1:host:", false, 0, ""},                  // trailing colon with empty port
+      {"just-a-name", false, 0, ""},              // no colon at all
+      {"1:my host:8300", false, 0, ""},           // whitespace inside the endpoint
+  };
+  for (const Row& row : rows) {
+    CAPTURE(row.spec);
+    auto p = ParseRaftPeerSpec(row.spec);
+    REQUIRE_EQ(p.ok(), row.ok);
+    if (row.ok) {
+      CHECK_EQ(p->id, row.id);
+      CHECK_EQ(p->endpoint, row.endpoint);
+    }
+  }
 }
 
-TEST_CASE("ParseRaftPeerSpec accepts simple host:port") {
-  auto p = ParseRaftPeerSpec("3:localhost:9002");
-  REQUIRE(p.ok());
-  CHECK_EQ(p->id, 3);
-  CHECK_EQ(p->endpoint, "localhost:9002");
-}
-
-TEST_CASE("ParseRaftPeerSpec rejects missing id") {
-  auto p = ParseRaftPeerSpec(":localhost:9000");
-  CHECK_FALSE(p.ok());
-}
-
-TEST_CASE("ParseRaftPeerSpec rejects non-integer id") {
-  auto p = ParseRaftPeerSpec("abc:localhost:9000");
-  CHECK_FALSE(p.ok());
-}
-
-TEST_CASE("ParseRaftPeerSpec rejects zero id") {
-  auto p = ParseRaftPeerSpec("0:localhost:9000");
-  CHECK_FALSE(p.ok());
-}
-
-TEST_CASE("ParseRaftPeerSpec rejects negative id") {
-  auto p = ParseRaftPeerSpec("-1:localhost:9000");
-  CHECK_FALSE(p.ok());
-}
-
-TEST_CASE("ParseRaftPeerSpec rejects endpoint without port") {
-  auto p = ParseRaftPeerSpec("1:localhost");
-  CHECK_FALSE(p.ok());
-}
-
-TEST_CASE("ParseRaftPeerSpec rejects empty endpoint") {
-  auto p = ParseRaftPeerSpec("1:");
-  CHECK_FALSE(p.ok());
-}
-
-TEST_CASE("ParseRaftPeerSpec rejects trailing colon with empty port") {
-  auto p = ParseRaftPeerSpec("1:host:");
-  CHECK_FALSE(p.ok());
-}
-
-TEST_CASE("ParseRaftPeerSpec rejects spec without any colon") {
-  auto p = ParseRaftPeerSpec("just-a-name");
-  CHECK_FALSE(p.ok());
-}
-
-TEST_CASE("ParseRaftPeerSpec tolerates leading/trailing whitespace") {
-  auto p = ParseRaftPeerSpec("  2:host:8300  ");
-  REQUIRE(p.ok());
-  CHECK_EQ(p->id, 2);
-  CHECK_EQ(p->endpoint, "host:8300");
-}
-
-TEST_CASE("ParseRaftPeerSpec rejects whitespace inside endpoint") {
-  auto p = ParseRaftPeerSpec("1:my host:8300");
-  CHECK_FALSE(p.ok());
-}
-
-TEST_CASE("PrepareRaftPeerList happy path with self present and fresh config") {
-  std::vector<std::string> peers = {"1:host1:8300", "2:host2:8300", "3:host3:8300"};
-  auto plan = PrepareRaftPeerList(2, peers, 1);
-  REQUIRE(plan.ok());
-  CHECK(plan->needs_seed);
-  CHECK_EQ(plan->peers.size(), 3);
-}
-
-TEST_CASE("PrepareRaftPeerList rejects missing self in declared peers") {
-  std::vector<std::string> peers = {"1:host1:8300", "2:host2:8300", "3:host3:8300"};
-  auto plan = PrepareRaftPeerList(99, peers, 1);
-  CHECK_FALSE(plan.ok());
-}
-
-TEST_CASE("PrepareRaftPeerList rejects duplicate peer ids") {
-  std::vector<std::string> peers = {"1:host1:8300", "1:host2:8300", "3:host3:8300"};
-  auto plan = PrepareRaftPeerList(1, peers, 1);
-  CHECK_FALSE(plan.ok());
-}
-
-TEST_CASE("PrepareRaftPeerList propagates parser errors") {
-  std::vector<std::string> peers = {"bogus"};
-  auto plan = PrepareRaftPeerList(1, peers, 1);
-  CHECK_FALSE(plan.ok());
-}
-
-TEST_CASE("PrepareRaftPeerList does not seed when persisted size > 1") {
-  // Simulates restart: the persisted cluster_config already has 3 servers
-  // from a prior run. We should trust it and not reseed.
-  std::vector<std::string> peers = {"1:host1:8300", "2:host2:8300", "3:host3:8300"};
-  auto plan = PrepareRaftPeerList(2, peers, 3);
-  REQUIRE(plan.ok());
-  CHECK_FALSE(plan->needs_seed);
-}
-
-TEST_CASE("PrepareRaftPeerList seeds when persisted size is 0 (corruption)") {
-  std::vector<std::string> peers = {"1:host1:8300", "2:host2:8300", "3:host3:8300"};
-  auto plan = PrepareRaftPeerList(1, peers, 0);
-  REQUIRE(plan.ok());
-  CHECK(plan->needs_seed);
-}
-
-TEST_CASE("PrepareRaftPeerList accepts empty peers (single-node mode)") {
-  std::vector<std::string> peers;
-  auto plan = PrepareRaftPeerList(1, peers, 1);
-  REQUIRE(plan.ok());
-  // With no declared peers the self-presence check is skipped and needs_seed
-  // reflects the persisted size; caller ensures we're not in multi-node mode.
-  CHECK(plan->peers.empty());
+TEST_CASE("PrepareRaftPeerList") {
+  const std::vector<std::string> three = {"1:host1:8300", "2:host2:8300", "3:host3:8300"};
+  struct Row {
+    const char* name;
+    int self_id;
+    std::vector<std::string> peers;
+    size_t persisted_size;
+    bool ok;
+    bool needs_seed;    // checked only when ok
+    size_t peer_count;  // checked only when ok
+  };
+  const std::vector<Row> rows = {
+      {"self present, fresh config", 2, three, 1, true, true, 3},
+      {"self missing from the declared peers", 99, three, 1, false, false, 0},
+      {"duplicate peer ids",
+       1,
+       {"1:host1:8300", "1:host2:8300", "3:host3:8300"},
+       1,
+       false,
+       false,
+       0},
+      {"parser error", 1, {"bogus"}, 1, false, false, 0},
+      // A restart: the persisted cluster config already has 3 servers.
+      {"no seed when the persisted size is above 1", 2, three, 3, true, false, 3},
+      {"seed when the persisted size is 0 (corruption)", 1, three, 0, true, true, 3},
+      // Single-node mode: without declared peers the self check is skipped.
+      {"empty peers", 1, {}, 1, true, true, 0},
+  };
+  for (const Row& row : rows) {
+    CAPTURE(row.name);
+    auto plan = PrepareRaftPeerList(row.self_id, row.peers, row.persisted_size);
+    REQUIRE_EQ(plan.ok(), row.ok);
+    if (row.ok) {
+      CHECK_EQ(plan->needs_seed, row.needs_seed);
+      CHECK_EQ(plan->peers.size(), row.peer_count);
+    }
+  }
 }
 
 // ============================================================================

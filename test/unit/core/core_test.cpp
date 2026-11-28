@@ -214,128 +214,97 @@ TEST_CASE("VectorUtilTest - RandomVector") {
 // Metadata Tests
 // ============================================================================
 
-TEST_CASE("MetadataTest - CompareEqual") {
-  CHECK(CompareMetadataValues(MetadataValue(int64_t(42)), ComparisonOp::EQUAL,
-                              MetadataValue(int64_t(42))));
-
-  CHECK_FALSE(CompareMetadataValues(MetadataValue(int64_t(42)), ComparisonOp::EQUAL,
-                                    MetadataValue(int64_t(43))));
-
-  CHECK(CompareMetadataValues(MetadataValue(std::string("hello")), ComparisonOp::EQUAL,
-                              MetadataValue(std::string("hello"))));
+TEST_CASE("MetadataTest - CompareMetadataValues") {
+  using V = MetadataValue;
+  using Op = ComparisonOp;
+  struct Row {
+    V lhs;
+    Op op;
+    V rhs;
+    bool expected;
+  };
+  const std::vector<Row> rows = {
+      {V(int64_t{42}), Op::EQUAL, V(int64_t{42}), true},
+      {V(int64_t{42}), Op::EQUAL, V(int64_t{43}), false},
+      {V(std::string("hello")), Op::EQUAL, V(std::string("hello")), true},
+      {V(int64_t{42}), Op::NOT_EQUAL, V(int64_t{43}), true},
+      {V(int64_t{42}), Op::NOT_EQUAL, V(int64_t{42}), false},
+      {V(int64_t{42}), Op::NOT_EQUAL, V(std::string("42")), true},  // across types
+      {V(int64_t{10}), Op::LESS_THAN, V(int64_t{20}), true},
+      {V(int64_t{20}), Op::LESS_THAN, V(int64_t{10}), false},
+      {V(1.5), Op::LESS_THAN, V(2.5), true},
+      {V(std::string("apple")), Op::LESS_THAN, V(std::string("banana")), true},
+      {V(int64_t{10}), Op::LESS_EQUAL, V(int64_t{10}), true},
+      {V(int64_t{10}), Op::LESS_EQUAL, V(int64_t{20}), true},
+      {V(int64_t{20}), Op::LESS_EQUAL, V(int64_t{10}), false},
+      {V(int64_t{100}), Op::GREATER_THAN, V(int64_t{50}), true},
+      {V(int64_t{50}), Op::GREATER_THAN, V(int64_t{100}), false},
+      {V(int64_t{100}), Op::GREATER_EQUAL, V(int64_t{100}), true},
+      {V(int64_t{100}), Op::GREATER_EQUAL, V(int64_t{50}), true},
+      {V(int64_t{50}), Op::GREATER_EQUAL, V(int64_t{100}), false},
+      {V(std::string("Nike Air Max")), Op::LIKE, V(std::string("Nike%")), true},
+      {V(std::string("Adidas Ultra")), Op::LIKE, V(std::string("Nike%")), false},
+      {V(std::string("Nike Air Max")), Op::NOT_LIKE, V(std::string("Nike%")), false},
+      {V(std::string("Adidas Ultra")), Op::NOT_LIKE, V(std::string("Nike%")), true},
+  };
+  for (size_t i = 0; i < rows.size(); ++i) {
+    CAPTURE(i);
+    CHECK_EQ(CompareMetadataValues(rows[i].lhs, rows[i].op, rows[i].rhs), rows[i].expected);
+  }
 }
 
-TEST_CASE("MetadataTest - CompareNotEqual") {
-  CHECK(CompareMetadataValues(MetadataValue(int64_t(42)), ComparisonOp::NOT_EQUAL,
-                              MetadataValue(int64_t(43))));
-
-  CHECK_FALSE(CompareMetadataValues(MetadataValue(int64_t(42)), ComparisonOp::NOT_EQUAL,
-                                    MetadataValue(int64_t(42))));
-
-  // NOT_EQUAL works across types
-  CHECK(CompareMetadataValues(MetadataValue(int64_t(42)), ComparisonOp::NOT_EQUAL,
-                              MetadataValue(std::string("42"))));
-}
-
-TEST_CASE("MetadataTest - CompareLessThan") {
-  CHECK(CompareMetadataValues(MetadataValue(int64_t(10)), ComparisonOp::LESS_THAN,
-                              MetadataValue(int64_t(20))));
-
-  CHECK_FALSE(CompareMetadataValues(MetadataValue(int64_t(20)), ComparisonOp::LESS_THAN,
-                                    MetadataValue(int64_t(10))));
-
-  CHECK(CompareMetadataValues(MetadataValue(1.5), ComparisonOp::LESS_THAN, MetadataValue(2.5)));
-
-  CHECK(CompareMetadataValues(MetadataValue(std::string("apple")), ComparisonOp::LESS_THAN,
-                              MetadataValue(std::string("banana"))));
-}
-
-TEST_CASE("MetadataTest - CompareLessEqual") {
-  CHECK(CompareMetadataValues(MetadataValue(int64_t(10)), ComparisonOp::LESS_EQUAL,
-                              MetadataValue(int64_t(10))));
-
-  CHECK(CompareMetadataValues(MetadataValue(int64_t(10)), ComparisonOp::LESS_EQUAL,
-                              MetadataValue(int64_t(20))));
-
-  CHECK_FALSE(CompareMetadataValues(MetadataValue(int64_t(20)), ComparisonOp::LESS_EQUAL,
-                                    MetadataValue(int64_t(10))));
-}
-
-TEST_CASE("MetadataTest - CompareGreaterThan") {
-  CHECK(CompareMetadataValues(MetadataValue(int64_t(100)), ComparisonOp::GREATER_THAN,
-                              MetadataValue(int64_t(50))));
-
-  CHECK_FALSE(CompareMetadataValues(MetadataValue(int64_t(50)), ComparisonOp::GREATER_THAN,
-                                    MetadataValue(int64_t(100))));
-}
-
-TEST_CASE("MetadataTest - CompareGreaterEqual") {
-  CHECK(CompareMetadataValues(MetadataValue(int64_t(100)), ComparisonOp::GREATER_EQUAL,
-                              MetadataValue(int64_t(100))));
-
-  CHECK(CompareMetadataValues(MetadataValue(int64_t(100)), ComparisonOp::GREATER_EQUAL,
-                              MetadataValue(int64_t(50))));
-
-  CHECK_FALSE(CompareMetadataValues(MetadataValue(int64_t(50)), ComparisonOp::GREATER_EQUAL,
-                                    MetadataValue(int64_t(100))));
-}
-
-TEST_CASE("MetadataTest - LikePatternExactMatch") {
-  CHECK(MatchLikePattern("hello", "hello"));
-  CHECK_FALSE(MatchLikePattern("hello", "world"));
-}
-
-TEST_CASE("MetadataTest - LikePatternWildcard") {
-  // % matches any sequence
-  CHECK(MatchLikePattern("Nike Air Max", "Nike%"));
-  CHECK(MatchLikePattern("Nike Pegasus", "Nike%"));
-  CHECK(MatchLikePattern("best running shoes", "%running%"));
-  CHECK(MatchLikePattern("running gear", "%running%"));
-  CHECK_FALSE(MatchLikePattern("walking shoes", "%running%"));
-}
-
-TEST_CASE("MetadataTest - LikePatternSingleChar") {
-  // _ matches single character
-  CHECK(MatchLikePattern("Air Max", "Air_Max"));
-  CHECK(MatchLikePattern("Air-Max", "Air_Max"));
-  CHECK_FALSE(MatchLikePattern("AirMax", "Air_Max"));
-}
-
-TEST_CASE("MetadataTest - LikePatternEscape") {
-  // Escaped % should match literal %
-  CHECK(MatchLikePattern("50%", "50\\%"));
-  CHECK_FALSE(MatchLikePattern("50off", "50\\%"));
-}
-
-TEST_CASE("MetadataTest - LikePatternEscapesAnyByte") {
-  CHECK(MatchLikePattern("a_b", "a\\_b"));
-  CHECK_FALSE(MatchLikePattern("axb", "a\\_b"));
-  // A backslash before an ordinary byte makes it literal; it is not a regex
-  // class, so "\d" matches the letter d and not a digit.
-  CHECK(MatchLikePattern("ad", "a\\d"));
-  CHECK_FALSE(MatchLikePattern("a5", "a\\d"));
-  // A trailing lone backslash matches itself.
-  CHECK(MatchLikePattern("50\\", "50\\"));
-}
-
-TEST_CASE("MetadataTest - LikePatternRegexMetacharactersAreLiteral") {
-  CHECK(MatchLikePattern("a.b", "a.b"));
-  CHECK_FALSE(MatchLikePattern("axb", "a.b"));
-  CHECK(MatchLikePattern("(x)+[y]*{z}|^$?", "(x)+[y]*{z}|^$?"));
-  CHECK_FALSE(MatchLikePattern("xx", "x+"));
-}
-
-TEST_CASE("MetadataTest - LikePatternBacktracking") {
-  CHECK(MatchLikePattern("abcabcabd", "%abd"));
-  CHECK(MatchLikePattern("mississippi", "m%ss%pi"));
-  CHECK(MatchLikePattern("mississippi", "%s_s%"));
-  CHECK_FALSE(MatchLikePattern("mississippi", "m%ss%px"));
-  CHECK(MatchLikePattern("", "%"));
-  CHECK(MatchLikePattern("", "%%"));
-  CHECK_FALSE(MatchLikePattern("", "_"));
-  CHECK_FALSE(MatchLikePattern("abc", ""));
-  CHECK(MatchLikePattern("a\nb", "a%b"));
-  CHECK(MatchLikePattern("a\nb", "a_b"));
+TEST_CASE("MetadataTest - MatchLikePattern") {
+  struct Row {
+    std::string value;
+    std::string pattern;
+    bool expected;
+  };
+  const std::vector<Row> rows = {
+      {"hello", "hello", true},
+      {"hello", "world", false},
+      // % matches any sequence.
+      {"Nike Air Max", "Nike%", true},
+      {"Nike Pegasus", "Nike%", true},
+      {"best running shoes", "%running%", true},
+      {"running gear", "%running%", true},
+      {"walking shoes", "%running%", false},
+      // _ matches a single character.
+      {"Air Max", "Air_Max", true},
+      {"Air-Max", "Air_Max", true},
+      {"AirMax", "Air_Max", false},
+      // An escaped % or _ matches itself.
+      {"50%", "50\\%", true},
+      {"50off", "50\\%", false},
+      {"a_b", "a\\_b", true},
+      {"axb", "a\\_b", false},
+      // A backslash before an ordinary byte makes it literal. It is not a
+      // regex class, so "\d" matches the letter d and not a digit.
+      {"ad", "a\\d", true},
+      {"a5", "a\\d", false},
+      // A trailing lone backslash matches itself.
+      {"50\\", "50\\", true},
+      // Regex metacharacters are literal.
+      {"a.b", "a.b", true},
+      {"axb", "a.b", false},
+      {"(x)+[y]*{z}|^$?", "(x)+[y]*{z}|^$?", true},
+      {"xx", "x+", false},
+      // Backtracking and edge cases.
+      {"abcabcabd", "%abd", true},
+      {"mississippi", "m%ss%pi", true},
+      {"mississippi", "%s_s%", true},
+      {"mississippi", "m%ss%px", false},
+      {"", "%", true},
+      {"", "%%", true},
+      {"", "_", false},
+      {"abc", "", false},
+      {"a\nb", "a%b", true},
+      {"a\nb", "a_b", true},
+  };
+  for (const Row& row : rows) {
+    CAPTURE(row.value);
+    CAPTURE(row.pattern);
+    CHECK_EQ(MatchLikePattern(row.value, row.pattern), row.expected);
+  }
 }
 
 TEST_CASE("MetadataTest - LikePatternLongInputs") {
@@ -350,22 +319,6 @@ TEST_CASE("MetadataTest - LikePatternLongInputs") {
   CHECK(MatchLikePattern(value, "%a%"));
   CHECK_FALSE(MatchLikePattern(value, "a%"));
   CHECK_FALSE(MatchLikePattern(value, "%b%"));
-}
-
-TEST_CASE("MetadataTest - CompareLike") {
-  CHECK(CompareMetadataValues(MetadataValue(std::string("Nike Air Max")), ComparisonOp::LIKE,
-                              MetadataValue(std::string("Nike%"))));
-
-  CHECK_FALSE(CompareMetadataValues(MetadataValue(std::string("Adidas Ultra")), ComparisonOp::LIKE,
-                                    MetadataValue(std::string("Nike%"))));
-}
-
-TEST_CASE("MetadataTest - CompareNotLike") {
-  CHECK_FALSE(CompareMetadataValues(MetadataValue(std::string("Nike Air Max")),
-                                    ComparisonOp::NOT_LIKE, MetadataValue(std::string("Nike%"))));
-
-  CHECK(CompareMetadataValues(MetadataValue(std::string("Adidas Ultra")), ComparisonOp::NOT_LIKE,
-                              MetadataValue(std::string("Nike%"))));
 }
 
 TEST_CASE("MetadataTest - CompareInList") {
@@ -705,32 +658,12 @@ TEST_CASE("FilterTest - MissingField") {
   CHECK_FALSE((*filter)->Evaluate(metadata));
 }
 
-TEST_CASE("FilterTest - ParseErrorInvalidSyntax") {
-  auto result = FilterParser::parse("price <");
-  CHECK_FALSE(result.ok());
-  CHECK(absl::IsInvalidArgument(result.status()));
-}
-
-TEST_CASE("FilterTest - ParseErrorUnclosedParen") {
-  auto result = FilterParser::parse("(price < 100");
-  CHECK_FALSE(result.ok());
-  CHECK(absl::IsInvalidArgument(result.status()));
-}
-
-TEST_CASE("FilterTest - ParseErrorUnclosedString") {
-  auto result = FilterParser::parse("brand = 'Nike");
-  CHECK_FALSE(result.ok());
-  CHECK(absl::IsInvalidArgument(result.status()));
-}
-
-TEST_CASE("FilterTest - ParseErrorEmptyInList") {
-  auto result = FilterParser::parse("category IN ()");
-  CHECK_FALSE(result.ok());
-  CHECK(absl::IsInvalidArgument(result.status()));
-}
-
-TEST_CASE("FilterTest - RejectsTrailingInput") {
+TEST_CASE("FilterTest - RejectsInvalidSyntax") {
   for (const char* expr : {
+           "price <",
+           "(price < 100",
+           "brand = 'Nike",
+           "category IN ()",
            "price < 100)",
            "a = 1 b = 2",
            "k = 'a' ; DROP",
