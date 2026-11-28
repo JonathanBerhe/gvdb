@@ -137,7 +137,7 @@ for r in results:
     print(r.id, r.distance, r.metadata)
 ```
 
-`SearchResult` is a dataclass with `id: int`, `distance: float`, and `metadata: dict | None`.
+`SearchResult` is a dataclass with `id: int`, `distance: float`, and `metadata: dict | None`. A lower `distance` is a closer match, and the results come back closest first. [Distance metrics](../features/vector-search.md#distance-metrics) gives the distance of each metric.
 
 ### Range search (by radius)
 
@@ -151,6 +151,8 @@ results = client.range_search(
     return_metadata=False,
 )
 ```
+
+The search returns the vectors whose distance is at most `radius`, closest first.
 
 ### Hybrid search
 

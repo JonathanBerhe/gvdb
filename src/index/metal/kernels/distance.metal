@@ -7,7 +7,10 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// L2 squared distance: ||q - v||^2
+// Each kernel writes the canonical distance of its metric, where lower is
+// better (see core/distance.h).
+
+// L2 distance: ||q - v||
 kernel void l2_distance(
     device const float* queries    [[buffer(0)]],   // [nq * dim]
     device const float* vectors    [[buffer(1)]],   // [nb * dim]
@@ -24,10 +27,10 @@ kernel void l2_distance(
         float diff = queries[q * dim + d] - vectors[v * dim + d];
         dist += diff * diff;
     }
-    distances[q * nb + v] = dist;
+    distances[q * nb + v] = sqrt(dist);
 }
 
-// Inner product: q . v
+// Inner product distance: -(q . v)
 kernel void inner_product(
     device const float* queries    [[buffer(0)]],
     device const float* vectors    [[buffer(1)]],
@@ -43,12 +46,11 @@ kernel void inner_product(
     for (uint d = 0; d < dim; d++) {
         dot += queries[q * dim + d] * vectors[v * dim + d];
     }
-    // Store raw positive dot product (matches faiss output convention).
-    // TopK sorts descending for IP to find most similar.
-    distances[q * nb + v] = dot;
+    distances[q * nb + v] = -dot;
 }
 
-// Cosine distance: 1 - (q . v) / (||q|| * ||v||)
+// Cosine distance: 1 - (q . v) / (||q|| * ||v||), and 1 when either vector is
+// zero.
 kernel void cosine_distance(
     device const float* queries    [[buffer(0)]],
     device const float* vectors    [[buffer(1)]],

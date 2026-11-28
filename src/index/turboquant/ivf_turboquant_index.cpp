@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "index/turboquant/ivf_turboquant_index.h"
+#include "core/distance.h"
 #include "core/status.h"
 
 #include <algorithm>
@@ -511,7 +512,10 @@ float IVFTurboQuantIndex::IPToDistance(float estimated_ip, float x_norm,
                                        const PreprocessedQuery& query) const {
   switch (metric_type_) {
     case core::MetricType::L2:
-      return x_norm * x_norm + query.norm * query.norm - 2.0f * estimated_ip;
+      // The canonical L2 distance: the square root of the estimated squared
+      // distance, clamped at 0.
+      return core::CanonicalFromSquaredL2(x_norm * x_norm + query.norm * query.norm -
+                                          2.0f * estimated_ip);
     case core::MetricType::INNER_PRODUCT:
       return -estimated_ip;
     case core::MetricType::COSINE: {

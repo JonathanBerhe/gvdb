@@ -3,6 +3,9 @@
 
 #include "index/faiss/faiss_base.h"
 
+#include "core/distance.h"
+
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 
@@ -35,6 +38,20 @@ FaissIndexBase::FaissIndexBase(std::unique_ptr<faiss::Index> index, core::Metric
 }
 
 FaissIndexBase::~FaissIndexBase() = default;
+
+faiss::MetricType FaissIndexBase::ToFaissMetric(core::MetricType metric) {
+  return metric == core::MetricType::L2 ? faiss::METRIC_L2 : faiss::METRIC_INNER_PRODUCT;
+}
+
+float FaissIndexBase::ToCanonical(float faiss_value) const {
+  return metric_type_ == core::MetricType::L2 ? core::CanonicalFromSquaredL2(faiss_value)
+                                              : core::CanonicalFromDot(metric_type_, faiss_value);
+}
+
+float FaissIndexBase::ToFaissRadius(float radius) const {
+  return metric_type_ == core::MetricType::L2 ? core::SquaredL2Radius(radius)
+                                              : core::DotThreshold(metric_type_, radius);
+}
 
 absl::Status FaissIndexBase::Build(const std::vector<core::Vector>& vectors,
                                    const std::vector<core::VectorId>& ids) {
@@ -151,7 +168,7 @@ absl::StatusOr<core::SearchResult> FaissIndexBase::Search(const core::Vector& qu
         core::SearchResult result(k);
         for (int i = 0; i < k; ++i) {
           if (labels[i] >= 0) {  // Valid result
-            result.AddEntry(IdxToVectorId(labels[i]), distances[i]);
+            result.AddEntry(IdxToVectorId(labels[i]), ToCanonical(distances[i]));
           }
         }
         return result;
@@ -173,12 +190,15 @@ absl::StatusOr<core::SearchResult> FaissIndexBase::SearchRange(const core::Vecto
 
   return ExecuteFaissOperationWithReturn<core::SearchResult>(
       [&]() {
-        index_->range_search(1, float_query.data(), radius, &range_result);
+        index_->range_search(1, float_query.data(), ToFaissRadius(radius), &range_result);
 
         core::SearchResult result;
         for (size_t i = range_result.lims[0]; i < range_result.lims[1]; ++i) {
-          result.AddEntry(IdxToVectorId(range_result.labels[i]), range_result.distances[i]);
+          result.AddEntry(IdxToVectorId(range_result.labels[i]),
+                          ToCanonical(range_result.distances[i]));
         }
+        std::ranges::sort(result.entries,
+                          [](const auto& a, const auto& b) { return a.distance < b.distance; });
         return result;
       },
       "SearchRange");
@@ -217,7 +237,7 @@ absl::StatusOr<std::vector<core::SearchResult>> FaissIndexBase::SearchBatch(
           for (int j = 0; j < k; ++j) {
             size_t idx = i * k + j;
             if (labels[idx] >= 0) {
-              results[i].AddEntry(IdxToVectorId(labels[idx]), distances[idx]);
+              results[i].AddEntry(IdxToVectorId(labels[idx]), ToCanonical(distances[idx]));
             }
           }
         }
@@ -297,6 +317,12 @@ absl::Status FaissIndexBase::Deserialize(const std::string& path) {
   if (!status.ok()) {
     return status;
   }
+  // Older builds stored COSINE indexes with METRIC_L2 on raw vectors. Their
+  // distances cannot become canonical, so they need a rebuild.
+  if (index_->metric_type != ToFaissMetric(metric_type_)) {
+    return absl::FailedPreconditionError(absl::StrCat(
+        "Index at ", path, " uses a different FAISS metric than the collection; rebuild it"));
+  }
 
   MaybeCloneToGpu();
   return absl::OkStatus();
@@ -316,13 +342,17 @@ void FaissIndexBase::MaybeCloneToGpu() {
 
 // Helper implementations
 
-std::vector<float> FaissIndexBase::VectorToFloatArray(const core::Vector& vec) {
+std::vector<float> FaissIndexBase::VectorToFloatArray(const core::Vector& vec) const {
   std::vector<float> result(vec.dimension());
   std::memcpy(result.data(), vec.data(), vec.dimension() * sizeof(float));
+  if (metric_type_ == core::MetricType::COSINE) {
+    core::NormalizeInPlace(result.data(), result.size());
+  }
   return result;
 }
 
-std::vector<float> FaissIndexBase::VectorsToFloatArray(const std::vector<core::Vector>& vectors) {
+std::vector<float> FaissIndexBase::VectorsToFloatArray(
+    const std::vector<core::Vector>& vectors) const {
   if (vectors.empty()) {
     return {};
   }
@@ -332,6 +362,9 @@ std::vector<float> FaissIndexBase::VectorsToFloatArray(const std::vector<core::V
 
   for (size_t i = 0; i < vectors.size(); ++i) {
     std::memcpy(result.data() + i * dim, vectors[i].data(), dim * sizeof(float));
+    if (metric_type_ == core::MetricType::COSINE) {
+      core::NormalizeInPlace(result.data() + i * dim, dim);
+    }
   }
 
   return result;

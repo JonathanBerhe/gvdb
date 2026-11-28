@@ -18,8 +18,7 @@ FaissHNSWIndex::FaissHNSWIndex(core::Dimension dimension, core::MetricType metri
 std::unique_ptr<faiss::Index> FaissHNSWIndex::CreateHNSWIndex(core::Dimension dimension,
                                                               core::MetricType metric, int M,
                                                               int ef_construction) {
-  faiss::MetricType faiss_metric =
-      (metric == core::MetricType::INNER_PRODUCT) ? faiss::METRIC_INNER_PRODUCT : faiss::METRIC_L2;
+  faiss::MetricType faiss_metric = ToFaissMetric(metric);
 
   auto hnsw_index = new faiss::IndexHNSWFlat(dimension, M, faiss_metric);
   hnsw_index->hnsw.efConstruction = ef_construction;
@@ -54,5 +53,10 @@ int FaissHNSWIndex::GetEfSearch() const {
 }
 
 core::IndexType FaissHNSWIndex::GetIndexType() const { return core::IndexType::HNSW; }
+
+float FaissHNSWIndex::ToFaissRadius(float radius) const {
+  const float faiss_radius = FaissIndexBase::ToFaissRadius(radius);
+  return GetMetricType() == core::MetricType::L2 ? faiss_radius : -faiss_radius;
+}
 
 }  // namespace gvdb::index

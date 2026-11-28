@@ -47,9 +47,15 @@ absl::StatusOr<T> ExecuteFaissOperationWithReturn(F&& operation, const std::stri
 }
 
 // Base class for all Faiss index wrappers
-// Provides thread-safe wrapper around Faiss indexes
+// Provides thread-safe wrapper around Faiss indexes. The wrapper returns the
+// canonical distance of core/distance.h: FAISS computes squared L2 for L2,
+// and the dot product for INNER_PRODUCT and COSINE (on unit vectors).
 class FaissIndexBase : public core::IVectorIndex {
  public:
+  // The FAISS metric of a GVDB metric. COSINE is the inner product of unit
+  // vectors, so the wrapper normalizes every vector it passes to FAISS.
+  [[nodiscard]] static faiss::MetricType ToFaissMetric(core::MetricType metric);
+
   explicit FaissIndexBase(std::unique_ptr<faiss::Index> index, core::MetricType metric);
   // Out-of-line so unique_ptr<StandardGpuResources>'s deleter sees the
   // complete type only in faiss_base.cpp (which includes the faiss-gpu
@@ -92,12 +98,19 @@ class FaissIndexBase : public core::IVectorIndex {
   [[nodiscard]] core::IndexType GetIndexType() const override = 0;
 
  protected:
-  // Convert Vector to float array for Faiss
-  [[nodiscard]] static std::vector<float> VectorToFloatArray(const core::Vector& vec);
+  // Convert Vector to float array for Faiss, normalized for COSINE
+  [[nodiscard]] std::vector<float> VectorToFloatArray(const core::Vector& vec) const;
 
-  // Convert multiple vectors to contiguous float array
-  [[nodiscard]] static std::vector<float> VectorsToFloatArray(
-      const std::vector<core::Vector>& vectors);
+  // Convert multiple vectors to contiguous float array, normalized for COSINE
+  [[nodiscard]] std::vector<float> VectorsToFloatArray(
+      const std::vector<core::Vector>& vectors) const;
+
+  // The canonical distance of a FAISS distance or dot product.
+  [[nodiscard]] float ToCanonical(float faiss_value) const;
+
+  // The FAISS range_search radius of a canonical radius: a squared distance
+  // for L2, the smallest dot product for INNER_PRODUCT and COSINE.
+  [[nodiscard]] virtual float ToFaissRadius(float radius) const;
 
   // Convert VectorId to faiss idx_t
   [[nodiscard]] static faiss::idx_t VectorIdToIdx(core::VectorId id);

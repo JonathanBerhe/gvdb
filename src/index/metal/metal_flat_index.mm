@@ -46,18 +46,13 @@ std::string MetalFlatIndex::KernelName() const {
 }
 
 core::SearchResult MetalFlatIndex::TopK(const float* distances, size_t nb, int k) const {
-  // L2/Cosine: smaller = more similar (ascending).
-  // Inner product: larger = more similar (descending).
-  bool descending = (metric_type_ == core::MetricType::INNER_PRODUCT);
-
+  // The kernels write canonical distances, so the closest come first.
   std::vector<size_t> indices(nb);
   std::iota(indices.begin(), indices.end(), 0);
 
   size_t actual_k = std::min(static_cast<size_t>(k), nb);
   std::partial_sort(indices.begin(), indices.begin() + actual_k, indices.end(),
-                    [distances, descending](size_t a, size_t b) {
-                      return descending ? distances[a] > distances[b] : distances[a] < distances[b];
-                    });
+                    [distances](size_t a, size_t b) { return distances[a] < distances[b]; });
 
   core::SearchResult result(actual_k);
   for (size_t i = 0; i < actual_k; ++i) {
@@ -161,11 +156,18 @@ absl::StatusOr<core::SearchResult> MetalFlatIndex::SearchRange(const core::Vecto
   MetalCompute::Instance().ComputeDistances(KernelName(), query.data(), 1, gpu_vectors_, nb,
                                             dimension_, distances.data());
 
-  core::SearchResult result;
+  std::vector<size_t> matches;
   for (size_t i = 0; i < nb; ++i) {
     if (distances[i] <= radius) {
-      result.AddEntry(ids_[i], distances[i]);
+      matches.push_back(i);
     }
+  }
+  std::ranges::sort(matches,
+                    [&distances](size_t a, size_t b) { return distances[a] < distances[b]; });
+
+  core::SearchResult result(matches.size());
+  for (size_t i : matches) {
+    result.AddEntry(ids_[i], distances[i]);
   }
   return result;
 }

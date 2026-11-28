@@ -3,12 +3,19 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <memory>
+#include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "core/config.h"
+#include "core/type_names.h"
 #include "core/vector.h"
 #include "index/bm25_index.h"
 #include "index/index_factory.h"
@@ -352,6 +359,160 @@ TEST_CASE("IVFPQIndexTest - BuildAndSearch") {
   const auto& result = search_result.value();
   CHECK_GT(result.Size(), 0);
   CHECK_LE(result.Size(), 5);
+}
+
+// ============================================================================
+// Canonical distances
+// ============================================================================
+
+// The canonical distance of each metric, computed in double precision without
+// the index code: the Euclidean distance for L2, minus the dot product for
+// INNER_PRODUCT, and 1 minus the cosine similarity for COSINE (1 for a zero
+// vector).
+float ReferenceDistance(core::MetricType metric, const core::Vector& a, const core::Vector& b) {
+  double dot = 0.0;
+  double squared = 0.0;
+  double norm_a = 0.0;
+  double norm_b = 0.0;
+  for (core::Dimension i = 0; i < a.dimension(); ++i) {
+    const double x = a.data()[i];
+    const double y = b.data()[i];
+    dot += x * y;
+    squared += (x - y) * (x - y);
+    norm_a += x * x;
+    norm_b += y * y;
+  }
+  switch (metric) {
+    case core::MetricType::L2:
+      return static_cast<float>(std::sqrt(squared));
+    case core::MetricType::INNER_PRODUCT:
+      return static_cast<float>(-dot);
+    case core::MetricType::COSINE:
+      if (norm_a == 0.0 || norm_b == 0.0) return 1.0F;
+      return static_cast<float>(1.0 - (dot / (std::sqrt(norm_a) * std::sqrt(norm_b))));
+  }
+  return 0.0F;
+}
+
+using IndexMaker = std::function<absl::StatusOr<std::unique_ptr<core::IVectorIndex>>(
+    core::Dimension, core::MetricType)>;
+
+struct DistanceCase {
+  std::string name;
+  IndexMaker make;
+  // True when the index finds the true nearest vectors. An approximate index
+  // can miss some, but each distance that it returns must still be canonical.
+  bool exact;
+  // The largest difference from the reference distance. TurboQuant returns
+  // estimates from quantized codes.
+  float tolerance;
+};
+
+TEST_CASE("Every index returns canonical distances, closest first") {
+  constexpr core::Dimension kDim = 16;
+  constexpr int kCount = 200;
+  constexpr int kTopK = 10;
+
+  const std::vector<DistanceCase> cases = {
+      {"FLAT from the factory (Metal on an Apple GPU)",
+       [](core::Dimension dim, core::MetricType metric) {
+         core::IndexConfig config;
+         config.index_type = core::IndexType::FLAT;
+         config.dimension = dim;
+         config.metric_type = metric;
+         return IndexFactory().CreateIndex(config);
+       },
+       true, 1e-4F},
+      {"FAISS FLAT", &IndexFactory::CreateFlatIndex, true, 1e-4F},
+      {"FAISS IVF_FLAT, every list probed",
+       [](core::Dimension dim, core::MetricType metric) {
+         return IndexFactory::CreateIVFIndex(dim, metric, 4, IVFQuantizationType::NONE, 8, 8, 4);
+       },
+       true, 1e-4F},
+      {"FAISS HNSW",
+       [](core::Dimension dim, core::MetricType metric) {
+         return IndexFactory::CreateHNSWIndex(dim, metric, 16, 200, 200);
+       },
+       false, 1e-4F},
+      {"TURBOQUANT",
+       [](core::Dimension dim, core::MetricType metric) {
+         return IndexFactory::CreateTurboQuantIndex(dim, metric, 8);
+       },
+       false, 0.05F},
+      {"IVF_TURBOQUANT",
+       [](core::Dimension dim, core::MetricType metric) {
+         core::IndexConfig config;
+         config.index_type = core::IndexType::IVF_TURBOQUANT;
+         config.dimension = dim;
+         config.metric_type = metric;
+         config.ivf_turboquant_params.nlist = 4;
+         config.ivf_turboquant_params.nprobe = 4;
+         config.ivf_turboquant_params.bit_width = 8;
+         return IndexFactory::CreateIVFTurboQuantIndex(config);
+       },
+       false, 0.05F},
+  };
+
+  const auto vectors = CreateTestVectors(kCount, kDim);
+  const auto ids = CreateTestIds(kCount);
+  // A vector that is not in the index, and one that is: for L2 and COSINE,
+  // the second query is at distance 0 from itself.
+  const std::vector<core::Vector> queries = {CreateExtraVector(kDim), vectors[3]};
+
+  for (const auto& test_case : cases) {
+    for (const auto metric :
+         {core::MetricType::L2, core::MetricType::INNER_PRODUCT, core::MetricType::COSINE}) {
+      CAPTURE(test_case.name);
+      const std::string metric_name = core::ToString(metric);
+      CAPTURE(metric_name);
+
+      auto created = test_case.make(kDim, metric);
+      REQUIRE(created.ok());
+      auto index = std::move(created.value());
+      REQUIRE(index->Train(vectors).ok());
+      REQUIRE(index->Build(vectors, ids).ok());
+
+      for (const auto& query : queries) {
+        // The true distances, closest first. Ids start at 1.
+        std::vector<std::pair<float, core::VectorId>> reference;
+        reference.reserve(kCount);
+        for (int i = 0; i < kCount; ++i) {
+          reference.emplace_back(ReferenceDistance(metric, query, vectors[i]), ids[i]);
+        }
+        std::ranges::sort(reference);
+        auto distance_of = [&](core::VectorId id) {
+          return ReferenceDistance(metric, query, vectors[core::ToUInt64(id) - 1]);
+        };
+
+        auto searched = index->Search(query, kTopK);
+        REQUIRE(searched.ok());
+        const auto& entries = searched->entries;
+        REQUIRE_EQ(entries.size(), static_cast<size_t>(kTopK));
+        for (size_t i = 0; i < entries.size(); ++i) {
+          CHECK_LE(std::abs(entries[i].distance - distance_of(entries[i].id)), test_case.tolerance);
+          if (i > 0) CHECK_LE(entries[i - 1].distance, entries[i].distance);
+          if (test_case.exact) CHECK_EQ(entries[i].id, reference[i].second);
+        }
+
+        // The radius sits between the 10th and the 11th true distance, so
+        // an exact index returns the same 10 vectors.
+        const float radius = (reference[kTopK - 1].first + reference[kTopK].first) / 2.0F;
+        auto ranged = index->SearchRange(query, radius);
+        REQUIRE(ranged.ok());
+        const auto& in_range = ranged->entries;
+        for (size_t i = 0; i < in_range.size(); ++i) {
+          CHECK_LE(in_range[i].distance, radius);
+          if (i > 0) CHECK_LE(in_range[i - 1].distance, in_range[i].distance);
+        }
+        if (test_case.exact) {
+          REQUIRE_EQ(in_range.size(), static_cast<size_t>(kTopK));
+          for (size_t i = 0; i < in_range.size(); ++i) {
+            CHECK_EQ(in_range[i].id, reference[i].second);
+          }
+        }
+      }
+    }
+  }
 }
 
 // ============================================================================

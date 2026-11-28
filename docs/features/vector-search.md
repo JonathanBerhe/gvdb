@@ -30,11 +30,17 @@ client.create_collection("embeddings", dimension=768, index_type="auto")
 
 ## Distance metrics
 
-Every index supports:
+Every index supports three metrics. Each search result has a `distance`, and a lower distance is a closer match for every metric. Results come back closest first.
 
-- `l2` — Euclidean distance
-- `ip` — Inner product (dot product)
-- `cosine` — Cosine similarity (normalized inner product)
+| Metric | Distance | Range |
+|--------|----------|-------|
+| `l2` | The Euclidean distance | 0 and up |
+| `ip` | Minus the inner product (dot product) | Any value |
+| `cosine` | 1 minus the cosine similarity | 0 to 2 |
+
+Every index type returns the same distance for the same pair of vectors. TurboQuant indexes return an estimate of it. For `cosine`, a zero vector has no direction, so its distance to any vector is 1.
+
+The `radius` of a range search is the largest distance that a result can have. For example, a radius of 0.2 with `cosine` returns the vectors with a cosine similarity of 0.8 or more.
 
 ```python
 client.create_collection("embeddings", dimension=768, metric="cosine")

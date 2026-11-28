@@ -13,8 +13,7 @@ FaissFlatIndex::FaissFlatIndex(core::Dimension dimension, core::MetricType metri
 
 std::unique_ptr<faiss::Index> FaissFlatIndex::CreateFlatIndex(core::Dimension dimension,
                                                               core::MetricType metric) {
-  faiss::MetricType faiss_metric =
-      (metric == core::MetricType::INNER_PRODUCT) ? faiss::METRIC_INNER_PRODUCT : faiss::METRIC_L2;
+  faiss::MetricType faiss_metric = ToFaissMetric(metric);
 
   // Create base flat index
   auto flat_index = new faiss::IndexFlat(dimension, faiss_metric);

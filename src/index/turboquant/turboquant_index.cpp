@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0
 
 #include "index/turboquant/turboquant_index.h"
+#include "core/distance.h"
 #include "core/status.h"
 
 #include <algorithm>
@@ -222,6 +223,8 @@ absl::StatusOr<core::SearchResult> TurboQuantIndex::SearchRange(const core::Vect
     }
   }
 
+  std::ranges::sort(result.entries,
+                    [](const auto& a, const auto& b) { return a.distance < b.distance; });
   return result;
 }
 
@@ -439,7 +442,10 @@ float TurboQuantIndex::IPToDistance(float estimated_ip, float x_norm,
   switch (metric_type_) {
     case core::MetricType::L2:
       // L2^2 = ||x||^2 + ||q||^2 - 2*IP
-      return x_norm * x_norm + query.norm * query.norm - 2.0f * estimated_ip;
+      // The canonical L2 distance: the square root of the estimated squared
+      // distance, clamped at 0.
+      return core::CanonicalFromSquaredL2(x_norm * x_norm + query.norm * query.norm -
+                                          2.0f * estimated_ip);
 
     case core::MetricType::INNER_PRODUCT:
       // Lower = more similar (negate IP)

@@ -25,6 +25,12 @@ class FaissHNSWIndex : public FaissIndexBase {
   // internal cast chain is broken, for test diagnosis).
   [[nodiscard]] int GetEfSearch() const;
 
+ protected:
+  // faiss::IndexHNSW compares the negated dot product with the radius for
+  // INNER_PRODUCT, where the other FAISS indexes compare the dot product. So
+  // its radius is the negated smallest dot product.
+  [[nodiscard]] float ToFaissRadius(float radius) const override;
+
  private:
   static std::unique_ptr<faiss::Index> CreateHNSWIndex(core::Dimension dimension,
                                                        core::MetricType metric, int M,
