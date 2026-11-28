@@ -302,12 +302,10 @@ absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(const core::Vector&
   return filtered_result;
 }
 
-absl::StatusOr<core::SearchResult> Segment::SearchHybrid(const core::Vector& query_vector,
-                                                         const std::string& text_query, int k,
-                                                         float vector_weight, float text_weight,
-                                                         const std::string& /*text_field*/,
-                                                         const core::SparseVector* sparse_query,
-                                                         float sparse_weight) const {
+absl::StatusOr<core::SearchResult> Segment::SearchHybrid(
+    const core::Vector& query_vector, const std::string& text_query, int k, float vector_weight,
+    float text_weight, const std::string& /*text_field*/, const core::SparseVector* sparse_query,
+    float sparse_weight, const core::FilterNode* filter) const {
   std::shared_lock lock(mutex_);
 
   if (vectors_.empty() && !index_) {
@@ -342,6 +340,18 @@ absl::StatusOr<core::SearchResult> Segment::SearchHybrid(const core::Vector& que
     auto sparse_search = sparse_index_->Search(*sparse_query, overfetch);
     if (sparse_search.ok()) {
       sparse_result = std::move(*sparse_search);
+    }
+  }
+
+  // 2c. Metadata filter: drop the candidates that do not match, so the ranks
+  // below count only matching candidates.
+  if (filter) {
+    auto matches = [&](const core::SearchResultEntry& e) {
+      auto it = metadata_map_.find(core::ToUInt64(e.id));
+      return it != metadata_map_.end() && filter->Evaluate(it->second);
+    };
+    for (auto* list : {&vector_result->entries, &text_result.entries, &sparse_result.entries}) {
+      std::erase_if(*list, [&](const core::SearchResultEntry& e) { return !matches(e); });
     }
   }
 

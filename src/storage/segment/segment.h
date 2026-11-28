@@ -95,11 +95,14 @@ class Segment {
       const core::Vector& query, int k, const core::FilterNode& filter) const;
 
   // Hybrid search combining vector similarity and BM25 text relevance
-  // Uses Reciprocal Rank Fusion to combine ranked results
+  // Uses Reciprocal Rank Fusion to combine ranked results. A non-null
+  // `filter` drops the candidates whose metadata does not match it, before
+  // the ranks are fused.
   [[nodiscard]] absl::StatusOr<core::SearchResult> SearchHybrid(
       const core::Vector& query_vector, const std::string& text_query, int k,
       float vector_weight = 0.5f, float text_weight = 0.5f, const std::string& text_field = "text",
-      const core::SparseVector* sparse_query = nullptr, float sparse_weight = 0.0f) const;
+      const core::SparseVector* sparse_query = nullptr, float sparse_weight = 0.0f,
+      const core::FilterNode* filter = nullptr) const;
 
   // Upsert: insert or replace vector (only valid for GROWING state)
   struct UpsertResult {

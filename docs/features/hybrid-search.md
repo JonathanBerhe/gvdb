@@ -81,6 +81,8 @@ results = client.hybrid_search(
 )
 ```
 
+Each search signal (dense, BM25 text, sparse) collects up to 3 × `top_k` candidates per segment. The filter drops the candidates that do not match, and the fusion ranks the rest. A filter that matches few documents can therefore return fewer than `top_k` results.
+
 See [metadata filtering](metadata-filtering.md).
 
 ## Return shape
