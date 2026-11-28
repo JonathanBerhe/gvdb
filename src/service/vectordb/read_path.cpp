@@ -15,6 +15,7 @@
 
 #include "common/metrics.h"
 #include "common/timer.h"
+#include "core/filter.h"
 #include "index/bm25_index.h"
 #include "index/sparse_index.h"
 #include "rpc/proto_conversions.h"
@@ -68,6 +69,12 @@ std::unordered_map<uint64_t, FoundVector> FetchAcrossSegments(
   return found;
 }
 
+// Parses the filter of a request. An empty filter gives no node.
+absl::StatusOr<std::unique_ptr<core::FilterNode>> ParseRequestFilter(const std::string& filter) {
+  if (filter.empty()) return std::unique_ptr<core::FilterNode>();
+  return core::FilterParser::parse(filter);
+}
+
 }  // namespace
 
 ReadPath::ReadPath(std::shared_ptr<storage::ISegmentStore> segment_store,
@@ -96,14 +103,25 @@ grpc::Status ReadPath::Search(const proto::SearchRequest& request,
     return rpc::ToGrpcStatus(query_result.status());
   }
 
+  // The data nodes parse the filter of a fan-out, so a bad filter is caught
+  // here first and is an INVALID_ARGUMENT error, not an empty result. The
+  // local path parses it in QueryExecutor.
+  auto fan_out = [&]() -> grpc::Status {
+    if (auto filter = ParseRequestFilter(request.filter()); !filter.ok()) {
+      common::MetricsRegistry::Instance().RecordSearch(request.collection_name(), false);
+      return rpc::ToGrpcStatus(filter.status());
+    }
+    common::MetricsRegistry::Instance().RecordSearch(request.collection_name(), true);
+    return SearchDistributed(&request, response, *query_result);
+  };
+
   // Get all segments for this collection
   auto segment_ids_result = resolver_.GetSegmentIds(request.collection_name());
   if (!segment_ids_result.ok()) {
     // Try distributed search
     auto targets_result = resolver_.GetShardTargets(request.collection_name());
     if (targets_result.ok() && !targets_result->empty()) {
-      common::MetricsRegistry::Instance().RecordSearch(request.collection_name(), true);
-      return SearchDistributed(&request, response, *query_result);
+      return fan_out();
     }
     common::MetricsRegistry::Instance().RecordSearch(request.collection_name(), false);
     return rpc::ToGrpcStatus(segment_ids_result.status());
@@ -124,8 +142,7 @@ grpc::Status ReadPath::Search(const proto::SearchRequest& request,
     // No local segments: try distributed search
     auto targets_result = resolver_.GetShardTargets(request.collection_name());
     if (targets_result.ok() && !targets_result->empty()) {
-      common::MetricsRegistry::Instance().RecordSearch(request.collection_name(), true);
-      return SearchDistributed(&request, response, *query_result);
+      return fan_out();
     }
     common::MetricsRegistry::Instance().RecordSearch(request.collection_name(), false);
     return rpc::ToGrpcStatus(absl::NotFoundError("No segments found"));
@@ -168,6 +185,13 @@ grpc::Status ReadPath::RangeSearch(const proto::RangeSearchRequest& request,
                                    proto::RangeSearchResponse* response) {
   common::Timer timer;
 
+  // Parse the filter once for every segment. A bad filter is an
+  // INVALID_ARGUMENT error, not an empty result.
+  auto filter = ParseRequestFilter(request.filter());
+  if (!filter.ok()) {
+    return rpc::ToGrpcStatus(filter.status());
+  }
+
   auto segment_ids_result = resolver_.GetSegmentIds(request.collection_name());
 
   // Check if we have local segments; if not, fan out to data nodes
@@ -207,11 +231,11 @@ grpc::Status ReadPath::RangeSearch(const proto::RangeSearchRequest& request,
     if (!segment) continue;
 
     absl::StatusOr<core::SearchResult> seg_result;
-    if (request.filter().empty()) {
+    if (!*filter) {
       seg_result = segment->SearchRange(*query_result, request.radius(), max_results);
     } else {
-      seg_result = segment->SearchRangeWithFilter(*query_result, request.radius(), request.filter(),
-                                                  max_results);
+      seg_result =
+          segment->SearchRangeWithFilter(*query_result, request.radius(), **filter, max_results);
     }
 
     if (seg_result.ok()) {
@@ -251,6 +275,11 @@ grpc::Status ReadPath::HybridSearch(const proto::HybridSearchRequest& request,
   bool has_vector = request.has_query_vector() && request.query_vector().dimension() > 0;
   bool has_text = !request.text_query().empty();
   bool has_sparse = request.has_sparse_query() && request.sparse_query().indices_size() > 0;
+
+  // A bad filter is an INVALID_ARGUMENT error.
+  if (auto filter = ParseRequestFilter(request.filter()); !filter.ok()) {
+    return rpc::ToGrpcStatus(filter.status());
+  }
 
   // Resolve collection
   auto collection_id_result = resolver_.GetCollectionId(request.collection_name());

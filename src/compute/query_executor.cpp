@@ -4,6 +4,7 @@
 #include "compute/query_executor.h"
 
 #include <algorithm>
+#include <memory>
 #include <queue>
 #include <utility>
 #include <vector>
@@ -12,6 +13,8 @@
 
 #include "common/logger.h"
 #include "common/timer.h"
+#include "core/filter.h"
+#include "core/status.h"
 
 namespace gvdb::compute {
 
@@ -34,6 +37,13 @@ absl::StatusOr<core::SearchResult> QueryExecutor::Search(core::CollectionId coll
 
   if (top_k <= 0) {
     return absl::InvalidArgumentError("top_k must be positive");
+  }
+
+  // Parse the filter once for every segment. A bad filter is an
+  // InvalidArgument error, not an empty result.
+  std::unique_ptr<core::FilterNode> parsed_filter;
+  if (!filter.empty()) {
+    ASSIGN_OR_RETURN(parsed_filter, core::FilterParser::parse(filter));
   }
 
   // Validate dimension against collection
@@ -71,7 +81,7 @@ absl::StatusOr<core::SearchResult> QueryExecutor::Search(core::CollectionId coll
     for (const auto& seg_id : seg_ids) {
       auto* segment = segment_store_->GetSegment(seg_id);
       if (!segment) continue;
-      auto seg_result = segment->SearchWithFilter(query, top_k, filter);
+      auto seg_result = segment->SearchWithFilter(query, top_k, *parsed_filter);
       if (seg_result.ok()) {
         partial_results.push_back(std::move(*seg_result));
       }

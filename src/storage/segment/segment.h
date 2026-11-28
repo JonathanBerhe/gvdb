@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/filter.h"
 #include "core/interfaces.h"
 #include "core/metadata.h"
 #include "core/sparse_vector.h"
@@ -88,9 +89,10 @@ class Segment {
   // Search for nearest neighbors (requires index to be built)
   [[nodiscard]] absl::StatusOr<core::SearchResult> Search(const core::Vector& query, int k) const;
 
-  // Search with metadata filtering (requires index to be built)
+  // Search with metadata filtering (requires index to be built). The caller
+  // parses the filter once per request (core::FilterParser::parse).
   [[nodiscard]] absl::StatusOr<core::SearchResult> SearchWithFilter(
-      const core::Vector& query, int k, const std::string& filter_expr) const;
+      const core::Vector& query, int k, const core::FilterNode& filter) const;
 
   // Hybrid search combining vector similarity and BM25 text relevance
   // Uses Reciprocal Rank Fusion to combine ranked results
@@ -114,9 +116,9 @@ class Segment {
                                                                float radius,
                                                                int max_results = 1000) const;
 
-  // Range search with metadata filter
+  // Range search with metadata filter, parsed by the caller
   [[nodiscard]] absl::StatusOr<core::SearchResult> SearchRangeWithFilter(
-      const core::Vector& query, float radius, const std::string& filter_expr,
+      const core::Vector& query, float radius, const core::FilterNode& filter,
       int max_results = 1000) const;
 
   // Get metadata for a vector

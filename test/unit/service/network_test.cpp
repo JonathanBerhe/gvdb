@@ -1558,4 +1558,44 @@ TEST_CASE_FIXTURE(SmallSegmentServiceTest, "DeleteAcrossRotatedSegments") {
   }
 }
 
+// A bad filter is an INVALID_ARGUMENT error on every search RPC. Before, the
+// segments dropped the parse error and the RPC returned OK with no results.
+TEST_CASE_FIXTURE(VectorDBServiceTest, "SearchesRejectABadFilter") {
+  REQUIRE(CreateCollection("filtered", 4).ok());
+  REQUIRE(Insert("filtered", {MakeVector(1, {1, 2, 3, 4}), MakeVector(2, {4, 3, 2, 1})}).ok());
+  const std::string bad_filter = "price <";
+
+  SUBCASE("Search") {
+    proto::SearchResponse response;
+    auto status = Search("filtered", {1, 2, 3, 4}, 5, &response, bad_filter);
+    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  }
+
+  SUBCASE("RangeSearch") {
+    grpc::ServerContext context;
+    proto::RangeSearchRequest request;
+    request.set_collection_name("filtered");
+    request.mutable_query_vector()->set_dimension(4);
+    for (float f : {1.0F, 2.0F, 3.0F, 4.0F}) request.mutable_query_vector()->add_values(f);
+    request.set_radius(100.0F);
+    request.set_filter(bad_filter);
+    proto::RangeSearchResponse response;
+    auto status = service_->RangeSearch(&context, &request, &response);
+    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  }
+
+  SUBCASE("HybridSearch") {
+    grpc::ServerContext context;
+    proto::HybridSearchRequest request;
+    request.set_collection_name("filtered");
+    request.mutable_query_vector()->set_dimension(4);
+    for (float f : {1.0F, 2.0F, 3.0F, 4.0F}) request.mutable_query_vector()->add_values(f);
+    request.set_top_k(5);
+    request.set_filter(bad_filter);
+    proto::HybridSearchResponse response;
+    auto status = service_->HybridSearch(&context, &request, &response);
+    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  }
+}
+
 }  // namespace

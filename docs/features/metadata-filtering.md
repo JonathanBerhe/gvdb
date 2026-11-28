@@ -57,6 +57,8 @@ Comparisons are strictly typed: an integer literal never matches a float field a
 
 The whole expression must parse. Trailing text such as an unbalanced `)` is an error rather than being ignored, so a malformed fragment can never silently drop the rest of a filter.
 
+A filter that does not parse makes `search`, `range_search` and `hybrid_search` fail with the gRPC status `INVALID_ARGUMENT` and the parser message. The server parses the filter once per request, before it searches a segment.
+
 ## LIKE patterns
 
 `%` matches any run of characters (including none), `_` matches exactly one byte, and matching is case-sensitive and anchored at both ends. To match a literal `%` or `_`, escape it with a backslash in the pattern. Because the string literal itself also consumes one backslash, the filter text needs two:
