@@ -18,7 +18,7 @@ namespace gvdb::service {
 grpc::Status VectorDBService::BulkImport(grpc::ServerContext* /*context*/,
                                          const proto::BulkImportRequest* request,
                                          proto::BulkImportResponse* response) {
-  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::INSERT, request->collection_name()));
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::INSERT, request->collection_name()));
 
   if (request->collection_name().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "collection_name is required");
@@ -93,7 +93,7 @@ grpc::Status VectorDBService::GetImportStatus(grpc::ServerContext* /*context*/,
   }
 
   // RBAC: check read access on the import's collection
-  RETURN_IF_ERROR(CheckPermission(auth::Permission::SEARCH, result->collection_name));
+  RETURN_IF_ERROR(guard_.Check(auth::Permission::SEARCH, result->collection_name));
 
   auto& status = *result;
   response->set_import_id(status.import_id);
@@ -124,7 +124,7 @@ grpc::Status VectorDBService::CancelImport(grpc::ServerContext* /*context*/,
   if (!job_status.ok()) {
     return rpc::ToGrpcStatus(job_status.status());
   }
-  RETURN_IF_ERROR(CheckPermission(auth::Permission::INSERT, job_status->collection_name));
+  RETURN_IF_ERROR(guard_.Check(auth::Permission::INSERT, job_status->collection_name));
 
   auto status = bulk_importer_->CancelImport(request->import_id());
   if (!status.ok()) {

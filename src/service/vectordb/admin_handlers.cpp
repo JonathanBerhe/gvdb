@@ -23,7 +23,7 @@ grpc::Status VectorDBService::CreateCollection(grpc::ServerContext* /*context*/,
                                                const proto::CreateCollectionRequest* request,
                                                proto::CreateCollectionResponse* response) {
   RETURN_IF_ERROR(
-      AuthorizeCollection(auth::Permission::CREATE_COLLECTION, request->collection_name()));
+      guard_.Authorize(auth::Permission::CREATE_COLLECTION, request->collection_name()));
 
   common::Logger::Instance().Info("CreateCollection: {}", request->collection_name());
 
@@ -66,8 +66,7 @@ grpc::Status VectorDBService::CreateCollection(grpc::ServerContext* /*context*/,
 grpc::Status VectorDBService::DropCollection(grpc::ServerContext* /*context*/,
                                              const proto::DropCollectionRequest* request,
                                              proto::DropCollectionResponse* response) {
-  RETURN_IF_ERROR(
-      AuthorizeCollection(auth::Permission::DROP_COLLECTION, request->collection_name()));
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::DROP_COLLECTION, request->collection_name()));
 
   common::Logger::Instance().Info("DropCollection: {}", request->collection_name());
 
@@ -91,7 +90,7 @@ grpc::Status VectorDBService::DropCollection(grpc::ServerContext* /*context*/,
 grpc::Status VectorDBService::ListCollections(grpc::ServerContext* /*context*/,
                                               const proto::ListCollectionsRequest* /*request*/,
                                               proto::ListCollectionsResponse* response) {
-  RETURN_IF_ERROR(CheckPermission(auth::Permission::LIST_COLLECTIONS, ""));
+  RETURN_IF_ERROR(guard_.Check(auth::Permission::LIST_COLLECTIONS, ""));
 
   auto collections = resolver_->ListCollections();
 

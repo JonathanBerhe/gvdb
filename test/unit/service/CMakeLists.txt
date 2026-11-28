@@ -14,5 +14,6 @@ gvdb_add_test(service_tests DISCOVER
     vectordb_service_backup_test.cpp
     vectordb_service_distributed_test.cpp
     vectordb_service_modes_test.cpp
+    write_path_test.cpp
   DEPS gvdb::service gvdb::cluster gvdb::consensus gvdb::rpc gvdb::compute gvdb::storage gvdb::index gvdb::common gvdb::core gvdb::proto
   TIMEOUT 120 LABELS unit)

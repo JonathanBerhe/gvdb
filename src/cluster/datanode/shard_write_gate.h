@@ -19,7 +19,7 @@ namespace gvdb::cluster {
 // The coordinator brackets a per-shard backup with FreezeWrites /
 // UnfreezeWrites so segment files do not change under the uploader.
 // While a shard is frozen, the data-node's write-path gate
-// (VectorDBService::EvaluateWriteGate) returns RESOURCE_EXHAUSTED so
+// (WritePath::CheckGate) returns RESOURCE_EXHAUSTED so
 // clients retry once the backup finishes.
 //
 // Each freeze carries an opaque token chosen by the coordinator. The

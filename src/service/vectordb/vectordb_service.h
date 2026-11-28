@@ -11,14 +11,15 @@
 #include "compute/query_executor.h"
 #include "internal.grpc.pb.h"
 #include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/request_guard.h"
+#include "service/vectordb/segment_locator.h"
+#include "service/vectordb/write_path.h"
 #include "storage/import/bulk_importer.h"
 #include "storage/segment/segment_store.h"
 #include "vectordb.grpc.pb.h"
 
 namespace gvdb {
 namespace cluster {
-class PrimaryTermTracker;
-class ShardWriteGate;
 class Coordinator;
 }  // namespace cluster
 namespace storage {
@@ -157,32 +158,6 @@ class VectorDBService final : public proto::VectorDBService::Service {
                         proto::GetStatsResponse* response) override;
 
  private:
-  // Check RBAC permission for the current request. Returns OK if allowed.
-  grpc::Status CheckPermission(auth::Permission perm, const std::string& collection_name) const;
-
-  // CheckPermission for a request on one collection. When the check passes,
-  // it also records the collection, and the item count when given, for the
-  // audit log.
-  grpc::Status AuthorizeCollection(auth::Permission perm, const std::string& collection_name,
-                                   std::optional<size_t> item_count = std::nullopt) const;
-
-  // The metadata of `id` from the first segment in `segment_ids` that has
-  // it, or nullopt when no segment has it.
-  std::optional<core::Metadata> FindMetadata(core::VectorId id,
-                                             const std::vector<core::SegmentId>& segment_ids) const;
-
-  // Get segment locally, or pull from coordinator if in distributed mode
-  storage::Segment* GetOrReplicateSegment(core::SegmentId segment_id);
-
-  // Gather every segment that may hold vectors for a collection: the
-  // resolver's shard-primary segments (pulled via replica fallback when not
-  // resident locally) followed by every rotated segment the store tracks for
-  // the collection. The list is de-duplicated with the shard primaries first.
-  // Returns NotFound when the collection resolves to no segments. Used by the
-  // by-id handlers so vectors that moved to a rotated segment stay reachable.
-  absl::StatusOr<std::vector<storage::Segment*>> CollectCollectionSegments(
-      const std::string& collection_name);
-
   // Fan out search to remote data nodes holding shards for the collection
   grpc::Status SearchDistributed(const proto::SearchRequest* request,
                                  proto::SearchResponse* response, const core::Vector& query);
@@ -191,36 +166,19 @@ class VectorDBService final : public proto::VectorDBService::Service {
   grpc::Status RangeSearchDistributed(const proto::RangeSearchRequest* request,
                                       proto::RangeSearchResponse* response);
 
-  // Per-write-call primary-term gate. Reads the gvdb-shard-term header
-  // from the gRPC client metadata and consults primary_term_tracker_
-  // for "is this node primary for the shard at that term?". The
-  // sample_vector_id is mapped to a shard_id via the same hash the
-  // proxy uses (core::ShardIndexForVector) so the gate fires per-shard, not
-  // per-collection.
-  //
-  // Behavior:
-  //   - tracker is null (single-node / tests / query-nodes): OK.
-  //   - header absent (pre-1.x client): OK with a one-shot warn log
-  //     so a rolling upgrade doesn't break writes from old proxies.
-  //   - header malformed: INVALID_ARGUMENT.
-  //   - tracker says StaleTerm or NotPrimary: ABORTED with detail.
-  //   - tracker says UnknownShard (proxy raced past heartbeat sync,
-  //     or this node really doesn't own the shard): FAILED_PRECONDITION.
-  //   - tracker says Accept: OK.
-  grpc::Status EvaluateWriteGate(grpc::ServerContext* context, const std::string& collection_name,
-                                 uint64_t sample_vector_id);
-
+  // The members are initialized in this order: locator_ and write_path_ keep
+  // references to resolver_.
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::unique_ptr<ICollectionResolver> resolver_;
+  RequestGuard guard_;
+  SegmentLocator locator_;
+  WritePath write_path_;
   // The optional collaborators. VectorDBServiceOptions describes each one.
-  std::shared_ptr<auth::RbacStore> rbac_store_;
   std::shared_ptr<storage::BulkImporter> bulk_importer_;
   std::shared_ptr<storage::BackupManager> backup_manager_;
   std::shared_ptr<storage::RestoreManager> restore_manager_;
   std::shared_ptr<cluster::Coordinator> coordinator_;
-  cluster::PrimaryTermTracker* primary_term_tracker_;
-  cluster::ShardWriteGate* shard_write_gate_;
 
   // Statistics
   std::atomic<uint64_t> total_queries_{0};
