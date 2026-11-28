@@ -10,10 +10,12 @@
 #include <memory>
 #include <numbers>
 #include <thread>
+#include <unordered_map>
 
 #include "core/types.h"
 #include "core/vector.h"
 #include "index/index_factory.h"
+#include "index/sparse_index.h"
 #include "storage/segment/batch_splitter.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_manager.h"
@@ -1127,6 +1129,62 @@ TEST_CASE_FIXTURE(StorageTest, "FlushAndLoadSegmentWithVectors") {
   auto result = (*loaded)->GetVectors(ids, false);
   CHECK_EQ(result.found_ids.size(), 5);
   CHECK_EQ(result.not_found_ids.size(), 0);
+}
+
+// A flush and a load keep the sparse vectors and the TTL expiry times. Before
+// the fix, Load returned the segment without them: an expired vector came
+// back, and a sparse search found nothing.
+TEST_CASE_FIXTURE(StorageTest, "FlushAndLoadKeepSparseVectorsAndExpiry") {
+  auto sm = std::make_shared<storage::SegmentManager>(test_dir_, index_factory_.get());
+  auto seg_result = sm->CreateSegment(core::CollectionId(1), 4, core::MetricType::L2);
+  REQUIRE(seg_result.ok());
+  const core::SegmentId seg_id = *seg_result;
+
+  std::vector<core::Vector> vectors;
+  std::vector<core::VectorId> ids;
+  for (int i = 1; i <= 3; ++i) {
+    vectors.emplace_back(std::vector<float>{static_cast<float>(i), 0.0F, 0.0F, 0.0F});
+    ids.push_back(core::MakeVectorId(i));
+  }
+  const std::unordered_map<uint64_t, core::SparseVector> sparse = {
+      {1, core::SparseVector({{5, 1.0F}})}, {2, core::SparseVector({{7, 2.0F}})}};
+  // Vector 3 expired ten seconds ago.
+  const std::unordered_map<uint64_t, int64_t> expiry = {
+      {3, storage::Segment::NowEpochSeconds() - 10}};
+  auto* segment = sm->GetSegment(seg_id);
+  REQUIRE_NE(segment, nullptr);
+  const std::vector<core::Metadata> metadata(3);
+  auto added = segment->AddVectorsWithSparse(vectors, ids, metadata, sparse, expiry);
+  INFO(added.message());
+  REQUIRE(added.ok());
+
+  core::IndexConfig idx_cfg;
+  idx_cfg.index_type = core::IndexType::FLAT;
+  idx_cfg.dimension = 4;
+  idx_cfg.metric_type = core::MetricType::L2;
+  REQUIRE(sm->SealSegment(seg_id, idx_cfg).ok());
+  REQUIRE(sm->FlushSegment(seg_id).ok());
+
+  auto loaded = storage::Segment::Load(test_dir_, seg_id);
+  INFO(loaded.status().message());
+  REQUIRE(loaded.ok());
+  CHECK_EQ((*loaded)->GetIndexType(), core::IndexType::FLAT);
+
+  // The expired vector stays hidden after the load.
+  auto found = (*loaded)->GetVectors(ids, false);
+  CHECK_EQ(found.found_ids.size(), 2);
+  REQUIRE_EQ(found.not_found_ids.size(), 1);
+  CHECK_EQ(found.not_found_ids[0], core::MakeVectorId(3));
+
+  // The sparse vectors survive: a sparse-only search finds vector 2.
+  REQUIRE((*loaded)->BuildSparseIndex(std::make_unique<index::SparseIndex>()).ok());
+  const core::SparseVector query({{7, 1.0F}});
+  auto result = (*loaded)->SearchHybrid(core::ZeroVector(4), "", 5, /*vector_weight=*/0.0F,
+                                        /*text_weight=*/0.0F, "text", &query,
+                                        /*sparse_weight=*/1.0F);
+  REQUIRE(result.ok());
+  REQUIRE_FALSE(result->entries.empty());
+  CHECK_EQ(result->entries[0].id, core::MakeVectorId(2));
 }
 
 // ============================================================================
