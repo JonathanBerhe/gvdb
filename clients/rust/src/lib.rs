@@ -4,6 +4,7 @@
 //! or use [`ClientConfig`] to set an API key, a timeout, or TLS.
 
 /// Generated gRPC and protobuf definitions for `gvdb.proto`.
+#[allow(clippy::all)]
 pub mod pb {
     tonic::include_proto!("gvdb.proto");
 }

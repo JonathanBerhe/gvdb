@@ -1,7 +1,7 @@
 //! Offline unit tests for `GvdbClient` using an in-process mock gRPC server.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use gvdb::pb::vector_db_service_server::{VectorDbService, VectorDbServiceServer};
@@ -15,6 +15,8 @@ use tokio::net::TcpListener;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{Request, Response, Status, Streaming};
+
+type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
 #[derive(Default)]
 struct MockState {
@@ -40,17 +42,20 @@ struct MockServer {
 }
 
 impl MockServer {
-    fn record_auth<T>(&self, method: &'static str, req: &Request<T>) {
+    fn lock_state(&self) -> Result<MutexGuard<'_, MockState>, Status> {
+        self.state
+            .lock()
+            .map_err(|_| Status::internal("mock state lock poisoned"))
+    }
+
+    fn record_auth<T>(&self, method: &'static str, req: &Request<T>) -> Result<(), Status> {
         let header = req
             .metadata()
             .get("authorization")
             .and_then(|v| v.to_str().ok())
             .map(ToOwned::to_owned);
-        self.state
-            .lock()
-            .unwrap()
-            .auth_headers
-            .push((method, header));
+        self.lock_state()?.auth_headers.push((method, header));
+        Ok(())
     }
 }
 
@@ -60,8 +65,8 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::CreateCollectionRequest>,
     ) -> Result<Response<pb::CreateCollectionResponse>, Status> {
-        self.record_auth("CreateCollection", &request);
-        self.state.lock().unwrap().last_create = Some(request.into_inner());
+        self.record_auth("CreateCollection", &request)?;
+        self.lock_state()?.last_create = Some(request.into_inner());
         Ok(Response::new(pb::CreateCollectionResponse {
             collection_id: 7,
             message: "created".to_owned(),
@@ -72,7 +77,7 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::DropCollectionRequest>,
     ) -> Result<Response<pb::DropCollectionResponse>, Status> {
-        self.record_auth("DropCollection", &request);
+        self.record_auth("DropCollection", &request)?;
         Ok(Response::new(pb::DropCollectionResponse {
             message: "dropped".to_owned(),
         }))
@@ -82,7 +87,7 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::ListCollectionsRequest>,
     ) -> Result<Response<pb::ListCollectionsResponse>, Status> {
-        self.record_auth("ListCollections", &request);
+        self.record_auth("ListCollections", &request)?;
         Ok(Response::new(pb::ListCollectionsResponse {
             collections: vec![pb::CollectionInfo {
                 collection_id: 7,
@@ -98,10 +103,10 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::InsertRequest>,
     ) -> Result<Response<pb::InsertResponse>, Status> {
-        self.record_auth("Insert", &request);
+        self.record_auth("Insert", &request)?;
         let inner = request.into_inner();
         let count = inner.vectors.len() as u64;
-        self.state.lock().unwrap().last_insert = Some(inner);
+        self.lock_state()?.last_insert = Some(inner);
         Ok(Response::new(pb::InsertResponse {
             inserted_count: count,
             message: "ok".to_owned(),
@@ -112,7 +117,7 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<Streaming<pb::InsertRequest>>,
     ) -> Result<Response<pb::InsertResponse>, Status> {
-        self.record_auth("StreamInsert", &request);
+        self.record_auth("StreamInsert", &request)?;
         let mut stream = request.into_inner();
         let mut total = 0u64;
         let mut batches = Vec::new();
@@ -121,7 +126,7 @@ impl VectorDbService for MockServer {
             total += chunk.vectors.len() as u64;
             batches.push(chunk);
         }
-        self.state.lock().unwrap().stream_batches = batches;
+        self.lock_state()?.stream_batches = batches;
         Ok(Response::new(pb::InsertResponse {
             inserted_count: total,
             message: "ok".to_owned(),
@@ -132,7 +137,7 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::UpsertRequest>,
     ) -> Result<Response<pb::UpsertResponse>, Status> {
-        self.record_auth("Upsert", &request);
+        self.record_auth("Upsert", &request)?;
         let n = request.into_inner().vectors.len() as u64;
         Ok(Response::new(pb::UpsertResponse {
             upserted_count: n,
@@ -146,7 +151,7 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::SearchRequest>,
     ) -> Result<Response<pb::SearchResponse>, Status> {
-        self.record_auth("Search", &request);
+        self.record_auth("Search", &request)?;
         let req = request.into_inner();
         let metadata = if req.return_metadata {
             Some(pb::Metadata {
@@ -174,8 +179,8 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::RangeSearchRequest>,
     ) -> Result<Response<pb::RangeSearchResponse>, Status> {
-        self.record_auth("RangeSearch", &request);
-        self.state.lock().unwrap().last_range = Some(request.into_inner());
+        self.record_auth("RangeSearch", &request)?;
+        self.lock_state()?.last_range = Some(request.into_inner());
         Ok(Response::new(pb::RangeSearchResponse {
             results: vec![pb::SearchResultEntry {
                 id: 2,
@@ -190,10 +195,10 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::GetRequest>,
     ) -> Result<Response<pb::GetResponse>, Status> {
-        self.record_auth("Get", &request);
+        self.record_auth("Get", &request)?;
         let req = request.into_inner();
         let include_meta = req.return_metadata;
-        self.state.lock().unwrap().last_get = Some(req);
+        self.lock_state()?.last_get = Some(req);
         let metadata = if include_meta {
             Some(pb::Metadata {
                 fields: HashMap::from([(
@@ -225,7 +230,7 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::DeleteRequest>,
     ) -> Result<Response<pb::DeleteResponse>, Status> {
-        self.record_auth("Delete", &request);
+        self.record_auth("Delete", &request)?;
         let n = request.into_inner().ids.len() as u64;
         Ok(Response::new(pb::DeleteResponse {
             deleted_count: n,
@@ -238,8 +243,8 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::UpdateMetadataRequest>,
     ) -> Result<Response<pb::UpdateMetadataResponse>, Status> {
-        self.record_auth("UpdateMetadata", &request);
-        self.state.lock().unwrap().last_update_meta = Some(request.into_inner());
+        self.record_auth("UpdateMetadata", &request)?;
+        self.lock_state()?.last_update_meta = Some(request.into_inner());
         Ok(Response::new(pb::UpdateMetadataResponse {
             updated: true,
             message: "ok".to_owned(),
@@ -250,7 +255,7 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::ListVectorsRequest>,
     ) -> Result<Response<pb::ListVectorsResponse>, Status> {
-        self.record_auth("ListVectors", &request);
+        self.record_auth("ListVectors", &request)?;
         Ok(Response::new(pb::ListVectorsResponse {
             vectors: vec![pb::VectorWithId {
                 id: 10,
@@ -271,8 +276,8 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::HybridSearchRequest>,
     ) -> Result<Response<pb::HybridSearchResponse>, Status> {
-        self.record_auth("HybridSearch", &request);
-        self.state.lock().unwrap().last_hybrid = Some(request.into_inner());
+        self.record_auth("HybridSearch", &request)?;
+        self.lock_state()?.last_hybrid = Some(request.into_inner());
         Ok(Response::new(pb::HybridSearchResponse {
             results: vec![pb::SearchResultEntry {
                 id: 3,
@@ -287,8 +292,8 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::BulkImportRequest>,
     ) -> Result<Response<pb::BulkImportResponse>, Status> {
-        self.record_auth("BulkImport", &request);
-        self.state.lock().unwrap().last_bulk_import = Some(request.into_inner());
+        self.record_auth("BulkImport", &request)?;
+        self.lock_state()?.last_bulk_import = Some(request.into_inner());
         Ok(Response::new(pb::BulkImportResponse {
             import_id: "imp-1".to_owned(),
             message: "started".to_owned(),
@@ -299,8 +304,8 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::GetImportStatusRequest>,
     ) -> Result<Response<pb::GetImportStatusResponse>, Status> {
-        self.record_auth("GetImportStatus", &request);
-        let next = self.state.lock().unwrap().import_statuses.pop_front();
+        self.record_auth("GetImportStatus", &request)?;
+        let next = self.lock_state()?.import_statuses.pop_front();
         Ok(Response::new(next.unwrap_or(pb::GetImportStatusResponse {
             import_id: "imp-1".to_owned(),
             state: pb::ImportState::ImportCompleted as i32,
@@ -317,7 +322,7 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::CancelImportRequest>,
     ) -> Result<Response<pb::CancelImportResponse>, Status> {
-        self.record_auth("CancelImport", &request);
+        self.record_auth("CancelImport", &request)?;
         Ok(Response::new(pb::CancelImportResponse {
             success: true,
             message: "cancelled".to_owned(),
@@ -328,8 +333,8 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::BackupCollectionRequest>,
     ) -> Result<Response<pb::BackupCollectionResponse>, Status> {
-        self.record_auth("BackupCollection", &request);
-        self.state.lock().unwrap().last_backup = Some(request.into_inner());
+        self.record_auth("BackupCollection", &request)?;
+        self.lock_state()?.last_backup = Some(request.into_inner());
         Ok(Response::new(pb::BackupCollectionResponse {
             backup_id: "bk-1".to_owned(),
             message: "started".to_owned(),
@@ -340,8 +345,8 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::RestoreCollectionRequest>,
     ) -> Result<Response<pb::RestoreCollectionResponse>, Status> {
-        self.record_auth("RestoreCollection", &request);
-        self.state.lock().unwrap().last_restore = Some(request.into_inner());
+        self.record_auth("RestoreCollection", &request)?;
+        self.lock_state()?.last_restore = Some(request.into_inner());
         Ok(Response::new(pb::RestoreCollectionResponse {
             restore_id: "rs-1".to_owned(),
             message: "started".to_owned(),
@@ -352,8 +357,8 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::GetBackupStatusRequest>,
     ) -> Result<Response<pb::GetBackupStatusResponse>, Status> {
-        self.record_auth("GetBackupStatus", &request);
-        let next = self.state.lock().unwrap().backup_statuses.pop_front();
+        self.record_auth("GetBackupStatus", &request)?;
+        let next = self.lock_state()?.backup_statuses.pop_front();
         Ok(Response::new(next.unwrap_or(pb::GetBackupStatusResponse {
             backup_id: "bk-1".to_owned(),
             state: pb::BackupState::BackupCompleted as i32,
@@ -370,8 +375,8 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::GetRestoreStatusRequest>,
     ) -> Result<Response<pb::GetRestoreStatusResponse>, Status> {
-        self.record_auth("GetRestoreStatus", &request);
-        let next = self.state.lock().unwrap().restore_statuses.pop_front();
+        self.record_auth("GetRestoreStatus", &request)?;
+        let next = self.lock_state()?.restore_statuses.pop_front();
         Ok(Response::new(next.unwrap_or(
             pb::GetRestoreStatusResponse {
                 restore_id: "rs-1".to_owned(),
@@ -388,7 +393,7 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::ListBackupsRequest>,
     ) -> Result<Response<pb::ListBackupsResponse>, Status> {
-        self.record_auth("ListBackups", &request);
+        self.record_auth("ListBackups", &request)?;
         Ok(Response::new(pb::ListBackupsResponse {
             backups: vec![pb::BackupInfo {
                 backup_id: "bk-1".to_owned(),
@@ -406,7 +411,7 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::CancelBackupRequest>,
     ) -> Result<Response<pb::CancelBackupResponse>, Status> {
-        self.record_auth("CancelBackup", &request);
+        self.record_auth("CancelBackup", &request)?;
         Ok(Response::new(pb::CancelBackupResponse {
             success: true,
             message: "cancelled".to_owned(),
@@ -417,7 +422,7 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::HealthCheckRequest>,
     ) -> Result<Response<pb::HealthCheckResponse>, Status> {
-        self.record_auth("HealthCheck", &request);
+        self.record_auth("HealthCheck", &request)?;
         Ok(Response::new(pb::HealthCheckResponse {
             status: pb::health_check_response::Status::Serving as i32,
             message: "SERVING".to_owned(),
@@ -428,7 +433,7 @@ impl VectorDbService for MockServer {
         &self,
         request: Request<pb::GetStatsRequest>,
     ) -> Result<Response<pb::GetStatsResponse>, Status> {
-        self.record_auth("GetStats", &request);
+        self.record_auth("GetStats", &request)?;
         Ok(Response::new(pb::GetStatsResponse {
             total_vectors: 42,
             total_collections: 2,
@@ -438,9 +443,10 @@ impl VectorDbService for MockServer {
     }
 }
 
-async fn spawn_mock_server() -> (String, Arc<Mutex<MockState>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
+async fn spawn_mock_server() -> Result<(String, Arc<Mutex<MockState>>), Box<dyn std::error::Error>>
+{
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
     let server = MockServer::default();
     let state = server.state.clone();
     let incoming = TcpListenerStream::new(listener);
@@ -452,21 +458,30 @@ async fn spawn_mock_server() -> (String, Arc<Mutex<MockState>>) {
             .await;
     });
 
-    (format!("127.0.0.1:{}", addr.port()), state)
+    Ok((format!("127.0.0.1:{}", addr.port()), state))
+}
+
+fn lock_state(state: &Arc<Mutex<MockState>>) -> Result<MutexGuard<'_, MockState>, String> {
+    state
+        .lock()
+        .map_err(|_| "mock state lock poisoned".to_owned())
 }
 
 #[tokio::test]
-async fn every_rpc_sends_bearer_auth_and_maps_fields() {
-    let (addr, state) = spawn_mock_server().await;
+async fn every_rpc_sends_bearer_auth_and_maps_fields() -> TestResult {
+    let (addr, state) = spawn_mock_server().await?;
     let client = ClientConfig::new(addr)
         .api_key("test-secret")
         .timeout(Duration::from_secs(5))
         .connect()
-        .await
-        .unwrap();
+        .await?;
 
-    assert_eq!(client.health_check().await.unwrap(), "SERVING");
-    let stats = client.get_stats().await.unwrap();
+    let debug_str = format!("{client:?}");
+    assert!(!debug_str.contains("test-secret"));
+    assert!(debug_str.contains("<redacted>"));
+
+    assert_eq!(client.health_check().await?, "SERVING");
+    let stats = client.get_stats().await?;
     assert_eq!(stats.total_vectors, 42);
     assert_eq!(stats.total_collections, 2);
 
@@ -479,12 +494,11 @@ async fn every_rpc_sends_bearer_auth_and_maps_fields() {
                 .index_type(IndexType::IvfTurboQuant)
                 .num_shards(3),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(cid, 7);
     {
-        let s = state.lock().unwrap();
-        let req = s.last_create.as_ref().unwrap();
+        let s = lock_state(&state)?;
+        let req = s.last_create.as_ref().ok_or("missing last_create")?;
         assert_eq!(req.collection_name, "docs");
         assert_eq!(req.dimension, 4);
         assert_eq!(
@@ -498,9 +512,9 @@ async fn every_rpc_sends_bearer_auth_and_maps_fields() {
         assert_eq!(req.num_shards, 3);
     }
 
-    let colls = client.list_collections().await.unwrap();
+    let colls = client.list_collections().await?;
     assert_eq!(colls.len(), 1);
-    assert_eq!(colls[0].name, "docs");
+    assert_eq!(colls.first().map(|c| c.name.as_str()), Some("docs"));
 
     let mut meta = Metadata::new();
     meta.insert("count".to_owned(), MetadataValue::from(5i64));
@@ -517,11 +531,18 @@ async fn every_rpc_sends_bearer_auth_and_maps_fields() {
         .with_sparse_vector(unsorted_sparse)
         .with_ttl_seconds(120);
 
-    assert_eq!(client.insert("docs", &[rec]).await.unwrap(), 1);
+    assert_eq!(client.insert("docs", &[rec]).await?, 1);
     {
-        let s = state.lock().unwrap();
-        let inserted = &s.last_insert.as_ref().unwrap().vectors[0];
-        let sv = inserted.sparse_vector.as_ref().unwrap();
+        let s = lock_state(&state)?;
+        let inserted = s
+            .last_insert
+            .as_ref()
+            .and_then(|r| r.vectors.first())
+            .ok_or("missing inserted vector")?;
+        let sv = inserted
+            .sparse_vector
+            .as_ref()
+            .ok_or("missing sparse vector")?;
         assert_eq!(sv.indices, vec![5, 12, 20]);
         assert_eq!(sv.values, vec![0.9, 0.4, 0.2]);
         assert_eq!(inserted.ttl_seconds, 120);
@@ -532,57 +553,55 @@ async fn every_rpc_sends_bearer_auth_and_maps_fields() {
         VectorRecord::new(2, vec![0.0, 1.0]),
         VectorRecord::new(3, vec![1.0, 1.0]),
     ];
-    assert_eq!(client.stream_insert("docs", &records, 2).await.unwrap(), 3);
-    assert_eq!(state.lock().unwrap().stream_batches.len(), 2);
+    assert_eq!(client.stream_insert("docs", &records, 2).await?, 3);
+    assert_eq!(lock_state(&state)?.stream_batches.len(), 2);
 
-    let upserted = client.upsert("docs", &records).await.unwrap();
+    let upserted = client.upsert("docs", &records).await?;
     assert_eq!(upserted.upserted_count, 3);
 
-    let fetched = client.get("docs", &[1], true).await.unwrap();
+    let fetched = client.get("docs", &[1], true).await?;
     assert_eq!(fetched.len(), 1);
     assert_eq!(
-        fetched[0].metadata.as_ref().unwrap().get("score"),
+        fetched
+            .first()
+            .and_then(|v| v.metadata.as_ref())
+            .and_then(|m| m.get("score")),
         Some(&MetadataValue::Int(99))
     );
     assert!(
-        state
-            .lock()
-            .unwrap()
+        lock_state(&state)?
             .last_get
             .as_ref()
-            .unwrap()
+            .ok_or("missing last_get")?
             .return_metadata
     );
 
-    let fetched_no_meta = client.get("docs", &[1], false).await.unwrap();
-    assert!(fetched_no_meta[0].metadata.is_none());
+    let fetched_no_meta = client.get("docs", &[1], false).await?;
     assert!(
-        !state
-            .lock()
-            .unwrap()
+        fetched_no_meta
+            .first()
+            .ok_or("missing fetched record")?
+            .metadata
+            .is_none()
+    );
+    assert!(
+        !lock_state(&state)?
             .last_get
             .as_ref()
-            .unwrap()
+            .ok_or("missing last_get")?
             .return_metadata
     );
 
+    assert!(client.update_metadata("docs", 1, meta, false).await?);
     assert!(
-        client
-            .update_metadata("docs", 1, meta, false)
-            .await
-            .unwrap()
-    );
-    assert!(
-        !state
-            .lock()
-            .unwrap()
+        !lock_state(&state)?
             .last_update_meta
             .as_ref()
-            .unwrap()
+            .ok_or("missing last_update_meta")?
             .merge
     );
 
-    let page = client.list_vectors("docs", 10, 0, false).await.unwrap();
+    let page = client.list_vectors("docs", 10, 0, false).await?;
     assert_eq!(page.total_count, 25);
     assert!(page.has_more);
 
@@ -592,11 +611,13 @@ async fn every_rpc_sends_bearer_auth_and_maps_fields() {
             &[0.1, 0.2],
             SearchOptions::default().return_metadata(true),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(results.len(), 1);
     assert_eq!(
-        results[0].metadata.as_ref().unwrap().get("tag"),
+        results
+            .first()
+            .and_then(|r| r.metadata.as_ref())
+            .and_then(|m| m.get("tag")),
         Some(&MetadataValue::String("alpha".to_owned()))
     );
 
@@ -608,16 +629,13 @@ async fn every_rpc_sends_bearer_auth_and_maps_fields() {
                 .similarity_threshold(0.8)
                 .max_results(50),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(range_res.len(), 1);
     assert_eq!(
-        state
-            .lock()
-            .unwrap()
+        lock_state(&state)?
             .last_range
             .as_ref()
-            .unwrap()
+            .ok_or("missing last_range")?
             .similarity_threshold,
         Some(0.8)
     );
@@ -632,16 +650,13 @@ async fn every_rpc_sends_bearer_auth_and_maps_fields() {
                 .sparse_weight(0.2)
                 .text_field("description"),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(hybrid_res.len(), 1);
     assert_eq!(
-        state
-            .lock()
-            .unwrap()
+        lock_state(&state)?
             .last_hybrid
             .as_ref()
-            .unwrap()
+            .ok_or("missing last_hybrid")?
             .text_field,
         "description"
     );
@@ -652,24 +667,21 @@ async fn every_rpc_sends_bearer_auth_and_maps_fields() {
             "s3://bkt/data.npy",
             BulkImportOptions::default().format(BulkImportFormat::Numpy),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(imp_id, "imp-1");
     assert_eq!(
-        state
-            .lock()
-            .unwrap()
+        lock_state(&state)?
             .last_bulk_import
             .as_ref()
-            .unwrap()
+            .ok_or("missing last_bulk_import")?
             .format,
         pb::ImportFormat::Numpy as i32
     );
     assert_eq!(
-        client.get_import_status("imp-1").await.unwrap().state,
+        client.get_import_status("imp-1").await?.state,
         ImportState::Completed
     );
-    assert!(client.cancel_import("imp-1").await.unwrap());
+    assert!(client.cancel_import("imp-1").await?);
 
     let bk_id = client
         .backup_collection(
@@ -677,8 +689,7 @@ async fn every_rpc_sends_bearer_auth_and_maps_fields() {
             BackupTarget::s3("bkt", Some("prod")),
             Some("bk-1".to_owned()),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(bk_id, "bk-1");
     let rs_id = client
         .restore_collection(
@@ -687,29 +698,27 @@ async fn every_rpc_sends_bearer_auth_and_maps_fields() {
             Some("docs_restored".to_owned()),
             true,
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(rs_id, "rs-1");
     assert_eq!(
-        client.get_backup_status("bk-1").await.unwrap().state,
+        client.get_backup_status("bk-1").await?.state,
         BackupState::Completed
     );
     assert_eq!(
-        client.get_restore_status("rs-1").await.unwrap().state,
+        client.get_restore_status("rs-1").await?.state,
         BackupState::Completed
     );
     let backups = client
         .list_backups(BackupTarget::s3("bkt", None::<String>))
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(backups.len(), 1);
-    assert_eq!(backups[0].backup_id, "bk-1");
-    assert!(client.cancel_backup("bk-1").await.unwrap());
+    assert_eq!(backups.first().map(|b| b.backup_id.as_str()), Some("bk-1"));
+    assert!(client.cancel_backup("bk-1").await?);
 
-    assert_eq!(client.delete("docs", &[1, 2]).await.unwrap(), 2);
-    client.drop_collection("docs").await.unwrap();
+    assert_eq!(client.delete("docs", &[1, 2]).await?, 2);
+    client.drop_collection("docs").await?;
 
-    let headers = state.lock().unwrap().auth_headers.clone();
+    let headers = lock_state(&state)?.auth_headers.clone();
     assert!(headers.len() >= 22);
     for (method, header) in headers {
         assert_eq!(
@@ -718,19 +727,20 @@ async fn every_rpc_sends_bearer_auth_and_maps_fields() {
             "Method {method} did not send the authorization header"
         );
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn polling_helpers_handle_completion_failure_and_timeout() {
-    let (addr, state) = spawn_mock_server().await;
-    let client = GvdbClient::connect(addr).await.unwrap();
+async fn polling_helpers_handle_completion_failure_timeout_and_bounds() -> TestResult {
+    let (addr, state) = spawn_mock_server().await?;
+    let client = GvdbClient::connect(addr).await?;
     let fast_poll = PollOptions::default()
         .poll_interval(Duration::from_millis(5))
         .timeout(Duration::from_millis(200));
 
     // wait_for_import transitions Running -> Completed
     {
-        let mut s = state.lock().unwrap();
+        let mut s = lock_state(&state)?;
         s.import_statuses.push_back(pb::GetImportStatusResponse {
             import_id: "imp-1".to_owned(),
             state: pb::ImportState::ImportRunning as i32,
@@ -743,14 +753,37 @@ async fn polling_helpers_handle_completion_failure_and_timeout() {
             ..Default::default()
         });
     }
-    let imp = client.wait_for_import("imp-1", fast_poll).await.unwrap();
+    let imp = client.wait_for_import("imp-1", fast_poll).await?;
     assert_eq!(imp.state, ImportState::Completed);
     assert_eq!(imp.imported_vectors, 50);
 
+    // Duration::MAX does not panic when Instant::checked_add overflows.
+    let no_deadline_poll = PollOptions::default()
+        .poll_interval(Duration::from_millis(5))
+        .timeout(Duration::MAX);
+    let imp_max = client.wait_for_import("imp-1", no_deadline_poll).await?;
+    assert_eq!(imp_max.state, ImportState::Completed);
+
+    // Zero poll_interval is rejected cleanly.
+    let zero_interval = PollOptions::default()
+        .poll_interval(Duration::ZERO)
+        .timeout(Duration::from_millis(50));
+    assert!(matches!(
+        client.wait_for_import("imp-1", zero_interval).await,
+        Err(Error::InvalidArgument(_))
+    ));
+
+    // Zero timeout times out before sending an RPC.
+    let zero_timeout = PollOptions::default()
+        .poll_interval(Duration::from_millis(5))
+        .timeout(Duration::ZERO);
+    assert!(matches!(
+        client.wait_for_import("imp-1", zero_timeout).await,
+        Err(Error::Timeout(_))
+    ));
+
     // wait_for_backup returns JobFailed on BackupFailed
-    state
-        .lock()
-        .unwrap()
+    lock_state(&state)?
         .backup_statuses
         .push_back(pb::GetBackupStatusResponse {
             backup_id: "bk-1".to_owned(),
@@ -758,15 +791,15 @@ async fn polling_helpers_handle_completion_failure_and_timeout() {
             error_message: "disk full".to_owned(),
             ..Default::default()
         });
-    let err = client.wait_for_backup("bk-1", fast_poll).await.unwrap_err();
+    let Err(err) = client.wait_for_backup("bk-1", fast_poll).await else {
+        return Err("expected JobFailed from wait_for_backup".into());
+    };
     assert!(matches!(err, Error::JobFailed { kind: "Backup", .. }));
     assert!(err.to_string().contains("disk full"));
 
     // wait_for_restore times out when stuck in Running
     for _ in 0..20 {
-        state
-            .lock()
-            .unwrap()
+        lock_state(&state)?
             .restore_statuses
             .push_back(pb::GetRestoreStatusResponse {
                 restore_id: "rs-1".to_owned(),
@@ -777,45 +810,106 @@ async fn polling_helpers_handle_completion_failure_and_timeout() {
     let timeout_poll = PollOptions::default()
         .poll_interval(Duration::from_millis(5))
         .timeout(Duration::from_millis(25));
-    let err = client
-        .wait_for_restore("rs-1", timeout_poll)
-        .await
-        .unwrap_err();
-    assert!(matches!(err, Error::Timeout(_)));
+    assert!(matches!(
+        client.wait_for_restore("rs-1", timeout_poll).await,
+        Err(Error::Timeout(_))
+    ));
+    Ok(())
 }
 
 #[tokio::test]
-async fn client_side_validation_rejects_bad_arguments() {
-    let (addr, _) = spawn_mock_server().await;
+async fn client_side_validation_rejects_bad_arguments() -> TestResult {
+    let (addr, _) = spawn_mock_server().await?;
 
-    let bad_key = ClientConfig::new(addr.clone())
-        .api_key("bad\nkey")
-        .connect()
-        .await
-        .unwrap_err();
-    assert!(matches!(bad_key, Error::InvalidArgument(_)));
+    assert!(matches!(
+        ClientConfig::new(addr.clone())
+            .api_key("bad\nkey")
+            .connect()
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        ClientConfig::new(addr.clone()).api_key("").connect().await,
+        Err(Error::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        ClientConfig::new(addr.clone())
+            .api_key("   ")
+            .connect()
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        ClientConfig::new(addr.clone())
+            .api_key("has space")
+            .connect()
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        ClientConfig::new(addr.clone())
+            .timeout(Duration::MAX)
+            .connect()
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        ClientConfig::new("http://127.0.0.1:50051")
+            .tls(true)
+            .connect()
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        ClientConfig::new("https://127.0.0.1:50051")
+            .tls(false)
+            .connect()
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
 
-    let bad_tls = ClientConfig::new("http://127.0.0.1:50051")
-        .tls(true)
-        .connect()
-        .await
-        .unwrap_err();
-    assert!(matches!(bad_tls, Error::InvalidArgument(_)));
+    let client = GvdbClient::connect(addr).await?;
+    assert!(matches!(
+        client.stream_insert("docs", &[], 0).await,
+        Err(Error::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        client.stream_insert("docs", &[], 10).await,
+        Err(Error::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        client
+            .backup_collection("docs", BackupTarget::s3("", None::<String>), None)
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
 
-    let client = GvdbClient::connect(addr).await.unwrap();
-    let err = client.stream_insert("docs", &[], 0).await.unwrap_err();
-    assert!(matches!(err, Error::InvalidArgument(_)));
-
-    let err = client
-        .backup_collection("docs", BackupTarget::s3("", None::<String>), None)
-        .await
-        .unwrap_err();
-    assert!(matches!(err, Error::InvalidArgument(_)));
-
-    let bad_sparse = VectorRecord::new(1, vec![1.0]).with_sparse_vector(SparseVector {
+    let mismatched_sparse = VectorRecord::new(1, vec![1.0]).with_sparse_vector(SparseVector {
         indices: vec![1, 2],
         values: vec![0.5],
     });
-    let err = client.insert("docs", &[bad_sparse]).await.unwrap_err();
-    assert!(matches!(err, Error::InvalidArgument(_)));
+    assert!(matches!(
+        client.insert("docs", &[mismatched_sparse]).await,
+        Err(Error::InvalidArgument(_))
+    ));
+
+    let duplicate_sparse = VectorRecord::new(1, vec![1.0]).with_sparse_vector(SparseVector {
+        indices: vec![3, 3],
+        values: vec![0.5, 0.7],
+    });
+    assert!(matches!(
+        client.insert("docs", &[duplicate_sparse]).await,
+        Err(Error::InvalidArgument(_))
+    ));
+
+    let nan_sparse = VectorRecord::new(1, vec![1.0]).with_sparse_vector(SparseVector {
+        indices: vec![3],
+        values: vec![f32::NAN],
+    });
+    assert!(matches!(
+        client.insert("docs", &[nan_sparse]).await,
+        Err(Error::InvalidArgument(_))
+    ));
+
+    Ok(())
 }

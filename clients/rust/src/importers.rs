@@ -226,12 +226,12 @@ impl<'a> BatchImporter<'a> {
     }
 
     async fn send_batch(&mut self, batch: &[VectorRecord]) -> Result<()> {
-        if batch.is_empty() {
+        let Some(first) = batch.first() else {
             return Ok(());
-        }
+        };
 
         if self.batch_count == 0 {
-            let dim = u32::try_from(batch[0].values.len()).map_err(|_| {
+            let dim = u32::try_from(first.values.len()).map_err(|_| {
                 Error::InvalidArgument("Vector dimension exceeds u32::MAX.".to_owned())
             })?;
             if dim == 0 {
@@ -239,8 +239,11 @@ impl<'a> BatchImporter<'a> {
                     "Vectors cannot be empty during import.".to_owned(),
                 ));
             }
+            validate_batch_vectors(batch, dim)?;
             self.dimension = dim;
             self.created_collection = self.ensure_collection(dim).await?;
+        } else {
+            validate_batch_vectors(batch, self.dimension)?;
         }
 
         let retries = match self.options.mode {
@@ -305,10 +308,16 @@ impl<'a> BatchImporter<'a> {
                     if status.code() == Code::ResourceExhausted {
                         return Ok(None);
                     }
+                    if !is_transient_status(status.code()) {
+                        return Err(Error::Status(status));
+                    }
                     if attempt == max_retries {
                         return Ok(None);
                     }
-                    let factor = 1u32.checked_shl(attempt as u32).unwrap_or(u32::MAX);
+                    let factor = u32::try_from(attempt)
+                        .ok()
+                        .and_then(|shift| 1u32.checked_shl(shift))
+                        .unwrap_or(u32::MAX);
                     let delay = self.options.retry_base_delay.saturating_mul(factor);
                     if !delay.is_zero() {
                         tokio::time::sleep(delay).await;
@@ -334,6 +343,69 @@ impl<'a> BatchImporter<'a> {
     }
 }
 
+fn validate_batch_vectors(batch: &[VectorRecord], expected_dim: u32) -> Result<()> {
+    let expected = expected_dim as usize;
+    for rec in batch {
+        if rec.values.len() != expected {
+            return Err(Error::InvalidArgument(format!(
+                "Vector {} has dimension {}, but expected {}.",
+                rec.id,
+                rec.values.len(),
+                expected_dim
+            )));
+        }
+        if rec.values.iter().any(|v| !v.is_finite()) {
+            return Err(Error::InvalidArgument(format!(
+                "Vector {} contains a non-finite float value.",
+                rec.id
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn is_transient_status(code: Code) -> bool {
+    matches!(
+        code,
+        Code::Unavailable | Code::DeadlineExceeded | Code::Aborted
+    )
+}
+
+#[cfg(any(feature = "csv", feature = "parquet"))]
+async fn consume_blocking_batches(
+    importer: &mut BatchImporter<'_>,
+    mut rx: tokio::sync::mpsc::Receiver<Result<Vec<VectorRecord>>>,
+    reader_task: tokio::task::JoinHandle<()>,
+) -> Result<()> {
+    let mut send_err: Option<Error> = None;
+    while let Some(batch_res) = rx.recv().await {
+        let batch = match batch_res {
+            Ok(b) => b,
+            Err(err) => {
+                send_err = Some(err);
+                break;
+            }
+        };
+        if let Err(err) = importer.send_batch(&batch).await {
+            send_err = Some(err);
+            break;
+        }
+    }
+    drop(rx);
+    if let Err(join_err) = reader_task.await {
+        if let Some(err) = send_err {
+            return Err(err);
+        }
+        return Err(Error::Io(std::io::Error::other(format!(
+            "Import reader task failed: {join_err}"
+        ))));
+    }
+    if let Some(err) = send_err {
+        return Err(err);
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // CSV importer
 // ---------------------------------------------------------------------------
@@ -357,24 +429,44 @@ pub async fn import_csv(
     options: CsvImportOptions,
 ) -> Result<ImportResult> {
     let mut importer = BatchImporter::new(client, collection.into(), options.import)?;
-    let mut reader = csv::Reader::from_path(path.as_ref())?;
+    let path = path.as_ref().to_path_buf();
+    let batch_size = options.import.batch_size;
+    let id_column = options.id_column;
+    let vector_column = options.vector_column;
+
+    let (tx, rx) = tokio::sync::mpsc::channel(2);
+    let reader_task = tokio::task::spawn_blocking(move || {
+        if let Err(err) = read_csv_batches(&path, &id_column, &vector_column, batch_size, &tx) {
+            let _ = tx.blocking_send(Err(err));
+        }
+    });
+
+    consume_blocking_batches(&mut importer, rx, reader_task).await?;
+    Ok(importer.finish())
+}
+
+#[cfg(feature = "csv")]
+fn read_csv_batches(
+    path: &Path,
+    id_column: &str,
+    vector_column: &str,
+    batch_size: usize,
+    tx: &tokio::sync::mpsc::Sender<Result<Vec<VectorRecord>>>,
+) -> Result<()> {
+    let mut reader = csv::Reader::from_path(path)?;
     let headers: Vec<String> = reader
         .headers()?
         .iter()
         .map(std::borrow::ToOwned::to_owned)
         .collect();
 
-    let id_idx = headers
-        .iter()
-        .position(|h| h == &options.id_column)
-        .ok_or_else(|| {
-            Error::InvalidArgument(format!(
-                "ID column '{}' was not found. Available columns: {:?}",
-                options.id_column, headers
-            ))
-        })?;
+    let id_idx = headers.iter().position(|h| h == id_column).ok_or_else(|| {
+        Error::InvalidArgument(format!(
+            "ID column '{id_column}' was not found. Available columns: {headers:?}"
+        ))
+    })?;
 
-    let vec_cols = detect_csv_vector_columns(&headers, &options.vector_column)?;
+    let vec_cols = detect_csv_vector_columns(&headers, vector_column)?;
     let meta_cols: Vec<(usize, String)> = headers
         .iter()
         .enumerate()
@@ -390,7 +482,6 @@ pub async fn import_csv(
         .map(|(idx, name)| (idx, name.clone()))
         .collect();
 
-    let batch_size = options.import.batch_size;
     let mut batch = Vec::with_capacity(batch_size);
 
     for (row_num, record) in reader.records().enumerate() {
@@ -401,7 +492,7 @@ pub async fn import_csv(
                 "Row {} has invalid ID '{}' in column '{}': {}",
                 row_num + 1,
                 id_str,
-                options.id_column,
+                id_column,
                 err
             ))
         })?;
@@ -409,21 +500,38 @@ pub async fn import_csv(
         let values = match &vec_cols {
             CsvVectorColumns::Json(v_idx) => {
                 let raw = row.get(*v_idx).unwrap_or("").trim();
-                serde_json::from_str::<Vec<f32>>(raw)?
+                let parsed = serde_json::from_str::<Vec<f32>>(raw)?;
+                if parsed.iter().any(|v| !v.is_finite()) {
+                    return Err(Error::InvalidArgument(format!(
+                        "Row {} contains a non-finite float in column '{}'.",
+                        row_num + 1,
+                        vector_column
+                    )));
+                }
+                parsed
             }
             CsvVectorColumns::Prefixed(indices) => {
                 let mut vec = Vec::with_capacity(indices.len());
                 for &idx in indices {
                     let raw = row.get(idx).unwrap_or("").trim();
+                    let col_name = headers.get(idx).map_or("<unknown>", String::as_str);
                     let val = raw.parse::<f32>().map_err(|err| {
                         Error::InvalidArgument(format!(
                             "Row {} has invalid float '{}' in column '{}': {}",
                             row_num + 1,
                             raw,
-                            headers[idx],
+                            col_name,
                             err
                         ))
                     })?;
+                    if !val.is_finite() {
+                        return Err(Error::InvalidArgument(format!(
+                            "Row {} has non-finite float '{}' in column '{}'.",
+                            row_num + 1,
+                            raw,
+                            col_name
+                        )));
+                    }
                     vec.push(val);
                 }
                 vec
@@ -446,16 +554,17 @@ pub async fn import_csv(
 
         batch.push(rec);
         if batch.len() == batch_size {
-            importer.send_batch(&batch).await?;
-            batch.clear();
+            let to_send = std::mem::replace(&mut batch, Vec::with_capacity(batch_size));
+            if tx.blocking_send(Ok(to_send)).is_err() {
+                return Ok(());
+            }
         }
     }
 
     if !batch.is_empty() {
-        importer.send_batch(&batch).await?;
+        let _ = tx.blocking_send(Ok(batch));
     }
-
-    Ok(importer.finish())
+    Ok(())
 }
 
 #[cfg(feature = "csv")]
@@ -524,43 +633,93 @@ pub async fn import_parquet(
     collection: impl Into<String>,
     options: ParquetImportOptions,
 ) -> Result<ImportResult> {
+    let mut importer = BatchImporter::new(client, collection.into(), options.import)?;
+    let path = path.as_ref().to_path_buf();
+    let batch_size = options.import.batch_size;
+    let id_column = options.id_column;
+    let vector_column = options.vector_column;
+
+    let (tx, rx) = tokio::sync::mpsc::channel(2);
+    let reader_task = tokio::task::spawn_blocking(move || {
+        if let Err(err) = read_parquet_batches(&path, &id_column, &vector_column, batch_size, &tx) {
+            let _ = tx.blocking_send(Err(err));
+        }
+    });
+
+    consume_blocking_batches(&mut importer, rx, reader_task).await?;
+    Ok(importer.finish())
+}
+
+#[cfg(feature = "parquet")]
+fn read_parquet_batches(
+    path: &Path,
+    id_column: &str,
+    vector_column: &str,
+    batch_size: usize,
+    tx: &tokio::sync::mpsc::Sender<Result<Vec<VectorRecord>>>,
+) -> Result<()> {
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
-    let mut importer = BatchImporter::new(client, collection.into(), options.import)?;
-    let file = std::fs::File::open(path.as_ref())?;
+    let file = std::fs::File::open(path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
     let schema = builder.schema().clone();
 
     let all_columns: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
-    let vector_idx = schema.index_of(&options.vector_column).map_err(|_| {
+    let vector_idx = schema.index_of(vector_column).map_err(|_| {
         Error::InvalidArgument(format!(
-            "Vector column '{}' was not found. Available columns: {:?}",
-            options.vector_column, all_columns
+            "Vector column '{vector_column}' was not found. Available columns: {all_columns:?}"
         ))
     })?;
-    let id_idx = schema.index_of(&options.id_column).map_err(|_| {
+    let id_idx = schema.index_of(id_column).map_err(|_| {
         Error::InvalidArgument(format!(
-            "ID column '{}' was not found. Available columns: {:?}",
-            options.id_column, all_columns
+            "ID column '{id_column}' was not found. Available columns: {all_columns:?}"
         ))
     })?;
 
-    let meta_cols: Vec<(usize, String)> = schema
-        .fields()
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| *idx != vector_idx && *idx != id_idx)
-        .map(|(idx, field)| (idx, field.name().clone()))
-        .collect();
+    let mut meta_cols = Vec::new();
+    for (idx, field) in schema.fields().iter().enumerate() {
+        if idx == vector_idx || idx == id_idx {
+            continue;
+        }
+        validate_arrow_metadata_type(field.name(), field.data_type())?;
+        meta_cols.push((idx, field.name().clone()));
+    }
 
-    let reader = builder.with_batch_size(options.import.batch_size).build()?;
+    let reader = builder.with_batch_size(batch_size).build()?;
     for batch_result in reader {
         let record_batch = batch_result?;
         let records = decode_parquet_batch(&record_batch, id_idx, vector_idx, &meta_cols)?;
-        importer.send_batch(&records).await?;
+        if tx.blocking_send(Ok(records)).is_err() {
+            return Ok(());
+        }
     }
 
-    Ok(importer.finish())
+    Ok(())
+}
+
+#[cfg(feature = "parquet")]
+fn validate_arrow_metadata_type(column: &str, data_type: &arrow_schema::DataType) -> Result<()> {
+    use arrow_schema::DataType;
+
+    match data_type {
+        DataType::Boolean
+        | DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64
+        | DataType::Float32
+        | DataType::Float64
+        | DataType::Utf8
+        | DataType::LargeUtf8
+        | DataType::Utf8View => Ok(()),
+        other => Err(Error::InvalidArgument(format!(
+            "Metadata column '{column}' has unsupported Arrow type {other:?}. Use boolean, integer, float, or string columns."
+        ))),
+    }
 }
 
 #[cfg(feature = "parquet")]
@@ -583,7 +742,9 @@ fn decode_parquet_batch(
         if !meta_cols.is_empty() {
             let mut meta = Metadata::new();
             for (col_idx, col_name) in meta_cols {
-                if let Some(val) = extract_arrow_metadata(batch.column(*col_idx).as_ref(), row) {
+                if let Some(val) =
+                    extract_arrow_metadata(batch.column(*col_idx).as_ref(), col_name, row)?
+                {
                     meta.insert(col_name.clone(), val);
                 }
             }
@@ -640,13 +801,13 @@ fn extract_arrow_vector(col: &dyn arrow_array::Array, row: usize) -> Result<Vec<
         )));
     }
     if let Some(arr) = col.as_any().downcast_ref::<ListArray>() {
-        return arrow_slice_to_f32(arr.value(row).as_ref());
+        return arrow_slice_to_f32(arr.value(row).as_ref(), row);
     }
     if let Some(arr) = col.as_any().downcast_ref::<LargeListArray>() {
-        return arrow_slice_to_f32(arr.value(row).as_ref());
+        return arrow_slice_to_f32(arr.value(row).as_ref(), row);
     }
     if let Some(arr) = col.as_any().downcast_ref::<FixedSizeListArray>() {
-        return arrow_slice_to_f32(arr.value(row).as_ref());
+        return arrow_slice_to_f32(arr.value(row).as_ref(), row);
     }
     Err(Error::InvalidArgument(format!(
         "Vector column has unsupported Arrow type {:?}. Use List, LargeList, or FixedSizeList of floats.",
@@ -655,14 +816,41 @@ fn extract_arrow_vector(col: &dyn arrow_array::Array, row: usize) -> Result<Vec<
 }
 
 #[cfg(feature = "parquet")]
-fn arrow_slice_to_f32(values: &dyn arrow_array::Array) -> Result<Vec<f32>> {
+fn arrow_slice_to_f32(values: &dyn arrow_array::Array, row: usize) -> Result<Vec<f32>> {
     use arrow_array::{Float32Array, Float64Array};
 
+    if values.null_count() > 0 {
+        return Err(Error::InvalidArgument(format!(
+            "Row {} has a null element inside its vector.",
+            row + 1
+        )));
+    }
     if let Some(arr) = values.as_any().downcast_ref::<Float32Array>() {
-        return Ok(arr.values().to_vec());
+        let mut out = Vec::with_capacity(arr.len());
+        for &v in arr.values() {
+            if !v.is_finite() {
+                return Err(Error::InvalidArgument(format!(
+                    "Row {} contains a non-finite float in its vector.",
+                    row + 1
+                )));
+            }
+            out.push(v);
+        }
+        return Ok(out);
     }
     if let Some(arr) = values.as_any().downcast_ref::<Float64Array>() {
-        return Ok(arr.values().iter().map(|&v| v as f32).collect());
+        let mut out = Vec::with_capacity(arr.len());
+        for &v in arr.values() {
+            let narrowed = v as f32;
+            if !narrowed.is_finite() {
+                return Err(Error::InvalidArgument(format!(
+                    "Row {} contains a non-finite or overflowing float in its vector.",
+                    row + 1
+                )));
+            }
+            out.push(narrowed);
+        }
+        return Ok(out);
     }
     Err(Error::InvalidArgument(format!(
         "Vector elements have unsupported Arrow type {:?}. Use Float32 or Float64.",
@@ -671,7 +859,11 @@ fn arrow_slice_to_f32(values: &dyn arrow_array::Array) -> Result<Vec<f32>> {
 }
 
 #[cfg(feature = "parquet")]
-fn extract_arrow_metadata(col: &dyn arrow_array::Array, row: usize) -> Option<MetadataValue> {
+fn extract_arrow_metadata(
+    col: &dyn arrow_array::Array,
+    column: &str,
+    row: usize,
+) -> Result<Option<MetadataValue>> {
     use arrow_array::{
         BooleanArray, Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, Int64Array,
         LargeStringArray, StringArray, StringViewArray, UInt8Array, UInt16Array, UInt32Array,
@@ -679,51 +871,77 @@ fn extract_arrow_metadata(col: &dyn arrow_array::Array, row: usize) -> Option<Me
     };
 
     if col.is_null(row) {
-        return None;
+        return Ok(None);
     }
     if let Some(arr) = col.as_any().downcast_ref::<BooleanArray>() {
-        return Some(MetadataValue::Bool(arr.value(row)));
+        return Ok(Some(MetadataValue::Bool(arr.value(row))));
     }
     if let Some(arr) = col.as_any().downcast_ref::<Int64Array>() {
-        return Some(MetadataValue::Int(arr.value(row)));
+        return Ok(Some(MetadataValue::Int(arr.value(row))));
     }
     if let Some(arr) = col.as_any().downcast_ref::<Int32Array>() {
-        return Some(MetadataValue::Int(i64::from(arr.value(row))));
+        return Ok(Some(MetadataValue::Int(i64::from(arr.value(row)))));
     }
     if let Some(arr) = col.as_any().downcast_ref::<Int16Array>() {
-        return Some(MetadataValue::Int(i64::from(arr.value(row))));
+        return Ok(Some(MetadataValue::Int(i64::from(arr.value(row)))));
     }
     if let Some(arr) = col.as_any().downcast_ref::<Int8Array>() {
-        return Some(MetadataValue::Int(i64::from(arr.value(row))));
+        return Ok(Some(MetadataValue::Int(i64::from(arr.value(row)))));
     }
     if let Some(arr) = col.as_any().downcast_ref::<UInt64Array>() {
-        return i64::try_from(arr.value(row)).ok().map(MetadataValue::Int);
+        let v = arr.value(row);
+        let signed = i64::try_from(v).map_err(|_| {
+            Error::InvalidArgument(format!(
+                "Row {} has UInt64 metadata value {} in column '{}' that exceeds i64::MAX.",
+                row + 1,
+                v,
+                column
+            ))
+        })?;
+        return Ok(Some(MetadataValue::Int(signed)));
     }
     if let Some(arr) = col.as_any().downcast_ref::<UInt32Array>() {
-        return Some(MetadataValue::Int(i64::from(arr.value(row))));
+        return Ok(Some(MetadataValue::Int(i64::from(arr.value(row)))));
     }
     if let Some(arr) = col.as_any().downcast_ref::<UInt16Array>() {
-        return Some(MetadataValue::Int(i64::from(arr.value(row))));
+        return Ok(Some(MetadataValue::Int(i64::from(arr.value(row)))));
     }
     if let Some(arr) = col.as_any().downcast_ref::<UInt8Array>() {
-        return Some(MetadataValue::Int(i64::from(arr.value(row))));
+        return Ok(Some(MetadataValue::Int(i64::from(arr.value(row)))));
     }
     if let Some(arr) = col.as_any().downcast_ref::<Float64Array>() {
         let v = arr.value(row);
-        return v.is_finite().then_some(MetadataValue::Float(v));
+        if !v.is_finite() {
+            return Err(Error::InvalidArgument(format!(
+                "Row {} has a non-finite float in metadata column '{}'.",
+                row + 1,
+                column
+            )));
+        }
+        return Ok(Some(MetadataValue::Float(v)));
     }
     if let Some(arr) = col.as_any().downcast_ref::<Float32Array>() {
         let v = f64::from(arr.value(row));
-        return v.is_finite().then_some(MetadataValue::Float(v));
+        if !v.is_finite() {
+            return Err(Error::InvalidArgument(format!(
+                "Row {} has a non-finite float in metadata column '{}'.",
+                row + 1,
+                column
+            )));
+        }
+        return Ok(Some(MetadataValue::Float(v)));
     }
     if let Some(arr) = col.as_any().downcast_ref::<StringArray>() {
-        return Some(MetadataValue::String(arr.value(row).to_owned()));
+        return Ok(Some(MetadataValue::String(arr.value(row).to_owned())));
     }
     if let Some(arr) = col.as_any().downcast_ref::<LargeStringArray>() {
-        return Some(MetadataValue::String(arr.value(row).to_owned()));
+        return Ok(Some(MetadataValue::String(arr.value(row).to_owned())));
     }
     if let Some(arr) = col.as_any().downcast_ref::<StringViewArray>() {
-        return Some(MetadataValue::String(arr.value(row).to_owned()));
+        return Ok(Some(MetadataValue::String(arr.value(row).to_owned())));
     }
-    None
+    Err(Error::InvalidArgument(format!(
+        "Metadata column '{column}' has unsupported Arrow type {:?}.",
+        col.data_type()
+    )))
 }

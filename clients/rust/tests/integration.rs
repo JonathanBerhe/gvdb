@@ -17,6 +17,8 @@ use gvdb::{
 use tempfile::TempDir;
 use tonic::Code;
 
+type TestResult<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
+
 struct ServerGuard {
     child: Child,
     address: String,
@@ -31,28 +33,32 @@ impl Drop for ServerGuard {
     }
 }
 
-fn free_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
-    listener.local_addr().unwrap().port()
+fn free_port() -> TestResult<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    Ok(listener.local_addr()?.port())
 }
 
-fn find_server_binary() -> Option<PathBuf> {
+fn find_server_binary() -> TestResult<Option<PathBuf>> {
     if let Ok(explicit) = std::env::var("GVDB_SERVER_BIN") {
         let path = PathBuf::from(&explicit);
-        assert!(
-            path.is_file(),
-            "GVDB_SERVER_BIN is set to '{explicit}', but the file does not exist."
-        );
-        return Some(path);
+        if !path.is_file() {
+            return Err(format!(
+                "GVDB_SERVER_BIN is set to '{explicit}', but the file does not exist."
+            )
+            .into());
+        }
+        return Ok(Some(path));
     }
 
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let default_bin = manifest.join("../../build/dev/bin/gvdb-single-node");
-    default_bin.is_file().then_some(default_bin)
+    Ok(default_bin.is_file().then_some(default_bin))
 }
 
-async fn wait_for_server(address: &str, timeout: Duration) {
-    let deadline = Instant::now() + timeout;
+async fn wait_for_server(address: &str, timeout: Duration) -> TestResult {
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .ok_or("wait_for_server timeout overflow")?;
     while Instant::now() < deadline {
         if let Ok(client) = ClientConfig::new(address)
             .timeout(Duration::from_secs(2))
@@ -60,24 +66,24 @@ async fn wait_for_server(address: &str, timeout: Duration) {
             .await
             && client.health_check().await.is_ok()
         {
-            return;
+            return Ok(());
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    panic!("Server at {address} did not become ready within {timeout:?}");
+    Err(format!("Server at {address} did not become ready within {timeout:?}").into())
 }
 
-async fn start_local_server(binary: &Path, config_yaml: Option<String>) -> ServerGuard {
-    let port = free_port();
-    let data_dir = TempDir::new().expect("create temp data dir");
+async fn start_local_server(binary: &Path, config_yaml: Option<String>) -> TestResult<ServerGuard> {
+    let port = free_port()?;
+    let data_dir = TempDir::new()?;
     let address = format!("127.0.0.1:{port}");
 
     let mut cmd = Command::new(binary);
     let mut config_file = None;
 
     if let Some(yaml) = config_yaml {
-        let mut tmp = tempfile::NamedTempFile::new().expect("create temp config file");
-        std::io::Write::write_all(&mut tmp, yaml.as_bytes()).expect("write config");
+        let mut tmp = tempfile::NamedTempFile::new()?;
+        std::io::Write::write_all(&mut tmp, yaml.as_bytes())?;
         cmd.arg("--config")
             .arg(tmp.path())
             .arg("--port")
@@ -94,11 +100,7 @@ async fn start_local_server(binary: &Path, config_yaml: Option<String>) -> Serve
             .arg("1");
     }
 
-    let child = cmd
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn gvdb-single-node");
+    let child = cmd.stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
 
     let guard = ServerGuard {
         child,
@@ -106,8 +108,8 @@ async fn start_local_server(binary: &Path, config_yaml: Option<String>) -> Serve
         _data_dir: data_dir,
         _config_file: config_file,
     };
-    wait_for_server(&address, Duration::from_secs(15)).await;
-    guard
+    wait_for_server(&address, Duration::from_secs(15)).await?;
+    Ok(guard)
 }
 
 fn deterministic_vector(seed: usize, dim: usize) -> Vec<f32> {
@@ -117,29 +119,29 @@ fn deterministic_vector(seed: usize, dim: usize) -> Vec<f32> {
 }
 
 #[tokio::test]
-async fn end_to_end_sdk_operations() {
+async fn end_to_end_sdk_operations() -> TestResult {
     let _guard;
     let address = if let Ok(external) = std::env::var("GVDB_SERVER_ADDR") {
-        wait_for_server(&external, Duration::from_secs(15)).await;
+        wait_for_server(&external, Duration::from_secs(15)).await?;
         external
-    } else if let Some(bin) = find_server_binary() {
-        let g = start_local_server(&bin, None).await;
+    } else if let Some(bin) = find_server_binary()? {
+        let g = start_local_server(&bin, None).await?;
         let addr = g.address.clone();
         _guard = g;
         addr
     } else {
         eprintln!("Skipping integration test: set GVDB_SERVER_BIN or GVDB_SERVER_ADDR.");
-        return;
+        return Ok(());
     };
 
-    let client = GvdbClient::connect(&address).await.unwrap();
+    let client = GvdbClient::connect(&address).await?;
     let collection = "rust_sdk_test_collection";
     let dim = 32usize;
 
-    let health = client.health_check().await.unwrap();
+    let health = client.health_check().await?;
     assert!(!health.is_empty());
 
-    let _stats = client.get_stats().await.unwrap();
+    let _stats = client.get_stats().await?;
 
     let _ = client.drop_collection(collection).await;
     let cid = client
@@ -150,11 +152,10 @@ async fn end_to_end_sdk_operations() {
                 .metric(Metric::L2)
                 .index_type(IndexType::Flat),
         )
-        .await
-        .unwrap();
+        .await?;
     assert!(cid > 0);
 
-    let colls = client.list_collections().await.unwrap();
+    let colls = client.list_collections().await?;
     assert!(colls.iter().any(|c| c.name == collection));
 
     // Insert 40 vectors with metadata.
@@ -169,7 +170,7 @@ async fn end_to_end_sdk_operations() {
             VectorRecord::new(id, deterministic_vector(id as usize, dim)).with_metadata(meta)
         })
         .collect();
-    assert_eq!(client.insert(collection, &records).await.unwrap(), 40);
+    assert_eq!(client.insert(collection, &records).await?, 40);
 
     // Stream insert another 60 vectors in chunks of 20.
     let stream_records: Vec<VectorRecord> = (41..=100u64)
@@ -178,8 +179,7 @@ async fn end_to_end_sdk_operations() {
     assert_eq!(
         client
             .stream_insert(collection, &stream_records, 20)
-            .await
-            .unwrap(),
+            .await?,
         60
     );
 
@@ -187,11 +187,12 @@ async fn end_to_end_sdk_operations() {
     let query = deterministic_vector(1, dim);
     let results = client
         .search(collection, &query, SearchOptions::default().top_k(5))
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(results.len(), 5);
-    for w in results.windows(2) {
-        assert!(w[1].distance >= w[0].distance);
+    for pair in results.windows(2) {
+        if let (Some(prev), Some(next)) = (pair.first(), pair.get(1)) {
+            assert!(next.distance >= prev.distance);
+        }
     }
 
     // Filtered search with metadata.
@@ -204,8 +205,7 @@ async fn end_to_end_sdk_operations() {
                 .filter("category = 'cat_0'")
                 .return_metadata(true),
         )
-        .await
-        .unwrap();
+        .await?;
     assert!(!filtered.is_empty());
     for hit in &filtered {
         assert_eq!(
@@ -222,8 +222,7 @@ async fn end_to_end_sdk_operations() {
                 .query_vector(query.clone())
                 .top_k(5),
         )
-        .await
-        .unwrap();
+        .await?;
 
     let range_hits = client
         .range_search(
@@ -233,21 +232,26 @@ async fn end_to_end_sdk_operations() {
                 .radius(100_000.0)
                 .max_results(20),
         )
-        .await
-        .unwrap();
+        .await?;
     assert!(!range_hits.is_empty());
 
     // Get with and without metadata.
-    let got_with_meta = client.get(collection, &[1, 2, 3], true).await.unwrap();
+    let got_with_meta = client.get(collection, &[1, 2, 3], true).await?;
     assert_eq!(got_with_meta.len(), 3);
     assert!(got_with_meta.iter().all(|v| v.metadata.is_some()));
 
-    let got_no_meta = client.get(collection, &[1], false).await.unwrap();
+    let got_no_meta = client.get(collection, &[1], false).await?;
     assert_eq!(got_no_meta.len(), 1);
-    assert!(got_no_meta[0].metadata.is_none());
+    assert!(
+        got_no_meta
+            .first()
+            .ok_or("missing record from get")?
+            .metadata
+            .is_none()
+    );
 
     // List vectors pagination.
-    let page = client.list_vectors(collection, 10, 0, false).await.unwrap();
+    let page = client.list_vectors(collection, 10, 0, false).await?;
     assert!(!page.vectors.is_empty());
     assert!(page.total_count >= 100);
 
@@ -260,20 +264,14 @@ async fn end_to_end_sdk_operations() {
                 VectorRecord::new(99_999, deterministic_vector(99, dim)),
             ],
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(upsert_res.upserted_count, 2);
 
     // Update metadata and confirm via filtered search.
     let mut patch = Metadata::new();
     patch.insert("tag".to_owned(), MetadataValue::from("updated"));
     patch.insert("price".to_owned(), MetadataValue::from(42.0f64));
-    assert!(
-        client
-            .update_metadata(collection, 5, patch, true)
-            .await
-            .unwrap()
-    );
+    assert!(client.update_metadata(collection, 5, patch, true).await?);
     let updated_hits = client
         .search(
             collection,
@@ -283,10 +281,9 @@ async fn end_to_end_sdk_operations() {
                 .filter("tag = 'updated'")
                 .return_metadata(true),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(updated_hits.len(), 1);
-    assert_eq!(updated_hits[0].id, 5);
+    assert_eq!(updated_hits.first().map(|h| h.id), Some(5));
 
     // Client-side import_records into a new collection.
     let import_coll = "rust_sdk_import_records";
@@ -303,41 +300,35 @@ async fn end_to_end_sdk_operations() {
                 .metric(Metric::Cosine)
                 .index_type(IndexType::Flat),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(imp_res.total_count, 10);
     assert!(imp_res.created_collection);
-    client.drop_collection(import_coll).await.unwrap();
+    client.drop_collection(import_coll).await?;
 
     // Delete and drop.
-    assert_eq!(client.delete(collection, &[5, 6, 7]).await.unwrap(), 3);
-    assert!(
-        client
-            .get(collection, &[5, 6, 7], false)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert_eq!(client.delete(collection, &[5, 6, 7]).await?, 3);
+    assert!(client.get(collection, &[5, 6, 7], false).await?.is_empty());
 
-    client.drop_collection(collection).await.unwrap();
-    let remaining = client.list_collections().await.unwrap();
+    client.drop_collection(collection).await?;
+    let remaining = client.list_collections().await?;
     assert!(!remaining.iter().any(|c| c.name == collection));
+    Ok(())
 }
 
 #[tokio::test]
-async fn end_to_end_rbac_enforcement() {
+async fn end_to_end_rbac_enforcement() -> TestResult {
     if std::env::var("GVDB_SERVER_ADDR").is_ok() {
         eprintln!("Skipping RBAC test against external server.");
-        return;
+        return Ok(());
     }
-    let Some(bin) = find_server_binary() else {
+    let Some(bin) = find_server_binary()? else {
         eprintln!("Skipping RBAC integration test: set GVDB_SERVER_BIN.");
-        return;
+        return Ok(());
     };
 
     let collection = "rust_rbac_test";
     let dim = 4usize;
-    let port = free_port();
+    let port = free_port()?;
     let yaml = format!(
         r#"
 server:
@@ -364,30 +355,20 @@ index:
 "#
     );
 
-    let guard = start_local_server(&bin, Some(yaml)).await;
+    let guard = start_local_server(&bin, Some(yaml)).await?;
     let addr = guard.address.clone();
 
     let admin = ClientConfig::new(&addr)
         .api_key("admin-key")
         .connect()
-        .await
-        .unwrap();
+        .await?;
     let legacy = ClientConfig::new(&addr)
         .api_key("legacy-key")
         .connect()
-        .await
-        .unwrap();
-    let rw = ClientConfig::new(&addr)
-        .api_key("rw-key")
-        .connect()
-        .await
-        .unwrap();
-    let ro = ClientConfig::new(&addr)
-        .api_key("ro-key")
-        .connect()
-        .await
-        .unwrap();
-    let no_auth = GvdbClient::connect(&addr).await.unwrap();
+        .await?;
+    let rw = ClientConfig::new(&addr).api_key("rw-key").connect().await?;
+    let ro = ClientConfig::new(&addr).api_key("ro-key").connect().await?;
+    let no_auth = GvdbClient::connect(&addr).await?;
 
     admin
         .create_collection(
@@ -397,19 +378,19 @@ index:
                 .metric(Metric::L2)
                 .index_type(IndexType::Flat),
         )
-        .await
-        .unwrap();
+        .await?;
     admin
         .insert(
             collection,
             &[VectorRecord::new(1, deterministic_vector(1, dim))],
         )
-        .await
-        .unwrap();
+        .await?;
 
     // Missing key is rejected.
-    let err = no_auth.list_collections().await.unwrap_err();
-    let code = err.status().expect("gRPC status").code();
+    let Err(err) = no_auth.list_collections().await else {
+        return Err("expected unauthenticated error".into());
+    };
+    let code = err.status().ok_or("expected gRPC status")?.code();
     assert!(matches!(code, Code::Unauthenticated | Code::Cancelled));
 
     // Legacy key acts as admin.
@@ -419,21 +400,22 @@ index:
             &deterministic_vector(1, dim),
             SearchOptions::default().top_k(1),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(hits.len(), 1);
 
     // Readonly can read but cannot write.
-    assert_eq!(ro.get(collection, &[1], false).await.unwrap().len(), 1);
-    let err = ro
+    assert_eq!(ro.get(collection, &[1], false).await?.len(), 1);
+    let Err(err) = ro
         .upsert(
             collection,
             &[VectorRecord::new(1, deterministic_vector(1, dim))],
         )
         .await
-        .unwrap_err();
+    else {
+        return Err("expected permission denied on readonly upsert".into());
+    };
     assert_eq!(
-        err.status().expect("gRPC status").code(),
+        err.status().ok_or("expected gRPC status")?.code(),
         Code::PermissionDenied
     );
 
@@ -443,8 +425,7 @@ index:
             collection,
             &[VectorRecord::new(2, deterministic_vector(2, dim))],
         )
-        .await
-        .unwrap(),
+        .await?,
         1
     );
 
@@ -456,21 +437,23 @@ index:
                 .metric(Metric::L2)
                 .index_type(IndexType::Flat),
         )
-        .await
-        .unwrap();
-    let err = rw
+        .await?;
+    let Err(err) = rw
         .insert(
             "forbidden_coll",
             &[VectorRecord::new(1, deterministic_vector(1, dim))],
         )
         .await
-        .unwrap_err();
+    else {
+        return Err("expected permission denied on forbidden collection".into());
+    };
     assert_eq!(
-        err.status().expect("gRPC status").code(),
+        err.status().ok_or("expected gRPC status")?.code(),
         Code::PermissionDenied
     );
 
-    admin.drop_collection("forbidden_coll").await.unwrap();
-    admin.drop_collection(collection).await.unwrap();
+    admin.drop_collection("forbidden_coll").await?;
+    admin.drop_collection(collection).await?;
     drop(guard);
+    Ok(())
 }
