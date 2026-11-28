@@ -105,7 +105,9 @@ absl::Status Run(const Args& args) {
           .client_factory = std::make_shared<cluster::GrpcInternalServiceClientFactory>(),
           .backup_manager = backup.backup,
           .restore_manager = backup.restore,
-          .registry_dir = args.data_dir});
+          .registry_dir = args.data_dir,
+          // Only the Raft leader detects failures and rebalances.
+          .is_leader = [&raft = *raft_node] { return raft.IsLeader(); }});
   // Restore the collection registry and the shard map before serving.
   // Without it, a restart orphans every collection, although the data
   // nodes keep the segments.
@@ -153,6 +155,10 @@ absl::Status Run(const Args& args) {
           "Role: " + std::string(raft_node->IsLeader() ? "LEADER" : "FOLLOWER"),
       });
 
+  // Failure detection, drain, auto-rebalance, replication checks and read
+  // repair run in the background from here on.
+  RETURN_IF_ERROR(coordinator->Start(args.bind_address));
+
   bool was_leader = raft_node->IsLeader();
   server::WaitForShutdown([&] {
     if (args.single_node_mode) return;
@@ -163,6 +169,9 @@ absl::Status Run(const Args& args) {
       was_leader = is_leader;
     }
   });
+
+  // The health-check loop reads the Raft leadership, so it stops first.
+  (void)coordinator->Shutdown();
 
   // Leave the Raft group before the gRPC server stops, while the leader can
   // still reach this node.

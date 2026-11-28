@@ -21,6 +21,8 @@ Coordinator::Coordinator(std::shared_ptr<ShardManager> shard_manager,
       node_registry_(std::move(node_registry)),
       registry_path_(options.registry_dir.empty() ? std::string()
                                                   : options.registry_dir + "/registry.json"),
+      is_leader_(std::move(options.is_leader)),
+      health_check_interval_(options.health_check_interval),
       auto_rebalance_config_(options.auto_rebalance),
       client_factory_(std::move(options.client_factory)),
       backup_manager_(std::move(options.backup_manager)),
@@ -37,24 +39,12 @@ absl::Status Coordinator::Start(const std::string& bind_address) {
   common::Logger::Instance().Info("Starting coordinator on {}", bind_address);
 
   // Seed the "known data nodes" set with whoever is already heartbeating.
-  // Without this, every existing data node
-  // looks "new" on the first health-check cycle after a coordinator
-  // restart → we would fire an unnecessary rebalance even if the cluster
-  // was already balanced. Seeding on Start() means only nodes that join
-  // AFTER we're running count as scale-up events.
-  {
-    auto data_nodes =
-        node_registry_->GetHealthyNodesByType(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
-    std::scoped_lock lock(known_nodes_mutex_);
-    known_data_nodes_.clear();
-    for (const auto& n : data_nodes) {
-      if (n.IsDraining()) continue;
-      known_data_nodes_.insert(core::MakeNodeId(n.info.node_id()));
-    }
-    common::Logger::Instance().Info(
-        "Auto-rebalance: seeded known_data_nodes_ with {} existing node(s)",
-        known_data_nodes_.size());
-  }
+  // Without this, every existing data node looks "new" on the first
+  // health-check cycle after a coordinator restart, and we would fire an
+  // unnecessary rebalance even if the cluster was already balanced. Seeding
+  // on Start() means only nodes that join AFTER we're running count as
+  // scale-up events.
+  SeedKnownDataNodes();
 
   running_.store(true, std::memory_order_release);
   StartHealthCheckLoop();
@@ -87,6 +77,20 @@ absl::Status Coordinator::Shutdown() {
   }
 
   return absl::OkStatus();
+}
+
+void Coordinator::SeedKnownDataNodes() {
+  auto data_nodes =
+      node_registry_->GetHealthyNodesByType(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  std::scoped_lock lock(known_nodes_mutex_);
+  known_data_nodes_.clear();
+  for (const auto& n : data_nodes) {
+    if (n.IsDraining()) continue;
+    known_data_nodes_.insert(core::MakeNodeId(n.info.node_id()));
+  }
+  common::Logger::Instance().Info(
+      "Auto-rebalance: seeded known_data_nodes_ with {} existing node(s)",
+      known_data_nodes_.size());
 }
 
 core::CollectionId Coordinator::AllocateCollectionId() {
