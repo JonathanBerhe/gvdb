@@ -25,6 +25,7 @@ VectorDBService::VectorDBService(std::shared_ptr<storage::ISegmentStore> segment
       locator_(segment_store_, *resolver_),
       write_path_(segment_store_, query_executor_, *resolver_, locator_,
                   options.primary_term_tracker, options.shard_write_gate),
+      read_path_(segment_store_, query_executor_, *resolver_, locator_),
       bulk_importer_(std::move(options.bulk_importer)),
       backup_manager_(std::move(options.backup_manager)),
       restore_manager_(std::move(options.restore_manager)),
