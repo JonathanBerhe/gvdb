@@ -151,7 +151,12 @@ absl::StatusOr<core::SearchResult> Segment::SearchRange(const core::Vector& quer
         absl::StrCat("Cannot search in segment state: ", static_cast<int>(state_)));
   }
 
-  // Keep the nearest max_results entries, closest first.
+  // Drop the expired vectors, then keep the nearest max_results entries,
+  // closest first.
+  const int64_t now = NowEpochSeconds();
+  std::erase_if(result.entries, [this, now](const core::SearchResultEntry& e) {
+    return IsExpired(core::ToUInt64(e.id), now);
+  });
   std::ranges::sort(result.entries,
                     [](const auto& a, const auto& b) { return a.distance < b.distance; });
   if (max_results > 0 && std::cmp_greater(result.entries.size(), max_results)) {

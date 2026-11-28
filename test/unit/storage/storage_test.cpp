@@ -1924,6 +1924,45 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_BruteForceSearch") {
   CHECK_EQ(r2->entries.size(), 2);
 }
 
+TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_RangeSearch") {
+  storage::Segment segment(core::MakeSegmentId(1), collection_id_, 4, core::MetricType::L2);
+  std::vector<core::Vector> vectors;
+  std::vector<core::VectorId> ids;
+  for (int i = 1; i <= 4; ++i) {
+    vectors.emplace_back(std::vector<float>{static_cast<float>(i), 0.0F, 0.0F, 0.0F});
+    ids.push_back(core::MakeVectorId(i));
+  }
+  REQUIRE(segment.AddVectors(vectors, ids).ok());
+  // Vector 1 is the nearest to the query, and it expired.
+  segment.SetExpiry(ids[0], PastExpiry());
+  segment.SetExpiry(ids[1], FutureExpiry());
+
+  SUBCASE("growing segment") {}
+  SUBCASE("sealed segment") {
+    core::IndexConfig config;
+    config.index_type = core::IndexType::FLAT;
+    config.dimension = 4;
+    config.metric_type = core::MetricType::L2;
+    auto index_result = index_factory_->CreateIndex(config);
+    REQUIRE(index_result.ok());
+    REQUIRE(segment.Seal(index_result.value().release()).ok());
+  }
+
+  const core::Vector query(std::vector<float>{0.0F, 0.0F, 0.0F, 0.0F});
+  auto all = segment.SearchRange(query, 10.0F, 0);
+  REQUIRE(all.ok());
+  REQUIRE_EQ(all->entries.size(), 3);
+  CHECK_EQ(all->entries[0].id, ids[1]);
+  CHECK_EQ(all->entries[1].id, ids[2]);
+  CHECK_EQ(all->entries[2].id, ids[3]);
+
+  // The expired vector does not take a place under max_results.
+  auto capped = segment.SearchRange(query, 10.0F, 1);
+  REQUIRE(capped.ok());
+  REQUIRE_EQ(capped->entries.size(), 1);
+  CHECK_EQ(capped->entries[0].id, ids[1]);
+}
+
 TEST_CASE_FIXTURE(StorageTest, "SegmentTTL_SweepExpired") {
   auto seg_id = core::MakeSegmentId(1);
   storage::Segment segment(seg_id, collection_id_, dimension_, metric_);
