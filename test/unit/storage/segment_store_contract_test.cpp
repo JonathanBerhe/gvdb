@@ -118,8 +118,8 @@ TEST_CASE_TEMPLATE("SegmentStore contract: WriteVectors then ReadVectors", F,
 
   auto* segment = f.store().GetSegment(segment_id);
   REQUIRE_NE(segment, nullptr);
-  auto read = segment->ReadVectors(
-      {core::MakeVectorId(1), core::MakeVectorId(25), core::MakeVectorId(50)});
+  auto read =
+      segment->ReadVectors({core::MakeVectorId(1), core::MakeVectorId(25), core::MakeVectorId(50)});
   REQUIRE(read.ok());
   CHECK_EQ(read->size(), 3);
 }
