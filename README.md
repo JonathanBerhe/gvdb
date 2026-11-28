@@ -1,267 +1,114 @@
-# GVDB - Distributed Vector Database
+# GVDB
 
-A high-performance distributed vector database written in C++ for similarity search at scale.
+GVDB is a distributed vector database written in C++. It stores embeddings and finds the vectors that are nearest to a query vector. Applications use it for semantic search, recommendations and retrieval-augmented generation (RAG). Clients connect over gRPC, and the [Python SDK](clients/python) is the supported client.
 
-Store, index, and search high-dimensional vectors (embeddings from OpenAI, Cohere, HuggingFace, etc.) with sub-millisecond latency. Use it to power semantic search, recommendation engines, RAG pipelines, image retrieval, and anomaly detection.
-
-**Documentation**: [jonathanberhe.github.io/gvdb](https://jonathanberhe.github.io/gvdb/)
+Documentation: [jonathanberhe.github.io/gvdb](https://jonathanberhe.github.io/gvdb/)
 
 ## Features
 
-- **Vector Search**: FLAT, HNSW, IVF_FLAT, IVF_PQ, IVF_SQ, TurboQuant, IVF_TURBOQUANT index types + AUTO selection
-- **Sparse Vectors**: Inverted posting-list index for learned sparse retrieval (SPLADE, etc.)
-- **TurboQuant**: Data-oblivious online quantization (ICLR 2026): 1/2/4/8-bit compression with near-optimal distortion. IVF_TURBOQUANT combines IVF partitioning with TurboQuant for sub-linear search at extreme compression (7.5x at 4-bit on 768D)
-- **Three-Way Hybrid Search**: Dense vectors + sparse vectors + BM25 text with Reciprocal Rank Fusion (RRF)
-- **Per-Vector TTL**: Time-to-live with background sweep and query-time expiry filtering. Atomic insert+TTL, serialization-safe, Python SDK support
-- **Distributed Mode**: Coordinator, data nodes, query nodes, proxy with full sharding and replication
-- **Multi-Shard Collections**: Data distributed across nodes with consistent hashing (150 virtual nodes)
-- **Fault Tolerance**: Automatic failure detection, replica promotion, auto-replication
-- **Metadata Filtering**: SQL-like filters (`age > 18 AND city = 'NYC'`, `LIKE`, `IN`)
-- **Persistence**: Vectors flushed to disk, index rebuilt on startup recovery
-- **S3/MinIO Tiered Storage**: Sealed segments uploaded to S3/MinIO asynchronously. LRU local cache, lazy download on read, manifest-based discovery on startup. Build with `-DGVDB_WITH_S3=ON`
-- **RBAC**: Role-based access control (admin, readwrite, readonly, collection_admin) with per-collection scoping and YAML config
-- **GPU Acceleration**: Apple Metal FLAT kernels on Apple Silicon; NVIDIA CUDA FLAT/IVF via faiss-gpu (opt-in, build with `-DGVDB_WITH_CUDA=ON`). See [GPU Performance](#gpu-performance) for head-to-head numbers.
-- **Backup and Restore**: Point-in-time backup of a collection to S3/MinIO or a local PVC with `BackupCollection` / `RestoreCollection` gRPC and the operator's `GVDBBackup` / `GVDBRestore` CRDs
-- **gRPC API**: Protobuf-based client/server with TLS and API key authentication
-- **Python SDK**: `pip install gvdb`, full API with hybrid search, streaming inserts, metadata, TTL
-- **Raft Consensus**: Metadata operations replicated via NuRaft
+- Vector indexes: FLAT, HNSW, IVF_FLAT, IVF_PQ, IVF_SQ, TurboQuant and IVF_TURBOQUANT, or `AUTO` to let GVDB choose.
+- Hybrid search: dense vectors, sparse vectors and BM25 text in one query, merged with Reciprocal Rank Fusion.
+- Metadata filters with an SQL-like syntax, for example `age > 18 AND city = 'NYC'`.
+- A time-to-live (TTL) per vector.
+- A cluster mode with shards, replicas, failure detection and Raft consensus for the metadata.
+- Tiered storage: sealed segments go to S3, GCS or MinIO, and a local cache keeps the hot ones.
+- Backup and restore of a collection, also through the Kubernetes operator.
+- TLS, API keys and role-based access control per collection.
+- GPU search on Apple Metal and, as an option, on NVIDIA CUDA. See [GPU acceleration](docs/features/gpu-acceleration.md).
 
-## Architecture
+## Programs
 
-```mermaid
-graph TB
-    Client([Client])
+| Program | Role |
+|---------|------|
+| `gvdb-single-node` | The whole database in one process, for development and small deployments |
+| `gvdb-coordinator` | Keeps the cluster metadata, replicated with Raft |
+| `gvdb-data-node` | Stores the shards of the collections and builds their indexes |
+| `gvdb-query-node` | Sends a search to the data nodes and merges the results |
+| `gvdb-proxy` | The entry point of a cluster for clients |
 
-    subgraph Proxy Layer
-        Proxy[gvdb-proxy<br/>Load Balancing]
-    end
+## Quick start
 
-    subgraph Control Plane
-        C1[gvdb-coordinator]
-        C2[gvdb-coordinator]
-        C3[gvdb-coordinator]
-        C1 <--> C2
-        C2 <--> C3
-        C1 <--> C3
-    end
-
-    subgraph Data Plane
-        DN1[gvdb-data-node<br/>Shards 1-4]
-        DN2[gvdb-data-node<br/>Shards 5-8]
-    end
-
-    subgraph Query Plane
-        QN1[gvdb-query-node]
-        QN2[gvdb-query-node]
-    end
-
-    Client --> Proxy
-    Proxy -- "metadata ops" --> C1
-    Proxy -- "search" --> QN1 & QN2
-    Proxy -- "insert/get/delete" --> DN1 & DN2
-    QN1 & QN2 -- "ExecuteShardQuery" --> DN1 & DN2
-    DN1 & DN2 -- "heartbeat" --> C1
-    QN1 & QN2 -- "heartbeat" --> C1
-    C1 -- "CreateSegment<br/>ReplicateSegment" --> DN1 & DN2
-
-    style Proxy fill:#4a9eff,color:#fff
-    style C1 fill:#ff6b6b,color:#fff
-    style C2 fill:#ff6b6b,color:#fff
-    style C3 fill:#ff6b6b,color:#fff
-    style DN1 fill:#51cf66,color:#fff
-    style DN2 fill:#51cf66,color:#fff
-    style QN1 fill:#ffd43b,color:#333
-    style QN2 fill:#ffd43b,color:#333
-```
-
-| Binary | Role |
-|--------|------|
-| `gvdb-single-node` | All-in-one for development and small deployments |
-| `gvdb-coordinator` | Cluster metadata via Raft consensus |
-| `gvdb-data-node` | Sharded vector storage and indexing |
-| `gvdb-query-node` | Distributed search with fan-out and result merging |
-| `gvdb-proxy` | Client entry point with load balancing |
-
-## GPU Performance
-
-Exhaustive **FLAT L2** search, top-k=10, median of 10 runs. The Metal and CUDA
-benchmarks ([`test/bench/metal_bench.cpp`](test/bench/metal_bench.cpp),
-[`test/bench/cuda_bench.cpp`](test/bench/cuda_bench.cpp)) run the identical
-workload and sweeps, so the GPU latencies are directly comparable. "Speedup" is
-against each platform's own single-query faiss CPU baseline.
-
-**By vector count** (dim=768):
-
-| Vectors | Metal GPU<br>(M1 Pro) | vs CPU | CUDA GPU<br>(A10G) | vs CPU |
-|--------:|----------------------:|-------:|-------------------:|-------:|
-| 1K      | 0.55 ms   | 5.1×  | 0.05 ms  | 6.7×  |
-| 10K     | 2.40 ms   | 11.4× | 0.14 ms  | 25.7× |
-| 50K     | 6.65 ms   | 20.1× | 0.50 ms  | 35.1× |
-| 100K    | 12.71 ms  | 20.9× | 0.93 ms  | 35.6× |
-| 500K    | 58.79 ms  | 22.7× | 3.95 ms  | 45.7× |
-| 1M      | 115.23 ms | 23.1× | 8.66 ms  | 43.0× |
-| 2M      | 231.70 ms | 22.8× | 17.31 ms | 40.2× |
-
-**By dimension** (100K vectors):
-
-| Dimension | Metal GPU<br>(M1 Pro) | vs CPU | CUDA GPU<br>(A10G) | vs CPU |
-|----------:|----------------------:|-------:|-------------------:|-------:|
-| 128       | 4.67 ms  | 9.1×  | 0.32 ms | 19.1× |
-| 384       | 7.61 ms  | 17.1× | 0.66 ms | 27.5× |
-| 768       | 12.14 ms | 21.6× | 0.93 ms | 40.3× |
-| 1536      | 20.88 ms | 25.2× | 1.29 ms | 70.1× |
-
-Notes:
-
-- **Speedups are vs each platform's own faiss CPU**: the M1 Pro (NEON) and the
-  A10G host (AVX) are very different CPUs, so the multiples across the two
-  columns are not directly comparable. At 1M×768 the CPU baselines were 2665 ms
-  (M1 Pro) and 372 ms (A10G host).
-- **Raw GPU latency is comparable** (identical workload): the A10G runs FLAT
-  ~13× faster than the M1 Pro's integrated GPU (17.3 ms vs 231.7 ms at 2M×768),
-  the expected gap between a datacenter GPU and a laptop iGPU.
-- Reproduce: `make bench-metal` on Apple Silicon;
-  `uv run --project tools/modal modal run tools/modal/gpu_bench.py` for CUDA on
-  a Modal A10G (both build with the respective `-DGVDB_WITH_METAL=ON` /
-  `-DGVDB_WITH_CUDA=ON`).
-
-## Quick Start
-
-### Deploy on Kubernetes (Helm)
+This starts `gvdb-single-node` on `localhost:50051` from a source build. [Build from source](#build-from-source) lists what the build needs.
 
 ```bash
-helm install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
-  --namespace gvdb --create-namespace
-
-# Scale data nodes
-helm upgrade gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
-  --namespace gvdb --set dataNode.replicas=5
-
-# Connect
-kubectl port-forward -n gvdb svc/gvdb-proxy 50050:50050
+make run
 ```
 
-### Deploy locally with Kind
+Install the SDK, then run a first search from Python:
 
 ```bash
-make deploy   # builds image, creates kind cluster, installs via Helm
-make status   # check pods
+pip install gvdb
 ```
 
-### Build from source
+```python
+from gvdb import GVDBClient
+
+client = GVDBClient("localhost:50051")
+client.create_collection("demo", dimension=3, metric="l2", index_type="flat")
+client.insert("demo", [1, 2], [[0.1, 0.2, 0.3], [0.9, 0.8, 0.7]])
+for result in client.search("demo", [0.1, 0.2, 0.3], top_k=1):
+    print(result.id, result.distance)
+```
+
+`make stop` stops the server. The [quickstart](docs/getting-started/quickstart.md) shows the same steps with Docker.
+
+## Deploy
+
+Install a cluster on Kubernetes with Helm:
 
 ```bash
-make build          # Debug build with tests (preset dev, output in build/dev)
-make build-release  # Release build (preset release, output in build/release); the container image uses release-linux
-make test           # Run all C++ tests of the dev build
+helm install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb --namespace gvdb --create-namespace
 ```
 
-`make` drives the presets in `CMakePresets.json`. You can also call CMake directly, for example `cmake --preset dev && cmake --build --preset dev && ctest --preset dev`.
+To try the chart on your machine, `make deploy` builds the image, creates a kind cluster and installs the chart. These pages give the details:
 
-### Run (single-node)
+- [Deploy with Helm](docs/operations/deploy-helm.md): the chart values and the production settings.
+- [Deploy with the operator](docs/operations/deploy-operator.md): the `GVDBCluster`, `GVDBBackup` and `GVDBRestore` resources.
+- [Configuration](docs/operations/configuration.md) and the [CLI reference](docs/reference/cli.md): the YAML file, the flags and the environment variables.
+
+## Build from source
+
+You need:
+
+- CMake 3.28 or later and Ninja.
+- On Linux: Clang 22 with libc++ from apt.llvm.org. `tools/ci/install-llvm.sh` installs it on Ubuntu or Debian. The `dev` preset also builds with GCC 13.
+- On macOS: Apple clang from Xcode, and `libomp` and `zlib` from Homebrew.
+
+CMake downloads the other dependencies. The Makefile calls the presets in `CMakePresets.json`:
 
 ```bash
-make run             # build, then start gvdb-single-node on localhost:50051 in the background
-make monitoring-up   # Prometheus on localhost:9091, Grafana with the GVDB dashboard on localhost:3000
-make stop            # stop the server (make monitoring-down stops the monitoring stack)
+make build           # debug build with tests, in build/dev
+make test            # all C++ tests of the dev build
+make build-release   # release build, in build/release
 ```
 
-The server keeps its data, log and pid file in `build/dev/run`. To run the binary in the foreground instead:
+## Repository layout
+
+| Folder | Content |
+|--------|---------|
+| `src/` | The C++ source. One folder per module, with each header next to its source file |
+| `proto/` | The gRPC API (`vectordb.proto`) and the internal cluster API (`internal.proto`) |
+| `test/` | Unit tests per module, integration tests and benchmarks. See [test/README.md](test/README.md) |
+| `clients/python/` | The Python SDK |
+| `operator/` | The Kubernetes operator, in Go |
+| `deploy/` | The Dockerfile, the Helm charts, the kind configuration and the monitoring stack |
+| `docs/` | The documentation site |
+| `tools/` | Scripts for CI, coverage, protobuf generation and the Modal GPU tests |
+
+## Contributing
+
+Before you open a pull request, run these commands from the repository root:
 
 ```bash
-./build/dev/bin/gvdb-single-node --port 50051 --data-dir /tmp/gvdb
+make test           # C++ tests
+make format         # clang-format
+make tidy           # clang-tidy
+make check-layers   # module dependency order
+make test-sdk       # Python SDK tests, when you change the SDK or the API
 ```
 
-### Run (distributed, bare metal)
-
-```bash
-# Coordinator
-./build/dev/bin/gvdb-coordinator --node-id 1 --bind-address 0.0.0.0:50051
-
-# Data node (use --advertise-address in containers)
-./build/dev/bin/gvdb-data-node --node-id 101 --bind-address 0.0.0.0:50060 \
-  --coordinator localhost:50051
-
-# Query node
-./build/dev/bin/gvdb-query-node --node-id 201 --bind-address 0.0.0.0:50070 \
-  --coordinator localhost:50051
-
-# Proxy (data-node routing goes through the coordinator's RouteQuery RPC,
-# so the proxy only needs to know coordinators + query nodes)
-./build/dev/bin/gvdb-proxy --coordinators localhost:50051 \
-  --query-nodes localhost:50070
-```
-
-## Helm Chart Configuration
-
-All values are configurable via `--set` or a custom `values.yaml`:
-
-```bash
-helm install gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
-  --set dataNode.replicas=3 \
-  --set queryNode.replicas=2 \
-  --set proxy.service.type=LoadBalancer \
-  --set image.tag=v1.2.0
-```
-
-Key values:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `dataNode.replicas` | `2` | Number of data nodes |
-| `queryNode.replicas` | `1` | Number of query nodes |
-| `coordinator.replicas` | `1` | Coordinators (use 3 for Raft HA in production) |
-| `proxy.service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer` |
-| `image.repository` | `gvdb` | Container image |
-| `image.tag` | `""` (Chart `appVersion`) | Image tag |
-| `dataNode.storage.size` | `5Gi` | PVC size per data node |
-| `dataNode.memoryLimitGb` | `4` | Memory limit for vector storage |
-
-**Production hardening (all opt-in, default off):** `<workload>.podDisruptionBudget`, `<workload>.podAntiAffinity`, `<workload>.zoneSpread`, `<workload>.serviceAccount` (with cloud IAM annotations), `priorityClasses.create`, `networkPolicy.enabled` (per-workload `NetworkPolicy` resources), `metrics.serviceMonitor.enabled` (PodMonitor + ServiceMonitor for Prometheus Operator), `security.podSecurityContext` / `security.containerSecurityContext`. See the [Deploy with Helm guide](https://jonathanberhe.github.io/gvdb/operations/deploy-helm/#hardening-primitives-production) for the full reference and a copy-pasteable `values.prod.yaml`.
-
-See [`deploy/helm/gvdb/values.yaml`](deploy/helm/gvdb/values.yaml) for all options.
-
-## Configuration
-
-```yaml
-server:
-  grpc_port: 50051
-  tls:
-    enabled: true
-    cert_path: /etc/gvdb/server.crt
-    key_path: /etc/gvdb/server.key
-  auth:
-    enabled: true
-    api_keys:
-      - "your-api-key"
-
-storage:
-  data_dir: /var/lib/gvdb
-
-logging:
-  level: info
-```
-
-The cluster programs read environment variables such as `GVDB_BIND_ADDRESS` and `GVDB_DATA_DIR` for cloud-native deployments. `gvdb-single-node` reads none. See the [CLI reference](docs/reference/cli.md).
-
-## Build Requirements
-
-- CMake 3.28+ and Ninja
-- Linux: Clang 22 with libc++, from apt.llvm.org (`tools/ci/install-llvm.sh` installs it on Ubuntu or Debian). CI, the container image and the `ci`, `release-linux` and `cuda` presets use it. The `dev` preset uses the default compiler, so GCC 13 also works for local builds.
-- macOS: Apple clang from Xcode, plus Homebrew `libomp` and `zlib`
-- Dependencies fetched automatically via CMake FetchContent
-
-## Tests
-
-```bash
-make test             # C++ unit + integration tests
-make coverage         # Same tests with line coverage per module
-make bench-search     # CPU search latency benchmark (Release build)
-make test-sdk         # Python SDK tests against the gvdb-single-node binary
-```
-
-See [test/README.md](test/README.md) for details on the test structure.
+[docs/contributing.md](docs/contributing.md) describes the code conventions, the module layers and the C++23 features that the code uses. Commit messages follow Conventional Commits, for example `fix(storage): ...`. If you change the API, run `make proto` to regenerate the Python and operator stubs.
 
 ## License
 
-Apache License 2.0 - see [LICENSE](LICENSE)
+Apache License 2.0. See [LICENSE](LICENSE).
