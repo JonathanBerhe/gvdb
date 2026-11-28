@@ -42,14 +42,13 @@ absl::Status Run(const Args& args) {
 
   const config::GVDBConfig config = server::LoadConfigOrDefault(args.config_file);
   server::InterceptorFactories interceptors;
-  if (auto rbac_store = server::AddAuthInterceptor(config.server.auth, interceptors);
-      !rbac_store.ok()) {
-    return rbac_store.status();
-  }
+  ASSIGN_OR_RETURN(auto rbac_store, server::AddAuthInterceptor(config.server.auth, interceptors));
   server::AddAuditInterceptor(config.logging.audit, interceptors);
 
-  auto proxy_service =
-      std::make_unique<service::ProxyService>(args.coordinator_addresses, args.query_node_uri);
+  // The nodes behind the proxy run without RBAC, so the proxy checks the role
+  // of each request.
+  auto proxy_service = std::make_unique<service::ProxyService>(
+      args.coordinator_addresses, args.query_node_uri, std::move(rbac_store));
   ASSIGN_OR_RETURN(auto grpc_server,
                    server::StartGrpcServer(args.bind_address, {proxy_service.get()},
                                            server::MakeServerCredentials(config.server.tls),

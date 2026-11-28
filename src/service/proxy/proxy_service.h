@@ -11,7 +11,9 @@
 #include <vector>
 
 #include <grpcpp/grpcpp.h>
+#include "auth/rbac.h"
 #include "internal.grpc.pb.h"
+#include "service/vectordb/request_guard.h"
 #include "vectordb.grpc.pb.h"
 
 namespace gvdb::service {
@@ -31,7 +33,11 @@ namespace gvdb::service {
 // than fanning out to a random data node).
 class ProxyService final : public proto::VectorDBService::Service {
  public:
-  ProxyService(const std::vector<std::string>& coordinator_addrs, std::string query_node_uri);
+  // `rbac_store` checks the role of the API key of each request before the
+  // proxy forwards it; the nodes behind the proxy run without RBAC. Null
+  // turns off the role check.
+  ProxyService(const std::vector<std::string>& coordinator_addrs, std::string query_node_uri,
+               std::shared_ptr<auth::RbacStore> rbac_store = nullptr);
 
   ~ProxyService() override = default;
 
@@ -114,6 +120,9 @@ class ProxyService final : public proto::VectorDBService::Service {
                             proto::CancelBackupResponse* response) override;
 
  private:
+  // The same permission check as VectorDBService, per handler.
+  RequestGuard guard_;
+
   // Backend targets
   std::vector<std::string> coordinator_addrs_;
   // Single dns:///<headless-svc>:<port> URI (or a bare host:port for
