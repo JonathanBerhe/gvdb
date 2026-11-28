@@ -273,6 +273,8 @@ absl::Status MetalFlatIndex::Deserialize(const std::string& path) {
   file.read(reinterpret_cast<char*>(vectors_.data()), vectors_.size() * sizeof(float));
   file.read(reinterpret_cast<char*>(ids_.data()), ids_.size() * sizeof(core::VectorId));
 
+  // Search reads the vectors from the GPU buffer, not from vectors_.
+  RebuildGpuBuffer();
   return absl::OkStatus();
 }
 
