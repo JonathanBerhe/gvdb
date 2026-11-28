@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "absl/status/statusor.h"
@@ -161,7 +162,10 @@ class GvdbLogStore : public nuraft::log_store {
   void CloseRocksDb();
 
   // RocksDB-specific helpers
-  std::string MakeLogKey(nuraft::ulong index) const;
+  // The RocksDB key of a log index: 8 bytes, big-endian, so that keys sort in
+  // index order. ParseLogKey reads it back.
+  static std::string MakeLogKey(nuraft::ulong index);
+  static nuraft::ulong ParseLogKey(std::string_view key);
   bool WriteEntryToDb(nuraft::ulong index, nuraft::ptr<nuraft::log_entry>& entry);
   nuraft::ptr<nuraft::log_entry> ReadEntryFromDb(nuraft::ulong index) const;
   bool DeleteRangeFromDb(nuraft::ulong start_index, nuraft::ulong end_index);
