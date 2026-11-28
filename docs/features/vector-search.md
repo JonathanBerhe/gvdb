@@ -38,7 +38,9 @@ Every index supports three metrics. Each search result has a `distance`, and a l
 | `ip` | Minus the inner product (dot product) | Any value |
 | `cosine` | 1 minus the cosine similarity | 0 to 2 |
 
-Every index type returns the same distance for the same pair of vectors. TurboQuant indexes return an estimate of it. For `cosine`, a zero vector has no direction, so its distance to any vector is 1.
+Every index type returns the same distance for the same pair of vectors. TurboQuant indexes return an estimate of it.
+
+A zero vector has no direction, so a `cosine` collection rejects it. An insert, an upsert or a search with a zero vector in a `cosine` collection fails with `INVALID_ARGUMENT`. A vector with a norm below 1e-8 counts as zero.
 
 A range search returns every vector within a limit of the query, closest first. The limit depends on the metric:
 

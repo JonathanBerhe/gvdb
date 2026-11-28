@@ -119,12 +119,14 @@ class ServiceWriteTest {
     // test_dir_ is the first member, so it removes the folder last.
   }
 
-  void CreateCollection(const std::string& name, uint32_t dim = kDim) {
+  void CreateCollection(
+      const std::string& name, uint32_t dim = kDim,
+      proto::CreateCollectionRequest::MetricType metric = proto::CreateCollectionRequest::L2) {
     grpc::ServerContext ctx;
     proto::CreateCollectionRequest req;
     req.set_collection_name(name);
     req.set_dimension(dim);
-    req.set_metric(proto::CreateCollectionRequest::L2);
+    req.set_metric(metric);
     req.set_index_type(proto::CreateCollectionRequest::FLAT);
     proto::CreateCollectionResponse resp;
     auto status = service_->CreateCollection(&ctx, &req, &resp);
@@ -677,6 +679,87 @@ TEST_CASE_FIXTURE(ServiceWriteServerTest, "StreamInsertRejectsDimensionMismatch"
   // The bad vector was never stored.
   auto got = Get(coll, {1000});
   CHECK_EQ(got.vectors_size(), 0);
+}
+
+// ============================================================================
+// Zero vectors in COSINE collections
+// ============================================================================
+
+TEST_CASE_FIXTURE(ServiceWriteServerTest, "CosineCollectionsRejectZeroVectors") {
+  const std::string coll = "cosine_zero";
+  CreateCollection(coll, kDim, proto::CreateCollectionRequest::COSINE);
+  InsertOk(coll, {MakeVector(1, {1, 0, 0, 0}), MakeVector(2, {0, 1, 0, 0})});
+
+  const std::vector<float> zero(kDim, 0.0F);
+  // Shorter than the smallest norm that has a direction (1e-8).
+  const std::vector<float> tiny(kDim, 1e-10F);
+  const auto check_invalid = [](const grpc::Status& status) {
+    INFO(status.error_message());
+    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  };
+
+  for (const auto& bad : {zero, tiny}) {
+    CAPTURE(bad[0]);
+
+    SUBCASE("Insert stores nothing of a batch with a zero vector") {
+      proto::InsertResponse resp;
+      check_invalid(Insert(coll, {MakeVector(10, {0, 0, 1, 0}), MakeVector(11, bad)}, &resp));
+      CHECK(IdsOf(Get(coll, {10, 11})).empty());
+    }
+
+    SUBCASE("Upsert stores nothing of a batch with a zero vector") {
+      proto::UpsertResponse resp;
+      check_invalid(Upsert(coll, {MakeVector(1, {0, 0, 1, 0}), MakeVector(12, bad)}, &resp));
+      CHECK(IdsOf(Get(coll, {12})).empty());
+      // Vector 1 keeps its old value.
+      CheckValues(GetOne(coll, 1).vector(), {1, 0, 0, 0});
+    }
+
+    SUBCASE("StreamInsert") {
+      proto::InsertRequest message;
+      message.set_collection_name(coll);
+      *message.add_vectors() = MakeVector(13, bad);
+      proto::InsertResponse resp;
+      check_invalid(StreamInsert({message}, &resp));
+      CHECK(IdsOf(Get(coll, {13})).empty());
+    }
+
+    SUBCASE("Search, RangeSearch and HybridSearch with a zero query") {
+      grpc::ServerContext ctx;
+      proto::SearchRequest search;
+      search.set_collection_name(coll);
+      *search.mutable_query_vector() = MakeQuery(bad);
+      search.set_top_k(2);
+      proto::SearchResponse search_resp;
+      check_invalid(service_->Search(&ctx, &search, &search_resp));
+
+      proto::RangeSearchRequest range;
+      range.set_collection_name(coll);
+      *range.mutable_query_vector() = MakeQuery(bad);
+      range.set_radius(1.5F);
+      proto::RangeSearchResponse range_resp;
+      check_invalid(service_->RangeSearch(&ctx, &range, &range_resp));
+
+      proto::HybridSearchRequest hybrid;
+      hybrid.set_collection_name(coll);
+      *hybrid.mutable_query_vector() = MakeQuery(bad);
+      hybrid.set_top_k(2);
+      proto::HybridSearchResponse hybrid_resp;
+      check_invalid(service_->HybridSearch(&ctx, &hybrid, &hybrid_resp));
+    }
+  }
+}
+
+TEST_CASE_FIXTURE(ServiceWriteTest, "L2CollectionsAcceptZeroVectors") {
+  const std::string coll = "l2_zero";
+  CreateCollection(coll);
+  InsertOk(coll, {MakeVector(1, {0, 0, 0, 0}), MakeVector(2, {3, 4, 0, 0})});
+
+  auto resp = Search(coll, {0, 0, 0, 0}, 2);
+  REQUIRE_EQ(resp.results_size(), 2);
+  CHECK_EQ(resp.results(0).id(), 1);
+  CHECK(resp.results(0).distance() == doctest::Approx(0.0F));
+  CHECK(resp.results(1).distance() == doctest::Approx(5.0F));
 }
 
 TEST_CASE_FIXTURE(ServiceWriteServerTest, "StreamInsertUnknownCollectionFails") {

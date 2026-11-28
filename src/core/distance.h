@@ -24,6 +24,10 @@
 
 namespace gvdb::core {
 
+// The smallest norm of a vector that has a direction. A COSINE distance with a
+// shorter vector is 1, and a COSINE collection rejects such a vector.
+inline constexpr float kMinCosineNorm = 1e-8F;
+
 // The canonical L2 distance from a squared Euclidean distance. A small
 // negative estimate (TurboQuant) counts as 0.
 [[nodiscard]] inline float CanonicalFromSquaredL2(float squared) {
