@@ -31,8 +31,6 @@ using namespace gvdb;
 
 // A single node: the resolver reads and writes its own segment store.
 struct LocalResolverFixture {
-  static constexpr bool kSupportsDataOps = true;
-
   LocalResolverFixture() {
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(test_dir_, index_factory_.get());
@@ -59,8 +57,6 @@ struct LocalResolverFixture {
 // The coordinator has no client factory, so it creates no segments on data
 // nodes.
 struct CoordinatorResolverFixture {
-  static constexpr bool kSupportsDataOps = false;
-
   CoordinatorResolverFixture() {
     shard_manager_ = std::make_shared<cluster::ShardManager>(16, cluster::ShardingStrategy::HASH);
     node_registry_ = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
@@ -213,11 +209,6 @@ TEST_CASE_TEMPLATE("CollectionResolver contract: CollectionCount follows create 
 
   REQUIRE(f.resolver().DropCollection("c1").ok());
   CHECK_EQ(f.resolver().CollectionCount(), 1);
-}
-
-TEST_CASE_TEMPLATE("CollectionResolver contract: SupportsDataOps", F, RESOLVER_FIXTURES) {
-  F f;
-  CHECK_EQ(f.resolver().SupportsDataOps(), F::kSupportsDataOps);
 }
 
 #undef RESOLVER_FIXTURES

@@ -42,12 +42,6 @@ grpc::Status VectorDBService::Insert(grpc::ServerContext* context,
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Cannot insert empty vector batch");
   }
 
-  if (!resolver_->SupportsDataOps()) {
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-                        "Insert operations not supported on coordinator nodes. "
-                        "Send insert requests to data nodes instead.");
-  }
-
   // The first vector's id is the shard sample: the proxy splits per shard
   // before it sends, so all vectors in an RPC share a shard. A malformed
   // client that sends mixed shards still gets the gate of the dominant one.
@@ -68,11 +62,6 @@ grpc::Status VectorDBService::StreamInsert(grpc::ServerContext* /*context*/,
                                            proto::InsertResponse* response) {
   common::MetricsTimer timer(common::MetricsRegistry::Instance(),
                              common::MetricsTimer::OperationType::INSERT, "stream");
-
-  if (!resolver_->SupportsDataOps()) {
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-                        "Insert operations not supported on coordinator nodes.");
-  }
 
   uint64_t total_inserted = 0;
   proto::InsertRequest chunk;
@@ -108,11 +97,6 @@ grpc::Status VectorDBService::Upsert(grpc::ServerContext* context,
   }
   if (request->vectors().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "No vectors provided");
-  }
-
-  if (!resolver_->SupportsDataOps()) {
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-                        "Upsert operations not supported on coordinator nodes");
   }
 
   RETURN_IF_ERROR(write_path_.CheckGate(rpc::ReadPrimaryTermHeader(context),
@@ -163,12 +147,6 @@ grpc::Status VectorDBService::Delete(grpc::ServerContext* context,
                                   " vectors in one request. Requested: ", request->ids().size())));
   }
 
-  if (!resolver_->SupportsDataOps()) {
-    return fail(grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-                             "Delete operations not supported on coordinator nodes. "
-                             "Send delete requests to data nodes instead."));
-  }
-
   if (auto gate = write_path_.CheckGate(rpc::ReadPrimaryTermHeader(context),
                                         request->collection_name(), request->ids(0));
       !gate.ok()) {
@@ -217,12 +195,6 @@ grpc::Status VectorDBService::UpdateMetadata(grpc::ServerContext* context,
 
   if (request->metadata().fields().empty()) {
     return fail(grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Metadata cannot be empty"));
-  }
-
-  if (!resolver_->SupportsDataOps()) {
-    return fail(grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-                             "UpdateMetadata operations not supported on coordinator nodes. "
-                             "Send metadata update requests to data nodes instead."));
   }
 
   if (auto gate = write_path_.CheckGate(rpc::ReadPrimaryTermHeader(context),

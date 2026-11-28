@@ -153,8 +153,6 @@ class LocalCollectionResolver : public ICollectionResolver {
     return it->second.segment_ids;
   }
 
-  bool SupportsDataOps() const override { return true; }
-
  private:
   // Registry persistence for single-node mode: entries_ and next_id_ live
   // only in memory, so without this a restart orphans every collection even
@@ -306,8 +304,6 @@ class CoordinatorCollectionResolver : public ICollectionResolver {
     return absl::UnimplementedError("Data operations not supported on coordinator nodes");
   }
 
-  bool SupportsDataOps() const override { return false; }
-
  private:
   std::shared_ptr<cluster::Coordinator> coordinator_;
 };
@@ -368,8 +364,6 @@ class CachedCoordinatorResolver : public ICollectionResolver {
     }
     return ids;
   }
-
-  bool SupportsDataOps() const override { return true; }
 
   proto::internal::InternalService::Stub* GetCoordinatorStub() override { return stub_.get(); }
 

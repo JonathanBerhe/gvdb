@@ -26,14 +26,15 @@ VectorDBService::VectorDBService(std::shared_ptr<storage::ISegmentStore> segment
       write_path_(segment_store_, query_executor_, *resolver_, locator_,
                   options.primary_term_tracker, options.shard_write_gate),
       read_path_(segment_store_, query_executor_, *resolver_, locator_),
-      bulk_importer_(std::move(options.bulk_importer)),
-      backup_manager_(std::move(options.backup_manager)),
-      restore_manager_(std::move(options.restore_manager)),
-      coordinator_(std::move(options.coordinator)) {
+      admin_(*resolver_, query_executor_),
+      backup_(*resolver_, segment_store_, guard_, std::move(options.backup_manager),
+              std::move(options.restore_manager), /*coordinator=*/nullptr),
+      import_(*resolver_, guard_, std::move(options.bulk_importer)) {
   common::Logger::Instance().Info(
       "VectorDBService initialized (RBAC {}, BulkImport {}, Backup {}, Restore {})",
-      guard_.enabled() ? "enabled" : "disabled", bulk_importer_ ? "enabled" : "disabled",
-      backup_manager_ ? "enabled" : "disabled", restore_manager_ ? "enabled" : "disabled");
+      guard_.enabled() ? "enabled" : "disabled", import_.enabled() ? "enabled" : "disabled",
+      backup_.backup_enabled() ? "enabled" : "disabled",
+      backup_.restore_enabled() ? "enabled" : "disabled");
 }
 
 VectorDBService::~VectorDBService() = default;

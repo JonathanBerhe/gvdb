@@ -62,11 +62,6 @@ grpc::Status VectorDBService::HybridSearch(grpc::ServerContext* /*context*/,
         "At least one of query_vector, text_query, or sparse_query must be provided");
   }
 
-  if (!resolver_->SupportsDataOps()) {
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-                        "HybridSearch not supported on coordinator nodes");
-  }
-
   return read_path_.HybridSearch(*request, response);
 }
 
@@ -99,12 +94,6 @@ grpc::Status VectorDBService::Get(grpc::ServerContext* /*context*/,
                                   " vectors in one request. Requested: ", request->ids().size())));
   }
 
-  if (!resolver_->SupportsDataOps()) {
-    return fail(grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-                             "Get operations not supported on coordinator nodes. "
-                             "Send get requests to data nodes instead."));
-  }
-
   return read_path_.Get(*request, response);
 }
 
@@ -112,11 +101,6 @@ grpc::Status VectorDBService::ListVectors(grpc::ServerContext* /*context*/,
                                           const proto::ListVectorsRequest* request,
                                           proto::ListVectorsResponse* response) {
   RETURN_IF_ERROR(guard_.Check(auth::Permission::LIST_VECTORS, request->collection_name()));
-
-  if (!resolver_->SupportsDataOps()) {
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
-                        "ListVectors not supported on coordinator nodes");
-  }
 
   return read_path_.ListVectors(*request, response);
 }
