@@ -1,15 +1,17 @@
 //! Offline tests for client-side batch importers (in-memory, CSV, Parquet).
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use gvdb::pb::vector_db_service_server::{VectorDbService, VectorDbServiceServer};
-use gvdb::{Error, GvdbClient, ImportMode, ImportOptions, MetadataValue, Metric, VectorRecord, pb};
+use gvdb::{Error, GvdbClient, ImportMode, ImportOptions, Metric, VectorRecord, pb};
 use tokio::net::TcpListener;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{Code, Request, Response, Status, Streaming};
+
+type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
 #[derive(Default)]
 struct ImportMockState {
@@ -27,6 +29,14 @@ struct ImportMockServer {
     state: Arc<Mutex<ImportMockState>>,
 }
 
+impl ImportMockServer {
+    fn lock_state(&self) -> Result<MutexGuard<'_, ImportMockState>, Status> {
+        self.state
+            .lock()
+            .map_err(|_| Status::internal("import mock lock poisoned"))
+    }
+}
+
 #[tonic::async_trait]
 impl VectorDbService for ImportMockServer {
     async fn create_collection(
@@ -34,7 +44,7 @@ impl VectorDbService for ImportMockServer {
         request: Request<pb::CreateCollectionRequest>,
     ) -> Result<Response<pb::CreateCollectionResponse>, Status> {
         let req = request.into_inner();
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.lock_state()?;
         let id = (s.collections.len() + 1) as u32;
         s.collections.push(pb::CollectionInfo {
             collection_id: id,
@@ -60,7 +70,7 @@ impl VectorDbService for ImportMockServer {
         &self,
         _: Request<pb::ListCollectionsRequest>,
     ) -> Result<Response<pb::ListCollectionsResponse>, Status> {
-        let collections = self.state.lock().unwrap().collections.clone();
+        let collections = self.lock_state()?.collections.clone();
         Ok(Response::new(pb::ListCollectionsResponse { collections }))
     }
 
@@ -80,7 +90,7 @@ impl VectorDbService for ImportMockServer {
         while let Some(chunk) = stream.next().await {
             collected.extend(chunk?.vectors);
         }
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.lock_state()?;
         s.stream_calls += 1;
         if let Some(err) = s.stream_errors.pop_front() {
             return Err(err);
@@ -98,7 +108,7 @@ impl VectorDbService for ImportMockServer {
         request: Request<pb::UpsertRequest>,
     ) -> Result<Response<pb::UpsertResponse>, Status> {
         let req = request.into_inner();
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.lock_state()?;
         s.upsert_calls += 1;
         if let Some(err) = s.upsert_errors.pop_front() {
             return Err(err);
@@ -237,9 +247,10 @@ impl VectorDbService for ImportMockServer {
     }
 }
 
-async fn spawn_import_server() -> (GvdbClient, Arc<Mutex<ImportMockState>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
+async fn spawn_import_server()
+-> Result<(GvdbClient, Arc<Mutex<ImportMockState>>), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
     let server = ImportMockServer::default();
     let state = server.state.clone();
     let incoming = TcpListenerStream::new(listener);
@@ -251,18 +262,22 @@ async fn spawn_import_server() -> (GvdbClient, Arc<Mutex<ImportMockState>>) {
             .await;
     });
 
-    let client = GvdbClient::connect(format!("127.0.0.1:{}", addr.port()))
-        .await
-        .unwrap();
-    (client, state)
+    let client = GvdbClient::connect(format!("127.0.0.1:{}", addr.port())).await?;
+    Ok((client, state))
+}
+
+fn lock_state(
+    state: &Arc<Mutex<ImportMockState>>,
+) -> Result<MutexGuard<'_, ImportMockState>, String> {
+    state
+        .lock()
+        .map_err(|_| "import mock lock poisoned".to_owned())
 }
 
 #[tokio::test]
-async fn import_records_batches_retries_and_validates_dimension() {
-    let (client, state) = spawn_import_server().await;
-    state
-        .lock()
-        .unwrap()
+async fn import_records_batches_retries_and_validates_dimension() -> TestResult {
+    let (client, state) = spawn_import_server().await?;
+    lock_state(&state)?
         .upsert_errors
         .push_back(Status::unavailable("temporary outage"));
 
@@ -281,31 +296,51 @@ async fn import_records_batches_retries_and_validates_dimension() {
                 .metric(Metric::L2)
                 .retry_base_delay(Duration::from_millis(1)),
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(result.total_count, 3);
     assert_eq!(result.batch_count, 2);
     assert_eq!(result.failed_count, 0);
     assert_eq!(result.dimension, 3);
     assert!(result.created_collection);
-    assert_eq!(state.lock().unwrap().upsert_calls, 3);
+    assert_eq!(lock_state(&state)?.upsert_calls, 3);
 
     // Re-importing into existing collection with wrong dimension fails cleanly.
     let wrong_dim = vec![VectorRecord::new(4, vec![1.0, 2.0])];
-    let err = client
-        .import_records("items", &wrong_dim, ImportOptions::default())
-        .await
-        .unwrap_err();
-    assert!(matches!(err, Error::InvalidArgument(_)));
+    assert!(matches!(
+        client
+            .import_records("items", &wrong_dim, ImportOptions::default())
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+
+    // Dimension mismatch on second element of a batch fails before sending.
+    let ragged = vec![
+        VectorRecord::new(5, vec![1.0, 2.0, 3.0]),
+        VectorRecord::new(6, vec![1.0, 2.0]),
+    ];
+    assert!(matches!(
+        client
+            .import_records("items", &ragged, ImportOptions::default())
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+
+    // Non-finite floats fail client-side validation.
+    let nan_vec = vec![VectorRecord::new(7, vec![1.0, f32::NAN, 3.0])];
+    assert!(matches!(
+        client
+            .import_records("items", &nan_vec, ImportOptions::default())
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+    Ok(())
 }
 
 #[tokio::test]
-async fn import_records_skips_retries_for_resource_exhausted_and_stream_insert() {
-    let (client, state) = spawn_import_server().await;
-    state
-        .lock()
-        .unwrap()
+async fn import_records_handles_resource_exhausted_stream_and_permanent_errors() -> TestResult {
+    let (client, state) = spawn_import_server().await?;
+    lock_state(&state)?
         .upsert_errors
         .push_back(Status::new(Code::ResourceExhausted, "batch too large"));
 
@@ -318,14 +353,33 @@ async fn import_records_skips_retries_for_resource_exhausted_and_stream_insert()
                 .max_retries(3)
                 .retry_base_delay(Duration::from_millis(1)),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(res.failed_count, 1);
-    assert_eq!(state.lock().unwrap().upsert_calls, 1);
+    assert_eq!(lock_state(&state)?.upsert_calls, 1);
 
-    state
-        .lock()
-        .unwrap()
+    // Permanent permission errors fail immediately without retries.
+    lock_state(&state)?
+        .upsert_errors
+        .push_back(Status::permission_denied("read only"));
+    let Err(err) = client
+        .import_records(
+            "re_coll",
+            &records,
+            ImportOptions::default()
+                .max_retries(3)
+                .retry_base_delay(Duration::from_millis(1)),
+        )
+        .await
+    else {
+        return Err("expected PermissionDenied error".into());
+    };
+    assert_eq!(
+        err.status().map(tonic::Status::code),
+        Some(Code::PermissionDenied)
+    );
+    assert_eq!(lock_state(&state)?.upsert_calls, 2);
+
+    lock_state(&state)?
         .stream_errors
         .push_back(Status::unavailable("network drop"));
     let res = client
@@ -337,24 +391,24 @@ async fn import_records_skips_retries_for_resource_exhausted_and_stream_insert()
                 .max_retries(3)
                 .retry_base_delay(Duration::from_millis(1)),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(res.failed_count, 1);
-    assert_eq!(state.lock().unwrap().stream_calls, 1);
+    assert_eq!(lock_state(&state)?.stream_calls, 1);
+    Ok(())
 }
 
 #[cfg(feature = "csv")]
 #[tokio::test]
-async fn import_csv_supports_json_and_prefixed_columns() {
+async fn import_csv_supports_json_prefixed_and_rejects_non_finite() -> TestResult {
     use gvdb::CsvImportOptions;
     use std::io::Write;
 
-    let (client, state) = spawn_import_server().await;
+    let (client, state) = spawn_import_server().await?;
 
-    let mut json_csv = tempfile::NamedTempFile::new().unwrap();
-    writeln!(json_csv, "id,vector,category,count,score,active").unwrap();
-    writeln!(json_csv, "10,\"[0.1, 0.2, 0.3]\",books,42,9.5,true").unwrap();
-    writeln!(json_csv, "11,\"[0.4, 0.5, 0.6]\",music,,3.25,false").unwrap();
+    let mut json_csv = tempfile::NamedTempFile::new()?;
+    writeln!(json_csv, "id,vector,category,count,score,active")?;
+    writeln!(json_csv, "10,\"[0.1, 0.2, 0.3]\",books,42,9.5,true")?;
+    writeln!(json_csv, "11,\"[0.4, 0.5, 0.6]\",music,,3.25,false")?;
 
     let res = client
         .import_csv(
@@ -362,18 +416,17 @@ async fn import_csv_supports_json_and_prefixed_columns() {
             "csv_json",
             CsvImportOptions::default().import(ImportOptions::default().batch_size(1)),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(res.total_count, 2);
     assert_eq!(res.batch_count, 2);
     assert_eq!(res.dimension, 3);
     assert!(res.created_collection);
 
     {
-        let s = state.lock().unwrap();
-        let first = &s.upserted[0];
+        let s = lock_state(&state)?;
+        let first = s.upserted.first().ok_or("missing first upserted")?;
         assert_eq!(first.id, 10);
-        let fields = &first.metadata.as_ref().unwrap().fields;
+        let fields = &first.metadata.as_ref().ok_or("missing metadata")?.fields;
         assert_eq!(
             fields.get("count").and_then(|v| v.value.as_ref()),
             Some(&pb::metadata_value::Value::IntValue(42))
@@ -382,14 +435,15 @@ async fn import_csv_supports_json_and_prefixed_columns() {
             fields.get("active").and_then(|v| v.value.as_ref()),
             Some(&pb::metadata_value::Value::BoolValue(true))
         );
-        let second_fields = &s.upserted[1].metadata.as_ref().unwrap().fields;
+        let second = s.upserted.get(1).ok_or("missing second upserted")?;
+        let second_fields = &second.metadata.as_ref().ok_or("missing metadata")?.fields;
         assert!(!second_fields.contains_key("count"));
     }
 
     // Dimension-prefixed columns out of order must sort numerically.
-    let mut pref_csv = tempfile::NamedTempFile::new().unwrap();
-    writeln!(pref_csv, "id,emb_2,emb_0,emb_1,tag").unwrap();
-    writeln!(pref_csv, "1,3.0,1.0,2.0,first").unwrap();
+    let mut pref_csv = tempfile::NamedTempFile::new()?;
+    writeln!(pref_csv, "id,emb_2,emb_0,emb_1,tag")?;
+    writeln!(pref_csv, "1,3.0,1.0,2.0,first")?;
 
     let res = client
         .import_csv(
@@ -397,26 +451,58 @@ async fn import_csv_supports_json_and_prefixed_columns() {
             "csv_pref",
             CsvImportOptions::default().vector_column("emb"),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(res.total_count, 1);
     assert_eq!(res.dimension, 3);
-    let last = state.lock().unwrap().upserted.last().unwrap().clone();
-    assert_eq!(last.vector.unwrap().values, vec![1.0, 2.0, 3.0]);
+    let last = lock_state(&state)?
+        .upserted
+        .last()
+        .cloned()
+        .ok_or("missing last upserted")?;
+    assert_eq!(
+        last.vector.ok_or("missing vector")?.values,
+        vec![1.0, 2.0, 3.0]
+    );
+
+    // Overflowing JSON float (1e40 -> f32::INFINITY) and prefixed NaN are rejected.
+    let mut bad_json_csv = tempfile::NamedTempFile::new()?;
+    writeln!(bad_json_csv, "id,vector")?;
+    writeln!(bad_json_csv, "1,\"[1e40, 0.2]\"")?;
+    assert!(matches!(
+        client
+            .import_csv(bad_json_csv.path(), "bad_csv", CsvImportOptions::default())
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+
+    let mut bad_pref_csv = tempfile::NamedTempFile::new()?;
+    writeln!(bad_pref_csv, "id,vector_0,vector_1")?;
+    writeln!(bad_pref_csv, "1,NaN,0.2")?;
+    assert!(matches!(
+        client
+            .import_csv(bad_pref_csv.path(), "bad_csv", CsvImportOptions::default())
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+
+    Ok(())
 }
 
 #[cfg(feature = "parquet")]
 #[tokio::test]
-async fn import_parquet_reads_vectors_and_typed_metadata() {
+async fn import_parquet_reads_vectors_and_rejects_nulls_and_bad_types() -> TestResult {
     use std::sync::Arc;
 
-    use arrow_array::builder::{Float32Builder, ListBuilder};
-    use arrow_array::{Array, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray};
+    use arrow_array::builder::{Float32Builder, Float64Builder, ListBuilder};
+    use arrow_array::{
+        Array, BinaryArray, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray,
+        UInt64Array,
+    };
     use arrow_schema::{DataType, Field, Schema};
-    use gvdb::ParquetImportOptions;
+    use gvdb::{MetadataValue, ParquetImportOptions};
     use parquet::arrow::ArrowWriter;
 
-    let (client, state) = spawn_import_server().await;
+    let (client, state) = spawn_import_server().await?;
 
     let mut list_builder = ListBuilder::new(Float32Builder::new());
     list_builder.values().append_slice(&[1.0, 2.0, 3.0]);
@@ -444,15 +530,14 @@ async fn import_parquet_reads_vectors_and_typed_metadata() {
             Arc::new(Float64Array::from(vec![Some(1.5), Some(2.5)])),
             Arc::new(BooleanArray::from(vec![Some(true), Some(false)])),
         ],
-    )
-    .unwrap();
+    )?;
 
-    let tmp = tempfile::NamedTempFile::new().unwrap();
+    let tmp = tempfile::NamedTempFile::new()?;
     {
-        let file = std::fs::File::create(tmp.path()).unwrap();
-        let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
-        writer.write(&batch).unwrap();
-        writer.close().unwrap();
+        let file = std::fs::File::create(tmp.path())?;
+        let mut writer = ArrowWriter::try_new(file, schema, None)?;
+        writer.write(&batch)?;
+        writer.close()?;
     }
 
     let res = client
@@ -461,35 +546,155 @@ async fn import_parquet_reads_vectors_and_typed_metadata() {
             "pq_items",
             ParquetImportOptions::default().import(ImportOptions::default().batch_size(1)),
         )
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(res.total_count, 2);
     assert_eq!(res.batch_count, 2);
     assert_eq!(res.dimension, 3);
     assert!(res.created_collection);
 
-    let s = state.lock().unwrap();
-    assert_eq!(s.upserted.len(), 2);
-    assert_eq!(s.upserted[0].id, 100);
-    assert_eq!(
-        s.upserted[0].vector.as_ref().unwrap().values,
-        vec![1.0, 2.0, 3.0]
-    );
-    let meta0 = &s.upserted[0].metadata.as_ref().unwrap().fields;
-    assert_eq!(
-        meta0.get("category").and_then(|v| v.value.as_ref()),
-        Some(&pb::metadata_value::Value::StringValue("cat_a".to_owned()))
-    );
-    assert_eq!(
-        meta0.get("rank").and_then(|v| v.value.as_ref()),
-        Some(&pb::metadata_value::Value::IntValue(7))
-    );
-    assert_eq!(
-        meta0.get("enabled").and_then(|v| v.value.as_ref()),
-        Some(&pb::metadata_value::Value::BoolValue(true))
-    );
-    // Null string cell on row 2 must be omitted.
-    let meta1 = &s.upserted[1].metadata.as_ref().unwrap().fields;
-    assert!(!meta1.contains_key("category"));
-    assert_eq!(MetadataValue::from(8i64), MetadataValue::Int(8));
+    {
+        let s = lock_state(&state)?;
+        assert_eq!(s.upserted.len(), 2);
+        let first = s.upserted.first().ok_or("missing first upserted")?;
+        assert_eq!(first.id, 100);
+        assert_eq!(
+            first.vector.as_ref().ok_or("missing vector")?.values,
+            vec![1.0, 2.0, 3.0]
+        );
+        let meta0 = &first.metadata.as_ref().ok_or("missing meta0")?.fields;
+        assert_eq!(
+            meta0.get("category").and_then(|v| v.value.as_ref()),
+            Some(&pb::metadata_value::Value::StringValue("cat_a".to_owned()))
+        );
+        assert_eq!(
+            meta0.get("rank").and_then(|v| v.value.as_ref()),
+            Some(&pb::metadata_value::Value::IntValue(7))
+        );
+        assert_eq!(
+            meta0.get("enabled").and_then(|v| v.value.as_ref()),
+            Some(&pb::metadata_value::Value::BoolValue(true))
+        );
+        let second = s.upserted.get(1).ok_or("missing second upserted")?;
+        let meta1 = &second.metadata.as_ref().ok_or("missing meta1")?.fields;
+        assert!(!meta1.contains_key("category"));
+        assert_eq!(MetadataValue::from(8i64), MetadataValue::Int(8));
+    }
+
+    // Null element inside an Arrow vector list must be rejected.
+    let mut null_elem_builder = ListBuilder::new(Float32Builder::new());
+    null_elem_builder.values().append_value(1.0);
+    null_elem_builder.values().append_null();
+    null_elem_builder.append(true);
+    let null_vec_arr = Arc::new(null_elem_builder.finish());
+    let null_schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int64, false),
+        Field::new("vector", null_vec_arr.data_type().clone(), false),
+    ]));
+    let null_batch = RecordBatch::try_new(
+        null_schema.clone(),
+        vec![Arc::new(Int64Array::from(vec![1])), null_vec_arr],
+    )?;
+    let null_tmp = tempfile::NamedTempFile::new()?;
+    {
+        let file = std::fs::File::create(null_tmp.path())?;
+        let mut writer = ArrowWriter::try_new(file, null_schema, None)?;
+        writer.write(&null_batch)?;
+        writer.close()?;
+    }
+    assert!(matches!(
+        client
+            .import_parquet(null_tmp.path(), "pq_null", ParquetImportOptions::default())
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+
+    // Overflowing f64 vector value (1e40) must be rejected.
+    let mut f64_builder = ListBuilder::new(Float64Builder::new());
+    f64_builder.values().append_value(1e40);
+    f64_builder.values().append_value(0.5);
+    f64_builder.append(true);
+    let f64_arr = Arc::new(f64_builder.finish());
+    let f64_schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int64, false),
+        Field::new("vector", f64_arr.data_type().clone(), false),
+    ]));
+    let f64_batch = RecordBatch::try_new(
+        f64_schema.clone(),
+        vec![Arc::new(Int64Array::from(vec![1])), f64_arr],
+    )?;
+    let f64_tmp = tempfile::NamedTempFile::new()?;
+    {
+        let file = std::fs::File::create(f64_tmp.path())?;
+        let mut writer = ArrowWriter::try_new(file, f64_schema, None)?;
+        writer.write(&f64_batch)?;
+        writer.close()?;
+    }
+    assert!(matches!(
+        client
+            .import_parquet(f64_tmp.path(), "pq_f64", ParquetImportOptions::default())
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+
+    // UInt64 metadata exceeding i64::MAX must be rejected.
+    let mut ok_vec = ListBuilder::new(Float32Builder::new());
+    ok_vec.values().append_slice(&[1.0, 2.0]);
+    ok_vec.append(true);
+    let ok_vec_arr = Arc::new(ok_vec.finish());
+    let u64_schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int64, false),
+        Field::new("vector", ok_vec_arr.data_type().clone(), false),
+        Field::new("big", DataType::UInt64, false),
+    ]));
+    let u64_batch = RecordBatch::try_new(
+        u64_schema.clone(),
+        vec![
+            Arc::new(Int64Array::from(vec![1])),
+            ok_vec_arr.clone(),
+            Arc::new(UInt64Array::from(vec![u64::MAX])),
+        ],
+    )?;
+    let u64_tmp = tempfile::NamedTempFile::new()?;
+    {
+        let file = std::fs::File::create(u64_tmp.path())?;
+        let mut writer = ArrowWriter::try_new(file, u64_schema, None)?;
+        writer.write(&u64_batch)?;
+        writer.close()?;
+    }
+    assert!(matches!(
+        client
+            .import_parquet(u64_tmp.path(), "pq_u64", ParquetImportOptions::default())
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+
+    // Unsupported Arrow metadata column type (Binary) must be rejected.
+    let bin_schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int64, false),
+        Field::new("vector", ok_vec_arr.data_type().clone(), false),
+        Field::new("raw", DataType::Binary, false),
+    ]));
+    let bin_batch = RecordBatch::try_new(
+        bin_schema.clone(),
+        vec![
+            Arc::new(Int64Array::from(vec![1])),
+            ok_vec_arr,
+            Arc::new(BinaryArray::from_vec(vec![b"abc"])),
+        ],
+    )?;
+    let bin_tmp = tempfile::NamedTempFile::new()?;
+    {
+        let file = std::fs::File::create(bin_tmp.path())?;
+        let mut writer = ArrowWriter::try_new(file, bin_schema, None)?;
+        writer.write(&bin_batch)?;
+        writer.close()?;
+    }
+    assert!(matches!(
+        client
+            .import_parquet(bin_tmp.path(), "pq_bin", ParquetImportOptions::default())
+            .await,
+        Err(Error::InvalidArgument(_))
+    ));
+
+    Ok(())
 }
