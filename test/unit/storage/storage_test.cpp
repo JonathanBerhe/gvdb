@@ -15,6 +15,7 @@
 #include "core/filter.h"
 #include "core/types.h"
 #include "core/vector.h"
+#include "index/bm25_index.h"
 #include "index/index_factory.h"
 #include "index/sparse_index.h"
 #include "storage/segment/batch_splitter.h"
@@ -1178,6 +1179,36 @@ TEST_CASE_FIXTURE(StorageTest, "FlushAndLoadKeepSparseVectorsAndExpiry") {
   REQUIRE(result.ok());
   REQUIRE_FALSE(result->entries.empty());
   CHECK_EQ(result->entries[0].id, core::MakeVectorId(2));
+}
+
+// Hybrid search skips expired vectors in each of its searches, as Search
+// and Get do. Before the fix, it returned them.
+TEST_CASE_FIXTURE(StorageTest, "SearchHybridSkipsExpiredVectors") {
+  storage::Segment segment(core::MakeSegmentId(1), collection_id_, 4, core::MetricType::L2);
+  std::vector<core::Vector> vectors;
+  std::vector<core::VectorId> ids;
+  std::vector<core::Metadata> metadata;
+  for (int i = 1; i <= 3; ++i) {
+    vectors.emplace_back(std::vector<float>{static_cast<float>(i), 0.0F, 0.0F, 0.0F});
+    ids.push_back(core::MakeVectorId(i));
+    metadata.push_back(
+        {{"text", core::MetadataValue(std::string("trail shoes ") + std::to_string(i))}});
+  }
+  // Vector 3 expired ten seconds ago.
+  REQUIRE(segment
+              .AddVectorsWithMetadata(vectors, ids, metadata,
+                                      {{3, storage::Segment::NowEpochSeconds() - 10}})
+              .ok());
+  REQUIRE(segment.BuildTextIndex(std::make_unique<index::BM25Index>(), "text").ok());
+
+  // The query vector is vector 3, and the text matches every vector.
+  auto result =
+      segment.SearchHybrid(core::Vector(std::vector<float>{3.0F, 0.0F, 0.0F, 0.0F}), "shoes", 5);
+  REQUIRE(result.ok());
+  REQUIRE_FALSE(result->entries.empty());
+  for (const auto& entry : result->entries) {
+    CHECK_NE(entry.id, core::MakeVectorId(3));
+  }
 }
 
 // ============================================================================

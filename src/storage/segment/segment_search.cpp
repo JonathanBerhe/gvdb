@@ -343,16 +343,19 @@ absl::StatusOr<core::SearchResult> Segment::SearchHybrid(
     }
   }
 
-  // 2c. Metadata filter: drop the candidates that do not match, so the ranks
-  // below count only matching candidates.
-  if (filter) {
-    auto matches = [&](const core::SearchResultEntry& e) {
-      auto it = metadata_map_.find(core::ToUInt64(e.id));
-      return it != metadata_map_.end() && filter->Evaluate(it->second);
-    };
-    for (auto* list : {&vector_result->entries, &text_result.entries, &sparse_result.entries}) {
-      std::erase_if(*list, [&](const core::SearchResultEntry& e) { return !matches(e); });
-    }
+  // 2c. Drop the expired candidates and, with a filter, the candidates whose
+  // metadata does not match, so the ranks below count only live, matching
+  // candidates.
+  const int64_t now = NowEpochSeconds();
+  auto drop = [&](const core::SearchResultEntry& e) {
+    const uint64_t id = core::ToUInt64(e.id);
+    if (IsExpired(id, now)) return true;
+    if (!filter) return false;
+    auto it = metadata_map_.find(id);
+    return it == metadata_map_.end() || !filter->Evaluate(it->second);
+  };
+  for (auto* list : {&vector_result->entries, &text_result.entries, &sparse_result.entries}) {
+    std::erase_if(*list, drop);
   }
 
   // 3. Reciprocal Rank Fusion (RRF)
