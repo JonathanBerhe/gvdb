@@ -3,13 +3,16 @@
 
 #include <doctest/doctest.h>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <thread>
 #include "cluster/coordinator/coordinator.h"
 #include "cluster/coordinator/node_registry.h"
 #include "cluster/shard_manager.h"
 #include "core/types.h"
 #include "internal.grpc.pb.h"
 #include "support/temp_dir.h"
+#include "support/wait.h"
 
 namespace {
 
@@ -1186,6 +1189,48 @@ TEST_CASE_FIXTURE(ShardManagerTest, "GetShardState_NotFound") {
   auto result = shard_manager_->GetShardState(bad_sid);
   CHECK_FALSE(result.ok());
   CHECK(absl::IsNotFound(result.status()));
+}
+
+// The health-check loop that Coordinator::Start runs acts only on the Raft
+// leader. A node with a stale heartbeat shows whether a pass ran: each pass
+// counts one more missed heartbeat for it.
+TEST_CASE("Coordinator health-check loop acts only on the Raft leader") {
+  // The clock moves one minute ahead, so every heartbeat is stale.
+  auto registry = std::make_shared<NodeRegistry>(std::chrono::seconds(1), [] {
+    return std::chrono::steady_clock::now() + std::chrono::minutes(1);
+  });
+  proto::internal::NodeInfo node;
+  node.set_node_id(7);
+  node.set_grpc_address("localhost:50099");
+  node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+  node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+  registry->UpdateNode(node);
+
+  auto missed = [&] {
+    RegisteredNode registered;
+    REQUIRE(registry->GetNode(7, &registered));
+    return registered.missed_heartbeats;
+  };
+
+  std::atomic<bool> leader{false};
+  Coordinator coordinator(
+      std::make_shared<ShardManager>(4, ShardingStrategy::HASH), registry,
+      CoordinatorOptions{.is_leader = [&leader] { return leader.load(); },
+                         .health_check_interval = std::chrono::milliseconds(10)});
+  REQUIRE(coordinator.Start("localhost:0").ok());
+
+  // A follower runs no pass, however long it waits.
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  CHECK_EQ(missed(), 0);
+
+  // The leader runs a pass every interval.
+  leader = true;
+  CHECK(test::WaitFor([&] { return missed() >= 2; }));
+
+  // Shutdown waits at most one sleep step of the loop, not a whole interval.
+  const auto before = std::chrono::steady_clock::now();
+  REQUIRE(coordinator.Shutdown().ok());
+  CHECK_LT(std::chrono::steady_clock::now() - before, std::chrono::seconds(1));
 }
 
 }  // namespace

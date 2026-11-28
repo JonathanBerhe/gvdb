@@ -16,7 +16,9 @@ namespace gvdb::cluster {
 
 namespace {
 
-constexpr uint64_t kHealthCheckIntervalMs = 5000;  // 5 seconds
+// The loop sleeps in steps of this length, so Shutdown() waits at most one
+// step instead of a whole interval.
+constexpr std::chrono::milliseconds kSleepStep{100};
 
 }  // namespace
 
@@ -33,28 +35,52 @@ void Coordinator::StopHealthCheckLoop() {
 }
 
 void Coordinator::HealthCheckLoop() {
-  // On startup, recover any shards left in MIGRATING state from a prior crash
-  RecoverMigratingShards();
+  bool recovered = false;
+  bool was_leader = true;  // Start() seeded the known data nodes.
 
   while (running_.load(std::memory_order_acquire)) {
-    // Check draining nodes BEFORE failure detection: a cleanly draining node
-    // that finishes migration will be unregistered here; if we ran failure
-    // detection first, a draining node whose heartbeat had just timed out
-    // would be handled as a failure instead (less graceful).
-    DetectDrainingNodes();
-    DetectFailedNodes();
-    // Fire auto-rebalance if any new data node has joined since last cycle.
-    // Ordered after drain/failure so we don't rebalance
-    // onto nodes that are actively leaving.
-    DetectNewDataNodes();
-    CheckReplication();
-
-    health_check_cycle_count_++;
-    if (health_check_cycle_count_ % kRepairIntervalCycles == 0) {
-      CheckConsistency();
+    // Only the Raft leader acts. A follower waits for the next interval.
+    if (!IsLeader()) {
+      was_leader = false;
+    } else {
+      if (!was_leader) {
+        // Nodes that joined while this coordinator followed are not new to
+        // the cluster, so they must not start a rebalance.
+        SeedKnownDataNodes();
+        was_leader = true;
+      }
+      if (!recovered) {
+        // Recover any shards left in MIGRATING state from a prior crash.
+        RecoverMigratingShards();
+        recovered = true;
+      }
+      RunHealthCheckCycle();
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(kHealthCheckIntervalMs));
+    for (auto slept = std::chrono::milliseconds{0};
+         slept < health_check_interval_ && running_.load(std::memory_order_acquire);
+         slept += kSleepStep) {
+      std::this_thread::sleep_for(kSleepStep);
+    }
+  }
+}
+
+void Coordinator::RunHealthCheckCycle() {
+  // Check draining nodes BEFORE failure detection: a cleanly draining node
+  // that finishes migration will be unregistered here; if we ran failure
+  // detection first, a draining node whose heartbeat had just timed out
+  // would be handled as a failure instead (less graceful).
+  DetectDrainingNodes();
+  DetectFailedNodes();
+  // Fire auto-rebalance if any new data node has joined since last cycle.
+  // Ordered after drain/failure so we don't rebalance
+  // onto nodes that are actively leaving.
+  DetectNewDataNodes();
+  CheckReplication();
+
+  health_check_cycle_count_++;
+  if (health_check_cycle_count_ % kRepairIntervalCycles == 0) {
+    CheckConsistency();
   }
 }
 

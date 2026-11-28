@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -53,6 +54,13 @@ struct CoordinatorOptions {
   // change rewrites <registry_dir>/registry.json, and LoadRegistry reads it.
   // Empty keeps the registry in memory only.
   std::string registry_dir{};
+  // Whether this coordinator is the Raft leader. The health-check loop that
+  // Start() runs acts only on the leader, so the followers of a Raft group
+  // do not detect failures, promote replicas or rebalance at the same time.
+  // Null counts as the leader (a single coordinator, tests).
+  std::function<bool()> is_leader = nullptr;
+  // The time between two passes of the health-check loop.
+  std::chrono::milliseconds health_check_interval{5000};
 };
 
 // Coordinator manages cluster metadata and operations
@@ -228,9 +236,18 @@ class Coordinator {
   std::atomic<uint32_t> next_collection_id_{1};
 
   // Health check
+  std::function<bool()> is_leader_;
+  std::chrono::milliseconds health_check_interval_;
   std::atomic<bool> running_{false};
   std::unique_ptr<std::thread> health_check_thread_;
   void HealthCheckLoop();
+  // One pass of the checks: drain, failure, new nodes, replication and, every
+  // kRepairIntervalCycles passes, consistency.
+  void RunHealthCheckCycle();
+  [[nodiscard]] bool IsLeader() const { return !is_leader_ || is_leader_(); }
+  // Marks every healthy data node that is not draining as known, so that
+  // DetectNewDataNodes counts only nodes that join later.
+  void SeedKnownDataNodes();
   void DetectFailedNodes();
   void DetectDrainingNodes();
   void CheckReplication();
