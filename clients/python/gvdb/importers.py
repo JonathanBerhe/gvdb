@@ -182,6 +182,9 @@ def _batch_import(
     finally:
         if pbar is not None:
             pbar.close()
+        close_chunks = getattr(chunks, "close", None)
+        if callable(close_chunks):
+            close_chunks()
 
     elapsed = time.monotonic() - start_time
     return ImportResult(
@@ -344,60 +347,90 @@ def import_parquet(
     if not path.is_file():
         raise FileNotFoundError(f"File not found: {path}")
 
-    pf = pq.ParquetFile(str(path))
-    total_rows = pf.metadata.num_rows
-    schema = pf.schema_arrow
-    all_columns = [f.name for f in schema]
+    with pq.ParquetFile(str(path)) as pf:
+        total_rows = pf.metadata.num_rows
+        schema = pf.schema_arrow
+        all_columns = [f.name for f in schema]
 
-    if vector_column not in all_columns:
-        raise ValueError(
-            f"Vector column '{vector_column}' not found. "
-            f"Available columns: {all_columns}"
+        if vector_column not in all_columns:
+            raise ValueError(
+                f"Vector column '{vector_column}' not found. "
+                f"Available columns: {all_columns}"
+            )
+        if id_column not in all_columns:
+            raise ValueError(
+                f"ID column '{id_column}' not found. Available columns: {all_columns}"
+            )
+
+        meta_columns = [c for c in all_columns if c not in (vector_column, id_column)]
+
+        def _chunks():
+            for batch in pf.iter_batches(batch_size=batch_size):
+                batch_ids = batch.column(id_column).to_pylist()
+                batch_vecs = batch.column(vector_column).to_pylist()
+
+                batch_meta = None
+                if meta_columns:
+                    batch_meta = []
+                    meta_arrays = {
+                        col: batch.column(col).to_pylist() for col in meta_columns
+                    }
+                    for i in range(len(batch_ids)):
+                        row = {}
+                        for col in meta_columns:
+                            val = meta_arrays[col][i]
+                            if val is not None:
+                                row[col] = val
+                        batch_meta.append(row if row else None)
+
+                yield batch_ids, batch_vecs, batch_meta
+
+        return _batch_import(
+            client,
+            _chunks(),
+            collection,
+            mode=mode,
+            metric=metric,
+            index_type=index_type,
+            max_retries=max_retries,
+            show_progress=show_progress,
+            total_vectors=total_rows,
         )
-    if id_column not in all_columns:
-        raise ValueError(
-            f"ID column '{id_column}' not found. Available columns: {all_columns}"
-        )
-
-    meta_columns = [c for c in all_columns if c not in (vector_column, id_column)]
-
-    def _chunks():
-        for batch in pf.iter_batches(batch_size=batch_size):
-            batch_ids = batch.column(id_column).to_pylist()
-            batch_vecs = batch.column(vector_column).to_pylist()
-
-            batch_meta = None
-            if meta_columns:
-                batch_meta = []
-                meta_arrays = {
-                    col: batch.column(col).to_pylist() for col in meta_columns
-                }
-                for i in range(len(batch_ids)):
-                    row = {}
-                    for col in meta_columns:
-                        val = meta_arrays[col][i]
-                        if val is not None:
-                            row[col] = val
-                    batch_meta.append(row if row else None)
-
-            yield batch_ids, batch_vecs, batch_meta
-
-    return _batch_import(
-        client,
-        _chunks(),
-        collection,
-        mode=mode,
-        metric=metric,
-        index_type=index_type,
-        max_retries=max_retries,
-        show_progress=show_progress,
-        total_vectors=total_rows,
-    )
 
 
 # ---------------------------------------------------------------------------
 # Format: DataFrame (Pandas or Polars)
 # ---------------------------------------------------------------------------
+
+
+def _extract_metadata_rows(
+    frame, meta_columns: list[str], *, is_pandas: bool = True
+) -> list[Optional[dict]]:
+    """Extract one metadata dict per row with plain Python values.
+
+    Reads each column with ``tolist()`` or ``to_list()``. This keeps the
+    original type of each column. It also avoids ``DataFrame.iterrows()``,
+    which turns integers into floats and leaves raw NumPy scalars.
+    """
+    if is_pandas:
+        col_lists = {col: frame[col].tolist() for col in meta_columns}
+    else:
+        col_lists = {col: frame[col].to_list() for col in meta_columns}
+
+    n_rows = len(frame)
+    rows: list[Optional[dict]] = []
+    for i in range(n_rows):
+        row = {}
+        for col in meta_columns:
+            val = col_lists[col][i]
+            if not _is_missing(val):
+                if getattr(val, "ndim", None) == 0 and callable(
+                    getattr(val, "item", None)
+                ):
+                    val = val.item()
+                row[col] = val
+        rows.append(row if row else None)
+    return rows
 
 
 def _extract_vectors_from_column(series, vector_column: str) -> list[list[float]]:
@@ -483,19 +516,11 @@ def import_dataframe(
                 chunk[vector_column], vector_column
             )
 
-            batch_meta = None
-            if meta_columns:
-                batch_meta = []
-                for i in range(len(batch_ids)):
-                    row = {}
-                    for col in meta_columns:
-                        if is_pandas:
-                            val = chunk[col].iloc[i]
-                        else:
-                            val = chunk[col][i]
-                        if not _is_missing(val):
-                            row[col] = val
-                    batch_meta.append(row if row else None)
+            batch_meta = (
+                _extract_metadata_rows(chunk, meta_columns, is_pandas=is_pandas)
+                if meta_columns
+                else None
+            )
 
             yield batch_ids, batch_vecs, batch_meta
 
@@ -574,43 +599,43 @@ def import_csv(
             )
         vec_mode = "prefixed"
 
-    def _chunks():
-        reader = pd.read_csv(str(path), chunksize=batch_size)
-        for chunk in reader:
-            batch_ids = chunk[id_column].tolist()
+    with pd.read_csv(str(path), chunksize=batch_size) as reader:
 
-            if vec_mode == "json":
-                batch_vecs = [json.loads(v) for v in chunk[vector_column]]
-            else:
-                batch_vecs = chunk[prefixed].values.tolist()
+        def _chunks():
+            for chunk in reader:
+                batch_ids = chunk[id_column].tolist()
 
-            # Metadata: all columns except id and vector columns
-            if vec_mode == "json":
-                skip = {vector_column, id_column}
-            else:
-                skip = set(prefixed) | {id_column}
-            meta_cols = [c for c in chunk.columns if c not in skip]
+                if vec_mode == "json":
+                    batch_vecs = [json.loads(v) for v in chunk[vector_column]]
+                else:
+                    batch_vecs = chunk[prefixed].values.tolist()
 
-            batch_meta = None
-            if meta_cols:
-                batch_meta = []
-                for _, row in chunk[meta_cols].iterrows():
-                    d = {k: v for k, v in row.items() if not _is_missing(v)}
-                    batch_meta.append(d if d else None)
+                # Metadata: all columns except id and vector columns
+                if vec_mode == "json":
+                    skip = {vector_column, id_column}
+                else:
+                    skip = set(prefixed) | {id_column}
+                meta_cols = [c for c in chunk.columns if c not in skip]
 
-            yield batch_ids, batch_vecs, batch_meta
+                batch_meta = (
+                    _extract_metadata_rows(chunk, meta_cols, is_pandas=True)
+                    if meta_cols
+                    else None
+                )
 
-    return _batch_import(
-        client,
-        _chunks(),
-        collection,
-        mode=mode,
-        metric=metric,
-        index_type=index_type,
-        max_retries=max_retries,
-        show_progress=show_progress,
-        total_vectors=None,  # CSV has no row count in header
-    )
+                yield batch_ids, batch_vecs, batch_meta
+
+        return _batch_import(
+            client,
+            _chunks(),
+            collection,
+            mode=mode,
+            metric=metric,
+            index_type=index_type,
+            max_retries=max_retries,
+            show_progress=show_progress,
+            total_vectors=None,  # CSV has no row count in header
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -711,15 +736,10 @@ def import_h5ad(
 
             batch_meta = None
             if meta_cols:
-                batch_meta = []
                 obs_slice = obs.iloc[start:end]
-                for _, row in obs_slice[meta_cols].iterrows():
-                    d = {}
-                    for col in meta_cols:
-                        val = row[col]
-                        if not _is_missing(val):
-                            d[col] = val
-                    batch_meta.append(d if d else None)
+                batch_meta = _extract_metadata_rows(
+                    obs_slice, meta_cols, is_pandas=True
+                )
 
             yield batch_ids, batch_vecs, batch_meta
 

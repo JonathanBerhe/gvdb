@@ -17,19 +17,25 @@ server:
     mutual_tls: true
 ```
 
-Clients connect over an insecure channel by default. For TLS endpoints, use a custom gRPC channel:
+Clients connect over an insecure channel by default. If the server uses TLS, set `tls=True` or pass `grpc.ssl_channel_credentials(...)`:
 
 === "Python"
 
     ```python
     import grpc
-    from gvdb.pb import vectordb_pb2_grpc as stub_pb
     from gvdb import GVDBClient
 
-    creds = grpc.ssl_channel_credentials(open("ca.crt", "rb").read())
-    # The GVDBClient currently constructs an insecure channel internally.
-    # For TLS today, use the generated gRPC stubs directly. A
-    # channel-factory kwarg on GVDBClient is planned.
+    # Use system root CAs
+    client = GVDBClient("gvdb.example.com:50051", api_key="admin-key-abc123", tls=True)
+
+    # Use a custom CA or mutual TLS
+    with open("ca.crt", "rb") as f:
+        creds = grpc.ssl_channel_credentials(root_certificates=f.read())
+    client = GVDBClient(
+        "gvdb.example.com:50051",
+        api_key="admin-key-abc123",
+        credentials=creds,
+    )
     ```
 
 ## API keys
@@ -71,7 +77,8 @@ Keys in this list are treated as `admin`. Migrate to `auth.roles` — legacy key
 
     ```python
     from gvdb import GVDBClient
-    client = GVDBClient("gvdb.example.com:50051", api_key="admin-key-abc123")
+
+    client = GVDBClient("gvdb.example.com:50051", api_key="admin-key-abc123", tls=True)
     ```
 
 The client sends `authorization: Bearer <key>` as gRPC metadata.

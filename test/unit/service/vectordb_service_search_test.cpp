@@ -160,13 +160,15 @@ class SearchServiceTest {
   uint32_t CreateCollection(
       const std::string& name, uint32_t dimension,
       proto::CreateCollectionRequest::MetricType metric = proto::CreateCollectionRequest::L2,
-      proto::CreateCollectionRequest::IndexType index_type = proto::CreateCollectionRequest::FLAT) {
+      proto::CreateCollectionRequest::IndexType index_type = proto::CreateCollectionRequest::FLAT,
+      uint32_t num_shards = 0) {
     grpc::ServerContext context;
     proto::CreateCollectionRequest request;
     request.set_collection_name(name);
     request.set_dimension(dimension);
     request.set_metric(metric);
     request.set_index_type(index_type);
+    request.set_num_shards(num_shards);
     proto::CreateCollectionResponse response;
     auto status = service_->CreateCollection(&context, &request, &response);
     INFO(status.error_message());
@@ -1210,7 +1212,10 @@ class SearchFilterTest : public SearchServiceTest {
   static constexpr const char* kCollection = "filter_collection";
 
   SearchFilterTest() {
-    CreateCollection(kCollection, kDim);
+    // Three shards, so a filtered search merges the results of three
+    // segments. Each brand has rows in every shard.
+    CreateCollection(kCollection, kDim, proto::CreateCollectionRequest::L2,
+                     proto::CreateCollectionRequest::FLAT, 3);
 
     const std::vector<std::string> brands = {"Nike", "Adidas", "Puma", "Reebok"};
     const std::vector<std::string> categories = {"Running", "Basketball", "Training", "Casual"};
@@ -1256,9 +1261,8 @@ class SearchFilterTest : public SearchServiceTest {
   }
 
   // Runs a filtered Search with top_k equal to the corpus size and checks
-  // that it returns exactly the expected ids, each with its exact L2
-  // distance. The result order is not checked: QueryExecutor::MergeResults
-  // returns filtered results farthest first.
+  // that it returns exactly the expected ids, closest first, each with its
+  // exact L2 distance.
   proto::SearchResponse SearchExpecting(const std::string& filter, bool return_metadata,
                                         const std::set<uint64_t>& expected) {
     // The filter must select some rows but not all of them.
@@ -1284,6 +1288,7 @@ class SearchFilterTest : public SearchServiceTest {
       REQUIRE(products_.count(r.id()) == 1);
       CHECK(r.distance() == doctest::Approx(L2(kQuery, products_.at(r.id()).vector)).epsilon(1e-4));
     }
+    CheckDistancesNonDecreasing(response.results());
     return response;
   }
 
@@ -1321,6 +1326,33 @@ class SearchFilterTest : public SearchServiceTest {
                                                    -0.4f, 0.1f,  0.25f, -0.2f};
   std::unordered_map<uint64_t, Product> products_;
 };
+
+TEST_CASE_FIXTURE(SearchFilterTest, "SearchFilterKeepsTheNearestMatchesOfEverySegment") {
+  // The filter matches 25 rows in three segments, and top_k asks for fewer.
+  const auto nike = Matching([](const Product& p) { return p.brand == "Nike"; });
+  std::vector<std::pair<double, uint64_t>> nearest;
+  nearest.reserve(nike.size());
+  for (uint64_t id : nike) nearest.emplace_back(L2(kQuery, products_.at(id).vector), id);
+  std::ranges::sort(nearest);
+
+  for (int top_k : {1, 5, 10}) {
+    CAPTURE(top_k);
+    proto::SearchRequest request;
+    request.set_collection_name(kCollection);
+    SetProtoVector(kQuery, request.mutable_query_vector());
+    request.set_top_k(static_cast<uint32_t>(top_k));
+    request.set_filter("brand = 'Nike'");
+    proto::SearchResponse response;
+    auto status = Search(request, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+
+    REQUIRE_EQ(response.results_size(), top_k);
+    for (int i = 0; i < top_k; ++i) {
+      CHECK_EQ(response.results(i).id(), nearest[static_cast<size_t>(i)].second);
+    }
+  }
+}
 
 TEST_CASE_FIXTURE(SearchFilterTest, "SearchFilterReturnsExactlyTheMatchingRows") {
   SUBCASE("int64 comparison AND string equality") {

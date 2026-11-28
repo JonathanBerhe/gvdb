@@ -529,7 +529,7 @@ jobs:
 
       - name: Install Python SDK deps
         if: steps.filter.outputs.python == 'true'
-        run: cd clients/python && uv sync
+        run: cd clients/python && uv sync --extra import
 
       - name: Lint Python SDK
         if: steps.filter.outputs.python == 'true'
