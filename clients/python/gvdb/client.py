@@ -102,7 +102,10 @@ class GVDBClient:
         channel: Optional[grpc.Channel] = None,
     ):
         if channel is not None and (tls or credentials is not None):
-            raise ValueError("Pass either 'channel' or 'tls'/'credentials', not both")
+            raise ValueError(
+                "You cannot set 'channel' together with 'tls' or 'credentials'. "
+                "Pass 'channel' alone, or pass 'tls' or 'credentials'."
+            )
         self._address = address
         self._timeout = timeout
         self._metadata = ()
@@ -129,7 +132,7 @@ class GVDBClient:
         self._stub = pb_grpc.VectorDBServiceStub(self._channel)
 
     def close(self):
-        """Close the connection if owned by this client."""
+        """If this client created the channel, close it."""
         if self._owns_channel:
             self._channel.close()
 
@@ -567,7 +570,7 @@ class GVDBClient:
         fmt = format_map.get(format.lower())
         if fmt is None:
             raise ValueError(
-                f"Unsupported format {format!r}. Expected 'parquet' or 'numpy'."
+                f"Format {format!r} is not supported. Pass 'parquet' or 'numpy'."
             )
         resp = self._stub.BulkImport(
             pb.BulkImportRequest(

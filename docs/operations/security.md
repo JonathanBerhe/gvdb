@@ -17,7 +17,7 @@ server:
     mutual_tls: true
 ```
 
-Clients connect over an insecure channel by default. For TLS endpoints, enable `tls=True` or pass `grpc.ssl_channel_credentials(...)`:
+Clients connect over an insecure channel by default. If the server uses TLS, set `tls=True` or pass `grpc.ssl_channel_credentials(...)`:
 
 === "Python"
 
@@ -25,10 +25,10 @@ Clients connect over an insecure channel by default. For TLS endpoints, enable `
     import grpc
     from gvdb import GVDBClient
 
-    # System root CAs
+    # Use system root CAs
     client = GVDBClient("gvdb.example.com:50051", api_key="admin-key-abc123", tls=True)
 
-    # Custom CA or mutual TLS
+    # Use a custom CA or mutual TLS
     with open("ca.crt", "rb") as f:
         creds = grpc.ssl_channel_credentials(root_certificates=f.read())
     client = GVDBClient(

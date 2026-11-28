@@ -9,11 +9,11 @@ from gvdb import GVDBClient
 
 client = GVDBClient(
     "localhost:50051",
-    api_key="your-key",     # optional; required if RBAC is enabled
+    api_key="your-key",     # optional. Required if RBAC is enabled.
     timeout=30.0,           # per-RPC timeout in seconds
-    tls=False,              # set True to use grpc.secure_channel with system CAs
+    tls=False,              # set True to connect with TLS and system CAs
     credentials=None,       # optional grpc.ChannelCredentials for custom CA or mTLS
-    channel=None,           # optional pre-built grpc.Channel (caller retains ownership)
+    channel=None,           # optional pre-built grpc.Channel. The caller closes it.
 )
 
 client.health_check()       # -> status string
@@ -28,7 +28,7 @@ with GVDBClient("localhost:50051") as client:
     client.health_check()
 ```
 
-The client uses an insecure gRPC channel by default. For TLS-enabled endpoints (especially when passing `api_key`), pass `tls=True`, custom `credentials=grpc.ssl_channel_credentials(...)`, or a pre-built `channel`.
+The client uses an insecure gRPC channel by default. If the server uses TLS, set `tls=True` or pass `credentials=grpc.ssl_channel_credentials(...)`. You can also pass a pre-built `channel`. Use TLS when you pass `api_key`.
 
 ## Collection management
 
@@ -124,7 +124,7 @@ rows = client.get("my_collection", ids=[1, 2, 3], return_metadata=True)
 # rows == [{"id": 1, "vector": [...], "metadata": {...}}, ...]
 ```
 
-Returns a list of dicts with `id`, `vector`, and `metadata` (present only if `return_metadata=True` and the vector has metadata).
+The method returns a list of dicts with `id`, `vector`, and `metadata`. The `metadata` key is present only if `return_metadata=True` and the vector has metadata.
 
 ### Search
 

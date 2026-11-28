@@ -1,4 +1,4 @@
-"""Offline unit tests for GVDBClient behavior (no server required)."""
+"""Unit tests for GVDBClient that run without a server."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from gvdb.pb import vectordb_pb2 as pb
 
 
 class _ScalarStub:
-    """Minimal 0-d scalar stub matching NumPy scalar protocol."""
+    """Zero-dimensional scalar stub that implements the NumPy scalar interface."""
 
     ndim = 0
 
@@ -25,7 +25,7 @@ class _ScalarStub:
 
 
 class _ArrayStub:
-    """Minimal 1-d array stub that must not be unwrapped into a scalar."""
+    """One-dimensional array stub that the client must not unwrap into a scalar."""
 
     ndim = 1
 
@@ -90,9 +90,9 @@ class TestClientChannelOptions:
     def test_channel_with_tls_or_credentials_raises(self):
         custom_channel = MagicMock(spec=grpc.Channel)
         creds = MagicMock(spec=grpc.ChannelCredentials)
-        with pytest.raises(ValueError, match="not both"):
+        with pytest.raises(ValueError, match="cannot set 'channel'"):
             GVDBClient(channel=custom_channel, tls=True)
-        with pytest.raises(ValueError, match="not both"):
+        with pytest.raises(ValueError, match="cannot set 'channel'"):
             GVDBClient(channel=custom_channel, credentials=creds)
 
 
@@ -157,7 +157,7 @@ class TestBulkImportFormat:
     def test_invalid_format_raises_value_error(self, bad_fmt):
         with GVDBClient("localhost:1") as client:
             client._stub = MagicMock()
-            with pytest.raises(ValueError, match="Unsupported format"):
+            with pytest.raises(ValueError, match="is not supported"):
                 client.bulk_import("docs", "s3://bucket/data", format=bad_fmt)
             client._stub.BulkImport.assert_not_called()
 

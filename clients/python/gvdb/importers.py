@@ -406,11 +406,11 @@ def import_parquet(
 def _extract_metadata_rows(
     frame, meta_columns: list[str], *, is_pandas: bool = True
 ) -> list[Optional[dict]]:
-    """Extract per-row metadata dicts column-wise as native Python scalars.
+    """Extract one metadata dict per row with plain Python values.
 
-    Extracting each column independently via ``tolist()`` / ``to_list()``
-    preserves native column dtypes (avoiding ``DataFrame.iterrows()``
-    cross-column upcasting and raw NumPy scalar instances).
+    Reads each column with ``tolist()`` or ``to_list()``. This keeps the
+    original type of each column. It also avoids ``DataFrame.iterrows()``,
+    which turns integers into floats and leaves raw NumPy scalars.
     """
     if is_pandas:
         col_lists = {col: frame[col].tolist() for col in meta_columns}
