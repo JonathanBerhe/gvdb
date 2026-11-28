@@ -46,15 +46,6 @@ Wildcards (`["*"]`) grant access to every collection.
     client = GVDBClient("localhost:50051", api_key="analyst-key-xyz789")
     ```
 
-=== "Java"
-
-    ```java
-    var config = GvdbClientConfig.builder("localhost:50051")
-        .apiKey("analyst-key-xyz789")
-        .build();
-    var client = new GvdbClient(config);
-    ```
-
 The client sends `authorization: Bearer <key>` as gRPC metadata.
 
 ## Legacy `api_keys` list

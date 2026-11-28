@@ -37,8 +37,6 @@ _REPO_IGNORE = [
     "**/*.key",
     "clients/**",
     "operator/**",
-    "ui/**",
-    "connectors/**",
     "deploy/**",
     "docs/**",
     "outputs/**",

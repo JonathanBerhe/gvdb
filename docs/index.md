@@ -30,14 +30,6 @@ Store, index, and search high-dimensional vectors — embeddings from OpenAI, Co
 
     [Python SDK →](python-sdk/index.md)
 
-- **Stream from Spark & Flink**
-
-    ---
-
-    Java connectors for batch and streaming pipelines. Maven Central.
-
-    [Connectors →](connectors/spark.md)
-
 </div>
 
 ## Why GVDB

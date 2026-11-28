@@ -424,24 +424,3 @@ config:
     level: "info"
     consoleEnabled: true
     fileEnabled: false
-
-ui:
-  enabled: false
-  image:
-    repository: ghcr.io/jonathanberhe/gvdb-ui
-    # NOTE: this image is not yet built/pushed by CI. Enabling ui.enabled
-    # currently requires manually publishing a tag to the registry. Pinning
-    # to a real tag will land in a follow-up that adds the publish workflow.
-    tag: latest
-    pullPolicy: IfNotPresent
-  port: 8080
-  resources:
-    requests:
-      memory: "64Mi"
-      cpu: "50m"
-    limits:
-      memory: "128Mi"
-      cpu: "200m"
-  service:
-    type: ClusterIP
-    port: 8080

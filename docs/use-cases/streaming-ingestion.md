@@ -1,72 +1,52 @@
 # Streaming ingestion
 
-Continuously index embeddings as they arrive. GVDB ships first-party connectors for **Apache Spark** and **Apache Flink**.
+Index embeddings continuously as your producer creates them, for example from a Kafka consumer. The [Python SDK](../python-sdk/index.md) has two calls for this.
 
 ## When to choose which
 
 | Workload | Choose |
 |----------|--------|
-| Batch ETL from data lakes (Parquet, Delta, Iceberg) | [Spark](../connectors/spark.md) |
-| Real-time streaming (Kafka, Kinesis) with exactly-once | [Flink](../connectors/flink.md) |
-| One-shot bulk load from a file | [Python SDK bulk import](../python-sdk/bulk-import.md) |
-| gRPC client-streaming from your own producer | Python/Java SDK streaming inserts |
+| Micro-batches from a consumer that can retry | `upsert` |
+| Large batches at the highest rate, without retries | `stream_insert` |
+| One-time load from a file | [Python SDK bulk import](../python-sdk/bulk-import.md) |
 
-## Spark (batch + streaming)
+## Upsert micro-batches
 
-PySpark example writing a DataFrame to GVDB:
+`upsert` inserts new ids and replaces existing ones. A retried batch gives the same result, so a consumer can commit its offset after the call returns and retry the batch on an error.
 
 ```python
-df.write.format("io.gvdb.spark") \
-    .option("gvdb.target", "proxy.gvdb.svc:50051") \
-    .option("gvdb.collection", "embeddings") \
-    .option("gvdb.dimension", "768") \
-    .option("gvdb.metric", "cosine") \
-    .option("gvdb.index_type", "auto") \
-    .option("gvdb.batch_size", "5000") \
-    .mode("append") \
-    .save()
+from gvdb import GVDBClient
+
+with GVDBClient("proxy.gvdb.svc:50051") as client:
+    for batch in consumer:  # your producer, for example a Kafka consumer
+        client.upsert(
+            "events",
+            ids=[e.id for e in batch],
+            vectors=[e.vector for e in batch],
+            metadata=[{"category": e.category} for e in batch],
+        )
+        consumer.commit()
 ```
 
-Full walkthrough: [Spark connector](../connectors/spark.md).
+## Stream insert
 
-## Flink (streaming)
+`stream_insert` splits the ids and vectors into pieces of `batch_size` and sends them over one gRPC client-streaming call. It returns the number of inserted vectors. `upsert` is the call that replaces an existing id, so use `upsert` when the producer can send a record again.
 
-Java sink consuming an embedding stream:
-
-```java
-var sink = GvdbSink.<Embedding>builder()
-    .setTarget("proxy.gvdb.svc:50051")
-    .setCollection("events")
-    .setBatchSize(1000)
-    .setMaxRetries(3)
-    .setRecordMapper(e -> new GvdbVector(
-        e.id(), e.vector(), Map.of("category", e.category())))
-    .build();
-
-stream.sinkTo(sink);
+```python
+total = client.stream_insert(
+    "events",
+    ids=ids,
+    vectors=vectors,
+    batch_size=10_000,
+    metadata=metadata,
+)
 ```
-
-Full walkthrough: [Flink connector](../connectors/flink.md).
-
-## Exactly-once semantics
-
-- **Flink**: the GVDB sink participates in Flink checkpoints. Combined with GVDB's upsert idempotency, you get exactly-once end-to-end.
-- **Spark**: batch jobs are idempotent via upsert mode; retried tasks produce the same result.
-
-## Back-pressure and retries
-
-Both connectors:
-
-- Batch inserts (default 1,000–5,000 records)
-- Retry on transient errors with exponential backoff (default 3 attempts)
-- Fail the task on permanent errors, letting Spark/Flink re-schedule
 
 ## Distributed clusters
 
-Point the `target` at your [Helm-deployed proxy](../getting-started/distributed-cluster.md). The proxy fan-outs inserts to the appropriate shard's primary data node; replication is handled server-side.
+Point the client at your [Helm-deployed proxy](../getting-started/distributed-cluster.md). The proxy sends each insert to the primary data node of its shard. The server handles replication.
 
 ## See also
 
-- [Spark connector](../connectors/spark.md)
-- [Flink connector](../connectors/flink.md)
-- [Java client](../connectors/java-client.md) for raw gRPC from JVM apps
+- [Python SDK client API](../python-sdk/client.md)
+- [Bulk ingestion](bulk-ingestion.md)

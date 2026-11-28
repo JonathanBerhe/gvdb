@@ -1,6 +1,6 @@
 # Monitoring
 
-Every GVDB binary exposes Prometheus metrics and a health endpoint. Dashboards for Grafana are pre-provisioned, and a Web UI ships alongside for interactive investigation.
+Every GVDB binary exposes Prometheus metrics and a health endpoint. Dashboards for Grafana are pre-provisioned.
 
 ## Prometheus metrics
 
@@ -60,35 +60,6 @@ GVDBClient("localhost:50051").health_check()
 ```
 
 The Helm chart wires Kubernetes readiness/liveness probes to this RPC.
-
-## Web UI
-
-The `gvdb-ui` binary provides a browser-based collection browser, search playground, and metrics dashboard.
-
-=== "Docker"
-
-    ```bash
-    docker run -p 8080:8080 \
-      ghcr.io/jonathanberhe/gvdb-ui \
-      --gvdb-addr host.docker.internal:50051
-    ```
-
-=== "Helm"
-
-    ```bash
-    helm upgrade gvdb oci://ghcr.io/jonathanberhe/charts/gvdb \
-      --set ui.enabled=true
-    kubectl port-forward -n gvdb svc/gvdb-ui 8080:8080
-    ```
-
-=== "From source"
-
-    ```bash
-    make build-ui
-    ./ui/gateway/gvdb-ui --gvdb-addr localhost:50051
-    ```
-
-Open `http://localhost:8080`.
 
 ## Audit logging
 

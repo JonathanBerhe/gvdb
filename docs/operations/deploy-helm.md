@@ -93,17 +93,6 @@ The chart is intentionally minimal. Exposed keys mirror [`deploy/helm/gvdb/value
 | `config.logging.consoleEnabled` | `true` |
 | `config.logging.fileEnabled` | `false` |
 
-### `ui`
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `ui.enabled` | `false` | Deploy the GVDB Web UI alongside the cluster |
-| `ui.image.repository` | `ghcr.io/jonathanberhe/gvdb-ui` | UI image |
-| `ui.image.tag` | `latest` | UI tag (the UI image is not yet built/pushed by CI; enabling currently requires manually publishing a tag) |
-| `ui.port` | `8080` | Container port |
-| `ui.service.type` | `ClusterIP` | |
-| `ui.service.port` | `8080` | |
-
 ## Hardening primitives (production)
 
 All hardening features default to `enabled: false` so the dev/kind install is unchanged. Enable them in a production overlay. Per-workload toggles let you adopt incrementally — e.g. PDB everywhere first, then NetworkPolicy.

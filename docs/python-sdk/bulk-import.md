@@ -167,11 +167,6 @@ client.cancel_import(import_id)      # -> True if accepted
 
 **The collection must already exist** when you call `bulk_import` — unlike client-side importers, the server-side path does not auto-create collections.
 
-## Alternatives for very large workloads
-
-- **Spark** for parallel loads from data lakes — see the [Spark connector](../connectors/spark.md).
-- **Flink** for streaming ingestion — see the [Flink connector](../connectors/flink.md).
-
 ## See also
 
 - [Client API](client.md)

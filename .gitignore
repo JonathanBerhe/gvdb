@@ -68,11 +68,6 @@ coverage.info
 third_party/
 external/
 
-# Gradle / Java connectors
-connectors/.gradle/
-connectors/**/build/
-connectors/gvdb-java-client/src/main/proto/
-
 # Python
 __pycache__/
 *.py[cod]
@@ -98,8 +93,3 @@ ROADMAP_DISTRIBUTED.md
 site/
 .venv-docs/
 
-# UI build output
-ui/gateway/gvdb-ui
-ui/web/node_modules/
-ui/web/dist/
-ui/gateway/gvdb-ui*

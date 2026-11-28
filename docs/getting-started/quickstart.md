@@ -91,4 +91,3 @@ python quickstart.py
 - Try [hybrid search](../features/hybrid-search.md) combining dense, sparse, and BM25 text
 - Load millions of vectors with [bulk import](../python-sdk/bulk-import.md) (Parquet, NumPy, pandas, h5ad)
 - Scale out to a [distributed cluster](distributed-cluster.md)
-- Stream real-time embeddings from [Spark](../connectors/spark.md) or [Flink](../connectors/flink.md)

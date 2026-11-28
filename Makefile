@@ -3,10 +3,8 @@
        docker-build kind-create kind-load deploy \
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
        undeploy clean-kind port-forward status \
-       build-ui docker-build-ui run-ui \
        lint-sdk test-sdk test-sdk-kind proto \
        bench-search bench-metal bench-cuda \
-       build-connectors test-connectors \
        build-operator test-operator docker-build-operator \
        helm-install-operator helm-uninstall-operator \
        docs-install docs-serve docs-build
@@ -29,7 +27,6 @@ HELM_REGISTRY   ?= oci://ghcr.io/jonathanberhe/charts
 CMAKE_EXTRA     ?=
 PYTHON_SDK_DIR   = clients/python
 NPROC           := $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
-CONNECTORS_DIR   = connectors
 # clang-format from PyPI, pinned to the major version of the Clang that CI
 # uses. uvx downloads it on first use.
 CLANG_FORMAT_VERSION = 22.1.8
@@ -150,15 +147,6 @@ clean:
 	@rm -rf build
 
 # ---------------------------------------------------------------------------
-# Java Connectors (Spark / Flink)
-# ---------------------------------------------------------------------------
-build-connectors:
-	@cd $(CONNECTORS_DIR) && ./gradlew build -x :gvdb-connector-tests:test
-
-test-connectors:
-	@cd $(CONNECTORS_DIR) && ./gradlew build
-
-# ---------------------------------------------------------------------------
 # Kubernetes Operator (Tier 0b.6)
 # ---------------------------------------------------------------------------
 OPERATOR_DIR        ?= operator
@@ -188,7 +176,7 @@ helm-install-operator:
 helm-uninstall-operator:
 	helm uninstall $(HELM_OPERATOR_RELEASE) -n $(HELM_OPERATOR_NAMESPACE)
 
-# Regenerate the checked-in protobuf stubs (Python SDK, operator, UI gateway)
+# Regenerate the checked-in protobuf stubs (Python SDK, operator)
 # from proto/*.proto with the generators pinned in tools/proto/versions.env.
 # CI fails when a stub differs from what this target generates.
 proto:
@@ -258,22 +246,6 @@ docs-serve: docs-install
 
 docs-build: docs-install
 	@$(DOCS_VENV)/bin/zensical build
-
-# ---------------------------------------------------------------------------
-# Web UI
-# ---------------------------------------------------------------------------
-build-ui:
-	@cd ui/web && yarn install --frozen-lockfile && yarn build
-	@rm -rf ui/gateway/static/*
-	@cp -r ui/web/dist/* ui/gateway/static/
-	@cd ui/gateway && CGO_ENABLED=0 go build -ldflags="-s -w" -o gvdb-ui .
-	@echo "Built ui/gateway/gvdb-ui ($$(du -h ui/gateway/gvdb-ui | cut -f1))"
-
-docker-build-ui:
-	docker build -t gvdb-ui:latest -f ui/Dockerfile ui/
-
-run-ui:
-	@cd ui/gateway && ./gvdb-ui $(if $(GVDB_ADDR),--gvdb-addr $(GVDB_ADDR),)
 
 clean-kind:
 	kind delete cluster --name $(CLUSTER_NAME)

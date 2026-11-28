@@ -97,10 +97,6 @@ pip install gvdb[import-all]    # everything including h5ad for scRNA-seq
 
 See [Python SDK overview](../python-sdk/index.md).
 
-## Java connectors
-
-Published to GitHub Packages. See the [Spark connector](../connectors/spark.md) and [Flink connector](../connectors/flink.md) pages for the Gradle/Maven coordinates and integration examples.
-
 ## Next steps
 
 - [Quickstart](quickstart.md): insert and search your first vectors

@@ -8,10 +8,6 @@ package gvdb.proto;
 // Go code generators override this with -M flags (tools/proto/generate.sh).
 option go_package = "github.com/JonathanBerhe/gvdb/proto/gvdbpb;gvdbpb";
 
-option java_package = "io.gvdb.proto";
-option java_multiple_files = true;
-option java_outer_classname = "VectorDbProto";
-
 // ============================================================================
 // Core Data Types
 // ============================================================================
