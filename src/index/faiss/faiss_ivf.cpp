@@ -23,8 +23,7 @@ std::unique_ptr<faiss::Index> FaissIVFIndex::CreateIVFIndex(core::Dimension dime
                                                             core::MetricType metric, int nlist,
                                                             IVFQuantizationType quantization,
                                                             int pq_m, int pq_nbits) {
-  faiss::MetricType faiss_metric =
-      (metric == core::MetricType::INNER_PRODUCT) ? faiss::METRIC_INNER_PRODUCT : faiss::METRIC_L2;
+  faiss::MetricType faiss_metric = ToFaissMetric(metric);
 
   // Create quantizer (flat index for cluster centers)
   auto quantizer = new faiss::IndexFlat(dimension, faiss_metric);

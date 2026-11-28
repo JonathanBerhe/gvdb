@@ -155,7 +155,7 @@ float Vector::CosineDistance(const Vector& other) const {
   float norm_b = other.Norm();
 
   if (norm_a < 1e-8f || norm_b < 1e-8f) {
-    return 2.0f;  // Invalid
+    return 1.0f;  // A zero vector has no direction, like an orthogonal one.
   }
 
   float cosine_similarity = dot_product / (norm_a * norm_b);

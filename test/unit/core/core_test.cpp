@@ -183,6 +183,16 @@ TEST_CASE("VectorTest - CosineDistanceOrthogonal") {
   CHECK(vec1.CosineDistance(vec2) == doctest::Approx(1.0f).epsilon(1e-6f));
 }
 
+TEST_CASE("VectorTest - CosineDistanceOfAZeroVectorIsOne") {
+  Vector zero(std::vector<float>{0.0f, 0.0f});
+  Vector other(std::vector<float>{3.0f, 4.0f});
+
+  // A zero vector has no direction, so it counts as orthogonal.
+  CHECK(zero.CosineDistance(other) == doctest::Approx(1.0f));
+  CHECK(other.CosineDistance(zero) == doctest::Approx(1.0f));
+  CHECK(zero.CosineDistance(zero) == doctest::Approx(1.0f));
+}
+
 // ============================================================================
 // Vector Utility Tests
 // ============================================================================
