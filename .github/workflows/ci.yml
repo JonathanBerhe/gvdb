@@ -43,10 +43,11 @@ jobs:
               - 'tools/ci/**'
               - 'Makefile'
               - '.github/workflows/ci.yml'
-              # The python SDK integration tests download this job's
+              # The SDK integration tests download this job's
               # gvdb-server artifact, so SDK-only changes also need the
               # server built here.
               - 'clients/python/**'
+              - 'clients/rust/**'
 
       - name: Install system dependencies
         if: steps.filter.outputs.cpp == 'true'
@@ -541,6 +542,76 @@ jobs:
       - name: Skip notice
         if: steps.filter.outputs.python == 'false'
         run: echo "No Python SDK changes, skipping"
+
+  test-rust-sdk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check for Rust SDK changes
+        uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            # The SDK tests run against the server built in build-and-test,
+            # so server changes run them too.
+            rust:
+              - 'clients/rust/**'
+              - 'proto/**'
+              - 'src/**'
+              - 'CMakeLists.txt'
+              - 'CMakePresets.json'
+              - 'cmake/**'
+              - 'tools/ci/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Set up Rust
+        if: steps.filter.outputs.rust == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo artifacts
+        if: steps.filter.outputs.rust == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: clients/rust
+
+      - name: Download server binary
+        if: steps.filter.outputs.rust == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: gvdb-server
+          path: build/ci/bin
+
+      - name: Make server executable
+        if: steps.filter.outputs.rust == 'true'
+        run: chmod +x build/ci/bin/gvdb-single-node
+
+      # The server links libc++ statically and needs the matching LLVM OpenMP
+      # runtime. The Rust build script needs protoc to compile vectordb.proto.
+      - name: Install runtime and proto deps
+        if: steps.filter.outputs.rust == 'true'
+        run: |
+          tools/ci/install-llvm.sh --runtime
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libopenblas0 liblapack3 protobuf-compiler
+
+      - name: Check default features build
+        if: steps.filter.outputs.rust == 'true'
+        run: cd clients/rust && cargo check --no-default-features
+
+      - name: Lint and test Rust SDK
+        if: steps.filter.outputs.rust == 'true'
+        run: make test-rust-sdk PRESET=ci
+
+      - name: Skip notice
+        if: steps.filter.outputs.rust == 'false'
+        run: echo "No Rust SDK changes, skipping"
 
   test-operator:
     runs-on: ubuntu-24.04

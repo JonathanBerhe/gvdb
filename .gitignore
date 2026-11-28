@@ -93,3 +93,6 @@ ROADMAP_DISTRIBUTED.md
 site/
 .venv-docs/
 
+# Rust
+target/
+

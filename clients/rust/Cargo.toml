@@ -1,0 +1,35 @@
+[package]
+name = "gvdb"
+version = "0.38.0" # x-release-please-version
+edition = "2024"
+description = "Rust client for GVDB distributed vector database"
+license = "Apache-2.0"
+repository = "https://github.com/JonathanBerhe/gvdb"
+readme = "README.md"
+
+[features]
+default = []
+csv = ["dep:csv", "dep:serde_json"]
+parquet = ["dep:parquet", "dep:arrow-array", "dep:arrow-schema"]
+import = ["csv", "parquet"]
+
+[dependencies]
+prost = "0.14"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "time"] }
+tokio-stream = "0.1"
+tonic = { version = "0.14", features = ["transport", "tls-ring", "tls-native-roots"] }
+tonic-prost = "0.14"
+
+csv = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
+parquet = { version = "60", default-features = false, features = ["arrow"], optional = true }
+arrow-array = { version = "60", optional = true }
+arrow-schema = { version = "60", optional = true }
+
+[build-dependencies]
+tonic-prost-build = "0.14"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync"] }

@@ -3,7 +3,7 @@
        docker-build kind-create kind-load deploy \
        helm-install helm-upgrade helm-uninstall helm-package helm-push \
        undeploy clean-kind port-forward status \
-       lint-sdk test-sdk test-sdk-kind proto \
+       lint-sdk test-sdk test-sdk-kind lint-rust-sdk test-rust-sdk test-rust-sdk-kind proto \
        bench-search bench-metal bench-cuda \
        build-operator test-operator docker-build-operator \
        helm-install-operator helm-uninstall-operator \
@@ -26,6 +26,7 @@ HELM_REGISTRY   ?= oci://ghcr.io/jonathanberhe/charts
 # CMAKE_EXTRA="-DGVDB_WITH_S3=ON".
 CMAKE_EXTRA     ?=
 PYTHON_SDK_DIR   = clients/python
+RUST_SDK_DIR     = clients/rust
 NPROC           := $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 # clang-format from PyPI, pinned to the major version of the Clang that CI
 # uses. uvx downloads it on first use.
@@ -142,6 +143,16 @@ test-sdk: lint-sdk
 
 test-sdk-kind:
 	@cd $(PYTHON_SDK_DIR) && GVDB_SERVER_ADDR=localhost:50050 uv run python3 -m pytest tests/test_sdk.py -v
+
+lint-rust-sdk:
+	@cd $(RUST_SDK_DIR) && cargo fmt -- --check && cargo clippy --all-targets --all-features -- -D warnings
+
+# The Rust SDK integration tests start the gvdb-single-node built by $(PRESET).
+test-rust-sdk: lint-rust-sdk
+	@cd $(RUST_SDK_DIR) && GVDB_SERVER_BIN=$(CURDIR)/$(BUILD_DIR)/bin/gvdb-single-node cargo test --all-features
+
+test-rust-sdk-kind:
+	@cd $(RUST_SDK_DIR) && GVDB_SERVER_ADDR=localhost:50050 cargo test --all-features --test integration
 
 clean:
 	@rm -rf build
