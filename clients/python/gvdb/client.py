@@ -97,24 +97,41 @@ class GVDBClient:
         *,
         api_key: Optional[str] = None,
         timeout: float = 30.0,
+        tls: bool = False,
+        credentials: Optional[grpc.ChannelCredentials] = None,
+        channel: Optional[grpc.Channel] = None,
     ):
+        if channel is not None and (tls or credentials is not None):
+            raise ValueError("Pass either 'channel' or 'tls'/'credentials', not both")
         self._address = address
         self._timeout = timeout
         self._metadata = ()
         if api_key:
             self._metadata = (("authorization", f"Bearer {api_key}"),)
-        self._channel = grpc.insecure_channel(
-            address,
-            options=[
-                ("grpc.max_send_message_length", 256 * 1024 * 1024),
-                ("grpc.max_receive_message_length", 256 * 1024 * 1024),
-            ],
-        )
+        options = [
+            ("grpc.max_send_message_length", 256 * 1024 * 1024),
+            ("grpc.max_receive_message_length", 256 * 1024 * 1024),
+        ]
+        if channel is not None:
+            self._channel = channel
+            self._owns_channel = False
+        elif tls or credentials is not None:
+            creds = (
+                credentials
+                if credentials is not None
+                else grpc.ssl_channel_credentials()
+            )
+            self._channel = grpc.secure_channel(address, creds, options=options)
+            self._owns_channel = True
+        else:
+            self._channel = grpc.insecure_channel(address, options=options)
+            self._owns_channel = True
         self._stub = pb_grpc.VectorDBServiceStub(self._channel)
 
     def close(self):
-        """Close the connection."""
-        self._channel.close()
+        """Close the connection if owned by this client."""
+        if self._owns_channel:
+            self._channel.close()
 
     def __enter__(self):
         return self
@@ -450,10 +467,20 @@ class GVDBClient:
             for r in resp.results
         ]
 
-    def get(self, collection: str, ids: list[int]) -> list[dict]:
+    def get(
+        self,
+        collection: str,
+        ids: list[int],
+        *,
+        return_metadata: bool = True,
+    ) -> list[dict]:
         """Get vectors by ID. Returns list of {id, vector, metadata}."""
         resp = self._stub.Get(
-            pb.GetRequest(collection_name=collection, ids=ids),
+            pb.GetRequest(
+                collection_name=collection,
+                ids=ids,
+                return_metadata=return_metadata,
+            ),
             timeout=self._timeout,
             metadata=self._metadata,
         )
@@ -533,7 +560,15 @@ class GVDBClient:
         Returns:
             Import job ID (string). Poll with :meth:`get_import_status`.
         """
-        fmt = pb.PARQUET if format == "parquet" else pb.NUMPY
+        format_map = {
+            "parquet": pb.PARQUET,
+            "numpy": pb.NUMPY,
+        }
+        fmt = format_map.get(format.lower())
+        if fmt is None:
+            raise ValueError(
+                f"Unsupported format {format!r}. Expected 'parquet' or 'numpy'."
+            )
         resp = self._stub.BulkImport(
             pb.BulkImportRequest(
                 collection_name=collection,
@@ -928,6 +963,8 @@ def _to_proto_metadata(meta: dict) -> pb.Metadata:
     """Convert a Python dict to proto Metadata."""
     fields = {}
     for k, v in meta.items():
+        if getattr(v, "ndim", None) == 0 and callable(getattr(v, "item", None)):
+            v = v.item()
         if isinstance(v, bool):
             fields[k] = pb.MetadataValue(bool_value=v)
         elif isinstance(v, int):
