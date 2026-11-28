@@ -68,6 +68,9 @@ class ICollectionResolver {
   // Resolve a collection name to its ID
   virtual absl::StatusOr<core::CollectionId> GetCollectionId(const std::string& name) = 0;
 
+  // Get the distance metric of a collection by name
+  virtual absl::StatusOr<core::MetricType> GetMetricType(const std::string& name) = 0;
+
   // Create a new collection, returning its ID
   virtual absl::StatusOr<core::CollectionId> CreateCollection(const std::string& name,
                                                               core::Dimension dimension,

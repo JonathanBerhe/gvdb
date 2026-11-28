@@ -409,18 +409,28 @@ class GVDBClient:
         collection: str,
         query_vector: list[float],
         *,
-        radius: float,
+        radius: float | None = None,
+        similarity_threshold: float | None = None,
         filter_expression: str = "",
         return_metadata: bool = False,
         max_results: int = 1000,
     ) -> list[SearchResult]:
-        """Find all vectors within a distance radius."""
+        """Find all vectors within a range of the query, closest first.
+
+        For an ``l2`` or ``cosine`` collection, pass ``radius``, the largest
+        distance of a result. For an ``ip`` collection, pass
+        ``similarity_threshold``, the smallest dot product of a result.
+        ``max_results`` keeps the nearest results.
+        """
         req = pb.RangeSearchRequest(
             collection_name=collection,
             query_vector=pb.Vector(values=query_vector, dimension=len(query_vector)),
-            radius=radius,
             max_results=max_results,
         )
+        if radius is not None:
+            req.radius = radius
+        if similarity_threshold is not None:
+            req.similarity_threshold = similarity_threshold
         if filter_expression:
             req.filter = filter_expression
         if return_metadata:

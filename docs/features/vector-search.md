@@ -40,7 +40,12 @@ Every index supports three metrics. Each search result has a `distance`, and a l
 
 Every index type returns the same distance for the same pair of vectors. TurboQuant indexes return an estimate of it. For `cosine`, a zero vector has no direction, so its distance to any vector is 1.
 
-The `radius` of a range search is the largest distance that a result can have. For example, a radius of 0.2 with `cosine` returns the vectors with a cosine similarity of 0.8 or more.
+A range search returns every vector within a limit of the query, closest first. The limit depends on the metric:
+
+- For `l2` and `cosine`, you set `radius`, the largest distance that a result can have. It must be positive. For example, a radius of 0.2 with `cosine` returns the vectors with a cosine similarity of 0.8 or more.
+- For `ip`, you set `similarity_threshold`, the smallest dot product that a result can have. A range search on an `ip` collection does not take a radius.
+
+Any other combination fails with `INVALID_ARGUMENT`. `max_results` keeps the nearest results.
 
 ```python
 client.create_collection("embeddings", dimension=768, metric="cosine")

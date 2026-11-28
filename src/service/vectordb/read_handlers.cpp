@@ -25,10 +25,6 @@ grpc::Status VectorDBService::RangeSearch(grpc::ServerContext* /*context*/,
   if (!request->has_query_vector()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Query vector is required");
   }
-  if (request->radius() <= 0) {
-    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Radius must be positive");
-  }
-
   return read_path_.RangeSearch(*request, response);
 }
 

@@ -2135,12 +2135,17 @@ type RangeSearchRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	CollectionName string                 `protobuf:"bytes,1,opt,name=collection_name,json=collectionName,proto3" json:"collection_name,omitempty"`
 	QueryVector    *Vector                `protobuf:"bytes,2,opt,name=query_vector,json=queryVector,proto3" json:"query_vector,omitempty"`
-	Radius         float32                `protobuf:"fixed32,3,opt,name=radius,proto3" json:"radius,omitempty"` // Distance threshold
-	Filter         string                 `protobuf:"bytes,4,opt,name=filter,proto3" json:"filter,omitempty"`   // Optional metadata filter
-	ReturnMetadata bool                   `protobuf:"varint,5,opt,name=return_metadata,json=returnMetadata,proto3" json:"return_metadata,omitempty"`
-	MaxResults     uint32                 `protobuf:"varint,6,opt,name=max_results,json=maxResults,proto3" json:"max_results,omitempty"` // Limit results (0 = unlimited, default 1000)
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// L2 and COSINE: the largest distance of a result. Must be positive.
+	// INNER_PRODUCT: not used, leave it 0.
+	Radius         float32 `protobuf:"fixed32,3,opt,name=radius,proto3" json:"radius,omitempty"`
+	Filter         string  `protobuf:"bytes,4,opt,name=filter,proto3" json:"filter,omitempty"` // Optional metadata filter
+	ReturnMetadata bool    `protobuf:"varint,5,opt,name=return_metadata,json=returnMetadata,proto3" json:"return_metadata,omitempty"`
+	MaxResults     uint32  `protobuf:"varint,6,opt,name=max_results,json=maxResults,proto3" json:"max_results,omitempty"` // The nearest results to keep (0 = the default, 1000)
+	// INNER_PRODUCT only, and required there: the smallest dot product of a
+	// result.
+	SimilarityThreshold *float32 `protobuf:"fixed32,7,opt,name=similarity_threshold,json=similarityThreshold,proto3,oneof" json:"similarity_threshold,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *RangeSearchRequest) Reset() {
@@ -2211,6 +2216,13 @@ func (x *RangeSearchRequest) GetReturnMetadata() bool {
 func (x *RangeSearchRequest) GetMaxResults() uint32 {
 	if x != nil {
 		return x.MaxResults
+	}
+	return 0
+}
+
+func (x *RangeSearchRequest) GetSimilarityThreshold() float32 {
+	if x != nil && x.SimilarityThreshold != nil {
+		return *x.SimilarityThreshold
 	}
 	return 0
 }
@@ -3947,7 +3959,7 @@ const file_vectordb_proto_rawDesc = "" +
 	"\x0eupserted_count\x18\x01 \x01(\x04R\rupsertedCount\x12%\n" +
 	"\x0einserted_count\x18\x02 \x01(\x04R\rinsertedCount\x12#\n" +
 	"\rupdated_count\x18\x03 \x01(\x04R\fupdatedCount\x12\x18\n" +
-	"\amessage\x18\x04 \x01(\tR\amessage\"\xee\x01\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"\xbf\x02\n" +
 	"\x12RangeSearchRequest\x12'\n" +
 	"\x0fcollection_name\x18\x01 \x01(\tR\x0ecollectionName\x125\n" +
 	"\fquery_vector\x18\x02 \x01(\v2\x12.gvdb.proto.VectorR\vqueryVector\x12\x16\n" +
@@ -3955,7 +3967,9 @@ const file_vectordb_proto_rawDesc = "" +
 	"\x06filter\x18\x04 \x01(\tR\x06filter\x12'\n" +
 	"\x0freturn_metadata\x18\x05 \x01(\bR\x0ereturnMetadata\x12\x1f\n" +
 	"\vmax_results\x18\x06 \x01(\rR\n" +
-	"maxResults\"r\n" +
+	"maxResults\x126\n" +
+	"\x14similarity_threshold\x18\a \x01(\x02H\x00R\x13similarityThreshold\x88\x01\x01B\x17\n" +
+	"\x15_similarity_threshold\"r\n" +
 	"\x13RangeSearchResponse\x127\n" +
 	"\aresults\x18\x01 \x03(\v2\x1d.gvdb.proto.SearchResultEntryR\aresults\x12\"\n" +
 	"\rquery_time_ms\x18\x02 \x01(\x02R\vqueryTimeMs\"\xb1\x03\n" +
@@ -4292,6 +4306,7 @@ func file_vectordb_proto_init() {
 		(*MetadataValue_StringValue)(nil),
 		(*MetadataValue_BoolValue)(nil),
 	}
+	file_vectordb_proto_msgTypes[31].OneofWrappers = []any{}
 	file_vectordb_proto_msgTypes[41].OneofWrappers = []any{
 		(*BackupTarget_S3)(nil),
 		(*BackupTarget_Local)(nil),

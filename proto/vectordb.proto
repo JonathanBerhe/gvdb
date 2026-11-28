@@ -235,10 +235,15 @@ message UpsertResponse {
 message RangeSearchRequest {
   string collection_name = 1;
   Vector query_vector = 2;
-  float radius = 3;             // Distance threshold
+  // L2 and COSINE: the largest distance of a result. Must be positive.
+  // INNER_PRODUCT: not used, leave it 0.
+  float radius = 3;
   string filter = 4;            // Optional metadata filter
   bool return_metadata = 5;
-  uint32 max_results = 6;       // Limit results (0 = unlimited, default 1000)
+  uint32 max_results = 6;       // The nearest results to keep (0 = the default, 1000)
+  // INNER_PRODUCT only, and required there: the smallest dot product of a
+  // result.
+  optional float similarity_threshold = 7;
 }
 
 message RangeSearchResponse {

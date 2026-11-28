@@ -7,15 +7,19 @@
 #include "service/vectordb/read_path.h"
 
 #include <algorithm>
+#include <cmath>
 #include <optional>
 #include <ranges>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "absl/strings/str_cat.h"
 #include "common/metrics.h"
 #include "common/timer.h"
+#include "core/distance.h"
 #include "core/filter.h"
+#include "core/type_names.h"
 #include "index/bm25_index.h"
 #include "index/sparse_index.h"
 #include "rpc/proto_conversions.h"
@@ -76,6 +80,36 @@ absl::StatusOr<std::unique_ptr<core::FilterNode>> ParseRequestFilter(const std::
 }
 
 }  // namespace
+
+absl::StatusOr<float> RangeSearchRadius(core::MetricType metric,
+                                        const proto::RangeSearchRequest& request) {
+  if (metric == core::MetricType::INNER_PRODUCT) {
+    if (request.radius() != 0.0F) {
+      return absl::InvalidArgumentError(
+          "An INNER_PRODUCT range search takes similarity_threshold, the smallest dot product, "
+          "not radius");
+    }
+    if (!request.has_similarity_threshold()) {
+      return absl::InvalidArgumentError(
+          "An INNER_PRODUCT range search needs similarity_threshold, the smallest dot product");
+    }
+    if (!std::isfinite(request.similarity_threshold())) {
+      return absl::InvalidArgumentError("similarity_threshold must be a finite number");
+    }
+    return core::CanonicalFromDot(metric, request.similarity_threshold());
+  }
+
+  if (request.has_similarity_threshold()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("similarity_threshold applies only to INNER_PRODUCT; a ",
+                     core::ToString(metric), " range search takes radius, the largest distance"));
+  }
+  // The negated comparison also rejects NaN.
+  if (!(request.radius() > 0.0F) || !std::isfinite(request.radius())) {
+    return absl::InvalidArgumentError("radius must be a positive finite number");
+  }
+  return request.radius();
+}
 
 ReadPath::ReadPath(std::shared_ptr<storage::ISegmentStore> segment_store,
                    std::shared_ptr<compute::QueryExecutor> query_executor,
@@ -192,6 +226,16 @@ grpc::Status ReadPath::RangeSearch(const proto::RangeSearchRequest& request,
     return rpc::ToGrpcStatus(filter.status());
   }
 
+  // The meaning of the radius depends on the metric of the collection.
+  auto metric = resolver_.GetMetricType(request.collection_name());
+  if (!metric.ok()) {
+    return rpc::ToGrpcStatus(metric.status());
+  }
+  auto radius = RangeSearchRadius(*metric, request);
+  if (!radius.ok()) {
+    return rpc::ToGrpcStatus(radius.status());
+  }
+
   auto segment_ids_result = resolver_.GetSegmentIds(request.collection_name());
 
   // Check if we have local segments; if not, fan out to data nodes
@@ -232,10 +276,9 @@ grpc::Status ReadPath::RangeSearch(const proto::RangeSearchRequest& request,
 
     absl::StatusOr<core::SearchResult> seg_result;
     if (!*filter) {
-      seg_result = segment->SearchRange(*query_result, request.radius(), max_results);
+      seg_result = segment->SearchRange(*query_result, *radius, max_results);
     } else {
-      seg_result =
-          segment->SearchRangeWithFilter(*query_result, request.radius(), **filter, max_results);
+      seg_result = segment->SearchRangeWithFilter(*query_result, *radius, **filter, max_results);
     }
 
     if (seg_result.ok()) {

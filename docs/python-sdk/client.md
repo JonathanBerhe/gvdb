@@ -139,7 +139,7 @@ for r in results:
 
 `SearchResult` is a dataclass with `id: int`, `distance: float`, and `metadata: dict | None`. A lower `distance` is a closer match, and the results come back closest first. [Distance metrics](../features/vector-search.md#distance-metrics) gives the distance of each metric.
 
-### Range search (by radius)
+### Range search
 
 ```python
 results = client.range_search(
@@ -152,7 +152,17 @@ results = client.range_search(
 )
 ```
 
-The search returns the vectors whose distance is at most `radius`, closest first.
+The search returns the vectors whose distance is at most `radius`, closest first. `max_results` keeps the nearest ones. Use `radius` for an `l2` or a `cosine` collection.
+
+For an `ip` collection, set `similarity_threshold`, the smallest dot product of a result, and no radius:
+
+```python
+results = client.range_search(
+    "my_ip_collection",
+    query_vector=[0.1]*768,
+    similarity_threshold=0.75,
+)
+```
 
 ### Hybrid search
 

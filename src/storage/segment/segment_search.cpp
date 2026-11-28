@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <mutex>
+#include <utility>
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 #include "core/filter.h"
@@ -126,9 +127,6 @@ absl::StatusOr<core::SearchResult> Segment::SearchRange(const core::Vector& quer
       float distance = ComputeDistance(query, vectors_[i]);
       if (distance <= radius) {
         result.entries.emplace_back(vector_ids_[i], distance);
-        if (max_results > 0 && static_cast<int>(result.entries.size()) >= max_results) {
-          break;
-        }
       }
     }
   } else if (state_ == core::SegmentState::SEALED || state_ == core::SegmentState::FLUSHED) {
@@ -139,18 +137,12 @@ absl::StatusOr<core::SearchResult> Segment::SearchRange(const core::Vector& quer
     auto index_result = index_->SearchRange(query, radius);
     if (index_result.ok()) {
       result = std::move(*index_result);
-      if (max_results > 0 && static_cast<int>(result.entries.size()) > max_results) {
-        result.entries.resize(max_results);
-      }
     } else {
       // Fallback: brute-force using stored vectors
       for (size_t i = 0; i < vectors_.size(); ++i) {
         float distance = ComputeDistance(query, vectors_[i]);
         if (distance <= radius) {
           result.entries.emplace_back(vector_ids_[i], distance);
-          if (max_results > 0 && static_cast<int>(result.entries.size()) >= max_results) {
-            break;
-          }
         }
       }
     }
@@ -159,9 +151,12 @@ absl::StatusOr<core::SearchResult> Segment::SearchRange(const core::Vector& quer
         absl::StrCat("Cannot search in segment state: ", static_cast<int>(state_)));
   }
 
-  // Sort by distance
+  // Keep the nearest max_results entries, closest first.
   std::ranges::sort(result.entries,
                     [](const auto& a, const auto& b) { return a.distance < b.distance; });
+  if (max_results > 0 && std::cmp_greater(result.entries.size(), max_results)) {
+    result.entries.resize(static_cast<size_t>(max_results));
+  }
 
   return result;
 }
