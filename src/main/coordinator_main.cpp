@@ -27,8 +27,7 @@
 #include "server/cluster_steps.h"
 #include "server/flags.h"
 #include "service/internal/internal_service.h"
-#include "service/vectordb/collection_resolver.h"
-#include "service/vectordb/vectordb_service.h"
+#include "service/vectordb/coordinator_service.h"
 #include "storage/objstore/object_store_factory.h"
 #include "storage/segment/segment_manager.h"
 
@@ -134,14 +133,9 @@ absl::Status Run(const Args& args) {
   server::AddAuditInterceptor(config.logging.audit, interceptors);
 
   // Client backup and restore calls fan out to the shards through the
-  // coordinator. Without it, they would back up the empty local store. The
-  // service logs "Backup disabled" because it has no local backup manager,
-  // so the next line says how backups run here.
-  auto vectordb_service = std::make_unique<service::VectorDBService>(
-      segment_manager, query_executor, service::MakeCoordinatorResolver(coordinator),
-      service::VectorDBServiceOptions{.rbac_store = rbac_store, .coordinator = coordinator});
-  common::Logger::Instance().Info(
-      "Coordinator backup/restore served via distributed shard orchestration");
+  // coordinator. Data operations go to the data nodes.
+  auto vectordb_service =
+      std::make_unique<service::CoordinatorService>(coordinator, query_executor, rbac_store);
 
   ASSIGN_OR_RETURN(auto grpc_server,
                    server::StartGrpcServer(

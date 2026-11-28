@@ -21,6 +21,7 @@
 #include "internal.grpc.pb.h"
 #include "service/internal/internal_service.h"
 #include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/coordinator_service.h"
 #include "service/vectordb/vectordb_service.h"
 #include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
@@ -101,9 +102,8 @@ class DistributedDataNodeTest {
                                         .coordinator = coordinator_});
 
     // Create coordinator's VectorDBService
-    auto coord_resolver = service::MakeCoordinatorResolver(coordinator_);
-    coord_vectordb_service_ = std::make_unique<service::VectorDBService>(
-        coord_segment_store_, coord_query_executor_, std::move(coord_resolver));
+    coord_vectordb_service_ =
+        std::make_unique<service::CoordinatorService>(coordinator_, coord_query_executor_);
 
     // Start coordinator gRPC server (InternalService + VectorDBService)
     coord_server_ = StartServer({coord_internal_service_.get(), coord_vectordb_service_.get()},
@@ -169,7 +169,7 @@ class DistributedDataNodeTest {
   std::shared_ptr<storage::ISegmentStore> coord_segment_store_;
   std::shared_ptr<compute::QueryExecutor> coord_query_executor_;
   std::unique_ptr<service::InternalService> coord_internal_service_;
-  std::unique_ptr<service::VectorDBService> coord_vectordb_service_;
+  std::unique_ptr<service::CoordinatorService> coord_vectordb_service_;
   std::unique_ptr<grpc::Server> coord_server_;
   std::string coord_server_address_;
 

@@ -14,6 +14,7 @@ gvdb_add_library(service
     vectordb/collection_admin.cpp
     vectordb/backup_ops.cpp
     vectordb/import_ops.cpp
+    vectordb/coordinator_service.cpp
     vectordb/admin_handlers.cpp
     vectordb/write_handlers.cpp
     vectordb/read_handlers.cpp

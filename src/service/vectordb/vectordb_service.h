@@ -22,9 +22,6 @@
 #include "vectordb.grpc.pb.h"
 
 namespace gvdb {
-namespace cluster {
-class Coordinator;
-}  // namespace cluster
 namespace storage {
 class BackupManager;
 class RestoreManager;
@@ -44,13 +41,9 @@ struct VectorDBServiceOptions {
   // Runs BulkImport. Null makes the import RPCs return UNIMPLEMENTED.
   std::shared_ptr<storage::BulkImporter> bulk_importer = nullptr;
   // Run the single-shard backup and restore. Null makes these RPCs return
-  // UNIMPLEMENTED, unless a coordinator is set.
+  // UNIMPLEMENTED.
   std::shared_ptr<storage::BackupManager> backup_manager = nullptr;
   std::shared_ptr<storage::RestoreManager> restore_manager = nullptr;
-  // Set on a coordinator. Backup and restore then fan out to the shards
-  // through Coordinator::StartBackupDistributed and
-  // StartRestoreDistributed instead of the local managers.
-  std::shared_ptr<cluster::Coordinator> coordinator = nullptr;
   // The local view of the shard primaries. The write path rejects a write
   // when this node is not the primary of the shard at the term of the
   // request. Null skips the check (single node, query node, tests).
@@ -60,9 +53,12 @@ struct VectorDBServiceOptions {
   cluster::ShardWriteGate* shard_write_gate = nullptr;
 };
 
-// Implementation of the VectorDBService gRPC service.
-// Collection management is delegated to an ICollectionResolver,
-// which encapsulates the mode-specific behavior (single-node, distributed, coordinator).
+// The client API of the programs that hold vectors: the single node, the
+// data nodes and the query nodes. Each handler checks the permission and the
+// request, then calls one of the parts below. The resolver decides where the
+// collections live: on this node (single node) or in the coordinator's
+// registry (data and query nodes). The coordinator program serves
+// CoordinatorService instead.
 class VectorDBService final : public proto::VectorDBService::Service {
  public:
   VectorDBService(std::shared_ptr<storage::ISegmentStore> segment_store,

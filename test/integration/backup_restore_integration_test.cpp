@@ -32,6 +32,7 @@
 #include "service/internal/internal_service.h"
 #include "service/proxy/proxy_service.h"
 #include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/coordinator_service.h"
 #include "service/vectordb/vectordb_service.h"
 #include "storage/backup/backup_manager.h"
 #include "storage/backup/restore_manager.h"
@@ -134,10 +135,8 @@ class BackupRestoreIntegrationTest {
         shard_manager_, coord_segment_store_, coord_query_executor_,
         service::InternalServiceOptions{.node_registry = node_registry_,
                                         .coordinator = coordinator_});
-    auto coord_resolver = service::MakeCoordinatorResolver(coordinator_);
-    coord_vectordb_service_ = std::make_unique<service::VectorDBService>(
-        coord_segment_store_, coord_query_executor_, std::move(coord_resolver),
-        service::VectorDBServiceOptions{.coordinator = coordinator_});
+    coord_vectordb_service_ =
+        std::make_unique<service::CoordinatorService>(coordinator_, coord_query_executor_);
 
     {
       grpc::ServerBuilder builder;
@@ -334,7 +333,7 @@ class BackupRestoreIntegrationTest {
   std::shared_ptr<storage::BackupManager> coord_backup_mgr_;
   std::shared_ptr<storage::RestoreManager> coord_restore_mgr_;
   std::unique_ptr<service::InternalService> coord_internal_service_;
-  std::unique_ptr<service::VectorDBService> coord_vectordb_service_;
+  std::unique_ptr<service::CoordinatorService> coord_vectordb_service_;
   std::unique_ptr<grpc::Server> coord_server_;
   std::string coord_address_;
 

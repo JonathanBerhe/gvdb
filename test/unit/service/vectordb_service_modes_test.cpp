@@ -1,9 +1,10 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
 //
-// VectorDBService in its two in-process modes. Single-node mode keeps
-// collections and data in its own segment store. Coordinator mode keeps
-// collections in the coordinator's registry and refuses data operations,
+// The client API in its two in-process modes. Single-node mode
+// (VectorDBService with the local resolver) keeps collections and data in its
+// own segment store. Coordinator mode (CoordinatorService) keeps collections
+// in the coordinator's registry and does not implement the data operations,
 // which data nodes serve. The collection operations behave the same in both
 // modes, so their cases run once per mode. Distributed mode (a data or query
 // node that asks a remote coordinator) is in vectordb_service_distributed_test.cpp.
@@ -21,6 +22,7 @@
 #include "compute/query_executor.h"
 #include "index/index_factory.h"
 #include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/coordinator_service.h"
 #include "service/vectordb/vectordb_service.h"
 #include "storage/segment/segment_manager.h"
 #include "support/temp_dir.h"
@@ -99,7 +101,8 @@ struct ServiceModeFixture {
   std::unique_ptr<index::IndexFactory> index_factory_;
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
-  std::unique_ptr<service::VectorDBService> service_;
+  // VectorDBService or CoordinatorService, called through the generated base.
+  std::unique_ptr<proto::VectorDBService::Service> service_;
 };
 
 // Single-node mode: the local resolver and the node's own segment store.
@@ -131,8 +134,7 @@ struct CoordinatorFixture : ServiceModeFixture {
     node.set_disk_used_bytes(0);
     node_registry_->UpdateNode(node);
 
-    service_ = std::make_unique<service::VectorDBService>(
-        segment_store_, query_executor_, service::MakeCoordinatorResolver(coordinator_));
+    service_ = std::make_unique<service::CoordinatorService>(coordinator_, query_executor_);
   }
 
   ~CoordinatorFixture() {
@@ -265,9 +267,9 @@ TEST_CASE_TEMPLATE("VectorDBService modes: DropCollection of an unknown name is 
   CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
 }
 
-TEST_CASE_TEMPLATE("VectorDBService modes: Search of an unknown collection is NOT_FOUND", F,
-                   SERVICE_MODES) {
-  F f;
+TEST_CASE_FIXTURE(SingleNodeFixture,
+                  "Single-node mode: Search of an unknown collection is NOT_FOUND") {
+  SingleNodeFixture& f = *this;
   grpc::ServerContext context;
   proto::SearchRequest request;
   request.set_collection_name("nonexistent_collection");
@@ -330,6 +332,22 @@ TEST_CASE_FIXTURE(CoordinatorFixture, "Coordinator mode refuses Delete") {
   proto::DeleteResponse response;
 
   auto status = service_->Delete(&context, &request, &response);
+  CHECK_FALSE(status.ok());
+  CHECK_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
+}
+
+TEST_CASE_FIXTURE(CoordinatorFixture, "Coordinator mode refuses Search") {
+  RequireCollection();
+  grpc::ServerContext context;
+  proto::SearchRequest request;
+  request.set_collection_name("test_collection");
+  request.set_top_k(10);
+  auto* query = request.mutable_query_vector();
+  query->set_dimension(128);
+  for (int i = 0; i < 128; ++i) query->add_values(1.0F);
+  proto::SearchResponse response;
+
+  auto status = service_->Search(&context, &request, &response);
   CHECK_FALSE(status.ok());
   CHECK_EQ(status.error_code(), grpc::StatusCode::UNIMPLEMENTED);
 }

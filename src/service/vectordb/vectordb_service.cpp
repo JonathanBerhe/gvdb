@@ -28,7 +28,7 @@ VectorDBService::VectorDBService(std::shared_ptr<storage::ISegmentStore> segment
       read_path_(segment_store_, query_executor_, *resolver_, locator_),
       admin_(*resolver_, query_executor_),
       backup_(*resolver_, segment_store_, guard_, std::move(options.backup_manager),
-              std::move(options.restore_manager), std::move(options.coordinator)),
+              std::move(options.restore_manager), /*coordinator=*/nullptr),
       import_(*resolver_, guard_, std::move(options.bulk_importer)) {
   common::Logger::Instance().Info(
       "VectorDBService initialized (RBAC {}, BulkImport {}, Backup {}, Restore {})",

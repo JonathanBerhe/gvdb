@@ -84,9 +84,6 @@ class ICollectionResolver {
   // Get the total number of collections (for metrics)
   virtual size_t CollectionCount() = 0;
 
-  // Whether this resolver supports data operations (Insert/Search/Get/Delete)
-  virtual bool SupportsDataOps() const = 0;
-
   // Get all segment IDs for a collection (for multi-shard search)
   // Coordinator: returns error (data ops not supported)
   virtual absl::StatusOr<std::vector<core::SegmentId>> GetSegmentIds(const std::string& name) = 0;
