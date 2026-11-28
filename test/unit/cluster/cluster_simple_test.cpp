@@ -1233,4 +1233,66 @@ TEST_CASE("Coordinator health-check loop acts only on the Raft leader") {
   CHECK_LT(std::chrono::steady_clock::now() - before, std::chrono::seconds(1));
 }
 
+// A node that fails is handled once, and again when it comes back and fails a
+// second time: its heartbeat resets the count of missed passes.
+TEST_CASE("Coordinator handles each failure of a node once") {
+  std::atomic<int64_t> offset_ms{0};
+  auto registry = std::make_shared<NodeRegistry>(std::chrono::seconds(1), [&offset_ms] {
+    return std::chrono::steady_clock::now() + std::chrono::milliseconds(offset_ms.load());
+  });
+  auto shards = std::make_shared<ShardManager>(4, ShardingStrategy::HASH);
+  auto heartbeat = [&](uint32_t id) {
+    proto::internal::NodeInfo node;
+    node.set_node_id(id);
+    node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+    node.set_grpc_address("localhost:" + std::to_string(50050 + id));
+    registry->UpdateNode(node);
+  };
+  for (uint32_t id : {1U, 2U, 3U}) {
+    REQUIRE(shards->RegisterNode(core::MakeNodeId(id)).ok());
+    heartbeat(id);
+  }
+  const core::ShardId first = core::MakeShardId(0);
+  const core::ShardId second = core::MakeShardId(1);
+  REQUIRE(shards->SetPrimaryNode(first, core::MakeNodeId(1)).ok());
+  REQUIRE(shards->AddReplica(first, core::MakeNodeId(2)).ok());
+
+  std::atomic<bool> leader{false};
+  Coordinator coordinator(
+      shards, registry,
+      CoordinatorOptions{.is_leader = [&leader] { return leader.load(); },
+                         .health_check_interval = std::chrono::milliseconds(10)});
+  REQUIRE(coordinator.Start("localhost:0").ok());
+  auto primary = [&](core::ShardId shard) {
+    auto node = shards->GetPrimaryNode(shard);
+    return node.ok() ? core::ToUInt32(*node) : 0U;
+  };
+  // While the coordinator follows, node 1 falls silent and nodes 2 and 3 send
+  // a heartbeat. The leader then finds only node 1 stale.
+  auto fail_node_1 = [&] {
+    leader = false;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    offset_ms += 2000;
+    heartbeat(2);
+    heartbeat(3);
+    leader = true;
+  };
+
+  fail_node_1();
+  REQUIRE(test::WaitFor([&] { return primary(first) == 2; }));
+
+  // Node 1 comes back and becomes the primary of a second shard.
+  leader = false;
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  heartbeat(1);
+  REQUIRE(shards->RegisterNode(core::MakeNodeId(1)).ok());
+  REQUIRE(shards->SetPrimaryNode(second, core::MakeNodeId(1)).ok());
+  REQUIRE(shards->AddReplica(second, core::MakeNodeId(3)).ok());
+
+  fail_node_1();
+  CHECK(test::WaitFor([&] { return primary(second) == 3; }));
+  REQUIRE(coordinator.Shutdown().ok());
+}
+
 }  // namespace

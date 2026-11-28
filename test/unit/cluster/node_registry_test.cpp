@@ -463,4 +463,21 @@ TEST_CASE_FIXTURE(NodeRegistryTest, "GetDrainingNodesExcludesStaleDraining") {
   CHECK_EQ(failed[0], 3u);
 }
 
+// A heartbeat ends a failure, so the count of missed passes starts again.
+TEST_CASE_FIXTURE(NodeRegistryTest, "HeartbeatResetsMissedHeartbeats") {
+  auto info = MakeNodeInfo(1, proto::internal::NODE_TYPE_DATA_NODE, "host1:9000");
+  registry_.UpdateNode(info);
+  Advance(100ms);
+  REQUIRE_EQ(registry_.DetectFailedNodes().size(), 1);
+  REQUIRE_EQ(registry_.DetectFailedNodes().size(), 1);
+
+  RegisteredNode node;
+  REQUIRE(registry_.GetNode(1, &node));
+  CHECK_EQ(node.missed_heartbeats, 2);
+
+  registry_.UpdateNode(info);
+  REQUIRE(registry_.GetNode(1, &node));
+  CHECK_EQ(node.missed_heartbeats, 0);
+}
+
 }  // namespace

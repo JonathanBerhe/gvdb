@@ -19,6 +19,8 @@ struct RegisteredNode {
   std::chrono::steady_clock::time_point last_heartbeat;
   std::chrono::steady_clock::time_point registered_at;
   uint64_t total_heartbeats = 0;
+  // The failure-detection passes in a row that found the heartbeat stale. A
+  // heartbeat resets it to 0, so 1 marks the first pass of a failure.
   uint64_t missed_heartbeats = 0;
 
   // Calculated status. `now` is the time to measure the heartbeat age

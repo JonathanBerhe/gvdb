@@ -59,6 +59,8 @@ void NodeRegistry::UpdateNode(const proto::internal::NodeInfo& node_info) {
 
     it->second.last_heartbeat = now;
     it->second.total_heartbeats++;
+    // A heartbeat ends a failure, so a later failure counts from 1 again.
+    it->second.missed_heartbeats = 0;
 
     if (is_draining && !was_draining) {
       common::Logger::Instance().Info("Node {} entered DRAINING state (type={}, address={})",
@@ -232,9 +234,18 @@ std::vector<uint32_t> NodeRegistry::DetectFailedNodes() {
       failed_node_ids.push_back(id);
       node.missed_heartbeats++;
 
-      common::Logger::Instance().Warn(
-          "Node {} appears to have failed (last heartbeat {}ms ago, missed={})", id,
-          node.TimeSinceLastHeartbeat(now).count(), node.missed_heartbeats);
+      // Warn once per failure. A node that stays down is reported on every
+      // pass, so later passes log at debug level.
+      const auto since_ms = node.TimeSinceLastHeartbeat(now).count();
+      if (node.missed_heartbeats == 1) {
+        common::Logger::Instance().Warn(
+            "Node {} appears to have failed (last heartbeat {}ms ago, missed={})", id, since_ms,
+            node.missed_heartbeats);
+      } else {
+        common::Logger::Instance().Debug(
+            "Node {} is still down (last heartbeat {}ms ago, missed={})", id, since_ms,
+            node.missed_heartbeats);
+      }
     }
   }
 
