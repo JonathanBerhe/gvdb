@@ -32,12 +32,6 @@ Clients connect over an insecure channel by default. For TLS endpoints, use a cu
     # channel-factory kwarg on GVDBClient is planned.
     ```
 
-=== "Java"
-
-    ```java
-    // Configure TLS via Netty channel options before building GvdbClient
-    ```
-
 ## API keys
 
 Two ways to declare keys:
@@ -78,15 +72,6 @@ Keys in this list are treated as `admin`. Migrate to `auth.roles` — legacy key
     ```python
     from gvdb import GVDBClient
     client = GVDBClient("gvdb.example.com:50051", api_key="admin-key-abc123")
-    ```
-
-=== "Java"
-
-    ```java
-    var config = GvdbClientConfig.builder("gvdb.example.com:50051")
-        .apiKey("admin-key-abc123")
-        .build();
-    var client = new GvdbClient(config);
     ```
 
 The client sends `authorization: Bearer <key>` as gRPC metadata.

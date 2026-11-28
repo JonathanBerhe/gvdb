@@ -9,9 +9,7 @@ outputs/
 test/
 docs/
 clients/
-connectors/
 operator/
-ui/
 tools/
 # The builder installs LLVM with this script.
 !tools/ci/install-llvm.sh

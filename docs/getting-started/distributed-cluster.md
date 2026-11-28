@@ -83,8 +83,7 @@ Collections are distributed across data nodes using consistent hashing (150 virt
 
 ## Monitoring
 
-- Every node exposes a Prometheus endpoint.
-- The [Web UI](../operations/monitoring.md) provides a browser-based collection browser and metrics dashboard.
+- Every node exposes a Prometheus endpoint. See [monitoring](../operations/monitoring.md).
 
 ## Next steps
 

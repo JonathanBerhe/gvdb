@@ -32,22 +32,6 @@
         },
         {
           "type": "generic",
-          "path": "connectors/gradle.properties"
-        },
-        {
-          "type": "generic",
-          "path": "docs/connectors/spark.md"
-        },
-        {
-          "type": "generic",
-          "path": "docs/connectors/flink.md"
-        },
-        {
-          "type": "generic",
-          "path": "docs/connectors/java-client.md"
-        },
-        {
-          "type": "generic",
           "path": "deploy/helm/gvdb-operator/Chart.yaml"
         }
       ]

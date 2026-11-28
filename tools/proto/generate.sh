@@ -4,7 +4,6 @@
 #   clients/python/gvdb/pb     Python SDK (vectordb.proto), with grpcio-tools
 #                              from clients/python/uv.lock
 #   operator/internal/gvdbpb   Go, package gvdbpb (vectordb.proto, internal.proto)
-#   ui/gateway/pb              Go, package pb (vectordb.proto)
 #
 # CMake generates the C++ code at build time, so it is not here.
 #
@@ -44,15 +43,6 @@ protoc -I . \
   --go-grpc_opt="Mvectordb.proto=$operator_pkg" --go-grpc_opt="Minternal.proto=$operator_pkg" \
   vectordb.proto internal.proto
 
-# Go stubs for the UI gateway: only the public service.
-ui_pkg='gvdb-ui/pb;pb'
-protoc -I . \
-  --go_out="$root/ui/gateway/pb" --go_opt=paths=source_relative \
-  --go_opt="Mvectordb.proto=$ui_pkg" \
-  --go-grpc_out="$root/ui/gateway/pb" --go-grpc_opt=paths=source_relative \
-  --go-grpc_opt="Mvectordb.proto=$ui_pkg" \
-  vectordb.proto
-
 # Python stubs for the SDK. The include path maps proto/ to gvdb/pb, so the
 # generated code imports "from gvdb.pb import vectordb_pb2".
 cd "$root/clients/python"
@@ -61,4 +51,4 @@ uv run --frozen python3 -m grpc_tools.protoc \
   --python_out=. --grpc_python_out=. \
   gvdb/pb/vectordb.proto
 
-echo "Generated the Python, operator and UI gateway stubs from proto/."
+echo "Generated the Python and operator stubs from proto/."

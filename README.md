@@ -24,7 +24,6 @@ Store, index, and search high-dimensional vectors (embeddings from OpenAI, Coher
 - **Backup and Restore**: Point-in-time backup of a collection to S3/MinIO or a local PVC with `BackupCollection` / `RestoreCollection` gRPC and the operator's `GVDBBackup` / `GVDBRestore` CRDs
 - **gRPC API**: Protobuf-based client/server with TLS and API key authentication
 - **Python SDK**: `pip install gvdb`, full API with hybrid search, streaming inserts, metadata, TTL
-- **Web UI**: Collection browser, search playground, metrics dashboard, single binary (`gvdb-ui`)
 - **Raft Consensus**: Metadata operations replicated via NuRaft
 
 ## Architecture
@@ -158,22 +157,6 @@ make test           # Run all C++ tests of the dev build
 ```
 
 `make` drives the presets in `CMakePresets.json`. You can also call CMake directly, for example `cmake --preset dev && cmake --build --preset dev && ctest --preset dev`.
-
-### Web UI
-
-```bash
-# Docker (recommended)
-docker run -p 8080:8080 ghcr.io/jonathanberhe/gvdb-ui --gvdb-addr host.docker.internal:50051
-# Open http://localhost:8080
-
-# Helm (alongside GVDB cluster)
-helm upgrade gvdb deploy/helm/gvdb --set ui.enabled=true
-kubectl port-forward -n gvdb svc/gvdb-ui 8080:8080
-
-# Build from source
-make build-ui
-./ui/gateway/gvdb-ui --gvdb-addr localhost:50051
-```
 
 ### Run (single-node)
 

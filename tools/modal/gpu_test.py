@@ -18,7 +18,7 @@ CCACHE_DIR = "/root/.ccache"
 
 # The CUDA build only needs the C++ sources, headers, proto, tests, and the
 # Modal scripts. Heavy non-C++ subprojects are excluded so we don't upload
-# gigabytes of node_modules / Go vendor / Gradle caches per run.
+# Go module caches and Python environments per run.
 _REPO_IGNORE = [
     "**/build/**",
     "**/build-*/**",
@@ -40,8 +40,6 @@ _REPO_IGNORE = [
     "**/*.key",
     "clients/**",
     "operator/**",
-    "ui/**",
-    "connectors/**",
     "deploy/**",
     "docs/**",
     "outputs/**",

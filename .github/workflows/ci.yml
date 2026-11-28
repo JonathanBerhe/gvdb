@@ -6,7 +6,6 @@ on:
     paths-ignore:
       - '.github/workflows/**'
       - 'deploy/**'
-      - 'ui/**'
       - '*.md'
       - '.release-please-manifest.json'
       - 'release-please-config.json'
@@ -526,43 +525,6 @@ jobs:
         if: steps.filter.outputs.python == 'false'
         run: echo "No Python SDK changes, skipping"
 
-  test-java-connectors:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    needs: build-and-test
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Check for Java connector changes
-        uses: dorny/paths-filter@v4
-        id: filter
-        with:
-          filters: |
-            java:
-              - 'connectors/**'
-              - 'proto/vectordb.proto'
-
-      - name: Set up JDK 17
-        if: steps.filter.outputs.java == 'true'
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Setup Gradle
-        if: steps.filter.outputs.java == 'true'
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build and unit test
-        if: steps.filter.outputs.java == 'true'
-        run: cd connectors && ./gradlew build -x :gvdb-connector-tests:test
-
-      - name: Skip notice
-        if: steps.filter.outputs.java == 'false'
-        run: echo "No Java connector changes, skipping"
-
   test-operator:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -882,7 +844,6 @@ jobs:
               - 'clients/python/gvdb/pb/**'
               - 'clients/python/uv.lock'
               - 'operator/internal/gvdbpb/**'
-              - 'ui/gateway/**'
               - 'Makefile'
               - '.github/workflows/ci.yml'
 
@@ -919,10 +880,6 @@ jobs:
             echo "::error::The checked-in protobuf stubs differ from proto/. Run 'make proto' and commit the result."
             exit 1
           fi
-
-      - name: Build the UI gateway
-        if: steps.filter.outputs.proto == 'true'
-        run: cd ui/gateway && go build ./...
 
       - name: Skip notice
         if: steps.filter.outputs.proto == 'false'

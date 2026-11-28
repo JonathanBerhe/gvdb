@@ -26,13 +26,6 @@ make test-sdk       # from repo root
 make lint-sdk
 ```
 
-Java connectors:
-
-```bash
-cd connectors
-./gradlew build
-```
-
 See [installation](getting-started/installation.md) for prerequisites.
 
 ## Branch workflow

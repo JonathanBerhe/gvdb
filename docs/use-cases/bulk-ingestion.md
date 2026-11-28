@@ -94,11 +94,6 @@ ImportResult(
 )
 ```
 
-## Alternatives for very large workloads
-
-- **Spark** for parallel loads from data lakes — see the [Spark connector](../connectors/spark.md).
-- **Flink** for streaming ingestion — see the [Flink connector](../connectors/flink.md).
-
 ## See also
 
 - [Python SDK — bulk import](../python-sdk/bulk-import.md)
