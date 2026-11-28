@@ -57,15 +57,9 @@ struct GcsObjectStoreFixture {
 
 TYPE_TO_STRING_AS("GcsObjectStore", gvdb::storage::GcsObjectStoreFixture);
 
-namespace gvdb {
-namespace storage {
-
-namespace contract {
+namespace gvdb::storage::contract {
 GVDB_OBJECT_STORE_CONTRACT(GcsObjectStoreFixture);
-}  // namespace contract
-
-}  // namespace storage
-}  // namespace gvdb
+}  // namespace gvdb::storage::contract
 
 int main(int argc, char** argv) {
   const char* endpoint = std::getenv("GVDB_TEST_GCS_ENDPOINT");

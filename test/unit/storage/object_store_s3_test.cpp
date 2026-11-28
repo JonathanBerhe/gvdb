@@ -78,13 +78,9 @@ struct S3ObjectStoreFixture {
 
 TYPE_TO_STRING_AS("S3ObjectStore", gvdb::storage::S3ObjectStoreFixture);
 
-namespace gvdb::storage {
-
-namespace contract {
+namespace gvdb::storage::contract {
 GVDB_OBJECT_STORE_CONTRACT(S3ObjectStoreFixture);
-}  // namespace contract
-
-}  // namespace gvdb::storage
+}  // namespace gvdb::storage::contract
 
 int main(int argc, char** argv) {
   const char* endpoint = std::getenv("GVDB_TEST_S3_ENDPOINT");
