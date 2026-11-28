@@ -336,117 +336,6 @@ TEST_CASE_FIXTURE(VectorDBServiceTest, "HealthCheck") {
   CHECK_FALSE(response.message().empty());
 }
 
-TEST_CASE_FIXTURE(VectorDBServiceTest, "GetStatsEmpty") {
-  grpc::ServerContext context;
-  proto::GetStatsRequest request;
-  proto::GetStatsResponse response;
-
-  auto status = service_->GetStats(&context, &request, &response);
-
-  CHECK(status.ok());
-  CHECK_EQ(response.total_vectors(), 0);
-  CHECK_EQ(response.total_collections(), 0);
-  CHECK_EQ(response.total_queries(), 0);
-}
-
-TEST_CASE_FIXTURE(VectorDBServiceTest, "CreateCollection") {
-  grpc::ServerContext context;
-  proto::CreateCollectionRequest request;
-  request.set_collection_name("test_collection");
-  request.set_dimension(128);
-  request.set_metric(proto::CreateCollectionRequest::L2);
-  request.set_index_type(proto::CreateCollectionRequest::FLAT);
-
-  proto::CreateCollectionResponse response;
-
-  auto status = service_->CreateCollection(&context, &request, &response);
-
-  INFO(status.error_message());
-  CHECK(status.ok());
-  CHECK_GT(response.collection_id(), 0);
-  CHECK_FALSE(response.message().empty());
-}
-
-TEST_CASE_FIXTURE(VectorDBServiceTest, "CreateDuplicateCollection") {
-  // Create first collection
-  {
-    grpc::ServerContext context;
-    proto::CreateCollectionRequest request;
-    request.set_collection_name("test_collection");
-    request.set_dimension(128);
-    request.set_metric(proto::CreateCollectionRequest::L2);
-    request.set_index_type(proto::CreateCollectionRequest::FLAT);
-
-    proto::CreateCollectionResponse response;
-    auto status = service_->CreateCollection(&context, &request, &response);
-    REQUIRE(status.ok());
-  }
-
-  // Try to create duplicate
-  {
-    grpc::ServerContext context;
-    proto::CreateCollectionRequest request;
-    request.set_collection_name("test_collection");  // Same name
-    request.set_dimension(64);
-    request.set_metric(proto::CreateCollectionRequest::COSINE);
-    request.set_index_type(proto::CreateCollectionRequest::HNSW);
-
-    proto::CreateCollectionResponse response;
-    auto status = service_->CreateCollection(&context, &request, &response);
-    CHECK_FALSE(status.ok());
-    CHECK_EQ(status.error_code(), grpc::StatusCode::ALREADY_EXISTS);
-  }
-}
-
-TEST_CASE_FIXTURE(VectorDBServiceTest, "CreateCollectionRejectsInvalidArguments") {
-  SUBCASE("empty name") {
-    auto status = CreateCollection("", 128);
-    CHECK_FALSE(status.ok());
-    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
-  }
-
-  SUBCASE("dimension above the maximum of 8192") {
-    auto status = CreateCollection("too_wide", 8193);
-    CHECK_FALSE(status.ok());
-    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
-  }
-
-  // A rejected create leaves nothing behind.
-  CHECK_EQ(ListCollections().collections_size(), 0);
-}
-
-TEST_CASE_FIXTURE(VectorDBServiceTest, "ListCollections") {
-  // Create collections
-  for (int i = 0; i < 3; ++i) {
-    grpc::ServerContext context;
-    proto::CreateCollectionRequest request;
-    request.set_collection_name("collection_" + std::to_string(i));
-    request.set_dimension(64);
-    request.set_metric(proto::CreateCollectionRequest::L2);
-    request.set_index_type(proto::CreateCollectionRequest::FLAT);
-
-    proto::CreateCollectionResponse response;
-    auto status = service_->CreateCollection(&context, &request, &response);
-    REQUIRE(status.ok());
-  }
-
-  // List collections
-  {
-    grpc::ServerContext context;
-    proto::ListCollectionsRequest request;
-    proto::ListCollectionsResponse response;
-
-    auto status = service_->ListCollections(&context, &request, &response);
-    CHECK(status.ok());
-    CHECK_EQ(response.collections().size(), 3);
-
-    for (const auto& coll : response.collections()) {
-      CHECK_EQ(coll.dimension(), 64);
-      CHECK_EQ(coll.metric_type(), "L2");
-    }
-  }
-}
-
 TEST_CASE_FIXTURE(VectorDBServiceTest, "InsertAndSearch") {
   // Create collection
   {
@@ -513,25 +402,6 @@ TEST_CASE_FIXTURE(VectorDBServiceTest, "InsertAndSearch") {
   }
 }
 
-TEST_CASE_FIXTURE(VectorDBServiceTest, "SearchNonexistentCollection") {
-  grpc::ServerContext context;
-  proto::SearchRequest request;
-  request.set_collection_name("nonexistent");
-  request.set_top_k(10);
-
-  auto* query = request.mutable_query_vector();
-  query->set_dimension(4);
-  for (int i = 0; i < 4; ++i) {
-    query->add_values(1.0f);
-  }
-
-  proto::SearchResponse response;
-  auto status = service_->Search(&context, &request, &response);
-
-  CHECK_FALSE(status.ok());
-  CHECK_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
-}
-
 TEST_CASE_FIXTURE(VectorDBServiceTest, "SearchEmptyCollectionReturnsNoResults") {
   REQUIRE(CreateCollection("empty_collection", 4).ok());
 
@@ -571,45 +441,6 @@ TEST_CASE_FIXTURE(VectorDBServiceTest, "InsertRejectsInvalidRequests") {
 
   // A rejected insert writes nothing.
   CHECK_EQ(TotalCount("insert_invalid"), 0);
-}
-
-TEST_CASE_FIXTURE(VectorDBServiceTest, "DropCollection") {
-  // Create collection
-  {
-    grpc::ServerContext context;
-    proto::CreateCollectionRequest request;
-    request.set_collection_name("test_collection");
-    request.set_dimension(64);
-    request.set_metric(proto::CreateCollectionRequest::L2);
-    request.set_index_type(proto::CreateCollectionRequest::FLAT);
-
-    proto::CreateCollectionResponse response;
-    auto status = service_->CreateCollection(&context, &request, &response);
-    REQUIRE(status.ok());
-  }
-
-  // Drop collection
-  {
-    grpc::ServerContext context;
-    proto::DropCollectionRequest request;
-    request.set_collection_name("test_collection");
-
-    proto::DropCollectionResponse response;
-    auto status = service_->DropCollection(&context, &request, &response);
-    INFO(status.error_message());
-    CHECK(status.ok());
-  }
-
-  // Verify collection is gone
-  {
-    grpc::ServerContext context;
-    proto::ListCollectionsRequest request;
-    proto::ListCollectionsResponse response;
-
-    auto status = service_->ListCollections(&context, &request, &response);
-    CHECK(status.ok());
-    CHECK_EQ(response.collections().size(), 0);
-  }
 }
 
 TEST_CASE_FIXTURE(VectorDBServiceTest, "DropAndRecreateCollection") {

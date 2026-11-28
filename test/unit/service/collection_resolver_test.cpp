@@ -1,7 +1,16 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
+//
+// Collection resolver tests. The contract cases run against the local
+// resolver (a single node with its own segment store) and the coordinator
+// resolver (the coordinator's collection registry), so the two cannot drift
+// apart. The cases after the contract cover behavior that only one resolver
+// has.
 
 #include <doctest/doctest.h>
+
+#include <chrono>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -20,22 +29,23 @@ namespace {
 
 using namespace gvdb;
 
-// ============================================================================
-// Fixture A: LocalResolverTest
-// ============================================================================
+// A single node: the resolver reads and writes its own segment store.
+struct LocalResolverFixture {
+  static constexpr bool kSupportsDataOps = true;
 
-struct LocalResolverTest {
-  LocalResolverTest() {
+  LocalResolverFixture() {
     index_factory_ = std::make_unique<index::IndexFactory>();
     segment_store_ = std::make_shared<storage::SegmentManager>(test_dir_, index_factory_.get());
     resolver_ = service::MakeLocalResolver(segment_store_);
   }
 
-  ~LocalResolverTest() {
+  ~LocalResolverFixture() {
     resolver_.reset();
     segment_store_.reset();
     index_factory_.reset();
   }
+
+  service::ICollectionResolver& resolver() { return *resolver_; }
 
   // Removed after the destructor body has reset everything that uses it.
   test::ScopedTempDir temp_dir_{"gvdb_local_resolver_test"};
@@ -45,73 +55,178 @@ struct LocalResolverTest {
   std::unique_ptr<service::ICollectionResolver> resolver_;
 };
 
-// ---------------------------------------------------------------------------
-// Local: CreateCollection
-// ---------------------------------------------------------------------------
+// The coordinator: the resolver uses the coordinator's collection registry.
+// The coordinator has no client factory, so it creates no segments on data
+// nodes.
+struct CoordinatorResolverFixture {
+  static constexpr bool kSupportsDataOps = false;
 
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_CreateCollection") {
-  auto result =
-      resolver_->CreateCollection("vectors", 128, core::MetricType::L2, core::IndexType::FLAT);
-  REQUIRE(result.ok());
-  CHECK_NE(*result, core::kInvalidCollectionId);
-}
+  CoordinatorResolverFixture() {
+    shard_manager_ = std::make_shared<cluster::ShardManager>(16, cluster::ShardingStrategy::HASH);
+    node_registry_ = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
+    coordinator_ = std::make_shared<cluster::Coordinator>(shard_manager_, node_registry_);
 
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_CreateCollectionDuplicate") {
-  auto first =
-      resolver_->CreateCollection("vectors", 128, core::MetricType::L2, core::IndexType::FLAT);
-  REQUIRE(first.ok());
+    // CreateCollection needs a ready data node to assign shards to.
+    proto::internal::NodeInfo proto_node;
+    proto_node.set_node_id(1);
+    proto_node.set_grpc_address("localhost:50099");
+    proto_node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
+    proto_node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
+    proto_node.set_memory_total_bytes(1000000000);
+    proto_node.set_memory_used_bytes(0);
+    proto_node.set_disk_total_bytes(10000000000);
+    proto_node.set_disk_used_bytes(0);
+    node_registry_->UpdateNode(proto_node);
 
-  auto second =
-      resolver_->CreateCollection("vectors", 64, core::MetricType::COSINE, core::IndexType::HNSW);
-  CHECK_FALSE(second.ok());
-  CHECK_EQ(second.status().code(), absl::StatusCode::kAlreadyExists);
-}
+    resolver_ = service::MakeCoordinatorResolver(coordinator_);
+  }
 
-// ---------------------------------------------------------------------------
-// Local: GetCollectionId
-// ---------------------------------------------------------------------------
+  ~CoordinatorResolverFixture() {
+    resolver_.reset();
+    coordinator_.reset();
+    node_registry_.reset();
+    shard_manager_.reset();
+  }
 
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetCollectionIdSuccess") {
+  service::ICollectionResolver& resolver() { return *resolver_; }
+
+  std::shared_ptr<cluster::ShardManager> shard_manager_;
+  std::shared_ptr<cluster::NodeRegistry> node_registry_;
+  std::shared_ptr<cluster::Coordinator> coordinator_;
+  std::unique_ptr<service::ICollectionResolver> resolver_;
+};
+
+}  // namespace
+
+TYPE_TO_STRING_AS("local", LocalResolverFixture);
+TYPE_TO_STRING_AS("coordinator", CoordinatorResolverFixture);
+
+namespace {
+
+// ============================================================================
+// Contract: every resolver
+// ============================================================================
+
+#define RESOLVER_FIXTURES LocalResolverFixture, CoordinatorResolverFixture
+
+TEST_CASE_TEMPLATE("CollectionResolver contract: CreateCollection then GetCollectionId", F,
+                   RESOLVER_FIXTURES) {
+  F f;
   auto created =
-      resolver_->CreateCollection("my_col", 64, core::MetricType::L2, core::IndexType::FLAT);
+      f.resolver().CreateCollection("vectors", 128, core::MetricType::L2, core::IndexType::FLAT);
   REQUIRE(created.ok());
+  CHECK_NE(*created, core::kInvalidCollectionId);
 
-  auto id = resolver_->GetCollectionId("my_col");
+  auto id = f.resolver().GetCollectionId("vectors");
   REQUIRE(id.ok());
   CHECK_EQ(*id, *created);
 }
 
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetCollectionIdUnknown") {
-  auto id = resolver_->GetCollectionId("nonexistent");
-  CHECK_FALSE(id.ok());
+TEST_CASE_TEMPLATE("CollectionResolver contract: CreateCollection rejects a duplicate name", F,
+                   RESOLVER_FIXTURES) {
+  F f;
+  REQUIRE(f.resolver()
+              .CreateCollection("vectors", 128, core::MetricType::L2, core::IndexType::FLAT)
+              .ok());
+
+  auto second =
+      f.resolver().CreateCollection("vectors", 64, core::MetricType::COSINE, core::IndexType::HNSW);
+  REQUIRE_FALSE(second.ok());
+  CHECK_EQ(second.status().code(), absl::StatusCode::kAlreadyExists);
+}
+
+TEST_CASE_TEMPLATE("CollectionResolver contract: GetCollectionId of an unknown name is NotFound", F,
+                   RESOLVER_FIXTURES) {
+  F f;
+  auto id = f.resolver().GetCollectionId("nonexistent");
+  REQUIRE_FALSE(id.ok());
   CHECK_EQ(id.status().code(), absl::StatusCode::kNotFound);
 }
 
-// ---------------------------------------------------------------------------
-// Local: DropCollection
-// ---------------------------------------------------------------------------
+TEST_CASE_TEMPLATE("CollectionResolver contract: DropCollection removes the collection", F,
+                   RESOLVER_FIXTURES) {
+  F f;
+  REQUIRE(f.resolver()
+              .CreateCollection("drop_me", 32, core::MetricType::L2, core::IndexType::FLAT)
+              .ok());
 
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_DropCollectionSuccess") {
-  auto created =
-      resolver_->CreateCollection("drop_me", 32, core::MetricType::L2, core::IndexType::FLAT);
-  REQUIRE(created.ok());
+  CHECK(f.resolver().DropCollection("drop_me").ok());
 
-  auto status = resolver_->DropCollection("drop_me");
-  CHECK(status.ok());
-
-  // Verify it is gone
-  auto id = resolver_->GetCollectionId("drop_me");
-  CHECK_FALSE(id.ok());
+  auto id = f.resolver().GetCollectionId("drop_me");
+  REQUIRE_FALSE(id.ok());
   CHECK_EQ(id.status().code(), absl::StatusCode::kNotFound);
 }
 
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_DropCollectionUnknown") {
-  auto status = resolver_->DropCollection("no_such_collection");
-  CHECK_FALSE(status.ok());
+TEST_CASE_TEMPLATE("CollectionResolver contract: DropCollection of an unknown name is NotFound", F,
+                   RESOLVER_FIXTURES) {
+  F f;
+  auto status = f.resolver().DropCollection("no_such_collection");
+  REQUIRE_FALSE(status.ok());
   CHECK_EQ(status.code(), absl::StatusCode::kNotFound);
 }
 
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_DropAndRecreateGetsNewIdAndParams") {
+TEST_CASE_TEMPLATE("CollectionResolver contract: ListCollections returns every collection", F,
+                   RESOLVER_FIXTURES) {
+  F f;
+  CHECK(f.resolver().ListCollections().empty());
+
+  REQUIRE(
+      f.resolver().CreateCollection("col_a", 64, core::MetricType::L2, core::IndexType::FLAT).ok());
+  REQUIRE(f.resolver()
+              .CreateCollection("col_b", 128, core::MetricType::COSINE, core::IndexType::HNSW)
+              .ok());
+
+  auto list = f.resolver().ListCollections();
+  CHECK_EQ(list.size(), 2);
+
+  // The order is unspecified, so the entries are found by name.
+  bool found_a = false;
+  bool found_b = false;
+  for (const auto& info : list) {
+    if (info.collection_name == "col_a") {
+      found_a = true;
+      CHECK_EQ(info.dimension, 64);
+      CHECK_EQ(info.metric_type, core::MetricType::L2);
+    }
+    if (info.collection_name == "col_b") {
+      found_b = true;
+      CHECK_EQ(info.dimension, 128);
+      CHECK_EQ(info.metric_type, core::MetricType::COSINE);
+    }
+  }
+  CHECK(found_a);
+  CHECK(found_b);
+}
+
+TEST_CASE_TEMPLATE("CollectionResolver contract: CollectionCount follows create and drop", F,
+                   RESOLVER_FIXTURES) {
+  F f;
+  CHECK_EQ(f.resolver().CollectionCount(), 0);
+
+  REQUIRE(
+      f.resolver().CreateCollection("c1", 32, core::MetricType::L2, core::IndexType::FLAT).ok());
+  CHECK_EQ(f.resolver().CollectionCount(), 1);
+
+  REQUIRE(
+      f.resolver().CreateCollection("c2", 32, core::MetricType::L2, core::IndexType::FLAT).ok());
+  CHECK_EQ(f.resolver().CollectionCount(), 2);
+
+  REQUIRE(f.resolver().DropCollection("c1").ok());
+  CHECK_EQ(f.resolver().CollectionCount(), 1);
+}
+
+TEST_CASE_TEMPLATE("CollectionResolver contract: SupportsDataOps", F, RESOLVER_FIXTURES) {
+  F f;
+  CHECK_EQ(f.resolver().SupportsDataOps(), F::kSupportsDataOps);
+}
+
+#undef RESOLVER_FIXTURES
+
+// ============================================================================
+// Local resolver only
+// ============================================================================
+
+TEST_CASE_FIXTURE(LocalResolverFixture, "Local_DropAndRecreateGetsNewIdAndParams") {
   constexpr size_t kOldShards = 2;
   auto old_id = resolver_->CreateCollection("recreated", 128, core::MetricType::L2,
                                             core::IndexType::FLAT, kOldShards);
@@ -168,62 +283,7 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_DropAndRecreateGetsNewIdAndParams") 
   CHECK_EQ(new_segment->GetVectorCount(), 0);
 }
 
-// ---------------------------------------------------------------------------
-// Local: ListCollections
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_ListCollectionsEmpty") {
-  auto list = resolver_->ListCollections();
-  CHECK(list.empty());
-}
-
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_ListCollectionsMultiple") {
-  (void)resolver_->CreateCollection("col_a", 64, core::MetricType::L2, core::IndexType::FLAT);
-  (void)resolver_->CreateCollection("col_b", 128, core::MetricType::COSINE, core::IndexType::HNSW);
-
-  auto list = resolver_->ListCollections();
-  CHECK_EQ(list.size(), 2);
-
-  // Verify contents (order is unspecified, so check by name)
-  bool found_a = false, found_b = false;
-  for (const auto& info : list) {
-    if (info.collection_name == "col_a") {
-      found_a = true;
-      CHECK_EQ(info.dimension, 64);
-      CHECK_EQ(info.metric_type, core::MetricType::L2);
-    }
-    if (info.collection_name == "col_b") {
-      found_b = true;
-      CHECK_EQ(info.dimension, 128);
-      CHECK_EQ(info.metric_type, core::MetricType::COSINE);
-    }
-  }
-  CHECK(found_a);
-  CHECK(found_b);
-}
-
-// ---------------------------------------------------------------------------
-// Local: CollectionCount
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_CollectionCount") {
-  CHECK_EQ(resolver_->CollectionCount(), 0);
-
-  (void)resolver_->CreateCollection("c1", 32, core::MetricType::L2, core::IndexType::FLAT);
-  CHECK_EQ(resolver_->CollectionCount(), 1);
-
-  (void)resolver_->CreateCollection("c2", 32, core::MetricType::L2, core::IndexType::FLAT);
-  CHECK_EQ(resolver_->CollectionCount(), 2);
-
-  (void)resolver_->DropCollection("c1");
-  CHECK_EQ(resolver_->CollectionCount(), 1);
-}
-
-// ---------------------------------------------------------------------------
-// Local: GetSegmentIds (multi-shard)
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetSegmentIdsMultiShard") {
+TEST_CASE_FIXTURE(LocalResolverFixture, "Local_GetSegmentIdsMultiShard") {
   auto created = resolver_->CreateCollection("multi_shard", 64, core::MetricType::L2,
                                              core::IndexType::FLAT, 3);
   REQUIRE(created.ok());
@@ -232,173 +292,27 @@ TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetSegmentIdsMultiShard") {
   REQUIRE(segs.ok());
   CHECK_EQ(segs->size(), 3);
 
-  // Each segment ID should be ShardSegmentId(collection_id, shard_index)
+  // Each segment ID is ShardSegmentId(collection_id, shard_index).
   for (uint32_t i = 0; i < 3; ++i) {
-    core::SegmentId expected = core::ShardSegmentId(*created, i);
-    CHECK_EQ((*segs)[i], expected);
+    CHECK_EQ((*segs)[i], core::ShardSegmentId(*created, i));
   }
 }
 
-// ---------------------------------------------------------------------------
-// Local: SupportsDataOps
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_SupportsDataOps") {
-  CHECK(resolver_->SupportsDataOps());
-}
-
-// ---------------------------------------------------------------------------
-// Local: GetCoordinatorStub (base default returns nullptr)
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(LocalResolverTest, "Local_GetCoordinatorStubIsNull") {
+TEST_CASE_FIXTURE(LocalResolverFixture, "Local_GetCoordinatorStubIsNull") {
   CHECK_EQ(resolver_->GetCoordinatorStub(), nullptr);
 }
 
 // ============================================================================
-// Fixture B: CoordinatorResolverTest
+// Coordinator resolver only
 // ============================================================================
 
-struct CoordinatorResolverTest {
-  CoordinatorResolverTest() {
-    shard_manager_ = std::make_shared<cluster::ShardManager>(16, cluster::ShardingStrategy::HASH);
-    node_registry_ = std::make_shared<cluster::NodeRegistry>(std::chrono::seconds(30));
-
-    // Create coordinator with no client factory (test mode)
-    coordinator_ = std::make_shared<cluster::Coordinator>(shard_manager_, node_registry_);
-
-    // Register a fake data node so that CreateCollection succeeds
-    proto::internal::NodeInfo proto_node;
-    proto_node.set_node_id(1);
-    proto_node.set_grpc_address("localhost:50099");
-    proto_node.set_node_type(proto::internal::NodeType::NODE_TYPE_DATA_NODE);
-    proto_node.set_status(proto::internal::NodeStatus::NODE_STATUS_READY);
-    proto_node.set_memory_total_bytes(1000000000);
-    proto_node.set_memory_used_bytes(0);
-    proto_node.set_disk_total_bytes(10000000000);
-    proto_node.set_disk_used_bytes(0);
-    node_registry_->UpdateNode(proto_node);
-
-    resolver_ = service::MakeCoordinatorResolver(coordinator_);
-  }
-
-  ~CoordinatorResolverTest() {
-    resolver_.reset();
-    coordinator_.reset();
-    node_registry_.reset();
-    shard_manager_.reset();
-  }
-
-  std::shared_ptr<cluster::ShardManager> shard_manager_;
-  std::shared_ptr<cluster::NodeRegistry> node_registry_;
-  std::shared_ptr<cluster::Coordinator> coordinator_;
-  std::unique_ptr<service::ICollectionResolver> resolver_;
-};
-
-// ---------------------------------------------------------------------------
-// Coordinator: CreateCollection
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_CreateCollection") {
-  auto result =
-      resolver_->CreateCollection("coord_col", 128, core::MetricType::L2, core::IndexType::FLAT);
-  REQUIRE(result.ok());
-  CHECK_NE(*result, core::kInvalidCollectionId);
-}
-
-TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_CreateCollectionDuplicate") {
-  auto first =
-      resolver_->CreateCollection("dup_col", 128, core::MetricType::L2, core::IndexType::FLAT);
-  REQUIRE(first.ok());
-
-  auto second =
-      resolver_->CreateCollection("dup_col", 64, core::MetricType::COSINE, core::IndexType::HNSW);
-  CHECK_FALSE(second.ok());
-  CHECK_EQ(second.status().code(), absl::StatusCode::kAlreadyExists);
-}
-
-// ---------------------------------------------------------------------------
-// Coordinator: GetCollectionId
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_GetCollectionIdSuccess") {
-  auto created = resolver_->CreateCollection("lookup_col", 64, core::MetricType::COSINE,
-                                             core::IndexType::FLAT);
-  REQUIRE(created.ok());
-
-  auto id = resolver_->GetCollectionId("lookup_col");
-  REQUIRE(id.ok());
-  CHECK_EQ(*id, *created);
-}
-
-TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_GetCollectionIdUnknown") {
-  auto id = resolver_->GetCollectionId("missing");
-  CHECK_FALSE(id.ok());
-  CHECK_EQ(id.status().code(), absl::StatusCode::kNotFound);
-}
-
-// ---------------------------------------------------------------------------
-// Coordinator: DropCollection
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_DropCollection") {
-  auto created =
-      resolver_->CreateCollection("drop_coord", 32, core::MetricType::L2, core::IndexType::FLAT);
-  REQUIRE(created.ok());
-
-  auto status = resolver_->DropCollection("drop_coord");
-  CHECK(status.ok());
-
-  // Verify it is gone
-  auto id = resolver_->GetCollectionId("drop_coord");
-  CHECK_FALSE(id.ok());
-}
-
-// ---------------------------------------------------------------------------
-// Coordinator: ListCollections
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_ListCollections") {
-  (void)resolver_->CreateCollection("coord_a", 64, core::MetricType::L2, core::IndexType::FLAT);
-  (void)resolver_->CreateCollection("coord_b", 128, core::MetricType::COSINE,
-                                    core::IndexType::HNSW);
-
-  auto list = resolver_->ListCollections();
-  CHECK_EQ(list.size(), 2);
-}
-
-// ---------------------------------------------------------------------------
-// Coordinator: CollectionCount
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_CollectionCount") {
-  CHECK_EQ(resolver_->CollectionCount(), 0);
-
-  (void)resolver_->CreateCollection("cc1", 32, core::MetricType::L2, core::IndexType::FLAT);
-  CHECK_EQ(resolver_->CollectionCount(), 1);
-
-  (void)resolver_->CreateCollection("cc2", 32, core::MetricType::L2, core::IndexType::FLAT);
-  CHECK_EQ(resolver_->CollectionCount(), 2);
-}
-
-// ---------------------------------------------------------------------------
-// Coordinator: GetSegmentIds returns Unimplemented
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_GetSegmentIdsUnimplemented") {
-  (void)resolver_->CreateCollection("no_data", 64, core::MetricType::L2, core::IndexType::FLAT);
+TEST_CASE_FIXTURE(CoordinatorResolverFixture, "Coord_GetSegmentIdsUnimplemented") {
+  REQUIRE(
+      resolver_->CreateCollection("no_data", 64, core::MetricType::L2, core::IndexType::FLAT).ok());
 
   auto segs = resolver_->GetSegmentIds("no_data");
-  CHECK_FALSE(segs.ok());
+  REQUIRE_FALSE(segs.ok());
   CHECK_EQ(segs.status().code(), absl::StatusCode::kUnimplemented);
-}
-
-// ---------------------------------------------------------------------------
-// Coordinator: SupportsDataOps is false
-// ---------------------------------------------------------------------------
-
-TEST_CASE_FIXTURE(CoordinatorResolverTest, "Coord_SupportsDataOpsFalse") {
-  CHECK_FALSE(resolver_->SupportsDataOps());
 }
 
 }  // namespace

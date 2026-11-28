@@ -57,6 +57,12 @@ struct FilesystemObjectStoreFixture {
 };
 
 }  // namespace
+}  // namespace gvdb::storage
+
+TYPE_TO_STRING_AS("InMemoryObjectStore", gvdb::storage::InMemoryObjectStoreFixture);
+TYPE_TO_STRING_AS("FilesystemObjectStore", gvdb::storage::FilesystemObjectStoreFixture);
+
+namespace gvdb::storage {
 
 // The contract test cases live in gvdb::storage::contract, the namespace of
 // their templates, so this block stays outside the anonymous namespace.
