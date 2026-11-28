@@ -30,6 +30,8 @@ Header-only helpers that every test links (`#include "support/<file>.h"`, namesp
 
 C++ / doctest. One folder per module of `src/`, and each folder builds one binary, `<module>_tests`. The test files of a folder share that binary, so each file keeps its helpers and fixtures in an anonymous namespace.
 
+A contract is a set of cases that every implementation of an interface must pass. A contract file defines each case once with `TEST_CASE_TEMPLATE` and runs it against one fixture per implementation. The test name ends with the implementation, for example `SegmentStore contract: DropSegment removes the segment<TieredSegmentManager>`. Behavior that only one implementation has stays in a plain `TEST_CASE`.
+
 | Folder | Files | Covers |
 |--------|-------|--------|
 | `core/` | `core_test.cpp` | Types, vectors, status, metadata, filters |
@@ -37,12 +39,12 @@ C++ / doctest. One folder per module of `src/`, and each folder builds one binar
 | `config/` | `config_test.cpp` | YAML configuration |
 | `auth/` | `rbac_test.cpp` | API keys, roles, permissions |
 | `index/` | `index_test.cpp`, `sparse_index_test.cpp`, `turboquant_test.cpp` | FLAT, HNSW, IVF, sparse and TurboQuant indexes |
-| `storage/` | `storage_test.cpp`, `object_store_test.cpp`, `segment_cache_test.cpp`, `segment_manifest_test.cpp`, `tiered_segment_manager_test.cpp`, `bulk_import_test.cpp`, `backup_manifest_test.cpp`, `backup_manager_test.cpp` | Segment lifecycle and persistence, object store contract (in-memory, filesystem), `CreateObjectStore`, segment cache, tiered storage, bulk import, backup and restore engines |
+| `storage/` | `storage_test.cpp`, `object_store_test.cpp`, `segment_cache_test.cpp`, `segment_manifest_test.cpp`, `tiered_segment_manager_test.cpp`, `segment_store_contract_test.cpp`, `bulk_import_test.cpp`, `backup_manifest_test.cpp`, `backup_manager_test.cpp` | Segment lifecycle and persistence, object store contract (in-memory, filesystem), `CreateObjectStore`, segment cache, tiered storage, segment store contract (`SegmentManager`, `TieredSegmentManager`), bulk import, backup and restore engines |
 | `compute/` | `compute_test.cpp` | Parallel query execution |
 | `cluster/` | `cluster_simple_test.cpp`, `node_registry_test.cpp`, `coordinator_backup_test.cpp`, `internal_client_test.cpp`, `data_node_test.cpp`, `query_node_test.cpp`, `primary_term_tracker_test.cpp`, `shard_write_gate_test.cpp` | ShardManager, Coordinator, node registry, backup fan-out, gRPC client, data and query nodes, primary terms, write fence |
 | `consensus/` | `consensus_test.cpp`, `consensus_persistence_test.cpp` | Timestamp oracle, Raft peer parsing, single-node Raft, RocksDB log store |
 | `rpc/` | `auth_processor_test.cpp`, `audit_interceptor_test.cpp`, `replica_fallback_test.cpp`, `dns_channel_args_test.cpp` | API key authentication by RPC and collection, audit log, replica fallback, DNS channel arguments |
-| `service/` | `network_test.cpp`, `vectordb_service_*_test.cpp`, `collection_resolver_test.cpp`, `collection_metadata_cache_test.cpp`, `internal_service_*_test.cpp`, `proxy_service_test.cpp` | Proto conversions, VectorDBService in local, distributed and coordinator mode, resolvers, metadata cache, InternalService RPCs, proxy routing |
+| `service/` | `network_test.cpp`, `vectordb_service_*_test.cpp`, `collection_resolver_test.cpp`, `collection_metadata_cache_test.cpp`, `internal_service_*_test.cpp`, `proxy_service_test.cpp` | Proto conversions, VectorDBService in single-node, distributed and coordinator mode (collection operations shared by single-node and coordinator mode in `vectordb_service_modes_test.cpp`), resolver contract (local, coordinator), metadata cache, InternalService RPCs, proxy routing |
 | `server/` | `server_flags_test.cpp` | Flag table of the server programs: values, lists, environment variables, usage text |
 
 Four binaries stay outside this scheme, because they need special hardware or a service and run as one CTest test each:

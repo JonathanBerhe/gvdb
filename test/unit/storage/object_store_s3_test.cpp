@@ -74,6 +74,11 @@ struct S3ObjectStoreFixture {
 };
 
 }  // namespace
+}  // namespace gvdb::storage
+
+TYPE_TO_STRING_AS("S3ObjectStore", gvdb::storage::S3ObjectStoreFixture);
+
+namespace gvdb::storage {
 
 namespace contract {
 GVDB_OBJECT_STORE_CONTRACT(S3ObjectStoreFixture);

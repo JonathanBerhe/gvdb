@@ -8,6 +8,7 @@ gvdb_add_test(storage_tests DISCOVER
     object_store_test.cpp
     segment_cache_test.cpp
     tiered_segment_manager_test.cpp
+    segment_store_contract_test.cpp
     segment_manifest_test.cpp
     bulk_import_test.cpp
     backup_manifest_test.cpp

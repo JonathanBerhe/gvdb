@@ -1,5 +1,9 @@
 // Copyright 2026 jonathanberhe
 // Licensed under the Apache License, Version 2.0
+//
+// TieredSegmentManager behavior that SegmentManager does not have: uploads,
+// the manifest, retries and remote copies. The ISegmentStore behavior that
+// both stores share is in segment_store_contract_test.cpp.
 
 #include "storage/segment/tiered_segment_manager.h"
 #include "index/index_factory.h"
@@ -129,8 +133,6 @@ struct TieredTest {
     return {std::move(tiered), store_ptr};
   }
 
-  std::unique_ptr<TieredSegmentManager> MakeTiered() { return MakeTieredWithStore().tiered; }
-
   // A healthy in-memory store never fails an upload, so no retry runs and
   // the retry delay does not matter.
   TieredWith<InMemoryObjectStore> MakeTieredWithStore(int upload_threads = 1) {
@@ -205,88 +207,6 @@ struct TieredTest {
   }
 };
 
-TEST_CASE_FIXTURE(TieredTest, "CreateSegment") {
-  auto tiered = MakeTiered();
-  auto result = tiered->CreateSegment(collection_id_, dimension_, metric_);
-  REQUIRE(result.ok());
-}
-
-TEST_CASE_FIXTURE(TieredTest, "WriteAndReadVectors") {
-  auto tiered = MakeTiered();
-  auto seg_id = *tiered->CreateSegment(collection_id_, dimension_, metric_);
-
-  auto vectors = MakeVectors(10);
-  auto ids = MakeIds(10);
-  REQUIRE(tiered->WriteVectors(seg_id, vectors, ids).ok());
-
-  auto* segment = tiered->GetSegment(seg_id);
-  REQUIRE(segment != nullptr);
-  auto read_result = segment->ReadVectors({ids[0]});
-  REQUIRE(read_result.ok());
-  CHECK_EQ(read_result->size(), 1);
-}
-
-TEST_CASE_FIXTURE(TieredTest, "SealAndSearch") {
-  auto tiered = MakeTiered();
-  auto seg_id = *tiered->CreateSegment(collection_id_, dimension_, metric_);
-
-  auto vectors = MakeVectors(50);
-  auto ids = MakeIds(50);
-  REQUIRE(tiered->WriteVectors(seg_id, vectors, ids).ok());
-
-  core::IndexConfig config;
-  config.index_type = core::IndexType::FLAT;
-  config.dimension = dimension_;
-  config.metric_type = metric_;
-  REQUIRE(tiered->SealSegment(seg_id, config).ok());
-
-  auto* segment = tiered->GetSegment(seg_id);
-  REQUIRE(segment != nullptr);
-  auto search_result = segment->Search(vectors[0], 5);
-  REQUIRE(search_result.ok());
-  CHECK(search_result->entries.size() > 0);
-}
-
-TEST_CASE_FIXTURE(TieredTest, "SearchCollection") {
-  auto tiered = MakeTiered();
-  auto seg_id = *tiered->CreateSegment(collection_id_, dimension_, metric_);
-
-  auto vectors = MakeVectors(50);
-  auto ids = MakeIds(50);
-  REQUIRE(tiered->WriteVectors(seg_id, vectors, ids).ok());
-
-  core::IndexConfig config;
-  config.index_type = core::IndexType::FLAT;
-  config.dimension = dimension_;
-  config.metric_type = metric_;
-  REQUIRE(tiered->SealSegment(seg_id, config).ok());
-
-  auto result = tiered->SearchCollection(collection_id_, vectors[0], 5);
-  REQUIRE(result.ok());
-  CHECK(result->entries.size() > 0);
-}
-
-TEST_CASE_FIXTURE(TieredTest, "GetCollectionSegments") {
-  auto tiered = MakeTiered();
-  REQUIRE(tiered->CreateSegment(collection_id_, dimension_, metric_).ok());
-  auto col2 = core::CollectionId(2);
-  REQUIRE(tiered->CreateSegment(col2, dimension_, metric_).ok());
-
-  auto col1_segs = tiered->GetCollectionSegments(collection_id_);
-  CHECK_EQ(col1_segs.size(), 1);
-
-  auto col2_segs = tiered->GetCollectionSegments(col2);
-  CHECK_EQ(col2_segs.size(), 1);
-}
-
-TEST_CASE_FIXTURE(TieredTest, "Clear") {
-  auto tiered = MakeTiered();
-  REQUIRE(tiered->CreateSegment(collection_id_, dimension_, metric_).ok());
-  CHECK_EQ(tiered->GetSegmentCount(), 1);
-  tiered->Clear();
-  CHECK_EQ(tiered->GetSegmentCount(), 0);
-}
-
 TEST_CASE_FIXTURE(TieredTest, "ManifestDiscovery") {
   // Phase 1: Create, write, seal, flush to populate S3
   auto [tiered1, store1] = MakeTieredWithStore();
@@ -308,15 +228,6 @@ TEST_CASE_FIXTURE(TieredTest, "ManifestDiscovery") {
   auto entries = WaitForManifestEntries(*store1, 1);
   REQUIRE_EQ(entries.size(), 1);
   CHECK_EQ(entries[0].vector_count, 50);
-}
-
-TEST_CASE_FIXTURE(TieredTest, "DropSegment") {
-  auto tiered = MakeTiered();
-  auto seg_id = *tiered->CreateSegment(collection_id_, dimension_, metric_);
-  CHECK_EQ(tiered->GetSegmentCount(), 1);
-
-  REQUIRE(tiered->DropSegment(seg_id).ok());
-  CHECK_EQ(tiered->GetSegmentCount(), 0);
 }
 
 TEST_CASE_FIXTURE(TieredTest, "DropUploadedSegmentRemovesRemoteCopy") {
@@ -451,41 +362,6 @@ TEST_CASE_FIXTURE(TieredTest, "ConcurrentFlushesAllReachManifest") {
   std::ranges::sort(expected);
   CHECK_EQ(listed, expected);
   CHECK(tiered->GetFailedUploads().empty());
-}
-
-TEST_CASE_FIXTURE(TieredTest, "SetSealCallback") {
-  auto tiered = MakeTiered();
-  bool callback_called = false;
-  tiered->SetSealCallback([&](core::SegmentId, core::IndexType) { callback_called = true; });
-
-  // GetWritableSegment with a segment that's full should trigger callback
-  // This test just verifies the callback is wired through
-  CHECK_FALSE(callback_called);
-}
-
-TEST_CASE_FIXTURE(TieredTest, "LoadAllSegmentsLocal") {
-  // Create and flush a segment
-  {
-    auto tiered = MakeTiered();
-    auto seg_id = *tiered->CreateSegment(collection_id_, dimension_, metric_);
-    auto vectors = MakeVectors(20);
-    auto ids = MakeIds(20);
-    REQUIRE(tiered->WriteVectors(seg_id, vectors, ids).ok());
-
-    core::IndexConfig config;
-    config.index_type = core::IndexType::FLAT;
-    config.dimension = dimension_;
-    config.metric_type = metric_;
-    REQUIRE(tiered->SealSegment(seg_id, config).ok());
-    REQUIRE(tiered->FlushSegment(seg_id).ok());
-  }
-
-  // Create fresh tiered manager and load
-  auto tiered2 = MakeTiered();
-  REQUIRE(tiered2->LoadAllSegments().ok());
-
-  // Should have recovered the segment from local disk
-  CHECK(tiered2->GetSegmentCount() >= 1);
 }
 
 TEST_CASE_FIXTURE(TieredTest, "FailedUploadRetriesAndRecovers") {

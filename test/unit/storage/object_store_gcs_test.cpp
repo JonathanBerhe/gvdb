@@ -52,6 +52,13 @@ struct GcsObjectStoreFixture {
 };
 
 }  // namespace
+}  // namespace storage
+}  // namespace gvdb
+
+TYPE_TO_STRING_AS("GcsObjectStore", gvdb::storage::GcsObjectStoreFixture);
+
+namespace gvdb {
+namespace storage {
 
 namespace contract {
 GVDB_OBJECT_STORE_CONTRACT(GcsObjectStoreFixture);
