@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.39.0](https://github.com/JonathanBerhe/gvdb/compare/v0.38.0...v0.39.0) (2026-11-28)
+
+
+### Features
+
+* **chart:** add GKE values overlay ([#130](https://github.com/JonathanBerhe/gvdb/issues/130)) ([f54bcb0](https://github.com/JonathanBerhe/gvdb/commit/f54bcb063505a9c9febc1e1079c6ceee1d8c2d6b))
+* **chart:** opt-in cert-manager TLS and External Secrets integration ([#132](https://github.com/JonathanBerhe/gvdb/issues/132)) ([d21ae00](https://github.com/JonathanBerhe/gvdb/commit/d21ae0083d21354e7edbbbff02d114eacecbf399))
+* **python-sdk:** backup/restore support with regenerated stubs ([#137](https://github.com/JonathanBerhe/gvdb/issues/137)) ([a34f5c8](https://github.com/JonathanBerhe/gvdb/commit/a34f5c8d7225b12279c46222ad29c7df9fd24798))
+* **rust-sdk:** add async Rust SDK crate, tests, CI, and docs ([#195](https://github.com/JonathanBerhe/gvdb/issues/195)) ([d1b6bd9](https://github.com/JonathanBerhe/gvdb/commit/d1b6bd957a76870fb9d46f74d90c97e1305bc135))
+* **storage:** add Google Cloud Storage object-store backend ([ab0bec6](https://github.com/JonathanBerhe/gvdb/commit/ab0bec61ac259f6daa73c3e6309fb5cc18d504d0))
+* **storage:** add Google Cloud Storage object-store backend ([ab312c5](https://github.com/JonathanBerhe/gvdb/commit/ab312c5f22f40bda0f301c56259b1f4d3c57a9ea))
+* **storage:** make tiered storage upload end to end + chart object-store config ([#133](https://github.com/JonathanBerhe/gvdb/issues/133)) ([98b0ba4](https://github.com/JonathanBerhe/gvdb/commit/98b0ba42c7dd7502ea50e7adafbedbb621ef7c09))
+
+
+### Bug Fixes
+
+* **cluster:** handle each data node failure once ([#184](https://github.com/JonathanBerhe/gvdb/issues/184)) ([4e282ac](https://github.com/JonathanBerhe/gvdb/commit/4e282ac0bf5783b8dac839e2eddaba284dec0eb4))
+* **cluster:** persist the collection registry across restarts ([#141](https://github.com/JonathanBerhe/gvdb/issues/141)) ([86b2ce8](https://github.com/JonathanBerhe/gvdb/commit/86b2ce8a271a1ecbce1a2498ca85aea11a946d3e))
+* **cluster:** start the coordinator health-check loop on the Raft leader ([#183](https://github.com/JonathanBerhe/gvdb/issues/183)) ([b54dc93](https://github.com/JonathanBerhe/gvdb/commit/b54dc93efc1cb334c5842be7a507cbfab76f3e1f))
+* **consensus:** store Raft log keys in index order ([#182](https://github.com/JonathanBerhe/gvdb/issues/182)) ([0328e2d](https://github.com/JonathanBerhe/gvdb/commit/0328e2d1205db32dc9c8332912281d529843bbea))
+* **core:** reject malformed filters and bound filter recursion ([#142](https://github.com/JonathanBerhe/gvdb/issues/142)) ([6fe53ad](https://github.com/JonathanBerhe/gvdb/commit/6fe53adf325574d9a8ece89a557355c7e36bc34f))
+* **core:** reject zero vectors for COSINE ([#191](https://github.com/JonathanBerhe/gvdb/issues/191)) ([776e919](https://github.com/JonathanBerhe/gvdb/commit/776e9195838de1e88242d7cee560dd407dc4fc05))
+* **index:** rebuild the Metal GPU buffer when an index loads ([#194](https://github.com/JonathanBerhe/gvdb/issues/194)) ([1a2a83f](https://github.com/JonathanBerhe/gvdb/commit/1a2a83f275b785e9a6e3683b9924752eab42a17d))
+* **index:** return canonical distances from every index ([#189](https://github.com/JonathanBerhe/gvdb/issues/189)) ([503d1a7](https://github.com/JonathanBerhe/gvdb/commit/503d1a7fee31cebfc631b66fb3c507c589772f34))
+* **network:** route by-id operations across all collection segments ([#139](https://github.com/JonathanBerhe/gvdb/issues/139)) ([4632d0c](https://github.com/JonathanBerhe/gvdb/commit/4632d0ceb04b394c7316c29bcfe07c452bd61b44))
+* **proxy:** check the role of each request ([#181](https://github.com/JonathanBerhe/gvdb/issues/181)) ([739498f](https://github.com/JonathanBerhe/gvdb/commit/739498f1fafa06367e7a37fc0d11e7c88e699fd4))
+* **python:** fix client metadata, importers, TLS, packaging, and tests ([#192](https://github.com/JonathanBerhe/gvdb/issues/192)) ([4e77186](https://github.com/JonathanBerhe/gvdb/commit/4e771867df1dacb7e7bbef2f87793a372219f7bb))
+* **search:** apply the filter in hybrid search ([#187](https://github.com/JonathanBerhe/gvdb/issues/187)) ([563f1d6](https://github.com/JonathanBerhe/gvdb/commit/563f1d654483891534da69eb5eb7a40c40f089ff))
+* **search:** keep the nearest results when merging filtered segments ([#196](https://github.com/JonathanBerhe/gvdb/issues/196)) ([5ab74ff](https://github.com/JonathanBerhe/gvdb/commit/5ab74ff2f09b9bbf67dc16a5001f44eef4b7df66))
+* **search:** one radius meaning for range search ([#190](https://github.com/JonathanBerhe/gvdb/issues/190)) ([e1b9e88](https://github.com/JonathanBerhe/gvdb/commit/e1b9e88b8158facaa912b65774bfab203ec6aa74))
+* **search:** return INVALID_ARGUMENT for a bad filter ([#186](https://github.com/JonathanBerhe/gvdb/issues/186)) ([512fb8e](https://github.com/JonathanBerhe/gvdb/commit/512fb8e8976eb74c2116087b1c72303f89b554f1))
+* **search:** skip expired vectors in hybrid search ([#188](https://github.com/JonathanBerhe/gvdb/issues/188)) ([d077f38](https://github.com/JonathanBerhe/gvdb/commit/d077f38f544b46f49b98949f6eeb4a20cb501822))
+* **storage:** catch mid-read I/O errors in GcsObjectStore::PutObjectFromFile ([7ec4eba](https://github.com/JonathanBerhe/gvdb/commit/7ec4ebafd00280768c9b3c91d4431608a71acd68))
+* **storage:** flush restored segments so restores survive restarts ([#140](https://github.com/JonathanBerhe/gvdb/issues/140)) ([9d75f51](https://github.com/JonathanBerhe/gvdb/commit/9d75f51a2226df5ca3efe8eab83c2c827b242fea))
+* **storage:** keep sparse vectors and TTL across segment flush and load ([#185](https://github.com/JonathanBerhe/gvdb/issues/185)) ([4eccbcc](https://github.com/JonathanBerhe/gvdb/commit/4eccbcc0d60c25ad59bcc9d8ebd92e6afece299c))
+* **storage:** per-store GCS credentials + warn on S3 type without endpoint ([db27730](https://github.com/JonathanBerhe/gvdb/commit/db2773007d34ec6bea9c2e80eb8eaa8861204d09))
+* **storage:** rebuild missing indexes when installing restored segments ([#136](https://github.com/JonathanBerhe/gvdb/issues/136)) ([9fd77f0](https://github.com/JonathanBerhe/gvdb/commit/9fd77f0b0c0f01c0cab060ad2f696ded13c06403))
+* **storage:** retry failed tiered-storage uploads with backoff ([#138](https://github.com/JonathanBerhe/gvdb/issues/138)) ([6aab718](https://github.com/JonathanBerhe/gvdb/commit/6aab7181c3a885363dbbc391afef4939155e55e8))
+* **storage:** skip expired vectors in range search ([#193](https://github.com/JonathanBerhe/gvdb/issues/193)) ([224ab0f](https://github.com/JonathanBerhe/gvdb/commit/224ab0f9d4c4e965cc1eac9beed0d727e7a9c955))
+* **storage:** split insert batches larger than the segment size cap ([#135](https://github.com/JonathanBerhe/gvdb/issues/135)) ([3b97af8](https://github.com/JonathanBerhe/gvdb/commit/3b97af8df6d6cbd70dff959a8bf32f6969205191))
+
 ## [0.38.0](https://github.com/JonathanBerhe/gvdb/compare/v0.37.0...v0.38.0) (2026-07-05)
 
 

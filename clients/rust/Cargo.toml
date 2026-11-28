@@ -1,6 +1,6 @@
 [package]
 name = "gvdb"
-version = "0.38.0" # x-release-please-version
+version = "0.39.0" # x-release-please-version
 edition = "2024"
 description = "Rust client for GVDB distributed vector database"
 license = "Apache-2.0"

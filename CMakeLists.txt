@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28...4.5)
-project(gvdb VERSION 0.38.0 LANGUAGES CXX) # x-release-please-version
+project(gvdb VERSION 0.39.0 LANGUAGES CXX) # x-release-please-version
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
