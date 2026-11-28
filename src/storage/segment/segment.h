@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <iosfwd>
 #include <memory>
 #include <shared_mutex>
 #include <string>
@@ -147,14 +148,16 @@ class Segment {
   // This builds the index and makes the segment immutable
   [[nodiscard]] absl::Status Seal(core::IVectorIndex* index);
 
-  // Flush segment data to persistent storage
+  // Flush segment data to persistent storage: the index, a small text file
+  // with the index type, and vectors.bin in the byte format of
+  // SerializeToBytes (vectors, ids, metadata, sparse vectors, expiry times).
   [[nodiscard]] absl::Status Flush(const std::string& base_path);
 
   // Load segment from persistent storage
   [[nodiscard]] static absl::StatusOr<std::unique_ptr<Segment>> Load(const std::string& base_path,
                                                                      core::SegmentId id);
 
-  // ========== Serialization for Replication ==========
+  // ========== Serialization for Replication and Flush ==========
 
   // Serialize segment data to bytes (for network transfer)
   [[nodiscard]] absl::StatusOr<std::string> SerializeToBytes() const;
@@ -221,6 +224,10 @@ class Segment {
   friend class SegmentManager;
 
  private:
+  // Writes the byte format of SerializeToBytes to `out`. The caller holds
+  // mutex_.
+  void WriteBytes(std::ostream& out) const;
+
   // Segment identification
   core::SegmentId id_;
   core::CollectionId collection_id_;
