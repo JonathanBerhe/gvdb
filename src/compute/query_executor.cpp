@@ -4,8 +4,8 @@
 #include "compute/query_executor.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
-#include <queue>
 #include <utility>
 #include <vector>
 
@@ -111,43 +111,18 @@ absl::StatusOr<core::SearchResult> QueryExecutor::Search(core::CollectionId coll
 
 core::SearchResult QueryExecutor::MergeResults(
     const std::vector<core::SearchResult>& partial_results, int top_k) {
-  // Use min-heap to efficiently maintain top-k results
-  // We use std::greater to create a min-heap (smallest distance at top)
-  auto compare = [](const core::SearchResultEntry& a, const core::SearchResultEntry& b) {
-    return a.distance > b.distance;  // Min-heap based on distance
-  };
-
-  std::priority_queue<core::SearchResultEntry, std::vector<core::SearchResultEntry>,
-                      decltype(compare)>
-      min_heap(compare);
-
-  // Process all partial results
+  // Every partial result holds canonical distances, where lower is closer.
+  // Keep the top_k closest entries of all of them, closest first.
+  core::SearchResult merged;
   for (const auto& partial : partial_results) {
-    for (const auto& entry : partial.entries) {
-      if (static_cast<int>(min_heap.size()) < top_k) {
-        // Haven't reached k elements yet, just add
-        min_heap.push(entry);
-      } else if (entry.distance < min_heap.top().distance) {
-        // Found a closer result, replace the farthest one
-        min_heap.pop();
-        min_heap.push(entry);
-      }
-    }
+    merged.entries.insert(merged.entries.end(), partial.entries.begin(), partial.entries.end());
   }
-
-  // Extract results from heap (will be in reverse order)
-  core::SearchResult final_result;
-  final_result.entries.reserve(min_heap.size());
-
-  while (!min_heap.empty()) {
-    final_result.entries.push_back(min_heap.top());
-    min_heap.pop();
-  }
-
-  // Reverse to get ascending order by distance (closest first)
-  std::ranges::reverse(final_result.entries);
-
-  return final_result;
+  const auto keep = std::min(merged.entries.size(), static_cast<size_t>(std::max(top_k, 0)));
+  std::ranges::partial_sort(merged.entries,
+                            merged.entries.begin() + static_cast<std::ptrdiff_t>(keep),
+                            [](const auto& a, const auto& b) { return a.distance < b.distance; });
+  merged.entries.resize(keep);
+  return merged;
 }
 
 }  // namespace gvdb::compute
