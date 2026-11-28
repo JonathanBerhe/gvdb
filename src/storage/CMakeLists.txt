@@ -31,6 +31,7 @@ gvdb_add_library(storage
     absl::strings
   PRIVATE_DEPS
     absl::flat_hash_set
+    absl::function_ref
 )
 
 if(GVDB_WITH_S3)

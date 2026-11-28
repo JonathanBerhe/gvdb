@@ -336,6 +336,66 @@ TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterSealed") {
   CHECK_LE(search_result.value().Size(), 10);
 }
 
+TEST_CASE_FIXTURE(StorageTest, "SealedSearchFindsTheFarMatchesOfASelectiveFilter") {
+  // 1000 vectors on the x axis: vector i is at distance i - 1 from the query.
+  // Only the 5 farthest vectors carry rare = 'yes', and the 20 nearest
+  // vectors expired.
+  constexpr int kCount = 1000;
+  storage::Segment segment(core::MakeSegmentId(1), collection_id_, 4, core::MetricType::L2);
+  std::vector<core::Vector> vectors;
+  std::vector<core::VectorId> ids;
+  std::vector<core::Metadata> metadata;
+  for (int i = 1; i <= kCount; ++i) {
+    vectors.emplace_back(std::vector<float>{static_cast<float>(i - 1), 0.0F, 0.0F, 0.0F});
+    ids.push_back(core::MakeVectorId(i));
+    metadata.push_back({{"rare", core::MetadataValue(std::string(i > kCount - 5 ? "yes" : "no"))}});
+  }
+  REQUIRE(segment.AddVectorsWithMetadata(vectors, ids, metadata).ok());
+  const int64_t past = storage::Segment::NowEpochSeconds() - 3600;
+  for (int i = 0; i < 20; ++i) segment.SetExpiry(ids[i], past);
+
+  core::IndexConfig config;
+  config.index_type = core::IndexType::FLAT;
+  config.dimension = 4;
+  config.metric_type = core::MetricType::L2;
+  auto index_result = index_factory_->CreateIndex(config);
+  REQUIRE(index_result.ok());
+  REQUIRE(segment.Seal(index_result.value().release()).ok());
+
+  const core::Vector query(std::vector<float>{0.0F, 0.0F, 0.0F, 0.0F});
+  const auto ids_of = [](const core::SearchResult& result) {
+    std::vector<uint64_t> out;
+    out.reserve(result.entries.size());
+    for (const auto& e : result.entries) out.push_back(core::ToUInt64(e.id));
+    return out;
+  };
+
+  SUBCASE("a filter that only far vectors pass") {
+    auto result = segment.SearchWithFilter(query, 5, *Filter("rare = 'yes'"));
+    REQUIRE(result.ok());
+    CHECK_EQ(ids_of(*result), std::vector<uint64_t>{996, 997, 998, 999, 1000});
+  }
+
+  SUBCASE("top_k above the number of matches returns every match") {
+    auto result = segment.SearchWithFilter(query, 8, *Filter("rare = 'yes'"));
+    REQUIRE(result.ok());
+    CHECK_EQ(result->entries.size(), 5);
+  }
+
+  SUBCASE("a hybrid search with a filter that only far vectors pass") {
+    auto filter = Filter("rare = 'yes'");
+    auto result = segment.SearchHybrid(query, "", 5, 1.0F, 0.0F, "", nullptr, 0.0F, filter.get());
+    REQUIRE(result.ok());
+    CHECK_EQ(ids_of(*result), std::vector<uint64_t>{996, 997, 998, 999, 1000});
+  }
+
+  SUBCASE("a search without a filter skips the expired nearest vectors") {
+    auto result = segment.Search(query, 5);
+    REQUIRE(result.ok());
+    CHECK_EQ(ids_of(*result), std::vector<uint64_t>{21, 22, 23, 24, 25});
+  }
+}
+
 TEST_CASE_FIXTURE(StorageTest, "SegmentSearchWithFilterComplex") {
   auto segment_id = core::MakeSegmentId(1);
   storage::Segment segment(segment_id, collection_id_, dimension_, metric_);

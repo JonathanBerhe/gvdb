@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <mutex>
 #include <utility>
+#include "absl/functional/function_ref.h"
 #include "absl/strings/str_cat.h"
 #include "common/logger.h"
 #include "core/filter.h"
@@ -14,6 +15,39 @@
 #include "storage/segment/segment.h"
 
 namespace gvdb::storage {
+
+namespace {
+
+// Runs `search` with a growing fetch size and keeps the entries whose id
+// `keep` accepts, in the order of the search, until k entries pass. The first
+// round fetches `first_fetch` entries, and each later round fetches four times
+// more. The rounds stop when the search returns fewer entries than it was
+// asked for, or when the fetch size reaches `total`, the number of vectors of
+// the segment. So a filter that few vectors pass still finds all of them.
+absl::StatusOr<core::SearchResult> SearchKeeping(
+    int k, int first_fetch, int total,
+    absl::FunctionRef<absl::StatusOr<core::SearchResult>(int)> search,
+    absl::FunctionRef<bool(uint64_t)> keep) {
+  if (k <= 0 || total <= 0) return core::SearchResult{};
+  int fetch = std::min(std::max(first_fetch, k), total);
+  while (true) {
+    auto searched = search(fetch);
+    if (!searched.ok()) return searched.status();
+
+    core::SearchResult kept(static_cast<size_t>(k));
+    for (const auto& entry : searched->entries) {
+      if (keep(core::ToUInt64(entry.id))) {
+        kept.entries.push_back(entry);
+        if (std::cmp_equal(kept.Size(), k)) break;
+      }
+    }
+    const bool exhausted = std::cmp_less(searched->entries.size(), fetch) || fetch >= total;
+    if (std::cmp_equal(kept.Size(), k) || exhausted) return kept;
+    fetch = fetch > total / 4 ? total : fetch * 4;
+  }
+}
+
+}  // namespace
 
 float Segment::ComputeDistance(const core::Vector& a, const core::Vector& b) const {
   switch (metric_) {
@@ -73,28 +107,12 @@ absl::StatusOr<core::SearchResult> Segment::Search(const core::Vector& query, in
         absl::StrCat("Segment ", core::ToUInt32(id_), " has no index"));
   }
 
-  // Over-fetch to compensate for TTL-expired entries being filtered out
-  int fetch_k = std::min(k * 2, static_cast<int>(GetVectorCount()));
-  fetch_k = std::max(fetch_k, k);
-
-  auto result = index_->Search(query, fetch_k);
-  if (!result.ok()) return result;
-
-  int64_t now = NowEpochSeconds();
-  auto& entries = result->entries;
-  entries.erase(std::ranges::remove_if(entries,
-                                       [this, now](const core::SearchResultEntry& e) {
-                                         return IsExpired(core::ToUInt64(e.id), now);
-                                       })
-                    .begin(),
-                entries.end());
-
-  // Truncate to requested k
-  if (static_cast<int>(entries.size()) > k) {
-    entries.resize(k);
-  }
-
-  return result;
+  // Over-fetch to make up for the expired entries that the search drops.
+  const int64_t now = NowEpochSeconds();
+  return SearchKeeping(
+      k, k * 2, static_cast<int>(index_->GetVectorCount()),
+      [&](int fetch) { return index_->Search(query, fetch); },
+      [this, now](uint64_t id) { return !IsExpired(id, now); });
 }
 
 // ========== Build Sparse Index ==========
@@ -262,44 +280,25 @@ absl::StatusOr<core::SearchResult> Segment::SearchWithFilter(const core::Vector&
         absl::StrCat("Segment ", core::ToUInt32(id_), " has no index"));
   }
 
-  // Adaptive over-fetch: use smaller factor when scalar index narrows candidates
-  int fetch_k;
-  if (indexed_candidates && !indexed_candidates->empty()) {
-    // Scalar index narrows candidates: less over-fetching needed
-    fetch_k = std::min(k * 3, static_cast<int>(indexed_candidates->size()));
-    fetch_k = std::max(fetch_k, k);
-  } else {
-    fetch_k = std::min(k * 10, static_cast<int>(GetVectorCount()));
+  // A scalar index can show that no vector matches.
+  if (indexed_candidates && indexed_candidates->empty()) {
+    return core::SearchResult{};
   }
 
-  auto search_result = index_->Search(query, fetch_k);
-  if (!search_result.ok()) {
-    return search_result.status();
-  }
-
-  core::SearchResult filtered_result(k);
-  for (const auto& entry : search_result->entries) {
-    if (filtered_result.Size() >= static_cast<size_t>(k)) {
-      break;
-    }
-
-    uint64_t id_uint = core::ToUInt64(entry.id);
-
-    if (IsExpired(id_uint, now)) continue;
-
-    // Fast path: check scalar index first
-    if (indexed_candidates && !indexed_candidates->contains(id_uint)) {
-      continue;
-    }
-
-    // Full filter evaluation (for partial index coverage or unindexed predicates)
-    auto it = metadata_map_.find(id_uint);
-    if (it != metadata_map_.end() && filter.Evaluate(it->second)) {
-      filtered_result.AddEntry(entry.id, entry.distance);
-    }
-  }
-
-  return filtered_result;
+  // The first round fetches 10 times k. When the filter passes fewer than k
+  // of them, the search fetches more, so a selective filter still finds its
+  // matches.
+  return SearchKeeping(
+      k, k * 10, static_cast<int>(index_->GetVectorCount()),
+      [&](int fetch) { return index_->Search(query, fetch); },
+      [&](uint64_t id) {
+        if (IsExpired(id, now)) return false;
+        // Fast path: check scalar index first
+        if (indexed_candidates && !indexed_candidates->contains(id)) return false;
+        // Full filter evaluation (for partial index coverage or unindexed predicates)
+        auto it = metadata_map_.find(id);
+        return it != metadata_map_.end() && filter.Evaluate(it->second);
+      });
 }
 
 absl::StatusOr<core::SearchResult> Segment::SearchHybrid(
@@ -312,15 +311,29 @@ absl::StatusOr<core::SearchResult> Segment::SearchHybrid(
     return core::SearchResult{};
   }
 
-  int overfetch = std::min(k * 3, std::max(1, static_cast<int>(vectors_.size())));
+  // Each signal collects up to 3 x k live candidates that pass the filter.
+  // Dropping the others before the fusion makes the ranks count only live,
+  // matching candidates. When the filter passes few of the first candidates,
+  // the signal searches further, so a selective filter still gets 3 x k.
+  const int64_t now = NowEpochSeconds();
+  auto keep = [&](uint64_t id) {
+    if (IsExpired(id, now)) return false;
+    if (!filter) return true;
+    auto it = metadata_map_.find(id);
+    return it != metadata_map_.end() && filter->Evaluate(it->second);
+  };
+  const int total =
+      index_ ? static_cast<int>(index_->GetVectorCount()) : static_cast<int>(vectors_.size());
+  const int candidates = k * 3;
 
   // 1. Dense vector search (index if sealed, brute-force if growing)
-  absl::StatusOr<core::SearchResult> vector_result;
-  if (index_) {
-    vector_result = index_->Search(query_vector, overfetch);
-  } else {
-    vector_result = BruteForceSearchUnlocked(query_vector, overfetch);
-  }
+  auto vector_result = SearchKeeping(
+      candidates, candidates, total,
+      [&](int fetch) {
+        return index_ ? index_->Search(query_vector, fetch)
+                      : BruteForceSearchUnlocked(query_vector, fetch);
+      },
+      keep);
   if (!vector_result.ok()) {
     return vector_result.status();
   }
@@ -328,7 +341,9 @@ absl::StatusOr<core::SearchResult> Segment::SearchHybrid(
   // 2. BM25 text search (if text index exists and text query is non-empty)
   core::SearchResult text_result;
   if (text_index_ && !text_query.empty()) {
-    auto bm25_result = text_index_->Search(text_query, overfetch);
+    auto bm25_result = SearchKeeping(
+        candidates, candidates, total,
+        [&](int fetch) { return text_index_->Search(text_query, fetch); }, keep);
     if (bm25_result.ok()) {
       text_result = std::move(*bm25_result);
     }
@@ -337,25 +352,12 @@ absl::StatusOr<core::SearchResult> Segment::SearchHybrid(
   // 2b. Sparse search (if sparse index exists and sparse query provided)
   core::SearchResult sparse_result;
   if (sparse_index_ && sparse_query && !sparse_query->empty()) {
-    auto sparse_search = sparse_index_->Search(*sparse_query, overfetch);
+    auto sparse_search = SearchKeeping(
+        candidates, candidates, total,
+        [&](int fetch) { return sparse_index_->Search(*sparse_query, fetch); }, keep);
     if (sparse_search.ok()) {
       sparse_result = std::move(*sparse_search);
     }
-  }
-
-  // 2c. Drop the expired candidates and, with a filter, the candidates whose
-  // metadata does not match, so the ranks below count only live, matching
-  // candidates.
-  const int64_t now = NowEpochSeconds();
-  auto drop = [&](const core::SearchResultEntry& e) {
-    const uint64_t id = core::ToUInt64(e.id);
-    if (IsExpired(id, now)) return true;
-    if (!filter) return false;
-    auto it = metadata_map_.find(id);
-    return it == metadata_map_.end() || !filter->Evaluate(it->second);
-  };
-  for (auto* list : {&vector_result->entries, &text_result.entries, &sparse_result.entries}) {
-    std::erase_if(*list, drop);
   }
 
   // 3. Reciprocal Rank Fusion (RRF)
