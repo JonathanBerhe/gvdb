@@ -383,6 +383,10 @@ void Coordinator::DetectFailedNodes() {
   auto failed_ids = node_registry_->DetectFailedNodes();
 
   for (uint32_t node_id : failed_ids) {
+    // The registry reports a node on every pass while it stays down. Handle
+    // it on the first pass only: later passes find nothing more to move.
+    RegisteredNode node;
+    if (!node_registry_->GetNode(node_id, &node) || node.missed_heartbeats != 1) continue;
     common::Logger::Instance().Warn("Node {} failed (heartbeat timeout)", node_id);
     HandleFailedNode(core::MakeNodeId(node_id));
   }
