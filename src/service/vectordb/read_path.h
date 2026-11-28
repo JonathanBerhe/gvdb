@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "absl/status/statusor.h"
 #include "compute/query_executor.h"
 #include "core/vector.h"
 #include "service/vectordb/collection_resolver.h"
@@ -17,6 +18,13 @@
 #include "vectordb.pb.h"
 
 namespace gvdb::service {
+
+// The canonical radius of a range search request: the largest distance of a
+// result. L2 and COSINE take a positive `radius`. INNER_PRODUCT takes
+// `similarity_threshold`, the smallest dot product, and no radius. Any other
+// combination is an InvalidArgument error.
+[[nodiscard]] absl::StatusOr<float> RangeSearchRadius(core::MetricType metric,
+                                                      const proto::RangeSearchRequest& request);
 
 // The read side of VectorDBService: search, range search, hybrid search, get
 // and list. Search and range search run on the local segments, or fan out to

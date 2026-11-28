@@ -58,6 +58,15 @@ class LocalCollectionResolver : public ICollectionResolver {
     return it->second.id;
   }
 
+  absl::StatusOr<core::MetricType> GetMetricType(const std::string& name) override {
+    std::shared_lock lock(mutex_);
+    auto it = entries_.find(name);
+    if (it == entries_.end()) {
+      return absl::NotFoundError("Collection not found: " + name);
+    }
+    return it->second.metric;
+  }
+
   absl::StatusOr<core::CollectionId> CreateCollection(const std::string& name,
                                                       core::Dimension dimension,
                                                       core::MetricType metric_type,
@@ -269,6 +278,12 @@ class CoordinatorCollectionResolver : public ICollectionResolver {
     return result->collection_id;
   }
 
+  absl::StatusOr<core::MetricType> GetMetricType(const std::string& name) override {
+    auto result = coordinator_->GetCollectionMetadata(name);
+    if (!result.ok()) return result.status();
+    return result->metric_type;
+  }
+
   absl::StatusOr<core::CollectionId> CreateCollection(const std::string& name,
                                                       core::Dimension dimension,
                                                       core::MetricType metric_type,
@@ -329,6 +344,17 @@ class CachedCoordinatorResolver : public ICollectionResolver {
 
     // Cache miss: pull from coordinator
     return FetchFromCoordinator(name);
+  }
+
+  absl::StatusOr<core::MetricType> GetMetricType(const std::string& name) override {
+    auto cached = cache_->GetByName(name);
+    if (!cached.ok()) {
+      auto fetched = FetchFromCoordinator(name);
+      if (!fetched.ok()) return fetched.status();
+      cached = cache_->GetByName(name);
+      if (!cached.ok()) return cached.status();
+    }
+    return cached->metric_type;
   }
 
   absl::StatusOr<core::CollectionId> CreateCollection(const std::string&, core::Dimension,

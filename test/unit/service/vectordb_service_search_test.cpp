@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <set>
 #include <string>
@@ -307,6 +308,21 @@ class CosineRangeSearchTest : public RangeSearchTest {
   CosineRangeSearchTest() : RangeSearchTest(proto::CreateCollectionRequest::COSINE) {}
 };
 
+// The same points in an INNER_PRODUCT collection. The distance is minus the
+// dot product, and a range search takes the smallest dot product instead of
+// a radius.
+class InnerProductRangeSearchTest : public RangeSearchTest {
+ public:
+  InnerProductRangeSearchTest() : RangeSearchTest(proto::CreateCollectionRequest::INNER_PRODUCT) {}
+
+  proto::RangeSearchRequest MakeThresholdRequest(const std::vector<float>& query,
+                                                 float similarity_threshold) const {
+    auto request = MakeRequest(query, 0.0F);
+    request.set_similarity_threshold(similarity_threshold);
+    return request;
+  }
+};
+
 TEST_CASE_FIXTURE(RangeSearchTest, "RangeSearchReturnsExactlyThePointsInsideTheRadius") {
   // Query a point that is itself in the collection, so the nearest point
   // is at distance 0.
@@ -430,6 +446,10 @@ TEST_CASE_FIXTURE(RangeSearchTest, "RangeSearchMaxResultsCapsTheResultCount") {
     CHECK_EQ(std::set<uint64_t>(ids.begin(), ids.end()).size(), cap);
     for (const auto& r : response.results()) CHECK(r.distance() <= radius);
     CheckDistancesNonDecreasing(response.results());
+
+    // The cap keeps the nearest points, not the first ones found.
+    const auto sorted = SortedByDistance(query);
+    for (size_t i = 0; i < ids.size(); ++i) CHECK_EQ(ids[i], sorted[i].second);
   }
 }
 
@@ -475,6 +495,58 @@ TEST_CASE_FIXTURE(RangeSearchTest, "RangeSearchWithFilter") {
   }
 }
 
+TEST_CASE_FIXTURE(InnerProductRangeSearchTest,
+                  "InnerProductRangeSearchReturnsThePointsAboveTheThreshold") {
+  const std::vector<float> query = {0.9F, -0.3F, 0.4F, 0.1F, -0.7F, 0.2F, 0.5F, -0.1F};
+  // RadiusCovering gives a distance, minus a dot product, between the 20th
+  // and the 21st nearest point.
+  const float threshold = -RadiusCovering(query, 20);
+  auto sorted = SortedByDistance(query);
+
+  auto request = MakeThresholdRequest(query, threshold);
+  proto::RangeSearchResponse response;
+  auto status = RangeSearch(request, &response);
+  INFO(status.error_message());
+  REQUIRE(status.ok());
+
+  REQUIRE_EQ(response.results_size(), 20);
+  for (int i = 0; i < response.results_size(); ++i) {
+    const auto& r = response.results(i);
+    CHECK_EQ(r.id(), sorted[static_cast<size_t>(i)].second);
+    CHECK(r.distance() == doctest::Approx(sorted[static_cast<size_t>(i)].first).epsilon(1e-4));
+    CHECK(-r.distance() >= threshold);
+  }
+}
+
+TEST_CASE_FIXTURE(InnerProductRangeSearchTest, "InnerProductRangeSearchArgumentErrors") {
+  const std::vector<float> query(kDim, 0.5F);
+  const auto check_invalid = [&](const proto::RangeSearchRequest& request) {
+    proto::RangeSearchResponse response;
+    auto status = RangeSearch(request, &response);
+    INFO(status.error_message());
+    CHECK_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  };
+
+  SUBCASE("a radius without a threshold") {
+    for (float radius : {1.0F, -1.0F}) {
+      CAPTURE(radius);
+      check_invalid(MakeRequest(query, radius));
+    }
+  }
+
+  SUBCASE("no radius and no threshold") { check_invalid(MakeRequest(query, 0.0F)); }
+
+  SUBCASE("a radius and a threshold") {
+    auto request = MakeThresholdRequest(query, 0.5F);
+    request.set_radius(1.0F);
+    check_invalid(request);
+  }
+
+  SUBCASE("a threshold that is not finite") {
+    check_invalid(MakeThresholdRequest(query, std::numeric_limits<float>::quiet_NaN()));
+  }
+}
+
 TEST_CASE_FIXTURE(RangeSearchTest, "RangeSearchArgumentErrors") {
   const std::vector<float> query(kDim, 0.0f);
 
@@ -492,14 +564,19 @@ TEST_CASE_FIXTURE(RangeSearchTest, "RangeSearchArgumentErrors") {
     CHECK_EQ(RangeSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   }
 
-  SUBCASE("zero radius") {
-    auto request = MakeRequest(query, 0.0f);
-    proto::RangeSearchResponse response;
-    CHECK_EQ(RangeSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  SUBCASE("a radius that is not a positive finite number") {
+    for (float radius : {0.0F, -1.0F, std::numeric_limits<float>::quiet_NaN(),
+                         std::numeric_limits<float>::infinity()}) {
+      CAPTURE(radius);
+      auto request = MakeRequest(query, radius);
+      proto::RangeSearchResponse response;
+      CHECK_EQ(RangeSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+    }
   }
 
-  SUBCASE("negative radius") {
-    auto request = MakeRequest(query, -1.0f);
+  SUBCASE("a similarity threshold, which only INNER_PRODUCT takes") {
+    auto request = MakeRequest(query, 1.0F);
+    request.set_similarity_threshold(0.5F);
     proto::RangeSearchResponse response;
     CHECK_EQ(RangeSearch(request, &response).error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   }

@@ -69,7 +69,7 @@ results = client.search("images", query_vector=clip_encode_text("a dog on a beac
 
 ## Anomaly detection
 
-Anomalies are points far from their nearest neighbours in embedding space. Use [range search](../python-sdk/client.md#range-search-by-radius) with a radius threshold, or compute the mean distance to the top-k and flag outliers:
+Anomalies are points far from their nearest neighbours in embedding space. Use [range search](../python-sdk/client.md#range-search) with a radius threshold, or compute the mean distance to the top-k and flag outliers:
 
 ```python
 results = client.search("transactions", query_vector=candidate, top_k=10)
