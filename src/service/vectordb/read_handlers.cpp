@@ -76,7 +76,7 @@ std::unordered_map<uint64_t, FoundVector> FetchAcrossSegments(
 grpc::Status VectorDBService::RangeSearch(grpc::ServerContext* /*context*/,
                                           const proto::RangeSearchRequest* request,
                                           proto::RangeSearchResponse* response) {
-  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::RANGE_SEARCH, request->collection_name()));
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::RANGE_SEARCH, request->collection_name()));
   common::Timer timer;
 
   if (request->collection_name().empty()) {
@@ -124,7 +124,7 @@ grpc::Status VectorDBService::RangeSearch(grpc::ServerContext* /*context*/,
   // Search each segment and merge results
   std::vector<core::SearchResultEntry> all_results;
   for (auto seg_id : segment_ids) {
-    auto* segment = GetOrReplicateSegment(seg_id);
+    auto* segment = locator_.GetOrReplicate(seg_id);
     if (!segment) continue;
 
     absl::StatusOr<core::SearchResult> seg_result;
@@ -153,7 +153,7 @@ grpc::Status VectorDBService::RangeSearch(grpc::ServerContext* /*context*/,
     rpc::ToProto(entry, proto_entry);
 
     if (request->return_metadata()) {
-      if (auto meta = FindMetadata(entry.id, segment_ids)) {
+      if (auto meta = locator_.FindMetadata(entry.id, segment_ids)) {
         rpc::ToProto(*meta, proto_entry->mutable_metadata());
       }
     }
@@ -168,7 +168,7 @@ grpc::Status VectorDBService::RangeSearch(grpc::ServerContext* /*context*/,
 grpc::Status VectorDBService::Search(grpc::ServerContext* /*context*/,
                                      const proto::SearchRequest* request,
                                      proto::SearchResponse* response) {
-  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::SEARCH, request->collection_name()));
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::SEARCH, request->collection_name()));
 
   common::Timer search_timer;
 
@@ -243,7 +243,7 @@ grpc::Status VectorDBService::Search(grpc::ServerContext* /*context*/,
     rpc::ToProto(entry, proto_entry);
 
     if (request->return_metadata()) {
-      if (auto meta = FindMetadata(entry.id, segment_ids)) {
+      if (auto meta = locator_.FindMetadata(entry.id, segment_ids)) {
         rpc::ToProto(*meta, proto_entry->mutable_metadata());
       }
     }
@@ -261,7 +261,7 @@ grpc::Status VectorDBService::Search(grpc::ServerContext* /*context*/,
 grpc::Status VectorDBService::HybridSearch(grpc::ServerContext* /*context*/,
                                            const proto::HybridSearchRequest* request,
                                            proto::HybridSearchResponse* response) {
-  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::HYBRID_SEARCH, request->collection_name()));
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::HYBRID_SEARCH, request->collection_name()));
 
   common::Timer search_timer;
   common::Logger::Instance().Info("HybridSearch: collection={}, text_query='{}'",
@@ -371,7 +371,7 @@ grpc::Status VectorDBService::HybridSearch(grpc::ServerContext* /*context*/,
     rpc::ToProto(all_entries[i], proto_entry);
 
     if (request->return_metadata()) {
-      if (auto meta = FindMetadata(all_entries[i].id, *segment_ids_result)) {
+      if (auto meta = locator_.FindMetadata(all_entries[i].id, *segment_ids_result)) {
         rpc::ToProto(*meta, proto_entry->mutable_metadata());
       }
     }
@@ -383,8 +383,8 @@ grpc::Status VectorDBService::HybridSearch(grpc::ServerContext* /*context*/,
 
 grpc::Status VectorDBService::Get(grpc::ServerContext* /*context*/,
                                   const proto::GetRequest* request, proto::GetResponse* response) {
-  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::GET, request->collection_name(),
-                                      request->ids().size()));
+  RETURN_IF_ERROR(
+      guard_.Authorize(auth::Permission::GET, request->collection_name(), request->ids().size()));
 
   common::Logger::Instance().Info("Get: {} IDs from {}", request->ids().size(),
                                   request->collection_name());
@@ -416,7 +416,7 @@ grpc::Status VectorDBService::Get(grpc::ServerContext* /*context*/,
   // Consult every segment of the collection, not just the resolver's active
   // one: once a segment rotates, ids move to rotated segments and a
   // single-segment lookup would report them as not found.
-  auto segments_result = CollectCollectionSegments(request->collection_name());
+  auto segments_result = locator_.CollectionSegments(request->collection_name());
   if (!segments_result.ok()) {
     common::MetricsRegistry::Instance().RecordGet(request->collection_name(), false);
     return rpc::ToGrpcStatus(segments_result.status());
@@ -451,7 +451,7 @@ grpc::Status VectorDBService::Get(grpc::ServerContext* /*context*/,
 grpc::Status VectorDBService::ListVectors(grpc::ServerContext* /*context*/,
                                           const proto::ListVectorsRequest* request,
                                           proto::ListVectorsResponse* response) {
-  RETURN_IF_ERROR(CheckPermission(auth::Permission::LIST_VECTORS, request->collection_name()));
+  RETURN_IF_ERROR(guard_.Check(auth::Permission::LIST_VECTORS, request->collection_name()));
 
   if (!resolver_->SupportsDataOps()) {
     return grpc::Status(grpc::StatusCode::UNIMPLEMENTED,
@@ -460,7 +460,7 @@ grpc::Status VectorDBService::ListVectors(grpc::ServerContext* /*context*/,
 
   // List across every segment of the collection so rotated segments are
   // included; a single-segment listing would miss everything past the first.
-  auto segments_result = CollectCollectionSegments(request->collection_name());
+  auto segments_result = locator_.CollectionSegments(request->collection_name());
   if (!segments_result.ok()) {
     return rpc::ToGrpcStatus(segments_result.status());
   }

@@ -25,7 +25,7 @@ namespace gvdb::service {
 grpc::Status VectorDBService::BackupCollection(grpc::ServerContext* /*context*/,
                                                const proto::BackupCollectionRequest* request,
                                                proto::BackupCollectionResponse* response) {
-  RETURN_IF_ERROR(AuthorizeCollection(auth::Permission::BACKUP, request->collection_name()));
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::BACKUP, request->collection_name()));
 
   if (request->collection_name().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "collection_name is required");
@@ -85,8 +85,7 @@ grpc::Status VectorDBService::BackupCollection(grpc::ServerContext* /*context*/,
 grpc::Status VectorDBService::RestoreCollection(grpc::ServerContext* /*context*/,
                                                 const proto::RestoreCollectionRequest* request,
                                                 proto::RestoreCollectionResponse* response) {
-  RETURN_IF_ERROR(
-      AuthorizeCollection(auth::Permission::RESTORE, request->target_collection_name()));
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::RESTORE, request->target_collection_name()));
 
   if (request->backup_id().empty()) {
     return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "backup_id is required");
@@ -242,7 +241,7 @@ grpc::Status VectorDBService::CancelBackup(grpc::ServerContext* /*context*/,
   // empty name (admin-only paths will reject; others fall through). The
   // strict per-collection gate lands when we surface collection_name on
   // the status struct in a later refinement.
-  RETURN_IF_ERROR(CheckPermission(auth::Permission::BACKUP, /*collection_name=*/""));
+  RETURN_IF_ERROR(guard_.Check(auth::Permission::BACKUP, /*collection_name=*/""));
 
   auto status = backup_manager_->Cancel(request->backup_id());
   if (!status.ok()) {
