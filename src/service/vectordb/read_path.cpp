@@ -276,8 +276,10 @@ grpc::Status ReadPath::HybridSearch(const proto::HybridSearchRequest& request,
   bool has_text = !request.text_query().empty();
   bool has_sparse = request.has_sparse_query() && request.sparse_query().indices_size() > 0;
 
-  // A bad filter is an INVALID_ARGUMENT error.
-  if (auto filter = ParseRequestFilter(request.filter()); !filter.ok()) {
+  // A bad filter is an INVALID_ARGUMENT error. A valid one limits the
+  // candidates of every segment.
+  auto filter = ParseRequestFilter(request.filter());
+  if (!filter.ok()) {
     return rpc::ToGrpcStatus(filter.status());
   }
 
@@ -349,7 +351,7 @@ grpc::Status ReadPath::HybridSearch(const proto::HybridSearchRequest& request,
       float sw = has_sparse ? sparse_weight : 0.0f;
 
       result = segment->SearchHybrid(qv, request.text_query(), request.top_k(), vw, tw, text_field,
-                                     sq_ptr, sw);
+                                     sq_ptr, sw, filter->get());
     }
 
     if (result.ok()) {

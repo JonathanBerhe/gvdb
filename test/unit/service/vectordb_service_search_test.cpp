@@ -672,6 +672,38 @@ TEST_CASE_FIXTURE(HybridSearchTest, "HybridSearchRanksTheCombinedMatchFirst") {
   }
 }
 
+// A filter keeps only the matching documents, in fused order. Before the
+// fix, HybridSearch ignored the filter and returned every document.
+TEST_CASE_FIXTURE(HybridSearchTest, "HybridSearchAppliesTheFilter") {
+  struct Row {
+    const char* filter;
+    std::vector<uint64_t> expected_ids;
+  };
+  const Row rows[] = {
+      // Docs 1 and 5 mention shoes. Doc 1 wins both signals.
+      {"text LIKE '%shoes%'", {1, 5}},
+      // Doc 3 matches neither signal, but it is the only match.
+      {"text LIKE '%hiking%'", {3}},
+      {"text LIKE '%nothing%'", {}},
+  };
+  for (const Row& row : rows) {
+    CAPTURE(row.filter);
+    auto request = MakeRequest();
+    SetProtoVector({1, 0, 0, 0}, request.mutable_query_vector());
+    request.set_text_query("running");
+    request.set_top_k(5);
+    request.set_filter(row.filter);
+
+    proto::HybridSearchResponse response;
+    auto status = HybridSearch(request, &response);
+    INFO(status.error_message());
+    REQUIRE(status.ok());
+    std::vector<uint64_t> ids;
+    for (const auto& r : response.results()) ids.push_back(r.id());
+    CHECK_EQ(ids, row.expected_ids);
+  }
+}
+
 TEST_CASE_FIXTURE(HybridSearchTest, "HybridSearchTextOnly") {
   SUBCASE("all query terms in one document") {
     auto request = MakeRequest();
