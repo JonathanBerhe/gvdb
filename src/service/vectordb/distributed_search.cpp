@@ -15,17 +15,17 @@
 #include "rpc/proto_conversions.h"
 #include "rpc/replica_fallback.h"
 #include "service/vectordb/collection_resolver.h"
-#include "service/vectordb/vectordb_service.h"
+#include "service/vectordb/read_path.h"
 
 namespace gvdb::service {
 
-grpc::Status VectorDBService::SearchDistributed(const proto::SearchRequest* request,
-                                                proto::SearchResponse* response,
-                                                const core::Vector& query) {
+grpc::Status ReadPath::SearchDistributed(const proto::SearchRequest* request,
+                                         proto::SearchResponse* response,
+                                         const core::Vector& query) {
   common::Timer timer;
 
   // Get shard targets from coordinator
-  auto targets_result = resolver_->GetShardTargets(request->collection_name());
+  auto targets_result = resolver_.GetShardTargets(request->collection_name());
   if (!targets_result.ok()) {
     return rpc::ToGrpcStatus(targets_result.status());
   }
@@ -189,11 +189,11 @@ grpc::Status VectorDBService::SearchDistributed(const proto::SearchRequest* requ
   return grpc::Status::OK;
 }
 
-grpc::Status VectorDBService::RangeSearchDistributed(const proto::RangeSearchRequest* request,
-                                                     proto::RangeSearchResponse* response) {
+grpc::Status ReadPath::RangeSearchDistributed(const proto::RangeSearchRequest* request,
+                                              proto::RangeSearchResponse* response) {
   common::Timer timer;
 
-  auto targets_result = resolver_->GetShardTargets(request->collection_name());
+  auto targets_result = resolver_.GetShardTargets(request->collection_name());
   if (!targets_result.ok()) {
     return rpc::ToGrpcStatus(targets_result.status());
   }

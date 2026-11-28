@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <memory>
 #include <optional>
 #include <string>
@@ -11,6 +10,7 @@
 #include "compute/query_executor.h"
 #include "internal.grpc.pb.h"
 #include "service/vectordb/collection_resolver.h"
+#include "service/vectordb/read_path.h"
 #include "service/vectordb/request_guard.h"
 #include "service/vectordb/segment_locator.h"
 #include "service/vectordb/write_path.h"
@@ -158,31 +158,20 @@ class VectorDBService final : public proto::VectorDBService::Service {
                         proto::GetStatsResponse* response) override;
 
  private:
-  // Fan out search to remote data nodes holding shards for the collection
-  grpc::Status SearchDistributed(const proto::SearchRequest* request,
-                                 proto::SearchResponse* response, const core::Vector& query);
-
-  // Fan out range search to remote data nodes
-  grpc::Status RangeSearchDistributed(const proto::RangeSearchRequest* request,
-                                      proto::RangeSearchResponse* response);
-
-  // The members are initialized in this order: locator_ and write_path_ keep
-  // references to resolver_.
+  // The members are initialized in this order: locator_, write_path_ and
+  // read_path_ keep references to resolver_, and the paths to locator_.
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   std::unique_ptr<ICollectionResolver> resolver_;
   RequestGuard guard_;
   SegmentLocator locator_;
   WritePath write_path_;
+  ReadPath read_path_;
   // The optional collaborators. VectorDBServiceOptions describes each one.
   std::shared_ptr<storage::BulkImporter> bulk_importer_;
   std::shared_ptr<storage::BackupManager> backup_manager_;
   std::shared_ptr<storage::RestoreManager> restore_manager_;
   std::shared_ptr<cluster::Coordinator> coordinator_;
-
-  // Statistics
-  std::atomic<uint64_t> total_queries_{0};
-  std::atomic<uint64_t> total_query_time_ms_{0};
 };
 
 }  // namespace service

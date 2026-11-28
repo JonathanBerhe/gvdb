@@ -10,6 +10,7 @@ gvdb_add_library(service
     vectordb/request_guard.cpp
     vectordb/segment_locator.cpp
     vectordb/write_path.cpp
+    vectordb/read_path.cpp
     vectordb/admin_handlers.cpp
     vectordb/write_handlers.cpp
     vectordb/read_handlers.cpp

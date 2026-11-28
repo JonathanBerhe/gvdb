@@ -130,8 +130,8 @@ grpc::Status VectorDBService::GetStats(grpc::ServerContext* /*context*/,
   response->set_total_vectors(total_vectors);
   response->set_total_collections(collections.size());
 
-  uint64_t queries = total_queries_.load(std::memory_order_relaxed);
-  uint64_t total_time = total_query_time_ms_.load(std::memory_order_relaxed);
+  uint64_t queries = read_path_.total_queries();
+  uint64_t total_time = read_path_.total_query_time_ms();
 
   response->set_total_queries(queries);
   response->set_avg_query_time_ms(queries > 0 ? static_cast<float>(total_time) / queries : 0.0f);
