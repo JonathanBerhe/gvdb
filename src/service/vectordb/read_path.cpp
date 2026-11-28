@@ -19,6 +19,7 @@
 #include "common/timer.h"
 #include "core/distance.h"
 #include "core/filter.h"
+#include "core/status.h"
 #include "core/type_names.h"
 #include "index/bm25_index.h"
 #include "index/sparse_index.h"
@@ -119,6 +120,12 @@ ReadPath::ReadPath(std::shared_ptr<storage::ISegmentStore> segment_store,
       resolver_(resolver),
       locator_(locator) {}
 
+absl::Status ReadPath::CheckQueryVector(const std::string& collection_name,
+                                        const core::Vector& query) {
+  ASSIGN_OR_RETURN(auto metric, resolver_.GetMetricType(collection_name));
+  return core::CheckVectorForMetric(metric, query);
+}
+
 grpc::Status ReadPath::Search(const proto::SearchRequest& request,
                               proto::SearchResponse* response) {
   common::Timer search_timer;
@@ -135,6 +142,10 @@ grpc::Status ReadPath::Search(const proto::SearchRequest& request,
   if (!query_result.ok()) {
     common::MetricsRegistry::Instance().RecordSearch(request.collection_name(), false);
     return rpc::ToGrpcStatus(query_result.status());
+  }
+  if (auto status = CheckQueryVector(request.collection_name(), *query_result); !status.ok()) {
+    common::MetricsRegistry::Instance().RecordSearch(request.collection_name(), false);
+    return rpc::ToGrpcStatus(status);
   }
 
   // The data nodes parse the filter of a fan-out, so a bad filter is caught
@@ -235,6 +246,13 @@ grpc::Status ReadPath::RangeSearch(const proto::RangeSearchRequest& request,
   if (!radius.ok()) {
     return rpc::ToGrpcStatus(radius.status());
   }
+  auto query_result = rpc::FromProto(request.query_vector());
+  if (!query_result.ok()) {
+    return rpc::ToGrpcStatus(query_result.status());
+  }
+  if (auto status = core::CheckVectorForMetric(*metric, *query_result); !status.ok()) {
+    return rpc::ToGrpcStatus(status);
+  }
 
   auto segment_ids_result = resolver_.GetSegmentIds(request.collection_name());
 
@@ -260,11 +278,6 @@ grpc::Status ReadPath::RangeSearch(const proto::RangeSearchRequest& request,
   }
 
   const auto& segment_ids = *segment_ids_result;
-
-  auto query_result = rpc::FromProto(request.query_vector());
-  if (!query_result.ok()) {
-    return rpc::ToGrpcStatus(query_result.status());
-  }
 
   int max_results = request.max_results() > 0 ? request.max_results() : 1000;
 
@@ -337,6 +350,9 @@ grpc::Status ReadPath::HybridSearch(const proto::HybridSearchRequest& request,
   if (has_vector) {
     auto qr = rpc::FromProto(request.query_vector());
     if (!qr.ok()) return rpc::ToGrpcStatus(qr.status());
+    if (auto status = CheckQueryVector(request.collection_name(), *qr); !status.ok()) {
+      return rpc::ToGrpcStatus(status);
+    }
     query_vector = std::move(*qr);
   }
 

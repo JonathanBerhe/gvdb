@@ -4,9 +4,11 @@
 #include "core/vector.h"
 
 #include <cmath>
+
 #include <cstdlib>
 #include <cstring>
 #include <random>
+#include "core/distance.h"
 
 #include "absl/strings/str_cat.h"
 
@@ -154,7 +156,7 @@ float Vector::CosineDistance(const Vector& other) const {
   float norm_a = Norm();
   float norm_b = other.Norm();
 
-  if (norm_a < 1e-8f || norm_b < 1e-8f) {
+  if (norm_a < kMinCosineNorm || norm_b < kMinCosineNorm) {
     return 1.0f;  // A zero vector has no direction, like an orthogonal one.
   }
 
@@ -169,6 +171,15 @@ float Vector::CosineDistance(const Vector& other) const {
 // ============================================================================
 
 Vector ZeroVector(Dimension dim) { return Vector(dim); }
+
+absl::Status CheckVectorForMetric(MetricType metric, const Vector& vector) {
+  if (metric == MetricType::COSINE && !(vector.Norm() >= kMinCosineNorm)) {
+    return absl::InvalidArgumentError(
+        "A COSINE collection cannot store or search with a zero vector, because it has no "
+        "direction");
+  }
+  return absl::OkStatus();
+}
 
 Vector RandomVector(Dimension dim) {
   static std::random_device rd;

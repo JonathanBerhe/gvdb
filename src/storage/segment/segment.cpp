@@ -594,6 +594,7 @@ absl::Status Segment::ValidateVectors(const std::vector<core::Vector>& vectors,
       return absl::InvalidArgumentError(absl::StrCat("Vector dimension mismatch: expected ",
                                                      dimension_, " got ", vec.dimension()));
     }
+    RETURN_IF_ERROR(core::CheckVectorForMetric(metric_, vec));
   }
 
   return absl::OkStatus();

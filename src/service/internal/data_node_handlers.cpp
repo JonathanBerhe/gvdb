@@ -13,6 +13,7 @@
 #include "core/filter.h"
 #include "core/type_names.h"
 #include "core/types.h"
+#include "core/vector.h"
 #include "rpc/proto_conversions.h"
 #include "service/internal/internal_service.h"
 #include "storage/backup/backup_manager.h"
@@ -346,6 +347,9 @@ grpc::Status InternalService::ExecuteShardQuery(
       return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT,
                           absl::StrCat("Query dimension mismatch: expected ",
                                        segment->GetDimension(), ", got ", query.dimension()));
+    }
+    if (auto status = core::CheckVectorForMetric(segment->GetMetric(), query); !status.ok()) {
+      return rpc::ToGrpcStatus(status);
     }
 
     // Execute search. A bad filter is an INVALID_ARGUMENT error.

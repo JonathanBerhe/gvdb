@@ -103,4 +103,8 @@ class Vector {
 // Create a random vector (useful for testing)
 [[nodiscard]] Vector RandomVector(Dimension dim);
 
+// OK when a collection with this metric can store the vector or search with
+// it. COSINE rejects a zero vector, because it has no direction.
+[[nodiscard]] absl::Status CheckVectorForMetric(MetricType metric, const Vector& vector);
+
 }  // namespace gvdb::core

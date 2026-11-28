@@ -68,6 +68,11 @@ class ReadPath {
   grpc::Status RangeSearchDistributed(const proto::RangeSearchRequest* request,
                                       proto::RangeSearchResponse* response);
 
+  // InvalidArgument when the metric of the collection cannot search with the
+  // query, for example a zero vector in a COSINE collection.
+  [[nodiscard]] absl::Status CheckQueryVector(const std::string& collection_name,
+                                              const core::Vector& query);
+
   std::shared_ptr<storage::ISegmentStore> segment_store_;
   std::shared_ptr<compute::QueryExecutor> query_executor_;
   ICollectionResolver& resolver_;

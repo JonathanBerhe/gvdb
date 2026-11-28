@@ -14,6 +14,7 @@
 #include "cluster/datanode/shard_write_gate.h"
 #include "common/logger.h"
 #include "common/metrics.h"
+#include "core/vector.h"
 #include "rpc/proto_conversions.h"
 #include "storage/segment/batch_splitter.h"
 
@@ -133,6 +134,7 @@ grpc::Status WritePath::Insert(const proto::InsertRequest& request, size_t* inse
     return rpc::ToGrpcStatus(absl::NotFoundError("Segment not found"));
   }
   uint32_t dimension = first_segment->GetDimension();
+  const core::MetricType metric = first_segment->GetMetric();
 
   // Convert proto vectors and group by shard
   struct ShardBatch {
@@ -186,6 +188,9 @@ grpc::Status WritePath::Insert(const proto::InsertRequest& request, size_t* inse
       if (static_cast<uint32_t>(vec.dimension()) != dimension) {
         return rpc::ToGrpcStatus(absl::InvalidArgumentError(absl::StrFormat(
             "Vector dimension mismatch: expected %d, got %d", dimension, vec.dimension())));
+      }
+      if (auto status = core::CheckVectorForMetric(metric, vec); !status.ok()) {
+        return rpc::ToGrpcStatus(status);
       }
     }
   }
@@ -314,6 +319,7 @@ grpc::Status WritePath::StreamInsertChunk(const proto::InsertRequest& chunk,
     return rpc::ToGrpcStatus(absl::NotFoundError("Segment not found"));
   }
   uint32_t dimension = first_segment->GetDimension();
+  const core::MetricType metric = first_segment->GetMetric();
 
   struct ShardBatch {
     std::vector<core::Vector> vectors;
@@ -350,6 +356,9 @@ grpc::Status WritePath::StreamInsertChunk(const proto::InsertRequest& chunk,
       if (static_cast<uint32_t>(vec.dimension()) != dimension) {
         return rpc::ToGrpcStatus(absl::InvalidArgumentError(absl::StrFormat(
             "Vector dimension mismatch: expected %d, got %d", dimension, vec.dimension())));
+      }
+      if (auto status = core::CheckVectorForMetric(metric, vec); !status.ok()) {
+        return rpc::ToGrpcStatus(status);
       }
     }
   }

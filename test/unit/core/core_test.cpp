@@ -183,6 +183,26 @@ TEST_CASE("VectorTest - CosineDistanceOrthogonal") {
   CHECK(vec1.CosineDistance(vec2) == doctest::Approx(1.0f).epsilon(1e-6f));
 }
 
+TEST_CASE("CheckVectorForMetric rejects only a COSINE vector without a direction") {
+  struct Row {
+    MetricType metric;
+    std::vector<float> values;
+    bool ok;
+  };
+  const std::vector<Row> rows = {
+      {MetricType::COSINE, {0.0f, 0.0f}, false}, {MetricType::COSINE, {1e-10f, 1e-10f}, false},
+      {MetricType::COSINE, {0.0f, 1e-3f}, true}, {MetricType::COSINE, {3.0f, -4.0f}, true},
+      {MetricType::L2, {0.0f, 0.0f}, true},      {MetricType::INNER_PRODUCT, {0.0f, 0.0f}, true},
+  };
+  for (const auto& row : rows) {
+    CAPTURE(row.values[0]);
+    CAPTURE(row.values[1]);
+    const auto status = CheckVectorForMetric(row.metric, Vector(row.values));
+    CHECK_EQ(status.ok(), row.ok);
+    if (!row.ok) CHECK_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+  }
+}
+
 TEST_CASE("VectorTest - CosineDistanceOfAZeroVectorIsOne") {
   Vector zero(std::vector<float>{0.0f, 0.0f});
   Vector other(std::vector<float>{3.0f, 4.0f});
