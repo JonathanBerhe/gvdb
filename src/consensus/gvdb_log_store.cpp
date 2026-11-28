@@ -359,8 +359,7 @@ bool GvdbLogStore::InitRocksDb() {
 
   if (it->Valid()) {
     // Found last entry - extract index from key
-    ulong last_index;
-    std::memcpy(&last_index, it->key().data(), sizeof(ulong));
+    const ulong last_index = ParseLogKey(it->key().ToStringView());
     next_idx_.store(last_index + 1, std::memory_order_release);
     common::Logger::Instance().Info("Recovered next_idx: {} (last entry: {})", last_index + 1,
                                     last_index);
@@ -383,11 +382,23 @@ void GvdbLogStore::CloseRocksDb() {
   common::Logger::Instance().Info("RocksDB closed");
 }
 
-std::string GvdbLogStore::MakeLogKey(ulong index) const {
-  // Use fixed-width binary key for efficient range scans
+std::string GvdbLogStore::MakeLogKey(ulong index) {
+  // RocksDB compares keys byte by byte, so the index is stored big-endian,
+  // most significant byte first. The byte order of the keys is then the
+  // order of the indexes, which SeekToLast and DeleteRange depend on.
   std::string key(sizeof(ulong), '\0');
-  std::memcpy(&key[0], &index, sizeof(ulong));
+  for (size_t i = 0; i < sizeof(ulong); ++i) {
+    key[i] = static_cast<char>((index >> (8 * (sizeof(ulong) - 1 - i))) & 0xFFU);
+  }
   return key;
+}
+
+ulong GvdbLogStore::ParseLogKey(std::string_view key) {
+  ulong index = 0;
+  for (size_t i = 0; i < sizeof(ulong); ++i) {
+    index = (index << 8U) | static_cast<ulong>(static_cast<unsigned char>(key[i]));
+  }
+  return index;
 }
 
 bool GvdbLogStore::WriteEntryToDb(ulong index, ptr<log_entry>& entry) {

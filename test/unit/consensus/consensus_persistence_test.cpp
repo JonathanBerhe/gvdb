@@ -238,6 +238,55 @@ TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "CompactionPersistence") {
   }
 }
 
+// RocksDB orders keys byte by byte, so the log keys must sort in index
+// order past 255 entries, where an index needs a second byte. A restart then
+// finds the last entry, and compaction deletes exactly the compacted range.
+TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "Log keys keep index order past 255 entries") {
+  std::string log_path = (test_dir_ / "logs").string();
+  constexpr ulong kEntries = 300;
+  constexpr ulong kCompactUpTo = 260;
+
+  {
+    auto created = GvdbLogStore::Create(log_path);
+    REQUIRE(created.ok());
+    GvdbLogStore& log_store = **created;
+    for (ulong i = 1; i <= kEntries; ++i) {
+      auto entry = CreateLogEntry(i, "data" + std::to_string(i));
+      log_store.append(entry);
+    }
+    CHECK_EQ(log_store.next_slot(), kEntries + 1);
+  }
+
+  {
+    auto created = GvdbLogStore::Create(log_path);
+    REQUIRE(created.ok());
+    GvdbLogStore& log_store = **created;
+    CHECK_EQ(log_store.next_slot(), kEntries + 1);
+    CHECK_EQ(log_store.last_entry()->get_term(), kEntries);
+
+    REQUIRE(log_store.compact(kCompactUpTo));
+  }
+
+  auto created = GvdbLogStore::Create(log_path);
+  REQUIRE(created.ok());
+  GvdbLogStore& log_store = **created;
+  CHECK_EQ(log_store.start_index(), kCompactUpTo + 1);
+  CHECK_EQ(log_store.next_slot(), kEntries + 1);
+  for (ulong i = 1; i <= kEntries; ++i) {
+    INFO("entry " << i);
+    if (i <= kCompactUpTo) {
+      CHECK_EQ(log_store.entry_at(i), nullptr);
+    } else {
+      REQUIRE_NE(log_store.entry_at(i), nullptr);
+      CHECK_EQ(log_store.entry_at(i)->get_term(), i);
+    }
+  }
+
+  // An append after the restart takes the next index.
+  auto next = CreateLogEntry(kEntries + 1, "next");
+  CHECK_EQ(log_store.append(next), kEntries + 1);
+}
+
 // Test 4: Large entries
 TEST_CASE_FIXTURE(GvdbLogStorePersistenceTest, "LargeEntries") {
   std::string log_path = (test_dir_ / "logs").string();
