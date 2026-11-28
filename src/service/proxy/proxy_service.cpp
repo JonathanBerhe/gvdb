@@ -6,8 +6,8 @@
 #include <thread>
 #include <utility>
 
-#include "auth/audit_context.h"
 #include "common/logger.h"
+#include "core/status.h"
 #include "core/types.h"
 #include "rpc/dns_channel_args.h"
 #include "rpc/primary_term_header.h"
@@ -41,8 +41,10 @@ grpc::Status Forward(proto::VectorDBService::Stub* client, const char* unavailab
 }  // namespace
 
 ProxyService::ProxyService(const std::vector<std::string>& coordinator_addrs,
-                           std::string query_node_uri)
-    : coordinator_addrs_(coordinator_addrs), query_node_uri_(std::move(query_node_uri)) {}
+                           std::string query_node_uri, std::shared_ptr<auth::RbacStore> rbac_store)
+    : guard_(std::move(rbac_store)),
+      coordinator_addrs_(coordinator_addrs),
+      query_node_uri_(std::move(query_node_uri)) {}
 
 proto::VectorDBService::Stub* ProxyService::GetCoordinatorClient() {
   // Hot-path: lock-free load. clients_mutex_ is only taken for first-time
@@ -171,7 +173,8 @@ grpc::Status ProxyService::HealthCheck(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::CreateCollection(grpc::ServerContext* /*context*/,
                                             const proto::CreateCollectionRequest* request,
                                             proto::CreateCollectionResponse* response) {
-  auth::AuditContext::SetCollection(request->collection_name());
+  RETURN_IF_ERROR(
+      guard_.Authorize(auth::Permission::CREATE_COLLECTION, request->collection_name()));
   auto status = Forward(GetCoordinatorClient(), kNoCoordinator,
                         &proto::VectorDBService::Stub::CreateCollection, *request, response);
   if (!status.ok()) {
@@ -183,7 +186,7 @@ grpc::Status ProxyService::CreateCollection(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::DropCollection(grpc::ServerContext* /*context*/,
                                           const proto::DropCollectionRequest* request,
                                           proto::DropCollectionResponse* response) {
-  auth::AuditContext::SetCollection(request->collection_name());
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::DROP_COLLECTION, request->collection_name()));
   return Forward(GetCoordinatorClient(), kNoCoordinator,
                  &proto::VectorDBService::Stub::DropCollection, *request, response);
 }
@@ -191,6 +194,7 @@ grpc::Status ProxyService::DropCollection(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::ListCollections(grpc::ServerContext* /*context*/,
                                            const proto::ListCollectionsRequest* request,
                                            proto::ListCollectionsResponse* response) {
+  RETURN_IF_ERROR(guard_.Check(auth::Permission::LIST_COLLECTIONS, ""));
   return Forward(GetCoordinatorClient(), kNoCoordinator,
                  &proto::VectorDBService::Stub::ListCollections, *request, response);
 }
@@ -198,8 +202,8 @@ grpc::Status ProxyService::ListCollections(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::Insert(grpc::ServerContext* /*context*/,
                                   const proto::InsertRequest* request,
                                   proto::InsertResponse* response) {
-  auth::AuditContext::SetCollection(request->collection_name());
-  auth::AuditContext::SetItemCount(request->vectors().size());
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::INSERT, request->collection_name(),
+                                   request->vectors().size()));
 
   // Get shard->node mapping from coordinator
   auto* internal_client = GetCoordinatorInternalClient();
@@ -366,6 +370,7 @@ grpc::Status ProxyService::StreamInsert(grpc::ServerContext* /*context*/,
     response->set_message("Empty stream");
     return grpc::Status::OK;
   }
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::STREAM_INSERT, first_chunk.collection_name()));
 
   uint64_t primary_term = 0;
   auto* client = GetDataNodeClientForCollection(first_chunk.collection_name(), /*read_only=*/false,
@@ -400,8 +405,8 @@ grpc::Status ProxyService::StreamInsert(grpc::ServerContext* /*context*/,
 
 grpc::Status ProxyService::Get(grpc::ServerContext* /*context*/, const proto::GetRequest* request,
                                proto::GetResponse* response) {
-  auth::AuditContext::SetCollection(request->collection_name());
-  auth::AuditContext::SetItemCount(request->ids().size());
+  RETURN_IF_ERROR(
+      guard_.Authorize(auth::Permission::GET, request->collection_name(), request->ids().size()));
 
   // Read with replica fallback: if the first candidate is unreachable
   // (transient drain-window failure), try the next routable replica before
@@ -419,8 +424,8 @@ grpc::Status ProxyService::Get(grpc::ServerContext* /*context*/, const proto::Ge
 grpc::Status ProxyService::Delete(grpc::ServerContext* /*context*/,
                                   const proto::DeleteRequest* request,
                                   proto::DeleteResponse* response) {
-  auth::AuditContext::SetCollection(request->collection_name());
-  auth::AuditContext::SetItemCount(request->ids().size());
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::DELETE, request->collection_name(),
+                                   request->ids().size()));
 
   // Route via the write-side fallback helper: re-issues RouteQuery on
   // ABORTED so a primary-swap race resolves with one extra RTT instead
@@ -438,7 +443,7 @@ grpc::Status ProxyService::Delete(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::UpdateMetadata(grpc::ServerContext* /*context*/,
                                           const proto::UpdateMetadataRequest* request,
                                           proto::UpdateMetadataResponse* response) {
-  auth::AuditContext::SetCollection(request->collection_name());
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::UPDATE_METADATA, request->collection_name()));
 
   proto::UpdateMetadataRequest internal_req = *request;
   return rpc::RouteWriteAndCallWithFallback(
@@ -453,8 +458,8 @@ grpc::Status ProxyService::UpdateMetadata(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::Upsert(grpc::ServerContext* /*context*/,
                                   const proto::UpsertRequest* request,
                                   proto::UpsertResponse* response) {
-  auth::AuditContext::SetCollection(request->collection_name());
-  auth::AuditContext::SetItemCount(request->vectors().size());
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::UPSERT, request->collection_name(),
+                                   request->vectors().size()));
 
   proto::UpsertRequest internal_req = *request;
   return rpc::RouteWriteAndCallWithFallback(
@@ -469,6 +474,7 @@ grpc::Status ProxyService::Upsert(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::ListVectors(grpc::ServerContext* /*context*/,
                                        const proto::ListVectorsRequest* request,
                                        proto::ListVectorsResponse* response) {
+  RETURN_IF_ERROR(guard_.Check(auth::Permission::LIST_VECTORS, request->collection_name()));
   // Read with replica fallback (see ProxyService::Get for rationale).
   proto::ListVectorsRequest internal_req = *request;
   return rpc::RouteReadAndCallWithFallback(
@@ -483,7 +489,7 @@ grpc::Status ProxyService::ListVectors(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::HybridSearch(grpc::ServerContext* /*context*/,
                                         const proto::HybridSearchRequest* request,
                                         proto::HybridSearchResponse* response) {
-  auth::AuditContext::SetCollection(request->collection_name());
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::HYBRID_SEARCH, request->collection_name()));
 
   // Read with replica fallback (see ProxyService::Get for rationale).
   proto::HybridSearchRequest internal_req = *request;
@@ -499,6 +505,7 @@ grpc::Status ProxyService::HybridSearch(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::Search(grpc::ServerContext* /*context*/,
                                   const proto::SearchRequest* request,
                                   proto::SearchResponse* response) {
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::SEARCH, request->collection_name()));
   return Forward(GetQueryNodeClient(), kNoQueryNode, &proto::VectorDBService::Stub::Search,
                  *request, response);
 }
@@ -506,6 +513,7 @@ grpc::Status ProxyService::Search(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::RangeSearch(grpc::ServerContext* /*context*/,
                                        const proto::RangeSearchRequest* request,
                                        proto::RangeSearchResponse* response) {
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::RANGE_SEARCH, request->collection_name()));
   return Forward(GetQueryNodeClient(), kNoQueryNode, &proto::VectorDBService::Stub::RangeSearch,
                  *request, response);
 }
@@ -524,7 +532,7 @@ grpc::Status ProxyService::GetStats(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::BackupCollection(grpc::ServerContext* /*context*/,
                                             const proto::BackupCollectionRequest* request,
                                             proto::BackupCollectionResponse* response) {
-  auth::AuditContext::SetCollection(request->collection_name());
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::BACKUP, request->collection_name()));
   return Forward(GetCoordinatorClient(), kNoCoordinator,
                  &proto::VectorDBService::Stub::BackupCollection, *request, response);
 }
@@ -532,7 +540,7 @@ grpc::Status ProxyService::BackupCollection(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::RestoreCollection(grpc::ServerContext* /*context*/,
                                              const proto::RestoreCollectionRequest* request,
                                              proto::RestoreCollectionResponse* response) {
-  auth::AuditContext::SetCollection(request->target_collection_name());
+  RETURN_IF_ERROR(guard_.Authorize(auth::Permission::RESTORE, request->target_collection_name()));
   return Forward(GetCoordinatorClient(), kNoCoordinator,
                  &proto::VectorDBService::Stub::RestoreCollection, *request, response);
 }
@@ -561,6 +569,7 @@ grpc::Status ProxyService::ListBackups(grpc::ServerContext* /*context*/,
 grpc::Status ProxyService::CancelBackup(grpc::ServerContext* /*context*/,
                                         const proto::CancelBackupRequest* request,
                                         proto::CancelBackupResponse* response) {
+  RETURN_IF_ERROR(guard_.Check(auth::Permission::BACKUP, /*collection_name=*/""));
   return Forward(GetCoordinatorClient(), kNoCoordinator,
                  &proto::VectorDBService::Stub::CancelBackup, *request, response);
 }

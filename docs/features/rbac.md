@@ -48,6 +48,16 @@ Wildcards (`["*"]`) grant access to every collection.
 
 The client sends `authorization: Bearer <key>` as gRPC metadata.
 
+## Where GVDB checks the role
+
+These programs authenticate the API key and check its role on each request:
+
+- `gvdb-single-node`
+- `gvdb-proxy`, before it forwards the request into the cluster
+- `gvdb-coordinator`
+
+The data nodes and query nodes check no API key. In a cluster, clients must connect through the proxy. To stop clients from reaching the data and query nodes directly, enable the `NetworkPolicy` of the Helm chart (see [Security](../operations/security.md#network-isolation)).
+
 ## Legacy `api_keys` list
 
 For backward compatibility, a flat list is still accepted. Keys declared this way are treated as `admin`:

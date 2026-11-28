@@ -10,6 +10,8 @@
 #include <thread>
 #include <vector>
 
+#include "auth/auth_context.h"
+#include "auth/rbac.h"
 #include "internal.grpc.pb.h"
 #include "service/proxy/proxy_service.h"
 #include "support/grpc_server.h"
@@ -508,6 +510,121 @@ TEST_CASE_FIXTURE(ProxyServiceTest, "ConcurrentRequests") {
   // channel points at query_node_address_ in the fixture). Multi-backend
   // distribution is covered in the DNS integration test.
   CHECK_EQ(mock_query_node_->search_calls.load(), 10);
+}
+
+// ============================================================================
+// Role checks
+// ============================================================================
+
+// The nodes behind the proxy run without RBAC, so the proxy must check the
+// role of each request before it forwards it. A refused request never
+// reaches a backend.
+struct ProxyRbacTest : ProxyServiceTest {
+  ProxyRbacTest() {
+    auth::AuthConfig config;
+    config.enabled = true;
+    config.roles = {{"ro-key", "readonly", {"test_collection"}},
+                    {"rw-key", "readwrite", {"test_collection"}},
+                    {"admin-key", "admin", {}}};
+    auto rbac_store = auth::RbacStore::Create(config);
+    REQUIRE(rbac_store.ok());
+    proxy_service_ =
+        std::make_unique<service::ProxyService>(std::vector<std::string>{coordinator_address_},
+                                                query_node_address_, std::move(*rbac_store));
+  }
+
+  ~ProxyRbacTest() { auth::AuthContext::Clear(); }
+
+  enum class Rpc { kCreateCollection, kDropCollection, kInsert, kDelete, kSearch };
+
+  grpc::Status Call(Rpc rpc, const std::string& collection) {
+    grpc::ServerContext context;
+    switch (rpc) {
+      case Rpc::kCreateCollection: {
+        proto::CreateCollectionRequest request;
+        request.set_collection_name(collection);
+        request.set_dimension(128);
+        proto::CreateCollectionResponse response;
+        return proxy_service_->CreateCollection(&context, &request, &response);
+      }
+      case Rpc::kDropCollection: {
+        proto::DropCollectionRequest request;
+        request.set_collection_name(collection);
+        proto::DropCollectionResponse response;
+        return proxy_service_->DropCollection(&context, &request, &response);
+      }
+      case Rpc::kInsert: {
+        proto::InsertRequest request;
+        request.set_collection_name(collection);
+        auto* vec = request.add_vectors();
+        vec->set_id(1);
+        vec->mutable_vector()->set_dimension(128);
+        for (int i = 0; i < 128; ++i) vec->mutable_vector()->add_values(1.0F);
+        proto::InsertResponse response;
+        return proxy_service_->Insert(&context, &request, &response);
+      }
+      case Rpc::kDelete: {
+        proto::DeleteRequest request;
+        request.set_collection_name(collection);
+        request.add_ids(1);
+        proto::DeleteResponse response;
+        return proxy_service_->Delete(&context, &request, &response);
+      }
+      case Rpc::kSearch: {
+        proto::SearchRequest request;
+        request.set_collection_name(collection);
+        request.set_top_k(5);
+        auto* query = request.mutable_query_vector();
+        query->set_dimension(128);
+        for (int i = 0; i < 128; ++i) query->add_values(1.0F);
+        proto::SearchResponse response;
+        return proxy_service_->Search(&context, &request, &response);
+      }
+    }
+    return grpc::Status(grpc::StatusCode::INTERNAL, "unknown rpc");
+  }
+
+  // The calls that reached any backend so far.
+  int BackendCalls() const {
+    return mock_coordinator_->create_collection_calls + mock_coordinator_->drop_collection_calls +
+           mock_data_node_->insert_calls + mock_data_node_->delete_calls +
+           mock_query_node_->search_calls;
+  }
+};
+
+TEST_CASE_FIXTURE(ProxyRbacTest, "Proxy checks the role before it forwards") {
+  using Code = grpc::StatusCode;
+  struct Row {
+    const char* key;
+    Rpc rpc;
+    const char* collection;
+    Code expected;
+  };
+  const Row rows[] = {
+      {"ro-key", Rpc::kSearch, "test_collection", Code::OK},
+      {"ro-key", Rpc::kInsert, "test_collection", Code::PERMISSION_DENIED},
+      {"ro-key", Rpc::kDelete, "test_collection", Code::PERMISSION_DENIED},
+      {"ro-key", Rpc::kCreateCollection, "new_coll", Code::PERMISSION_DENIED},
+      {"rw-key", Rpc::kInsert, "test_collection", Code::OK},
+      {"rw-key", Rpc::kInsert, "other_coll", Code::PERMISSION_DENIED},
+      {"rw-key", Rpc::kSearch, "other_coll", Code::PERMISSION_DENIED},
+      {"rw-key", Rpc::kDropCollection, "test_collection", Code::PERMISSION_DENIED},
+      {"admin-key", Rpc::kCreateCollection, "new_coll", Code::OK},
+      {"admin-key", Rpc::kDropCollection, "test_collection", Code::OK},
+      {"unknown-key", Rpc::kSearch, "test_collection", Code::UNAUTHENTICATED},
+      {"", Rpc::kSearch, "test_collection", Code::UNAUTHENTICATED},
+  };
+  for (const Row& row : rows) {
+    CAPTURE(row.key);
+    CAPTURE(static_cast<int>(row.rpc));
+    CAPTURE(row.collection);
+    auth::AuthContext::SetCurrentKey(row.key);
+    const int before = BackendCalls();
+    auto status = Call(row.rpc, row.collection);
+    CHECK_EQ(status.error_code(), row.expected);
+    // An allowed call reaches one backend, a refused one reaches none.
+    CHECK_EQ(BackendCalls() - before, row.expected == Code::OK ? 1 : 0);
+  }
 }
 
 }  // namespace
