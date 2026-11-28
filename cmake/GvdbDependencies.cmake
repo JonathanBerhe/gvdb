@@ -13,6 +13,14 @@ include(FetchContent)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW) # option() honors normal variables
 set(CMAKE_POLICY_DEFAULT_CMP0126 NEW) # set(CACHE) keeps normal variables
 
+# The CI caches keep dependency sources without their .git directories.
+# Some dependencies run git at configure time to read their own version
+# (the AWS CRT puts it in a generated header). Without this ceiling, git
+# walks up into the GVDB checkout and returns GVDB's commit instead, which
+# also changes that header on every commit. With it, git finds no
+# repository and the dependency falls back to its VERSION file.
+set(ENV{GIT_CEILING_DIRECTORIES} "${FETCHCONTENT_BASE_DIR}")
+
 # gvdb_fetch(<name> GIT_REPOSITORY <url> GIT_TAG <tag>
 #            [SOURCE_SUBDIR <dir>] [GIT_SUBMODULES <path>...]
 #            [OPTIONS <VAR=VALUE>...])
@@ -253,6 +261,9 @@ gvdb_fetch(grpc
 # system OpenSSL, because OpenSSL 3 on Ubuntu 24.04 breaks the s2n-tls build.
 # BUILD_SHARED_LIBS is an option here too: the SDK's legacy build sets CMP0077
 # to OLD, so its option(BUILD_SHARED_LIBS ... ON) ignores the scoped variable.
+# ENFORCE_SUBMODULE_VERSIONS=OFF: the CRT's check compares submodule commits
+# with git and runs git fetch when a commit is missing. The pinned tag
+# already fixes those commits, and the cached sources have no .git to check.
 # ----------------------------------------------------------------------------
 if(GVDB_WITH_S3)
   gvdb_fetch(awssdk
@@ -265,6 +276,7 @@ if(GVDB_WITH_S3)
       AUTORUN_UNIT_TESTS=OFF
       MINIMIZE_SIZE=ON
       USE_OPENSSL=OFF
+      ENFORCE_SUBMODULE_VERSIONS=OFF
   )
 endif()
 
